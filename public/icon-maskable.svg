@@ -1,0 +1,6 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Maskable icon - using a different design that works well with masks -->
+  <circle cx="256" cy="200" r="130" fill="#A8552E"/>
+  <ellipse cx="256" cy="310" rx="95" ry="120" fill="#A8552E" opacity="0.8"/>
+  <text x="256" y="350" font-size="100" font-weight="bold" text-anchor="middle" fill="#FAF6EE" font-family="Arial, sans-serif">GST</text>
+</svg>

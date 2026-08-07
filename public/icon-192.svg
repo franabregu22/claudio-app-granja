@@ -1,0 +1,6 @@
+<svg viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+  <rect width="192" height="192" fill="#FAF6EE"/>
+  <circle cx="96" cy="80" r="50" fill="#A8552E"/>
+  <ellipse cx="96" cy="110" rx="35" ry="45" fill="#A8552E" opacity="0.8"/>
+  <text x="96" y="130" font-size="40" font-weight="bold" text-anchor="middle" fill="#FAF6EE" font-family="Arial, sans-serif">GST</text>
+</svg>
