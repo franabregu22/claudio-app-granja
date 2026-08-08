@@ -3,11 +3,11 @@ import type { Lineas, Precios } from '../../types/domain';
 
 export function lineasVacias(): Lineas {
   return {
-    jumbo: 0,
-    aaa: 0,
-    aa: 0,
-    a: 0,
-    b: 0,
+    xl: 0,
+    n1: 0,
+    n2: 0,
+    n3: 0,
+    docena: 0,
   };
 }
 

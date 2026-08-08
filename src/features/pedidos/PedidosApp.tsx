@@ -36,7 +36,13 @@ export function PedidosApp() {
   const [clienteSelNombre, setClienteSelNombre] = useState('');
   const [clienteNuevo, setClienteNuevo] = useState('');
   const [lineas, setLineas] = useState<Lineas>(lineasVacias());
-  const [precios, setPrecios] = useState<Precios>({} as Precios);
+  const [precios, setPrecios] = useState<Precios>({
+    xl: 0,
+    n1: 0,
+    n2: 0,
+    n3: 0,
+    docena: 0,
+  });
   const [fechaPedido, setFechaPedido] = useState(getTodayDate());
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -49,11 +55,6 @@ export function PedidosApp() {
   const cancelarPedidoMutation = useCancelarPedido();
   const marcarEntregadoMutation = useMarcarEntregado();
 
-  useEffect(() => {
-    if (preciosQuery.data) {
-      setPrecios(preciosQuery.data);
-    }
-  }, [preciosQuery.data]);
 
   function abrirNuevo() {
     setClienteSel('');

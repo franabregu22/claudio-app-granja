@@ -1,21 +1,21 @@
-export type Categoria = 'jumbo' | 'aaa' | 'aa' | 'a' | 'b';
+export type Categoria = 'xl' | 'n1' | 'n2' | 'n3' | 'docena';
 export type PedidoEstado = 'pendiente' | 'entregado' | 'cancelado';
 export type Rol = 'dueño' | 'repartidor' | 'colaborador';
 
 export interface Lineas {
-  jumbo: number;
-  aaa: number;
-  aa: number;
-  a: number;
-  b: number;
+  xl: number;
+  n1: number;
+  n2: number;
+  n3: number;
+  docena: number;
 }
 
 export interface Precios {
-  jumbo: number;
-  aaa: number;
-  aa: number;
-  a: number;
-  b: number;
+  xl: number;
+  n1: number;
+  n2: number;
+  n3: number;
+  docena: number;
 }
 
 export interface Cliente {
