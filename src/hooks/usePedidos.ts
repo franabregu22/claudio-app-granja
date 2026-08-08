@@ -72,14 +72,15 @@ export function useRectificarPedido(): UseMutationResult<
     lineas: Lineas;
     preciosSnapshot: Precios;
     fechaPedido: string;
+    clienteId: string;
     clienteNombre: string;
   }
 > {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, lineas, preciosSnapshot, fechaPedido, clienteNombre }) =>
-      pedidosApi.rectificarPedido(id, lineas, preciosSnapshot, fechaPedido, clienteNombre),
+    mutationFn: ({ id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre }) =>
+      pedidosApi.rectificarPedido(id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedidos'] });
     },

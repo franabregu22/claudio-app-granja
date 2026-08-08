@@ -43,6 +43,7 @@ export async function rectificarPedido(
   lineas: Lineas,
   preciosSnapshot: Precios,
   fechaPedido: string,
+  clienteId?: string,
   clienteNombre?: string
 ): Promise<Pedido> {
   const { data, error } = await supabase
@@ -51,6 +52,7 @@ export async function rectificarPedido(
       lineas,
       precios_snapshot: preciosSnapshot,
       fecha_pedido: fechaPedido,
+      cliente_id: clienteId,
       cliente_nombre: clienteNombre,
       rectificado: true,
     })
