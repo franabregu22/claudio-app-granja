@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { Pedido, Lineas, Precios } from '../types/domain';
+import { totalPedido } from '../features/pedidos/helpers';
 
 export async function listarPedidos(): Promise<Pedido[]> {
   const { data, error } = await supabase
@@ -19,6 +20,8 @@ export async function crearPedido(
   preciosSnapshot: Precios,
   fechaPedido: string
 ): Promise<Pedido> {
+  const montoTotal = totalPedido(lineas, preciosSnapshot);
+
   const { data, error } = await supabase
     .from('pedidos')
     .insert([
@@ -27,6 +30,7 @@ export async function crearPedido(
         cliente_nombre: clienteNombre,
         lineas,
         precios_snapshot: preciosSnapshot,
+        monto_total: montoTotal,
         estado: 'pendiente',
         fecha_pedido: fechaPedido,
       },
@@ -46,11 +50,14 @@ export async function rectificarPedido(
   clienteId?: string,
   clienteNombre?: string
 ): Promise<Pedido> {
+  const montoTotal = totalPedido(lineas, preciosSnapshot);
+
   const { data, error } = await supabase
     .from('pedidos')
     .update({
       lineas,
       precios_snapshot: preciosSnapshot,
+      monto_total: montoTotal,
       fecha_pedido: fechaPedido,
       cliente_id: clienteId,
       cliente_nombre: clienteNombre,

@@ -1,5 +1,6 @@
 export type Categoria = 'xl' | 'n1' | 'n2' | 'n3' | 'docena';
 export type PedidoEstado = 'pendiente' | 'entregado' | 'cancelado';
+export type MetodoPago = 'efectivo' | 'transferencia' | 'tarjeta' | 'mercadopago' | 'otro';
 export type Rol = 'dueño' | 'repartidor' | 'colaborador';
 
 export interface Lineas {
@@ -31,6 +32,7 @@ export interface Pedido {
   cliente_nombre: string;
   lineas: Lineas;
   precios_snapshot: Precios;
+  monto_total: number;
   estado: PedidoEstado;
   rectificado: boolean;
   fecha_pedido: string;
@@ -39,6 +41,26 @@ export interface Pedido {
   entregado_en: string | null;
   creado_en: string;
   actualizado_en: string;
+}
+
+export interface Pago {
+  id: string;
+  cliente_id: string;
+  monto: number;
+  metodo_pago: MetodoPago;
+  fecha_pago: string;
+  notas?: string;
+  creado_en: string;
+}
+
+export interface ClienteSaldo {
+  cliente_id: string;
+  cliente_nombre: string;
+  totalPedidos: number;
+  totalPagado: number;
+  saldo: number;
+  pedidos: Pedido[];
+  pagos: Pago[];
 }
 
 export interface Perfil {
