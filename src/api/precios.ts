@@ -10,11 +10,11 @@ export async function leerPreciosActuales(): Promise<Precios> {
   if (error) throw error;
 
   const precios: Precios = {
-    jumbo: 4500,
-    aaa: 4200,
-    aa: 3900,
-    a: 3600,
-    b: 3200,
+    xl: 0,
+    n1: 0,
+    n2: 0,
+    n3: 0,
+    docena: 0,
   };
 
   (data || []).forEach((row) => {
