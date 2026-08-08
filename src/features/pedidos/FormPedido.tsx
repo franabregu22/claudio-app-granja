@@ -125,15 +125,8 @@ export function FormPedido({
           value={fechaPedido}
           onChange={(e) => setFechaPedido(e.target.value)}
           disabled={isSaving}
-          className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] mb-2 disabled:opacity-50"
+          className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] mb-5 disabled:opacity-50"
         />
-        <p className="text-sm text-[#6B5D45] font-medium mb-5">
-          {new Date(fechaPedido + 'T00:00:00').toLocaleDateString('es-AR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-          })}
-        </p>
 
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs font-semibold text-[#6B5D45] uppercase tracking-wide">
