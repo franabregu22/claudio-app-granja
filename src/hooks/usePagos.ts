@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import * as pagoApi from '../api/pagos';
-import type { Pago, MetodoPago } from '../types/domain';
+import type { MetodoPago } from '../types/domain';
 
 export function usePagos() {
   const queryClient = useQueryClient();

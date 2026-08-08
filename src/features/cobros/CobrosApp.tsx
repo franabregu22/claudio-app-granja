@@ -3,7 +3,7 @@ import { useAuth } from '../../auth/useAuth';
 import { useClientesSaldo } from '../../hooks/useClientesSaldo';
 import { ListaClientes } from './ListaClientes';
 import { RegistroPagoModal } from './RegistroPagoModal';
-import type { ClienteSaldo, MetodoPago } from '../../types/domain';
+import type { ClienteSaldo } from '../../types/domain';
 
 export function CobrosApp() {
   const { rol } = useAuth();
