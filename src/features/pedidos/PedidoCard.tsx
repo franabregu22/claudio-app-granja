@@ -55,13 +55,22 @@ export function PedidoCard({
             </button>
           ) : null}
           {rol === 'dueño' ? (
-            <button
-              onClick={() => onCancelar?.(pedido.id)}
-              aria-label="Cancelar pedido"
-              className="w-11 flex items-center justify-center bg-[#A8552E] rounded-lg text-white active:scale-95 transition-transform"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <>
+              <button
+                onClick={() => onRectificar?.(pedido)}
+                aria-label="Editar pedido"
+                className="w-11 flex items-center justify-center bg-[#A8552E] rounded-lg text-white active:scale-95 transition-transform"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => onCancelar?.(pedido.id)}
+                aria-label="Cancelar pedido"
+                className="w-11 flex items-center justify-center bg-[#A8552E] rounded-lg text-white active:scale-95 transition-transform"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </>
           ) : null}
         </div>
       </div>
