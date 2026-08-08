@@ -1,6 +1,6 @@
 export type Categoria = 'jumbo' | 'aaa' | 'aa' | 'a' | 'b';
 export type PedidoEstado = 'pendiente' | 'entregado' | 'cancelado';
-export type Rol = 'dueño' | 'repartidor';
+export type Rol = 'dueño' | 'repartidor' | 'colaborador';
 
 export interface Lineas {
   jumbo: number;
@@ -33,6 +33,7 @@ export interface Pedido {
   precios_snapshot: Precios;
   estado: PedidoEstado;
   rectificado: boolean;
+  fecha_pedido: string;
   creado_por: string | null;
   entregado_por: string | null;
   entregado_en: string | null;

@@ -33,9 +33,10 @@ export function PedidoCard({
               {resumenLineas(pedido.lineas)}
             </p>
             <p className="text-xs text-[#A89878] mt-1">
-              Cargado {new Date(pedido.creado_en).toLocaleTimeString('es-AR', {
-                hour: '2-digit',
-                minute: '2-digit',
+              {new Date(pedido.fecha_pedido + 'T00:00:00').toLocaleDateString('es-AR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
               })} · {formatoPesos(totalPedido(pedido.lineas, pedido.precios_snapshot || precios || {}))}
             </p>
           </div>

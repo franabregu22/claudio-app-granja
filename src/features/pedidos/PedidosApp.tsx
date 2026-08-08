@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { usePedidos, useCrearPedido, useRectificarPedido, useCancelarPedido, useMarcarEntregado } from '../../hooks/usePedidos';
-import { useClientes } from '../../hooks/useClientes';
+import { useClientes, useCrearCliente } from '../../hooks/useClientes';
 import { usePrecios } from '../../hooks/usePrecios';
 import { useAuth } from '../../auth/useAuth';
 import { ListaPedidos } from './ListaPedidos';
@@ -10,21 +10,41 @@ import type { Lineas, Precios, Pedido } from '../../types/domain';
 
 type Vista = 'lista' | 'nuevo' | 'rectificar';
 
+function getTodayDate(): string {
+  const hoy = new Date();
+  return hoy.toISOString().split('T')[0];
+}
+
 export function PedidosApp() {
   const { rol } = useAuth();
+
+  if (rol !== 'dueño') {
+    return (
+      <div className="min-h-screen bg-stone-100 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg text-center max-w-sm mx-4">
+          <p className="text-lg font-semibold text-gray-800">Acceso restringido</p>
+          <p className="text-gray-600 mt-2">Solo el dueño puede gestionar pedidos.</p>
+        </div>
+      </div>
+    );
+  }
+
   const [vista, setVista] = useState<Vista>('lista');
   const [pedidoEnEdicion, setPedidoEnEdicion] = useState<Pedido | null>(null);
 
   const [clienteSel, setClienteSel] = useState('');
+  const [clienteSelNombre, setClienteSelNombre] = useState('');
   const [clienteNuevo, setClienteNuevo] = useState('');
   const [lineas, setLineas] = useState<Lineas>(lineasVacias());
   const [precios, setPrecios] = useState<Precios>({} as Precios);
+  const [fechaPedido, setFechaPedido] = useState(getTodayDate());
   const [formError, setFormError] = useState<string | null>(null);
 
   const pedidosQuery = usePedidos();
   const clientesQuery = useClientes();
   const preciosQuery = usePrecios();
 
+  const crearClienteMutation = useCrearCliente();
   const crearPedidoMutation = useCrearPedido();
   const rectificarPedidoMutation = useRectificarPedido();
   const cancelarPedidoMutation = useCancelarPedido();
@@ -37,20 +57,21 @@ export function PedidosApp() {
   }, [preciosQuery.data]);
 
   function abrirNuevo() {
-    if (rol !== 'dueño') return;
     setClienteSel('');
+    setClienteSelNombre('');
     setClienteNuevo('');
     setLineas(lineasVacias());
+    setFechaPedido(getTodayDate());
     setPedidoEnEdicion(null);
     setFormError(null);
     setVista('nuevo');
   }
 
   function abrirRectificar(pedido: Pedido) {
-    if (rol !== 'dueño') return;
     setClienteSel(pedido.cliente_nombre);
     setLineas({ ...pedido.lineas });
     setPrecios({ ...pedido.precios_snapshot });
+    setFechaPedido(pedido.fecha_pedido);
     setPedidoEnEdicion(pedido);
     setFormError(null);
     setVista('rectificar');
@@ -76,7 +97,12 @@ export function PedidosApp() {
   async function guardarPedido() {
     setFormError(null);
     try {
-      const nombreCliente = clienteSel || clienteNuevo.trim();
+      let nombreCliente = '';
+      if (clienteSelNombre) {
+        nombreCliente = clienteSelNombre;
+      } else if (clienteNuevo.trim()) {
+        nombreCliente = clienteNuevo.trim();
+      }
 
       if (!nombreCliente) {
         setFormError('Selecciona o ingresa un cliente');
@@ -94,18 +120,22 @@ export function PedidosApp() {
           id: pedidoEnEdicion.id,
           lineas,
           preciosSnapshot: precios,
+          fechaPedido,
         });
       } else {
         const clienteId = clienteSel;
+
         if (!clienteId) {
-          setFormError('Debes seleccionar un cliente existente o crear uno nuevo');
+          setFormError('Debes seleccionar un cliente de la lista');
           return;
         }
+
         await crearPedidoMutation.mutateAsync({
           clienteId,
           clienteNombre: nombreCliente,
           lineas,
           preciosSnapshot: precios,
+          fechaPedido,
         });
       }
 
@@ -160,14 +190,29 @@ export function PedidosApp() {
             modo={vista}
             clientes={clientes}
             clienteSel={clienteSel}
-            setClienteSel={setClienteSel}
+            setClienteSel={(id) => {
+              setClienteSel(id);
+              if (id) {
+                const cliente = clientes.find((c) => c.id === id);
+                setClienteSelNombre(cliente?.nombre || '');
+                setClienteNuevo('');
+              }
+            }}
             clienteNuevo={clienteNuevo}
-            setClienteNuevo={setClienteNuevo}
+            setClienteNuevo={(nombre) => {
+              setClienteNuevo(nombre);
+              if (nombre.trim()) {
+                setClienteSel('');
+                setClienteSelNombre('');
+              }
+            }}
             lineas={lineas}
             cambiarCantidad={cambiarCantidad}
             setCantidadDirecta={setCantidadDirecta}
             precios={precios}
             cambiarPrecio={cambiarPrecio}
+            fechaPedido={fechaPedido}
+            setFechaPedido={setFechaPedido}
             onGuardar={guardarPedido}
             onVolver={() => setVista('lista')}
             error={formError}

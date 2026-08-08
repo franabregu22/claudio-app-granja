@@ -15,7 +15,7 @@ export async function listarClientes(): Promise<Cliente[]> {
 export async function crearCliente(nombre: string): Promise<Cliente> {
   const { data, error } = await supabase
     .from('clientes')
-    .insert([{ nombre }])
+    .insert([{ nombre, activo: true }])
     .select()
     .single();
 

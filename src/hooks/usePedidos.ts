@@ -50,13 +50,14 @@ export function useCrearPedido(): UseMutationResult<
     clienteNombre: string;
     lineas: Lineas;
     preciosSnapshot: Precios;
+    fechaPedido: string;
   }
 > {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ clienteId, clienteNombre, lineas, preciosSnapshot }) =>
-      pedidosApi.crearPedido(clienteId, clienteNombre, lineas, preciosSnapshot),
+    mutationFn: ({ clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido }) =>
+      pedidosApi.crearPedido(clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedidos'] });
     },
@@ -70,13 +71,14 @@ export function useRectificarPedido(): UseMutationResult<
     id: string;
     lineas: Lineas;
     preciosSnapshot: Precios;
+    fechaPedido: string;
   }
 > {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, lineas, preciosSnapshot }) =>
-      pedidosApi.rectificarPedido(id, lineas, preciosSnapshot),
+    mutationFn: ({ id, lineas, preciosSnapshot, fechaPedido }) =>
+      pedidosApi.rectificarPedido(id, lineas, preciosSnapshot, fechaPedido),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedidos'] });
     },

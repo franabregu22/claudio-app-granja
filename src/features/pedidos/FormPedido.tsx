@@ -20,6 +20,8 @@ interface FormPedidoProps {
   setCantidadDirecta: (catId: string, valor: string) => void;
   precios: Precios;
   cambiarPrecio: (catId: string, valor: string) => void;
+  fechaPedido: string;
+  setFechaPedido: (fecha: string) => void;
   onGuardar: () => Promise<void>;
   onVolver: () => void;
   error: string | null;
@@ -38,6 +40,8 @@ export function FormPedido({
   setCantidadDirecta,
   precios,
   cambiarPrecio,
+  fechaPedido,
+  setFechaPedido,
   onGuardar,
   onVolver,
   error,
@@ -107,19 +111,29 @@ export function FormPedido({
                 </option>
               ))}
             </select>
-            <input
-              type="text"
-              placeholder="o cargar cliente nuevo"
-              value={clienteNuevo}
-              onChange={(e) => {
-                setClienteNuevo(e.target.value);
-                setClienteSel('');
-              }}
-              disabled={isSaving}
-              className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] placeholder:text-[#B3A484] disabled:opacity-50"
-            />
+            <p className="text-xs text-[#8A7A5C] mt-2">
+              Para agregar un cliente nuevo, crealo en Supabase primero.
+            </p>
           </div>
         )}
+
+        <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+          Fecha del pedido
+        </label>
+        <input
+          type="date"
+          value={fechaPedido}
+          onChange={(e) => setFechaPedido(e.target.value)}
+          disabled={isSaving}
+          className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] mb-2 disabled:opacity-50"
+        />
+        <p className="text-sm text-[#6B5D45] font-medium mb-5">
+          {new Date(fechaPedido + 'T00:00:00').toLocaleDateString('es-AR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          })}
+        </p>
 
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs font-semibold text-[#6B5D45] uppercase tracking-wide">
@@ -217,10 +231,10 @@ export function FormPedido({
           className="w-full bg-[#A8552E] disabled:bg-[#D8CDB0] disabled:text-[#A89878] text-white font-semibold py-3.5 rounded-lg active:scale-95 transition-transform"
         >
           {isSaving
-            ? 'Guardando...'
+            ? 'Cargando...'
             : modo === 'rectificar'
               ? 'Guardar rectificación'
-              : 'Guardar pedido pendiente'}
+              : 'Cargar pedido'}
         </button>
       </div>
     </div>

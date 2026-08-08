@@ -16,7 +16,8 @@ export async function crearPedido(
   clienteId: string,
   clienteNombre: string,
   lineas: Lineas,
-  preciosSnapshot: Precios
+  preciosSnapshot: Precios,
+  fechaPedido: string
 ): Promise<Pedido> {
   const { data, error } = await supabase
     .from('pedidos')
@@ -27,6 +28,7 @@ export async function crearPedido(
         lineas,
         precios_snapshot: preciosSnapshot,
         estado: 'pendiente',
+        fecha_pedido: fechaPedido,
       },
     ])
     .select()
@@ -39,13 +41,16 @@ export async function crearPedido(
 export async function rectificarPedido(
   id: string,
   lineas: Lineas,
-  preciosSnapshot: Precios
+  preciosSnapshot: Precios,
+  fechaPedido: string
 ): Promise<Pedido> {
   const { data, error } = await supabase
     .from('pedidos')
     .update({
       lineas,
       precios_snapshot: preciosSnapshot,
+      fecha_pedido: fechaPedido,
+      estado: 'modificado',
       rectificado: true,
     })
     .eq('id', id)
