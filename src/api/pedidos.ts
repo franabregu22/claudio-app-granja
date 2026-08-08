@@ -42,7 +42,8 @@ export async function rectificarPedido(
   id: string,
   lineas: Lineas,
   preciosSnapshot: Precios,
-  fechaPedido: string
+  fechaPedido: string,
+  clienteNombre?: string
 ): Promise<Pedido> {
   const { data, error } = await supabase
     .from('pedidos')
@@ -50,7 +51,7 @@ export async function rectificarPedido(
       lineas,
       precios_snapshot: preciosSnapshot,
       fecha_pedido: fechaPedido,
-      estado: 'modificado',
+      cliente_nombre: clienteNombre,
       rectificado: true,
     })
     .eq('id', id)

@@ -89,33 +89,29 @@ export function FormPedido({
           Cliente
         </label>
 
-        {modo === 'rectificar' ? (
-          <div className="bg-[#F0E9D6] rounded-lg px-3 py-2.5 text-[#2C2419] font-medium mb-5">
-            {clienteSel}
-          </div>
-        ) : (
-          <div className="mb-5">
-            <select
-              value={clienteSel}
-              onChange={(e) => {
-                setClienteSel(e.target.value);
-                setClienteNuevo('');
-              }}
-              disabled={isSaving}
-              className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] mb-2 disabled:opacity-50"
-            >
-              <option value="">Elegir cliente existente…</option>
-              {clientes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre}
-                </option>
-              ))}
-            </select>
+        <div className="mb-5">
+          <select
+            value={clienteSel}
+            onChange={(e) => {
+              setClienteSel(e.target.value);
+              setClienteNuevo('');
+            }}
+            disabled={isSaving}
+            className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] mb-2 disabled:opacity-50"
+          >
+            <option value="">Elegir cliente existente…</option>
+            {clientes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nombre}
+              </option>
+            ))}
+          </select>
+          {modo === 'nuevo' && (
             <p className="text-xs text-[#8A7A5C] mt-2">
               Para agregar un cliente nuevo, crealo en Supabase primero.
             </p>
-          </div>
-        )}
+          )}
+        </div>
 
         <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
           Fecha del pedido

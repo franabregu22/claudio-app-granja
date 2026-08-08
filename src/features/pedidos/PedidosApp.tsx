@@ -121,6 +121,7 @@ export function PedidosApp() {
           lineas,
           preciosSnapshot: precios,
           fechaPedido,
+          clienteNombre: nombreCliente,
         });
       } else {
         const clienteId = clienteSel;
