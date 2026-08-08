@@ -22,6 +22,8 @@ interface FormPedidoProps {
   cambiarPrecio: (catId: string, valor: string) => void;
   fechaPedido: string;
   setFechaPedido: (fecha: string) => void;
+  observaciones: string;
+  setObservaciones: (obs: string) => void;
   onGuardar: () => Promise<void>;
   onVolver: () => void;
   error: string | null;
@@ -42,6 +44,8 @@ export function FormPedido({
   cambiarPrecio,
   fechaPedido,
   setFechaPedido,
+  observaciones,
+  setObservaciones,
   onGuardar,
   onVolver,
   error,
@@ -122,6 +126,18 @@ export function FormPedido({
           onChange={(e) => setFechaPedido(e.target.value)}
           disabled={isSaving}
           className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] mb-5 disabled:opacity-50"
+        />
+
+        <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+          Observaciones (opcional)
+        </label>
+        <textarea
+          value={observaciones}
+          onChange={(e) => setObservaciones(e.target.value)}
+          placeholder="Ej: Cliente nuevo, entregar en domicilio, etc."
+          disabled={isSaving}
+          className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] mb-5 disabled:opacity-50 resize-none"
+          rows={2}
         />
 
         <div className="flex items-center justify-between mb-2">

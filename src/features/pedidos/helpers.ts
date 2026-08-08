@@ -35,3 +35,7 @@ export function resumenLineas(lineas: Lineas): string {
     .map((c) => `${lineas[c.id]} ${c.label}`)
     .join(' · ');
 }
+
+export function formatoPedidoId(id: number): string {
+  return String(id).padStart(3, '0');
+}

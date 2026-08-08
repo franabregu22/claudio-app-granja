@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { ClienteSaldo } from '../../types/domain';
-import { formatoPesos } from '../pedidos/helpers';
+import { formatoPesos, formatoPedidoId } from '../pedidos/helpers';
 
 interface ListaClientesProps {
   clientes: ClienteSaldo[];
@@ -99,7 +99,7 @@ export function ListaClientes({
                               key={pedido.id}
                               className="bg-white p-3 rounded border border-gray-200 text-sm"
                             >
-                              <div className="font-medium text-gray-800">Pedido #{pedido.id}</div>
+                              <div className="font-medium text-gray-800">Pedido #{formatoPedidoId(pedido.id)}</div>
                               <div className="text-xs text-gray-600 mt-1">
                                 {pedido.entregado_en}
                               </div>

@@ -27,12 +27,13 @@ export interface Cliente {
 }
 
 export interface Pedido {
-  id: string;
+  id: number;
   cliente_id: string;
   cliente_nombre: string;
   lineas: Lineas;
   precios_snapshot: Precios;
   monto_total: number;
+  observaciones?: string;
   estado: PedidoEstado;
   rectificado: boolean;
   fecha_pedido: string;

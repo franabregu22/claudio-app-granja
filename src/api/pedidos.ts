@@ -18,7 +18,8 @@ export async function crearPedido(
   clienteNombre: string,
   lineas: Lineas,
   preciosSnapshot: Precios,
-  fechaPedido: string
+  fechaPedido: string,
+  observaciones?: string
 ): Promise<Pedido> {
   const montoTotal = totalPedido(lineas, preciosSnapshot);
 
@@ -31,6 +32,7 @@ export async function crearPedido(
         lineas,
         precios_snapshot: preciosSnapshot,
         monto_total: montoTotal,
+        observaciones: observaciones || null,
         estado: 'pendiente',
         fecha_pedido: fechaPedido,
       },
@@ -43,12 +45,13 @@ export async function crearPedido(
 }
 
 export async function rectificarPedido(
-  id: string,
+  id: number,
   lineas: Lineas,
   preciosSnapshot: Precios,
   fechaPedido: string,
   clienteId?: string,
-  clienteNombre?: string
+  clienteNombre?: string,
+  observaciones?: string
 ): Promise<Pedido> {
   const montoTotal = totalPedido(lineas, preciosSnapshot);
 
@@ -61,6 +64,7 @@ export async function rectificarPedido(
       fecha_pedido: fechaPedido,
       cliente_id: clienteId,
       cliente_nombre: clienteNombre,
+      observaciones: observaciones || null,
       rectificado: true,
     })
     .eq('id', id)
@@ -71,7 +75,7 @@ export async function rectificarPedido(
   return data;
 }
 
-export async function marcarEntregado(id: string): Promise<void> {
+export async function marcarEntregado(id: number): Promise<void> {
   const { error } = await supabase.rpc('marcar_pedido_entregado', {
     pedido_id: id,
   });
@@ -79,7 +83,7 @@ export async function marcarEntregado(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function cancelarPedido(id: string): Promise<Pedido> {
+export async function cancelarPedido(id: number): Promise<Pedido> {
   const { data, error } = await supabase
     .from('pedidos')
     .update({ estado: 'cancelado' })

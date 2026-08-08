@@ -51,13 +51,14 @@ export function useCrearPedido(): UseMutationResult<
     lineas: Lineas;
     preciosSnapshot: Precios;
     fechaPedido: string;
+    observaciones?: string;
   }
 > {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido }) =>
-      pedidosApi.crearPedido(clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido),
+    mutationFn: ({ clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido, observaciones }) =>
+      pedidosApi.crearPedido(clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido, observaciones),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedidos'] });
     },
@@ -68,26 +69,27 @@ export function useRectificarPedido(): UseMutationResult<
   Pedido,
   Error,
   {
-    id: string;
+    id: number;
     lineas: Lineas;
     preciosSnapshot: Precios;
     fechaPedido: string;
     clienteId: string;
     clienteNombre: string;
+    observaciones?: string;
   }
 > {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre }) =>
-      pedidosApi.rectificarPedido(id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre),
+    mutationFn: ({ id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre, observaciones }) =>
+      pedidosApi.rectificarPedido(id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre, observaciones),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedidos'] });
     },
   });
 }
 
-export function useCancelarPedido(): UseMutationResult<Pedido, Error, string> {
+export function useCancelarPedido(): UseMutationResult<Pedido, Error, number> {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -98,7 +100,7 @@ export function useCancelarPedido(): UseMutationResult<Pedido, Error, string> {
   });
 }
 
-export function useMarcarEntregado(): UseMutationResult<void, Error, string> {
+export function useMarcarEntregado(): UseMutationResult<void, Error, number> {
   const queryClient = useQueryClient();
 
   return useMutation({

@@ -9,11 +9,11 @@ interface ListaPedidosProps {
   error: Error | null;
   rol: Rol | null;
   onNuevo: () => void;
-  onEntregar: (id: string) => void;
-  onCancelar: (id: string) => void;
+  onEntregar: (id: number) => void;
+  onCancelar: (id: number) => void;
   onRectificar: (pedido: Pedido) => void;
   onRetry: () => void;
-  markingId?: string;
+  markingId?: number;
 }
 
 export function ListaPedidos({

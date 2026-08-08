@@ -1,14 +1,14 @@
 import { Check, Pencil, X } from 'lucide-react';
 import type { Pedido, Precios, Rol } from '../../types/domain';
-import { formatoPesos, resumenLineas, totalPedido } from './helpers';
+import { formatoPesos, resumenLineas, totalPedido, formatoPedidoId } from './helpers';
 
 interface PedidoCardProps {
   pedido: Pedido;
   estado: 'pendiente' | 'entregado';
   precios?: Precios;
   rol: Rol | null;
-  onEntregar?: (id: string) => void;
-  onCancelar?: (id: string) => void;
+  onEntregar?: (id: number) => void;
+  onCancelar?: (id: number) => void;
   onRectificar?: (pedido: Pedido) => void;
   isMarking?: boolean;
 }
@@ -27,11 +27,18 @@ export function PedidoCard({
     return (
       <div className="bg-white rounded-xl border border-[#E4DCC8] p-4 shadow-sm">
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="font-semibold text-[#2C2419]">{pedido.cliente_nombre}</p>
+          <div className="flex-1">
+            <p className="font-semibold text-[#2C2419]">
+              #{formatoPedidoId(pedido.id)} · {pedido.cliente_nombre}
+            </p>
             <p className="text-sm text-[#6B5D45] mt-0.5">
               {resumenLineas(pedido.lineas)}
             </p>
+            {pedido.observaciones && (
+              <p className="text-xs text-[#8B7355] italic mt-1">
+                📝 {pedido.observaciones}
+              </p>
+            )}
             <p className="text-xs text-[#A89878] mt-1">
               {new Date(pedido.fecha_pedido + 'T00:00:00').toLocaleDateString('es-AR', {
                 day: '2-digit',

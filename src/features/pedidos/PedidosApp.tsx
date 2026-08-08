@@ -43,6 +43,7 @@ export function PedidosApp() {
     docena: 0,
   });
   const [fechaPedido, setFechaPedido] = useState(getTodayDate());
+  const [observaciones, setObservaciones] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
   const pedidosQuery = usePedidos();
@@ -60,6 +61,7 @@ export function PedidosApp() {
     setClienteNuevo('');
     setLineas(lineasVacias());
     setFechaPedido(getTodayDate());
+    setObservaciones('');
     setPedidoEnEdicion(null);
     setFormError(null);
     setVista('nuevo');
@@ -71,6 +73,7 @@ export function PedidosApp() {
     setLineas({ ...pedido.lineas });
     setPrecios({ ...pedido.precios_snapshot });
     setFechaPedido(pedido.fecha_pedido);
+    setObservaciones(pedido.observaciones || '');
     setPedidoEnEdicion(pedido);
     setFormError(null);
     setVista('rectificar');
@@ -122,6 +125,7 @@ export function PedidosApp() {
           fechaPedido,
           clienteId: clienteSel,
           clienteNombre: nombreCliente,
+          observaciones: observaciones || undefined,
         });
       } else {
         const clienteId = clienteSel;
@@ -137,6 +141,7 @@ export function PedidosApp() {
           lineas,
           preciosSnapshot: precios,
           fechaPedido,
+          observaciones: observaciones || undefined,
         });
       }
 
@@ -146,7 +151,7 @@ export function PedidosApp() {
     }
   }
 
-  async function marcarEntregado(id: string) {
+  async function marcarEntregado(id: number) {
     try {
       await marcarEntregadoMutation.mutateAsync(id);
     } catch (error) {
@@ -154,7 +159,7 @@ export function PedidosApp() {
     }
   }
 
-  async function cancelarPedido(id: string) {
+  async function cancelarPedido(id: number) {
     try {
       await cancelarPedidoMutation.mutateAsync(id);
     } catch (error) {
@@ -214,6 +219,8 @@ export function PedidosApp() {
             cambiarPrecio={cambiarPrecio}
             fechaPedido={fechaPedido}
             setFechaPedido={setFechaPedido}
+            observaciones={observaciones}
+            setObservaciones={setObservaciones}
             onGuardar={guardarPedido}
             onVolver={() => setVista('lista')}
             error={formError}
