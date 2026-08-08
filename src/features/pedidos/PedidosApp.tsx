@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { usePedidos, useCrearPedido, useRectificarPedido, useCancelarPedido, useMarcarEntregado } from '../../hooks/usePedidos';
-import { useClientes, useCrearCliente } from '../../hooks/useClientes';
+import { useClientes } from '../../hooks/useClientes';
 import { usePrecios } from '../../hooks/usePrecios';
 import { useAuth } from '../../auth/useAuth';
 import { ListaPedidos } from './ListaPedidos';
@@ -44,7 +44,6 @@ export function PedidosApp() {
   const clientesQuery = useClientes();
   const preciosQuery = usePrecios();
 
-  const crearClienteMutation = useCrearCliente();
   const crearPedidoMutation = useCrearPedido();
   const rectificarPedidoMutation = useRectificarPedido();
   const cancelarPedidoMutation = useCancelarPedido();
