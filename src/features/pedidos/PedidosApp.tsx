@@ -67,7 +67,7 @@ export function PedidosApp() {
   }
 
   function abrirRectificar(pedido: Pedido) {
-    setClienteSel(pedido.cliente_nombre);
+    setClienteSel(pedido.cliente_id);
     setClienteSelNombre(pedido.cliente_nombre);
     setLineas({ ...pedido.lineas });
     setPrecios({ ...pedido.precios_snapshot });
