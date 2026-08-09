@@ -80,7 +80,7 @@ function sincronizarHistorialPrecios() {
   const sheet = getOrCreateSheet('Historial Precios');
   sheet.clear();
 
-  const historial = llamarSupabase('precios_historial?order=actualizado_en.desc');
+  const historial = llamarSupabase('precios_historial', 'order=actualizado_en.desc');
 
   if (historial.length === 0) return;
 
@@ -99,8 +99,11 @@ function sincronizarHistorialPrecios() {
   });
 }
 
-function llamarSupabase(tabla) {
-  const url = `${SUPABASE_URL}/rest/v1/${tabla}?select=*`;
+function llamarSupabase(tabla, queryParams = '') {
+  let url = `${SUPABASE_URL}/rest/v1/${tabla}?select=*`;
+  if (queryParams) {
+    url += `&${queryParams}`;
+  }
 
   const options = {
     method: 'get',
