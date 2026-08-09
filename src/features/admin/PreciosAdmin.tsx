@@ -58,6 +58,22 @@ export function PreciosAdmin() {
 
   const actualizarMutation = useMutation({
     mutationFn: async (variables: { id: string; precio: number; vigentDesde: string }) => {
+      // Primero, guardar en historial el precio anterior
+      const precioActual = precios.find((p) => p.id === variables.id);
+      if (precioActual) {
+        const { error: historialError } = await supabase
+          .from('precios_historial')
+          .insert([{
+            categoria: precioActual.categoria,
+            tipo_cliente: precioActual.tipo_cliente,
+            precio_anterior: precioActual.precio,
+            precio_nuevo: variables.precio,
+            vigente_desde: variables.vigentDesde,
+          }]);
+        if (historialError) throw historialError;
+      }
+
+      // Luego, actualizar el precio actual
       const { error } = await supabase
         .from('precios_actuales')
         .update({ precio: variables.precio, vigente_desde: variables.vigentDesde })
