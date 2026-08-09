@@ -4,8 +4,9 @@ import { useAuth } from './auth/useAuth';
 import { LoginScreen } from './auth/LoginScreen';
 import { PedidosApp } from './features/pedidos/PedidosApp';
 import { CobrosApp } from './features/cobros/CobrosApp';
+import { AdminApp } from './features/admin/AdminApp';
 
-type Tab = 'pedidos' | 'cobros';
+type Tab = 'pedidos' | 'cobros' | 'admin';
 
 function App() {
   const { user, rol, loading, signOut } = useAuth();
@@ -59,11 +60,23 @@ function App() {
           >
             Cobros
           </button>
+          <button
+            onClick={() => setTab('admin')}
+            className={`px-4 py-3 font-medium border-b-2 transition ${
+              tab === 'admin'
+                ? 'text-[#78350f] border-[#B45309]'
+                : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
+            }`}
+          >
+            Admin
+          </button>
         </div>
       )}
 
       <div className="flex-1">
-        {tab === 'pedidos' ? <PedidosApp /> : <CobrosApp />}
+        {tab === 'pedidos' && <PedidosApp />}
+        {tab === 'cobros' && <CobrosApp />}
+        {tab === 'admin' && <AdminApp />}
       </div>
     </div>
   );
