@@ -137,9 +137,6 @@ export function ClientesAdmin() {
                 >
                   <div className="flex-1">
                     <p className="font-medium text-gray-800">{cliente.nombre}</p>
-                    <p className="text-xs text-gray-500">
-                      {CATEGORIAS.find((c) => c.id === cliente.categoria)?.label}
-                    </p>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -208,9 +205,6 @@ export function ClientesAdmin() {
                 >
                   <div className="flex-1">
                     <p className="font-medium text-gray-800">{cliente.nombre}</p>
-                    <p className="text-xs text-gray-500">
-                      {CATEGORIAS.find((c) => c.id === cliente.categoria)?.label}
-                    </p>
                   </div>
 
                   <button
