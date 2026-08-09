@@ -6,6 +6,7 @@ function sincronizarDatos() {
   sincronizarPrecios();
   sincronizarPedidos();
   sincronizarPagos();
+  sincronizarProducciones();
   sincronizarHistorialPrecios();
 }
 
@@ -103,6 +104,38 @@ function sincronizarPagos() {
       p.metodo_pago,
       p.fecha_pago,
       p.notas || ''
+    ]);
+  });
+}
+
+function sincronizarProducciones() {
+  const sheet = getOrCreateSheet('Producción');
+  sheet.clear();
+
+  const producciones = llamarSupabase('producciones', 'order=fecha.desc');
+
+  if (producciones.length === 0) return;
+
+  const headers = ['Fecha', 'Galpón', 'Sanos Mediodía', 'Cachados Mediodía', 'Sanos Tarde', 'Cachados Tarde', 'Total Sanos', 'Total Cachados', 'Gran Total', 'Mortandad', 'Observaciones'];
+  sheet.appendRow(headers);
+
+  producciones.forEach(p => {
+    const totalSanos = p.huevos_sanos_mediodia + p.huevos_sanos_tarde;
+    const totalCachados = p.huevos_cachados_mediodia + p.huevos_cachados_tarde;
+    const granTotal = totalSanos + totalCachados;
+
+    sheet.appendRow([
+      p.fecha,
+      p.galpon,
+      p.huevos_sanos_mediodia,
+      p.huevos_cachados_mediodia,
+      p.huevos_sanos_tarde,
+      p.huevos_cachados_tarde,
+      totalSanos,
+      totalCachados,
+      granTotal,
+      p.mortandad,
+      p.observaciones || ''
     ]);
   });
 }
