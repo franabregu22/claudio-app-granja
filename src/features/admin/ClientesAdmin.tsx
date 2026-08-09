@@ -1,13 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import * as clientesApi from '../../api/clientes';
-import { Trash2, Plus } from 'lucide-react';
+import type { ClienteCategoria } from '../../types/domain';
+import { ChevronDown, Plus } from 'lucide-react';
+
+const CATEGORIAS: { id: ClienteCategoria; label: string }[] = [
+  { id: 'particular', label: 'Particular' },
+  { id: 'comercio', label: 'Comercio' },
+  { id: 'distribuidor', label: 'Distribuidor' },
+  { id: 'feria municipal', label: 'Feria Municipal' },
+];
 
 export function ClientesAdmin() {
   const queryClient = useQueryClient();
   const [nuevoNombre, setNuevoNombre] = useState('');
-  const [editando, setEditando] = useState<string | null>(null);
+  const [nuevoCategoria, setNuevoCategoria] = useState<ClienteCategoria>('particular');
+  const [expandidoActivos, setExpandidoActivos] = useState(true);
+  const [expandidoInactivos, setExpandidoInactivos] = useState(false);
 
   const { data: clientes = [], isLoading } = useQuery({
     queryKey: ['clientesAdmin'],
@@ -15,7 +25,7 @@ export function ClientesAdmin() {
   });
 
   // Suscripción a cambios en tiempo real
-  useState(() => {
+  useEffect(() => {
     const channel = supabase
       .channel('clientes-changes')
       .on(
@@ -30,36 +40,33 @@ export function ClientesAdmin() {
     return () => {
       supabase.removeChannel(channel);
     };
-  });
+  }, [queryClient]);
 
   const crearMutation = useMutation({
-    mutationFn: (nombre: string) => clientesApi.crearCliente(nombre),
+    mutationFn: (data: { nombre: string; categoria: ClienteCategoria }) =>
+      clientesApi.crearCliente(data.nombre, data.categoria),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clientesAdmin'] });
       setNuevoNombre('');
+      setNuevoCategoria('particular');
     },
   });
 
   const actualizarMutation = useMutation({
-    mutationFn: ({
-      id,
-      nombre,
-      activo,
-    }: {
-      id: string;
-      nombre: string;
-      activo: boolean;
-    }) => clientesApi.actualizarCliente(id, nombre, activo),
+    mutationFn: (data: { id: string; nombre: string; categoria: ClienteCategoria; activo: boolean }) =>
+      clientesApi.actualizarCliente(data.id, data.nombre, data.categoria, data.activo),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clientesAdmin'] });
-      setEditando(null);
     },
   });
 
   const agregarCliente = () => {
     if (!nuevoNombre.trim()) return;
-    crearMutation.mutate(nuevoNombre.trim());
+    crearMutation.mutate({ nombre: nuevoNombre.trim(), categoria: nuevoCategoria });
   };
+
+  const activos = clientes.filter((c) => c.activo);
+  const inactivos = clientes.filter((c) => !c.activo);
 
   if (isLoading) {
     return (
@@ -74,7 +81,7 @@ export function ClientesAdmin() {
       {/* Formulario agregar cliente */}
       <div className="mb-8 bg-white p-4 rounded-lg border border-amber-200">
         <h2 className="font-semibold text-amber-900 mb-3">Agregar cliente</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 mb-3">
           <input
             type="text"
             value={nuevoNombre}
@@ -83,6 +90,17 @@ export function ClientesAdmin() {
             placeholder="Nombre del cliente"
             className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
           />
+          <select
+            value={nuevoCategoria}
+            onChange={(e) => setNuevoCategoria(e.target.value as ClienteCategoria)}
+            className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
+          >
+            {CATEGORIAS.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.label}
+              </option>
+            ))}
+          </select>
           <button
             onClick={agregarCliente}
             disabled={crearMutation.isPending || !nuevoNombre.trim()}
@@ -94,91 +112,124 @@ export function ClientesAdmin() {
         </div>
       </div>
 
-      {/* Lista de clientes */}
-      <div className="space-y-2">
-        <h2 className="font-semibold text-amber-900 mb-3">Clientes</h2>
-        {clientes.length === 0 ? (
-          <p className="text-gray-500 text-sm">No hay clientes</p>
-        ) : (
-          clientes.map((cliente) => (
-            <div
-              key={cliente.id}
-              className="bg-white p-4 rounded border border-gray-200 flex items-center justify-between"
-            >
-              <div className="flex-1">
-                {editando === cliente.id ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      defaultValue={cliente.nombre}
-                      onBlur={(e) => {
-                        if (e.currentTarget.value !== cliente.nombre) {
-                          actualizarMutation.mutate({
-                            id: cliente.id,
-                            nombre: e.currentTarget.value,
-                            activo: cliente.activo,
-                          });
-                        } else {
-                          setEditando(null);
-                        }
-                      }}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          actualizarMutation.mutate({
-                            id: cliente.id,
-                            nombre: e.currentTarget.value,
-                            activo: cliente.activo,
-                          });
-                        }
-                      }}
-                      autoFocus
-                      className="flex-1 border border-amber-600 rounded px-2 py-1 text-sm"
-                    />
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => setEditando(cliente.id)}
-                    className="cursor-pointer hover:text-amber-600"
-                  >
+      {/* Clientes Activos */}
+      <div className="mb-4">
+        <button
+          onClick={() => setExpandidoActivos(!expandidoActivos)}
+          className="w-full flex items-center gap-2 p-4 bg-green-100 hover:bg-green-200 rounded-lg font-semibold text-green-900 transition"
+        >
+          <ChevronDown
+            size={20}
+            className={`transition ${expandidoActivos ? 'rotate-180' : ''}`}
+          />
+          Activos ({activos.length})
+        </button>
+
+        {expandidoActivos && (
+          <div className="mt-2 space-y-2">
+            {activos.length === 0 ? (
+              <p className="text-gray-500 text-sm p-4">No hay clientes activos</p>
+            ) : (
+              activos.map((cliente) => (
+                <div
+                  key={cliente.id}
+                  className="bg-white p-4 rounded border border-gray-200 flex items-center justify-between"
+                >
+                  <div className="flex-1">
                     <p className="font-medium text-gray-800">{cliente.nombre}</p>
                     <p className="text-xs text-gray-500">
-                      {cliente.activo ? '✓ Activo' : '✗ Inactivo'}
+                      {CATEGORIAS.find((c) => c.id === cliente.categoria)?.label}
                     </p>
                   </div>
-                )}
-              </div>
 
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1 cursor-pointer text-sm">
-                  <input
-                    type="checkbox"
-                    checked={cliente.activo}
-                    onChange={(e) => {
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={cliente.categoria}
+                      onChange={(e) => {
+                        actualizarMutation.mutate({
+                          id: cliente.id,
+                          nombre: cliente.nombre,
+                          categoria: e.target.value as ClienteCategoria,
+                          activo: cliente.activo,
+                        });
+                      }}
+                      className="text-sm border border-gray-300 rounded px-2 py-1"
+                    >
+                      {CATEGORIAS.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={() => {
+                        actualizarMutation.mutate({
+                          id: cliente.id,
+                          nombre: cliente.nombre,
+                          categoria: cliente.categoria,
+                          activo: false,
+                        });
+                      }}
+                      className="text-red-500 hover:text-red-700 font-medium text-sm px-2 py-1"
+                    >
+                      Desactivar
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Clientes Inactivos */}
+      <div>
+        <button
+          onClick={() => setExpandidoInactivos(!expandidoInactivos)}
+          className="w-full flex items-center gap-2 p-4 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-gray-900 transition"
+        >
+          <ChevronDown
+            size={20}
+            className={`transition ${expandidoInactivos ? 'rotate-180' : ''}`}
+          />
+          Inactivos ({inactivos.length})
+        </button>
+
+        {expandidoInactivos && (
+          <div className="mt-2 space-y-2">
+            {inactivos.length === 0 ? (
+              <p className="text-gray-500 text-sm p-4">No hay clientes inactivos</p>
+            ) : (
+              inactivos.map((cliente) => (
+                <div
+                  key={cliente.id}
+                  className="bg-white p-4 rounded border border-gray-200 flex items-center justify-between opacity-75"
+                >
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">{cliente.nombre}</p>
+                    <p className="text-xs text-gray-500">
+                      {CATEGORIAS.find((c) => c.id === cliente.categoria)?.label}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => {
                       actualizarMutation.mutate({
                         id: cliente.id,
                         nombre: cliente.nombre,
-                        activo: e.currentTarget.checked,
+                        categoria: cliente.categoria,
+                        activo: true,
                       });
                     }}
-                    className="w-4 h-4"
-                  />
-                  <span className="text-gray-600">Activo</span>
-                </label>
-                <button
-                  onClick={() => {
-                    actualizarMutation.mutate({
-                      id: cliente.id,
-                      nombre: cliente.nombre,
-                      activo: false,
-                    });
-                  }}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            </div>
-          ))
+                    className="text-green-600 hover:text-green-700 font-medium text-sm px-2 py-1"
+                  >
+                    Activar
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         )}
       </div>
     </div>

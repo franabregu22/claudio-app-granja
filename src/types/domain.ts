@@ -19,9 +19,12 @@ export interface Precios {
   docena: number;
 }
 
+export type ClienteCategoria = 'particular' | 'comercio' | 'distribuidor' | 'feria municipal';
+
 export interface Cliente {
   id: string;
   nombre: string;
+  categoria: ClienteCategoria;
   activo: boolean;
   created_at: string;
 }

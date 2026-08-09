@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cobros - Prototipo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f1e8;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #faf6ee;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: bold;
+            color: #78350f;
+            margin-bottom: 4px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .total-banner {
+            background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+            border: 1px solid #fbbf24;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            font-size: 16px;
+            color: #92400e;
+            text-align: center;
+        }
+
+        .total-banner strong {
+            font-weight: 700;
+            display: block;
+            font-size: 12px;
+            color: #b45309;
+            margin-bottom: 4px;
+        }
+
+        .pedidos-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .pedido-card {
+            border: 1px solid #dcc5b4;
+            border-radius: 8px;
+            background: white;
+            overflow: hidden;
+            transition: all 0.2s;
+        }
+
+        .pedido-header {
+            padding: 16px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            transition: background 0.2s;
+        }
+
+        .pedido-header:hover {
+            background: #fafaf8;
+        }
+
+        .pedido-info {
+            flex: 1;
+            text-align: left;
+        }
+
+        .pedido-title {
+            font-weight: 600;
+            color: #78350f;
+            margin-bottom: 8px;
+        }
+
+        .pedido-details {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .pedido-details span {
+            font-weight: 600;
+        }
+
+        .pedido-estado {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 16px;
+            white-space: nowrap;
+        }
+
+        .badge.impago {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge.parcial {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge.pagado {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .chevron {
+            font-size: 18px;
+            color: #999;
+            transition: transform 0.2s;
+        }
+
+        .pedido-card.expanded .chevron {
+            transform: rotate(180deg);
+        }
+
+        .pedido-details-panel {
+            display: none;
+            border-top: 1px solid #dcc5b4;
+            padding: 16px;
+            background: #faf7f3;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .pedido-card.expanded .pedido-details-panel {
+            display: flex;
+        }
+
+        .historico {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .historico-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #78350f;
+            margin-bottom: 4px;
+        }
+
+        .historico-empty {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .pago-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e5d5c8;
+            font-size: 12px;
+        }
+
+        .pago-monto {
+            font-weight: 600;
+            color: #16a34a;
+            margin-bottom: 4px;
+        }
+
+        .pago-meta {
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .pago-notas {
+            color: #999;
+            font-style: italic;
+        }
+
+        .btn-pago {
+            width: 100%;
+            padding: 10px;
+            background: #b45309;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 14px;
+        }
+
+        .btn-pago:hover {
+            background: #92400e;
+        }
+
+        .btn-pago:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .modal.open {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+
+        .modal-header {
+            font-size: 18px;
+            font-weight: bold;
+            color: #78350f;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-input {
+            border: 1px solid #d1c4b8;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #b45309;
+            box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.1);
+        }
+
+        .metodos-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .metodo-btn {
+            padding: 8px 12px;
+            border: 1px solid #d1c4b8;
+            border-radius: 6px;
+            background: white;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .metodo-btn:hover {
+            opacity: 0.8;
+        }
+
+        .metodo-btn.active {
+            background: #b45309;
+            color: white;
+            border-color: #b45309;
+        }
+
+        .metodo-btn.efectivo { color: #166534; background: #dcfce7; }
+        .metodo-btn.efectivo.active { background: #166534; color: white; }
+
+        .metodo-btn.transferencia { color: #1e40af; background: #dbeafe; }
+        .metodo-btn.transferencia.active { background: #1e40af; color: white; }
+
+        .form-textarea {
+            border: 1px solid #d1c4b8;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 50px;
+        }
+
+        .form-textarea:focus {
+            outline: none;
+            border-color: #b45309;
+            box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.1);
+        }
+
+        .saldo-box {
+            background: #faf7f3;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 16px;
+        }
+
+        .saldo-box strong {
+            color: #cc0000;
+            font-size: 18px;
+        }
+
+        .error-msg {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .error-msg.show {
+            display: block;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .btn-cancel {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #d1c4b8;
+            background: white;
+            color: #333;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-cancel:hover {
+            background: #fafaf8;
+        }
+
+        .btn-guardar {
+            flex: 1;
+            padding: 10px;
+            background: #b45309;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-guardar:hover {
+            background: #92400e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Cobros</h1>
+            <p id="contador">4 pedidos sin cerrar</p>
+        </div>
+
+        <div class="pedidos-list" id="pedidosList"></div>
+    </div>
+
+    <div class="modal" id="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>Registrar pago</span>
+                <button class="modal-close" onclick="cerrarModal()">×</button>
+            </div>
+
+            <div class="saldo-box">
+                Saldo pendiente: <strong id="saldoText">$0</strong>
+            </div>
+
+            <form onsubmit="guardarPago(event)">
+                <div class="form-group">
+                    <label class="form-label">Monto a registrar</label>
+                    <input type="number" id="monto" class="form-input" placeholder="0" step="1" min="0">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Método de pago</label>
+                    <div class="metodos-grid">
+                        <button type="button" class="metodo-btn efectivo active" onclick="seleccionarMetodo(this, 'efectivo')">Efectivo</button>
+                        <button type="button" class="metodo-btn transferencia" onclick="seleccionarMetodo(this, 'transferencia')">Transferencia</button>
+                        <button type="button" class="metodo-btn" style="color: #7c3aed; background: #ede9fe;" onclick="seleccionarMetodo(this, 'tarjeta')">Tarjeta</button>
+                        <button type="button" class="metodo-btn" style="color: #ca8a04; background: #fef3c7;" onclick="seleccionarMetodo(this, 'mercadopago')">MercadoPago</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notas (opcional)</label>
+                    <textarea id="notas" class="form-textarea" placeholder="Ej: Pagó la mitad, vuelve mañana"></textarea>
+                </div>
+
+                <div class="error-msg" id="error"></div>
+
+                <div class="modal-buttons">
+                    <button type="button" class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
+                    <button type="submit" class="btn-guardar">Guardar pago</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let pedidosData = [
+            { id: '001', cliente: 'Juan García', total: 1000, entregado_en: '2026-08-07' },
+            { id: '002', cliente: 'Juan García', total: 800, entregado_en: '2026-08-08' },
+            { id: '003', cliente: 'María López', total: 800, entregado_en: '2026-08-07' },
+            { id: '004', cliente: 'Carlos Pérez', total: 1500, entregado_en: '2026-08-07' },
+            { id: '005', cliente: 'Ana Martínez', total: 600, entregado_en: '2026-08-06' },
+            { id: '006', cliente: 'Ana Martínez', total: 400, entregado_en: '2026-08-08' },
+        ];
+
+        let pagosData = [
+            { id: 'p1', cliente: 'Juan García', monto: 500, metodo: 'Efectivo', fecha: '2026-08-07', notas: 'Mitad al entregar' },
+            { id: 'p2', cliente: 'Carlos Pérez', monto: 1500, metodo: 'Transferencia', fecha: '2026-08-07', notas: '' },
+            { id: 'p3', cliente: 'Ana Martínez', monto: 300, metodo: 'Efectivo', fecha: '2026-08-06', notas: '' },
+        ];
+
+        let clienteActual = null;
+        let metodoSeleccionado = 'efectivo';
+
+        function formatPesos(n) {
+            return '$' + n.toLocaleString('es-AR');
+        }
+
+        function getClientesConSaldo() {
+            const clientes = {};
+
+            pedidosData.forEach(pedido => {
+                if (!clientes[pedido.cliente]) {
+                    clientes[pedido.cliente] = { totalPedidos: 0, pagos: [], pedidos: [] };
+                }
+                clientes[pedido.cliente].totalPedidos += pedido.total;
+                clientes[pedido.cliente].pedidos.push(pedido);
+            });
+
+            pagosData.forEach(pago => {
+                if (clientes[pago.cliente]) {
+                    clientes[pago.cliente].pagos.push(pago);
+                }
+            });
+
+            const result = Object.entries(clientes).map(([nombre, data]) => {
+                const totalPagado = data.pagos.reduce((sum, p) => sum + p.monto, 0);
+                const saldo = data.totalPedidos - totalPagado;
+                return {
+                    nombre,
+                    totalPedidos: data.totalPedidos,
+                    totalPagado,
+                    saldo,
+                    pedidos: data.pedidos,
+                    pagos: data.pagos
+                };
+            });
+
+            return result.filter(c => c.saldo > 0).sort((a, b) => b.saldo - a.saldo);
+        }
+
+        function renderClientes() {
+            const lista = document.getElementById('pedidosList');
+            lista.innerHTML = '';
+
+            const clientes = getClientesConSaldo();
+            const totalDeudor = clientes.reduce((sum, c) => sum + c.saldo, 0);
+
+            document.getElementById('contador').textContent = `${clientes.length} clientes con saldo deudor`;
+
+            // Actualizar banner con total
+            const header = document.querySelector('.header');
+            let totalBanner = header.querySelector('.total-banner');
+            if (!totalBanner) {
+                totalBanner = document.createElement('div');
+                totalBanner.className = 'total-banner';
+                header.appendChild(totalBanner);
+            }
+            totalBanner.innerHTML = `<strong>Total a cobrar:</strong> ${formatPesos(totalDeudor)}`;
+
+            if (clientes.length === 0) {
+                const empty = document.createElement('div');
+                empty.style.textAlign = 'center';
+                empty.style.padding = '40px 20px';
+                empty.style.color = '#999';
+                empty.textContent = 'No hay cuentas pendientes';
+                lista.appendChild(empty);
+                return;
+            }
+
+            clientes.forEach(cliente => {
+                const card = document.createElement('div');
+                card.className = 'pedido-card';
+                card.innerHTML = `
+                    <div class="pedido-header" onclick="toggleExpanded(this)">
+                        <div class="pedido-info">
+                            <div class="pedido-title">${cliente.nombre}</div>
+                            <div class="pedido-details">
+                                <div>Saldo: <span style="color: #dc2626; font-weight: bold; font-size: 16px;">${formatPesos(cliente.saldo)}</span></div>
+                            </div>
+                        </div>
+                        <div class="pedido-estado">
+                            <div class="chevron">▼</div>
+                        </div>
+                    </div>
+
+                    <div class="pedido-details-panel">
+                        <div class="historico">
+                            <div class="historico-title">Pedidos entregados</div>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                ${cliente.pedidos.map(p => `
+                                    <div class="pago-item">
+                                        <div style="font-weight: 600; color: #78350f;">Pedido #${p.id}</div>
+                                        <div class="pago-meta">${p.entregado_en}</div>
+                                        <div style="color: #16a34a; font-weight: 600;">${formatPesos(p.total)}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <div class="historico" style="margin-top: 16px;">
+                            <div class="historico-title">Histórico de pagos</div>
+                            ${cliente.pagos.length === 0
+                                ? '<div class="historico-empty">Sin pagos aún</div>'
+                                : cliente.pagos.map(p => `
+                                    <div class="pago-item">
+                                        <div class="pago-monto">${formatPesos(p.monto)}</div>
+                                        <div class="pago-meta">${p.fecha} · ${p.metodo}</div>
+                                        ${p.notas ? `<div class="pago-notas">"${p.notas}"</div>` : ''}
+                                    </div>
+                                `).join('')
+                            }
+                        </div>
+
+                        <button class="btn-pago" onclick="abrirModal('${cliente.nombre}', ${cliente.saldo})">
+                            + Registrar pago
+                        </button>
+                    </div>
+                `;
+                lista.appendChild(card);
+            });
+        }
+
+        function toggleExpanded(header) {
+            const card = header.closest('.pedido-card');
+            card.classList.toggle('expanded');
+        }
+
+        function abrirModal(nombreCliente, saldo) {
+            clienteActual = nombreCliente;
+            document.getElementById('saldoText').textContent = formatPesos(saldo);
+            document.getElementById('monto').value = '';
+            document.getElementById('notas').value = '';
+            document.getElementById('error').classList.remove('show');
+            metodoSeleccionado = 'efectivo';
+            document.querySelectorAll('.metodo-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector('.metodo-btn.efectivo').classList.add('active');
+            document.getElementById('modal').classList.add('open');
+        }
+
+        function cerrarModal() {
+            document.getElementById('modal').classList.remove('open');
+            clienteActual = null;
+        }
+
+        function seleccionarMetodo(btn, metodo) {
+            document.querySelectorAll('.metodo-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            metodoSeleccionado = metodo;
+        }
+
+        function guardarPago(e) {
+            e.preventDefault();
+
+            const monto = Number(document.getElementById('monto').value);
+            const notas = document.getElementById('notas').value;
+            const errorDiv = document.getElementById('error');
+
+            errorDiv.classList.remove('show');
+
+            if (!monto || monto <= 0) {
+                errorDiv.textContent = 'Ingresa un monto válido';
+                errorDiv.classList.add('show');
+                return;
+            }
+
+            const clientes = getClientesConSaldo();
+            const cliente = clientes.find(c => c.nombre === clienteActual);
+
+            if (!cliente || monto > cliente.saldo) {
+                errorDiv.textContent = `El monto supera el saldo (${formatPesos(cliente.saldo)})`;
+                errorDiv.classList.add('show');
+                return;
+            }
+
+            const metodoLabel = metodoSeleccionado.charAt(0).toUpperCase() + metodoSeleccionado.slice(1);
+            pagosData.push({
+                id: `p${Date.now()}`,
+                cliente: clienteActual,
+                monto: monto,
+                metodo: metodoLabel,
+                fecha: new Date().toISOString().split('T')[0],
+                notas: notas
+            });
+
+            cerrarModal();
+            renderClientes();
+        }
+
+        renderClientes();
+    </script>
+</body>
+</html>

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Granja Santo Tomás - Preview Local</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f1e8;
+        }
+
+        .app {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            max-width: 100%;
+        }
+
+        .header {
+            background: #faf6ee;
+            border-bottom: 1px solid #e4dcc8;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .user-info {
+            font-size: 13px;
+            color: #2c2419;
+            font-weight: 500;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #fcefd4;
+            color: #8a5a0b;
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
+        .signout {
+            background: none;
+            border: none;
+            color: #a8552e;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .tabs {
+            background: #faf6ee;
+            border-bottom: 1px solid #e4dcc8;
+            display: flex;
+            padding: 0 20px;
+            gap: 20px;
+        }
+
+        .tab {
+            padding: 12px 0;
+            background: none;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            color: #a8886a;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: #78350f;
+            border-bottom-color: #b45309;
+        }
+
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .content > div {
+            display: none;
+        }
+
+        .content > div.active {
+            display: block;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* PEDIDOS */
+        .header-section {
+            margin-bottom: 24px;
+        }
+
+        .header-section h1 {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c2419;
+            margin-bottom: 4px;
+        }
+
+        .header-section p {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #8a5a0b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            margin-top: 20px;
+        }
+
+        .section-title:first-of-type {
+            margin-top: 0;
+        }
+
+        .empty-state {
+            border: 1px dashed #d8cdb0;
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            color: #8a7a5c;
+            margin-bottom: 24px;
+        }
+
+        .pedido-card {
+            background: white;
+            border: 1px solid #e4dcc8;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .pedido-title {
+            font-weight: 600;
+            color: #2c2419;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+
+        .pedido-desc {
+            font-size: 12px;
+            color: #6b5d45;
+            margin-bottom: 8px;
+        }
+
+        .pedido-meta {
+            font-size: 11px;
+            color: #a89878;
+        }
+
+        .pedido-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #3b6d11;
+            color: white;
+            flex: 1;
+        }
+
+        .btn-primary:hover {
+            background: #2f5a0a;
+        }
+
+        .btn-icon {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #a8552e;
+            color: white;
+            font-size: 16px;
+        }
+
+        .btn-icon:hover {
+            background: #8b4426;
+        }
+
+        /* COBROS */
+        .banner {
+            background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+            border: 1px solid #fbbf24;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .banner-label {
+            font-size: 12px;
+            color: #b45309;
+            font-weight: 700;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .banner-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #92400e;
+        }
+
+        .cliente-card {
+            background: white;
+            border: 1px solid #dcc5b4;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .cliente-header {
+            padding: 16px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+
+        .cliente-header:hover {
+            background: #fafaf8;
+        }
+
+        .cliente-name {
+            font-weight: 600;
+            color: #78350f;
+            margin-bottom: 4px;
+        }
+
+        .cliente-saldo {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .cliente-saldo strong {
+            color: #dc2626;
+            font-weight: 700;
+        }
+
+        .chevron {
+            font-size: 18px;
+            color: #999;
+            transition: transform 0.2s;
+        }
+
+        .cliente-card.expanded .chevron {
+            transform: rotate(180deg);
+        }
+
+        .cliente-details {
+            display: none;
+            border-top: 1px solid #dcc5b4;
+            padding: 16px;
+            background: #faf7f3;
+        }
+
+        .cliente-card.expanded .cliente-details {
+            display: block;
+        }
+
+        .detail-section {
+            margin-bottom: 16px;
+        }
+
+        .detail-title {
+            font-weight: 600;
+            font-size: 12px;
+            color: #78350f;
+            margin-bottom: 8px;
+        }
+
+        .detail-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e5d5c8;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .detail-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .detail-amount {
+            font-weight: 600;
+            color: #16a34a;
+            margin-bottom: 4px;
+        }
+
+        .detail-meta {
+            color: #666;
+            font-size: 11px;
+        }
+
+        .btn-registro {
+            width: 100%;
+            padding: 10px;
+            background: #b45309;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 13px;
+            margin-top: 12px;
+        }
+
+        .btn-registro:hover {
+            background: #92400e;
+        }
+
+        .no-deuda {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- HEADER -->
+        <div class="header">
+            <div class="user-info">
+                dueño@granja.local <span class="badge">Dueño</span>
+            </div>
+            <button class="signout">Cerrar sesión</button>
+        </div>
+
+        <!-- TABS -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('pedidos')">Pedidos</button>
+            <button class="tab" onclick="switchTab('cobros')">Cobros</button>
+        </div>
+
+        <!-- CONTENT -->
+        <div class="content">
+            <!-- PEDIDOS TAB -->
+            <div id="pedidos" class="active">
+                <div class="header-section">
+                    <h1>Pedidos de hoy</h1>
+                    <p>3 pendientes de reparto</p>
+                </div>
+
+                <div class="section-title">Pendientes de reparto — 3</div>
+
+                <div class="pedido-card">
+                    <div class="pedido-title">#001 · Juan García</div>
+                    <div class="pedido-desc">5 XL · 3 N1 - Grande</div>
+                    <div class="pedido-meta">07/08/2026 · $2.400</div>
+                    <div class="pedido-actions">
+                        <button class="btn btn-primary">✓ Marcar entregado</button>
+                        <button class="btn btn-icon">✏️</button>
+                        <button class="btn btn-icon">✕</button>
+                    </div>
+                </div>
+
+                <div class="pedido-card">
+                    <div class="pedido-title">#002 · María López</div>
+                    <div class="pedido-desc">2 Docena</div>
+                    <div class="pedido-meta">08/08/2026 · $600</div>
+                    <div class="pedido-actions">
+                        <button class="btn btn-primary">✓ Marcar entregado</button>
+                        <button class="btn btn-icon">✏️</button>
+                        <button class="btn btn-icon">✕</button>
+                    </div>
+                </div>
+
+                <div class="pedido-card">
+                    <div class="pedido-title">#003 · Carlos Pérez</div>
+                    <div class="pedido-desc">10 N2 - Mediano · 5 N3 - Chico</div>
+                    <div class="pedido-meta">08/08/2026 · $3.500</div>
+                    <div class="pedido-actions">
+                        <button class="btn btn-primary">✓ Marcar entregado</button>
+                        <button class="btn btn-icon">✏️</button>
+                        <button class="btn btn-icon">✕</button>
+                    </div>
+                </div>
+
+                <div class="section-title">Entregados sin cerrar — 2</div>
+
+                <div class="pedido-card">
+                    <div class="pedido-title">#004 · Ana Martínez</div>
+                    <div class="pedido-desc">4 XL</div>
+                    <div class="pedido-meta">07/08/2026 · $1.600 (Impago)</div>
+                    <div class="pedido-actions">
+                        <button class="btn btn-icon" style="margin-left: auto;">✏️</button>
+                    </div>
+                </div>
+
+                <div class="pedido-card">
+                    <div class="pedido-title">#005 · Roberto Silva</div>
+                    <div class="pedido-desc">6 N1 - Grande · 3 Docena</div>
+                    <div class="pedido-meta">07/08/2026 · $2.200 (Pagado $1.000)</div>
+                    <div class="pedido-actions">
+                        <button class="btn btn-icon" style="margin-left: auto;">✏️</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COBROS TAB -->
+            <div id="cobros">
+                <div class="header-section">
+                    <h1>Cobros</h1>
+                    <p>3 clientes con saldo deudor</p>
+                </div>
+
+                <div class="banner">
+                    <span class="banner-label">Total a cobrar:</span>
+                    <div class="banner-value">$6.700</div>
+                </div>
+
+                <div class="cliente-card">
+                    <div class="cliente-header" onclick="toggleCliente(this)">
+                        <div>
+                            <div class="cliente-name">Juan García</div>
+                            <div class="cliente-saldo">Saldo: <strong>$2.400</strong></div>
+                        </div>
+                        <div class="chevron">▼</div>
+                    </div>
+                    <div class="cliente-details">
+                        <div class="detail-section">
+                            <div class="detail-title">Pedidos entregados</div>
+                            <div class="detail-item">
+                                <div style="font-weight: 600; color: #78350f;">Pedido #001</div>
+                                <div class="detail-meta">07/08/2026</div>
+                                <div style="color: #16a34a; font-weight: 600; margin-top: 4px;">$2.400</div>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-title">Histórico de pagos</div>
+                            <div style="font-size: 12px; color: #999;">Sin pagos aún</div>
+                        </div>
+                        <button class="btn-registro">+ Registrar pago</button>
+                    </div>
+                </div>
+
+                <div class="cliente-card">
+                    <div class="cliente-header" onclick="toggleCliente(this)">
+                        <div>
+                            <div class="cliente-name">María López</div>
+                            <div class="cliente-saldo">Saldo: <strong>$600</strong></div>
+                        </div>
+                        <div class="chevron">▼</div>
+                    </div>
+                    <div class="cliente-details">
+                        <div class="detail-section">
+                            <div class="detail-title">Pedidos entregados</div>
+                            <div class="detail-item">
+                                <div style="font-weight: 600; color: #78350f;">Pedido #002</div>
+                                <div class="detail-meta">08/08/2026</div>
+                                <div style="color: #16a34a; font-weight: 600; margin-top: 4px;">$600</div>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-title">Histórico de pagos</div>
+                            <div style="font-size: 12px; color: #999;">Sin pagos aún</div>
+                        </div>
+                        <button class="btn-registro">+ Registrar pago</button>
+                    </div>
+                </div>
+
+                <div class="cliente-card">
+                    <div class="cliente-header" onclick="toggleCliente(this)">
+                        <div>
+                            <div class="cliente-name">Carlos Pérez</div>
+                            <div class="cliente-saldo">Saldo: <strong>$3.700</strong></div>
+                        </div>
+                        <div class="chevron">▼</div>
+                    </div>
+                    <div class="cliente-details">
+                        <div class="detail-section">
+                            <div class="detail-title">Pedidos entregados</div>
+                            <div class="detail-item">
+                                <div style="font-weight: 600; color: #78350f;">Pedido #003</div>
+                                <div class="detail-meta">08/08/2026</div>
+                                <div style="color: #16a34a; font-weight: 600; margin-top: 4px;">$3.500</div>
+                            </div>
+                            <div class="detail-item">
+                                <div style="font-weight: 600; color: #78350f;">Pedido #006</div>
+                                <div class="detail-meta">08/08/2026</div>
+                                <div style="color: #16a34a; font-weight: 600; margin-top: 4px;">$200</div>
+                            </div>
+                        </div>
+                        <div class="detail-section">
+                            <div class="detail-title">Histórico de pagos</div>
+                            <div class="detail-item">
+                                <div class="detail-amount">$1.000</div>
+                                <div class="detail-meta">07/08/2026 · Efectivo</div>
+                                <div style="font-size: 11px; color: #999; font-style: italic; margin-top: 4px;">"Pagó la mitad"</div>
+                            </div>
+                        </div>
+                        <button class="btn-registro">+ Registrar pago</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(tab) {
+            document.querySelectorAll('.content > div').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            document.getElementById(tab).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function toggleCliente(header) {
+            header.closest('.cliente-card').classList.toggle('expanded');
+        }
+    </script>
+</body>
+</html>

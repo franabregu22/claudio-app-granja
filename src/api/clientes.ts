@@ -22,10 +22,10 @@ export async function listarTodosClientes(): Promise<Cliente[]> {
   return data || [];
 }
 
-export async function crearCliente(nombre: string): Promise<Cliente> {
+export async function crearCliente(nombre: string, categoria: string = 'particular'): Promise<Cliente> {
   const { data, error } = await supabase
     .from('clientes')
-    .insert([{ nombre, activo: true }])
+    .insert([{ nombre, categoria, activo: true }])
     .select()
     .single();
 
@@ -36,11 +36,12 @@ export async function crearCliente(nombre: string): Promise<Cliente> {
 export async function actualizarCliente(
   id: string,
   nombre: string,
+  categoria: string,
   activo: boolean
 ): Promise<Cliente> {
   const { data, error } = await supabase
     .from('clientes')
-    .update({ nombre, activo })
+    .update({ nombre, categoria, activo })
     .eq('id', id)
     .select()
     .single();

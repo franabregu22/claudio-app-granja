@@ -5,7 +5,11 @@
       "Bash(npx tailwindcss *)",
       "Bash(npm exec *)",
       "Bash(npm ls *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit *)"
     ]
   }
 }
