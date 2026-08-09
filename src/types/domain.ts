@@ -75,6 +75,21 @@ export interface Perfil {
   created_at: string;
 }
 
+export interface Produccion {
+  id: string;
+  fecha: string;
+  galpon: string;
+  huevos_sanos_mediodia: number;
+  huevos_cachados_mediodia: number;
+  huevos_sanos_tarde: number;
+  huevos_cachados_tarde: number;
+  mortandad: number;
+  observaciones?: string;
+  creado_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
 export interface User {
   id: string;
   email?: string;

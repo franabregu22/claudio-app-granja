@@ -5,8 +5,9 @@ import { LoginScreen } from './auth/LoginScreen';
 import { PedidosApp } from './features/pedidos/PedidosApp';
 import { CobrosApp } from './features/cobros/CobrosApp';
 import { AdminApp } from './features/admin/AdminApp';
+import { ProductionApp } from './features/production/ProductionApp';
 
-type Tab = 'pedidos' | 'cobros' | 'admin';
+type Tab = 'pedidos' | 'cobros' | 'admin' | 'produccion';
 
 function App() {
   const { user, rol, loading, signOut } = useAuth();
@@ -38,42 +39,58 @@ function App() {
         </button>
       </div>
 
-      {rol === 'dueño' && (
-        <div className="bg-[#FAF6EE] border-b border-[#E4DCC8] flex gap-4 px-5">
+      <div className="bg-[#FAF6EE] border-b border-[#E4DCC8] flex gap-4 px-5">
+        {(rol === 'dueño' || rol === 'colaborador') && (
           <button
-            onClick={() => setTab('pedidos')}
+            onClick={() => setTab('produccion')}
             className={`px-4 py-3 font-medium border-b-2 transition ${
-              tab === 'pedidos'
+              tab === 'produccion'
                 ? 'text-[#78350f] border-[#B45309]'
                 : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
             }`}
           >
-            Pedidos
+            Producción
           </button>
-          <button
-            onClick={() => setTab('cobros')}
-            className={`px-4 py-3 font-medium border-b-2 transition ${
-              tab === 'cobros'
-                ? 'text-[#78350f] border-[#B45309]'
-                : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
-            }`}
-          >
-            Cobros
-          </button>
-          <button
-            onClick={() => setTab('admin')}
-            className={`px-4 py-3 font-medium border-b-2 transition ${
-              tab === 'admin'
-                ? 'text-[#78350f] border-[#B45309]'
-                : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
-            }`}
-          >
-            Admin
-          </button>
-        </div>
-      )}
+        )}
 
-      <div className="flex-1">
+        {rol === 'dueño' && (
+          <>
+            <button
+              onClick={() => setTab('pedidos')}
+              className={`px-4 py-3 font-medium border-b-2 transition ${
+                tab === 'pedidos'
+                  ? 'text-[#78350f] border-[#B45309]'
+                  : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
+              }`}
+            >
+              Pedidos
+            </button>
+            <button
+              onClick={() => setTab('cobros')}
+              className={`px-4 py-3 font-medium border-b-2 transition ${
+                tab === 'cobros'
+                  ? 'text-[#78350f] border-[#B45309]'
+                  : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
+              }`}
+            >
+              Cobros
+            </button>
+            <button
+              onClick={() => setTab('admin')}
+              className={`px-4 py-3 font-medium border-b-2 transition ${
+                tab === 'admin'
+                  ? 'text-[#78350f] border-[#B45309]'
+                  : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
+              }`}
+            >
+              Admin
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="flex-1 p-6">
+        {tab === 'produccion' && <ProductionApp />}
         {tab === 'pedidos' && <PedidosApp />}
         {tab === 'cobros' && <CobrosApp />}
         {tab === 'admin' && <AdminApp />}
