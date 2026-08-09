@@ -26,6 +26,7 @@ export interface Cliente {
   nombre: string;
   categoria: ClienteCategoria;
   activo: boolean;
+  notas?: string;
   created_at: string;
 }
 
