@@ -41,4 +41,6 @@ CREATE POLICY "Todos pueden leer precios" ON public.precios_actuales
   FOR SELECT USING (true);
 
 CREATE POLICY "Dueño puede editar precios" ON public.precios_actuales
-  FOR UPDATE USING (false) WITH CHECK (false);
+  FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM perfiles WHERE id = auth.uid() AND rol = 'dueño'))
+  WITH CHECK (EXISTS (SELECT 1 FROM perfiles WHERE id = auth.uid() AND rol = 'dueño'));
