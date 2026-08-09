@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import * as clientesApi from '../../api/clientes';
-import type { Cliente } from '../../types/domain';
 import { Trash2, Plus } from 'lucide-react';
 
 export function ClientesAdmin() {

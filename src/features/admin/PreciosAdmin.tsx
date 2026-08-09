@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import * as preciosApi from '../../api/precios';
 import { CATEGORIAS } from '../../constants/categorias';
+import type { Categoria } from '../../types/domain';
 
 interface Precio {
   id: string;
@@ -46,7 +47,7 @@ export function PreciosAdmin() {
   });
 
   const actualizarMutation = useMutation({
-    mutationFn: (variables: { categoria: string; precio: number }) =>
+    mutationFn: (variables: { categoria: Categoria; precio: number }) =>
       preciosApi.actualizarPrecio(variables.categoria, variables.precio),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['preciosAdmin'] });
@@ -91,7 +92,7 @@ export function PreciosAdmin() {
                       const newPrice = Number(e.currentTarget.value);
                       if (newPrice !== precio.precio && newPrice > 0) {
                         actualizarMutation.mutate({
-                          categoria: cat.id,
+                          categoria: cat.id as Categoria,
                           precio: newPrice,
                         });
                       } else {
@@ -103,7 +104,7 @@ export function PreciosAdmin() {
                         const newPrice = Number(e.currentTarget.value);
                         if (newPrice > 0) {
                           actualizarMutation.mutate({
-                            categoria: cat.id,
+                            categoria: cat.id as Categoria,
                             precio: newPrice,
                           });
                         }
