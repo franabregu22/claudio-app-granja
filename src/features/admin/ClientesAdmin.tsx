@@ -85,14 +85,14 @@ export function ClientesAdmin() {
       {/* Formulario agregar cliente */}
       <div className="mb-8 bg-white p-4 rounded-lg border border-amber-200">
         <h2 className="font-semibold text-amber-900 mb-3">Agregar cliente</h2>
-        <div className="flex gap-2 mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
           <input
             type="text"
             value={nuevoNombre}
             onChange={(e) => setNuevoNombre(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && agregarCliente()}
             placeholder="Nombre del cliente"
-            className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
+            className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
           />
           <select
             value={nuevoCategoria}
@@ -110,12 +110,12 @@ export function ClientesAdmin() {
             value={nuevoNotas}
             onChange={(e) => setNuevoNotas(e.target.value)}
             placeholder="Notas (opcional)"
-            className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
+            className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
           />
           <button
             onClick={agregarCliente}
             disabled={crearMutation.isPending || !nuevoNombre.trim()}
-            className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded font-medium text-sm disabled:opacity-50 flex items-center gap-1"
+            className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-1 w-full"
           >
             <Plus size={16} />
             Agregar
