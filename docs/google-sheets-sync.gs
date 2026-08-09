@@ -5,6 +5,7 @@ function sincronizarDatos() {
   sincronizarClientes();
   sincronizarPrecios();
   sincronizarPedidos();
+  sincronizarPagos();
   sincronizarHistorialPrecios();
 }
 
@@ -72,6 +73,36 @@ function sincronizarPedidos() {
       p.monto_total,
       p.entregado_en || '',
       p.creado_en
+    ]);
+  });
+}
+
+function sincronizarPagos() {
+  const sheet = getOrCreateSheet('Pagos');
+  sheet.clear();
+
+  const pagos = llamarSupabase('pagos', 'order=fecha_pago.desc');
+
+  if (pagos.length === 0) return;
+
+  // Obtener nombres de clientes
+  const clientes = llamarSupabase('clientes');
+  const clientesMap = {};
+  clientes.forEach(c => {
+    clientesMap[c.id] = c.nombre;
+  });
+
+  const headers = ['Cliente ID', 'Cliente Nombre', 'Monto', 'Método Pago', 'Fecha Pago', 'Notas'];
+  sheet.appendRow(headers);
+
+  pagos.forEach(p => {
+    sheet.appendRow([
+      p.cliente_id,
+      clientesMap[p.cliente_id] || 'Desconocido',
+      p.monto,
+      p.metodo_pago,
+      p.fecha_pago,
+      p.notas || ''
     ]);
   });
 }
