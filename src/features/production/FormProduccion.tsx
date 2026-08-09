@@ -99,8 +99,9 @@ export function FormProduccion({
             <input
               type="number"
               min="0"
-              value={huevosSanosMediodia}
-              onChange={(e) => setHuevosSanosMediodia(Number(e.target.value))}
+              value={huevosSanosMediodia === 0 ? '' : huevosSanosMediodia}
+              onChange={(e) => setHuevosSanosMediodia(e.target.value === '' ? 0 : Number(e.target.value))}
+              onFocus={(e) => e.target.select()}
               className="w-full border border-gray-300 rounded px-3 py-2"
             />
           </div>
@@ -109,8 +110,9 @@ export function FormProduccion({
             <input
               type="number"
               min="0"
-              value={huevosCachadosMediodia}
-              onChange={(e) => setHuevosCachadosMediodia(Number(e.target.value))}
+              value={huevosCachadosMediodia === 0 ? '' : huevosCachadosMediodia}
+              onChange={(e) => setHuevosCachadosMediodia(e.target.value === '' ? 0 : Number(e.target.value))}
+              onFocus={(e) => e.target.select()}
               className="w-full border border-gray-300 rounded px-3 py-2"
             />
           </div>
@@ -126,8 +128,9 @@ export function FormProduccion({
             <input
               type="number"
               min="0"
-              value={huevosSanosTarde}
-              onChange={(e) => setHuevosSanosTarde(Number(e.target.value))}
+              value={huevosSanosTarde === 0 ? '' : huevosSanosTarde}
+              onChange={(e) => setHuevosSanosTarde(e.target.value === '' ? 0 : Number(e.target.value))}
+              onFocus={(e) => e.target.select()}
               className="w-full border border-gray-300 rounded px-3 py-2"
             />
           </div>
@@ -136,8 +139,9 @@ export function FormProduccion({
             <input
               type="number"
               min="0"
-              value={huevosCachadosTarde}
-              onChange={(e) => setHuevosCachadosTarde(Number(e.target.value))}
+              value={huevosCachadosTarde === 0 ? '' : huevosCachadosTarde}
+              onChange={(e) => setHuevosCachadosTarde(e.target.value === '' ? 0 : Number(e.target.value))}
+              onFocus={(e) => e.target.select()}
               className="w-full border border-gray-300 rounded px-3 py-2"
             />
           </div>
@@ -170,8 +174,9 @@ export function FormProduccion({
           <input
             type="number"
             min="0"
-            value={mortandad}
-            onChange={(e) => setMortandad(Number(e.target.value))}
+            value={mortandad === 0 ? '' : mortandad}
+            onChange={(e) => setMortandad(e.target.value === '' ? 0 : Number(e.target.value))}
+            onFocus={(e) => e.target.select()}
             className="w-full border border-gray-300 rounded px-3 py-2"
           />
         </div>
