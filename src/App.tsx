@@ -73,7 +73,7 @@ function App() {
                   : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
               }`}
             >
-              Cobros
+              Cuentas a Cobrar
             </button>
             <button
               onClick={() => setTab('admin')}

@@ -238,6 +238,7 @@ export function PedidosApp() {
               onRetry={() => pedidosQuery.refetch()}
               markingId={marcarEntregadoMutation.isPending ? undefined : undefined}
               formatearFechaEntrega={formatearFechaEntrega}
+              todosPedidos={pedidos}
             />
           )}
         </div>

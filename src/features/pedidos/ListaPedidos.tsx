@@ -1,6 +1,7 @@
 import { Plus, Package } from 'lucide-react';
 import type { Pedido, Rol } from '../../types/domain';
 import { PedidoCard } from './PedidoCard';
+import { formatoPedidoId, resumenLineas, formatoPesos } from './helpers';
 
 interface ListaPedidosProps {
   pendientes: Pedido[];
@@ -15,6 +16,7 @@ interface ListaPedidosProps {
   onRetry: () => void;
   markingId?: number;
   formatearFechaEntrega?: (fecha: string) => string;
+  todosPedidos?: Pedido[];
 }
 
 export function ListaPedidos({
@@ -30,6 +32,7 @@ export function ListaPedidos({
   onRetry,
   markingId,
   formatearFechaEntrega,
+  todosPedidos = [],
 }: ListaPedidosProps) {
   return (
     <div className="flex-1 flex flex-col">
@@ -115,6 +118,52 @@ export function ListaPedidos({
                   ))}
                 </div>
               </>
+            )}
+
+            {/* Histórico Completo */}
+            {todosPedidos.length > 0 && (
+              <div className="mt-8 pt-6 border-t-4 border-[#D8CDB0]">
+                <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
+                  Histórico Completo — {todosPedidos.length} pedidos
+                </p>
+                <div className="space-y-2">
+                  {todosPedidos
+                    .sort((a, b) => b.id - a.id)
+                    .map((p) => (
+                      <div
+                        key={p.id}
+                        className="bg-white/70 border border-[#E4DCC8] rounded-lg p-3 text-xs hover:bg-white transition"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div className="flex-1">
+                            <p className="font-semibold text-[#2C2419]">
+                              #{formatoPedidoId(p.id)} · {p.cliente_nombre}
+                            </p>
+                            <p className="text-[#8A7A5C] text-xs mt-0.5">
+                              {resumenLineas(p.lineas)}
+                            </p>
+                            {p.observaciones && (
+                              <p className="text-[#8B7355] italic mt-1">📝 {p.observaciones}</p>
+                            )}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</p>
+                            <p className="text-[#8A7A5C] text-xs mt-0.5">
+                              {p.fecha_pedido}
+                            </p>
+                            <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-1 ${
+                              p.estado === 'entregado' ? 'bg-[#E8F5E9] text-[#6B7A4E]' :
+                              p.estado === 'pendiente' ? 'bg-[#FCEFD4] text-[#8A5A0B]' :
+                              'bg-[#FCE4E4] text-[#A32D2D]'
+                            }`}>
+                              {p.estado}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
             )}
           </>
         )}

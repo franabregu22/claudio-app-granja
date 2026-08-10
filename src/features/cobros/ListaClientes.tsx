@@ -10,6 +10,7 @@ interface ListaClientesProps {
   error: unknown;
   onRegistrarPago: (cliente: ClienteSaldo) => void;
   onRetry: () => void;
+  mostrarTotal?: boolean;
 }
 
 export function ListaClientes({
@@ -18,6 +19,7 @@ export function ListaClientes({
   loading,
   error,
   onRegistrarPago,
+  mostrarTotal = true,
 }: ListaClientesProps) {
   const [expandido, setExpandido] = useState<string | null>(null);
 
@@ -42,17 +44,14 @@ export function ListaClientes({
 
   return (
     <div className="flex-1 flex flex-col">
-      <div className="p-6 border-b border-amber-200">
-        <h1 className="text-3xl font-bold text-amber-900">Cobros</h1>
-        <p className="text-gray-600 text-sm mt-1">
-          {clientes.length} clientes con saldo deudor
-        </p>
-
-        <div className="mt-4 bg-gradient-to-r from-amber-100 to-amber-50 border border-amber-200 rounded-lg p-4">
-          <div className="text-sm text-amber-900 font-medium">Total a cobrar:</div>
-          <div className="text-2xl font-bold text-amber-900 mt-1">{formatoPesos(totalDeudor)}</div>
+      {mostrarTotal && (
+        <div className="px-6 pt-4 pb-6 border-b border-amber-200">
+          <div className="bg-gradient-to-r from-amber-100 to-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="text-sm text-amber-900 font-medium">Total a cobrar:</div>
+            <div className="text-2xl font-bold text-amber-900 mt-1">{formatoPesos(totalDeudor)}</div>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-6">
         {clientes.length === 0 ? (
