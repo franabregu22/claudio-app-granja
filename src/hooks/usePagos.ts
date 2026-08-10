@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import * as pagoApi from '../api/pagos';
 import type { MetodoPago } from '../types/domain';
 
 export function usePagos() {
   const queryClient = useQueryClient();
+  const channelRef = useRef<any>(null);
 
   const query = useQuery({
     queryKey: ['pagos'],
@@ -14,6 +15,8 @@ export function usePagos() {
   });
 
   useEffect(() => {
+    if (channelRef.current) return;
+
     const channel = supabase
       .channel('pagos-changes')
       .on(
@@ -29,8 +32,12 @@ export function usePagos() {
       )
       .subscribe();
 
+    channelRef.current = channel;
+
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, [queryClient]);
 

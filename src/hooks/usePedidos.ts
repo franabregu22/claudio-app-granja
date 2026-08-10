@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   useQuery,
   useMutation,
@@ -12,6 +12,7 @@ import type { Pedido, Lineas, Precios } from '../types/domain';
 
 export function usePedidos(): UseQueryResult<Pedido[], Error> {
   const queryClient = useQueryClient();
+  const channelRef = useRef<any>(null);
 
   const query = useQuery({
     queryKey: ['pedidos'],
@@ -19,6 +20,8 @@ export function usePedidos(): UseQueryResult<Pedido[], Error> {
   });
 
   useEffect(() => {
+    if (channelRef.current) return;
+
     const channel = supabase
       .channel('pedidos-changes')
       .on(
@@ -34,8 +37,12 @@ export function usePedidos(): UseQueryResult<Pedido[], Error> {
       )
       .subscribe();
 
+    channelRef.current = channel;
+
     return () => {
-      channel.unsubscribe();
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, [queryClient]);
 

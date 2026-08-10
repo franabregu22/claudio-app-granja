@@ -7,8 +7,8 @@ export function useClientesSaldo() {
   const pedidosQuery = usePedidos();
   const pagosQuery = usePagos();
 
-  const data = useMemo(() => {
-    if (!pedidosQuery.data || !pagosQuery.data) return [];
+  const { clientes: data, finalizados } = useMemo(() => {
+    if (!pedidosQuery.data || !pagosQuery.data) return { clientes: [], finalizados: [] };
 
     const pedidos = pedidosQuery.data;
     const pagos = pagosQuery.data;
@@ -46,14 +46,30 @@ export function useClientesSaldo() {
       }
     });
 
-    // Calcular saldo y filtrar solo clientes con deuda
-    return Array.from(clienteMap.values())
-      .map((cliente) => ({
-        ...cliente,
-        saldo: cliente.totalPedidos - cliente.totalPagado,
-      }))
+    // Calcular saldo para todos los clientes
+    const todosClientes = Array.from(clienteMap.values()).map((cliente) => ({
+      ...cliente,
+      saldo: cliente.totalPedidos - cliente.totalPagado,
+    }));
+
+    // Separar en pendientes y finalizados
+    const hace15Dias = new Date();
+    hace15Dias.setDate(hace15Dias.getDate() - 15);
+    const fechaLimite = hace15Dias.toISOString().split('T')[0];
+
+    const clientes = todosClientes
       .filter((cliente) => cliente.saldo > 0)
       .sort((a, b) => b.saldo - a.saldo);
+
+    const finalizados = todosClientes
+      .filter((cliente) => cliente.saldo === 0 && cliente.totalPedidos > 0)
+      .filter((cliente) => {
+        const ultimoPago = cliente.pagos.sort((a, b) => new Date(b.fecha_pago).getTime() - new Date(a.fecha_pago).getTime())[0];
+        return ultimoPago && ultimoPago.fecha_pago >= fechaLimite;
+      })
+      .sort((a, b) => a.cliente_nombre.localeCompare(b.cliente_nombre));
+
+    return { clientes, finalizados };
   }, [pedidosQuery.data, pagosQuery.data]);
 
   const totalDeudor = useMemo(
@@ -63,6 +79,7 @@ export function useClientesSaldo() {
 
   return {
     clientes: data,
+    finalizados,
     totalDeudor,
     isLoading: pedidosQuery.isLoading || pagosQuery.isLoading,
     error: pedidosQuery.error || pagosQuery.error,

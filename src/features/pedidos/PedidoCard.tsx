@@ -11,6 +11,7 @@ interface PedidoCardProps {
   onCancelar?: (id: number) => void;
   onRectificar?: (pedido: Pedido) => void;
   isMarking?: boolean;
+  fechaFormateada?: string;
 }
 
 export function PedidoCard({
@@ -22,6 +23,7 @@ export function PedidoCard({
   onCancelar,
   onRectificar,
   isMarking = false,
+  fechaFormateada,
 }: PedidoCardProps) {
   if (estado === 'pendiente') {
     return (
@@ -86,15 +88,22 @@ export function PedidoCard({
 
   return (
     <div className="bg-white/70 rounded-xl border border-[#E4DCC8] p-3.5 flex items-center justify-between gap-2">
-      <div>
-        <p className="font-medium text-[#2C2419] text-sm">
-          {pedido.cliente_nombre}
-          {pedido.rectificado && (
-            <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide bg-[#FCE4E4] text-[#A32D2D] px-1.5 py-0.5 rounded-full align-middle">
-              Rectificado
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <p className="font-medium text-[#2C2419] text-sm">
+            {pedido.cliente_nombre}
+            {pedido.rectificado && (
+              <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide bg-[#FCE4E4] text-[#A32D2D] px-1.5 py-0.5 rounded-full align-middle">
+                Rectificado
+              </span>
+            )}
+          </p>
+          {fechaFormateada && (
+            <span className="text-xs text-[#8A6A2E] bg-[#FCEFD4] px-2 py-0.5 rounded-full">
+              {fechaFormateada}
             </span>
           )}
-        </p>
+        </div>
         <p className="text-xs text-[#8A7A5C] mt-0.5">
           {resumenLineas(pedido.lineas)}
         </p>

@@ -14,6 +14,7 @@ interface ListaPedidosProps {
   onRectificar: (pedido: Pedido) => void;
   onRetry: () => void;
   markingId?: number;
+  formatearFechaEntrega?: (fecha: string) => string;
 }
 
 export function ListaPedidos({
@@ -28,6 +29,7 @@ export function ListaPedidos({
   onRectificar,
   onRetry,
   markingId,
+  formatearFechaEntrega,
 }: ListaPedidosProps) {
   return (
     <div className="flex-1 flex flex-col">
@@ -35,7 +37,17 @@ export function ListaPedidos({
         <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">
           Granja Santo Tomás
         </p>
-        <h1 className="text-2xl font-bold text-[#2C2419] mt-0.5">Pedidos de hoy</h1>
+        <div className="flex items-center justify-between mt-0.5">
+          <h1 className="text-2xl font-bold text-[#2C2419]">Pedidos de hoy</h1>
+          {rol === 'dueño' && (
+            <button
+              onClick={onNuevo}
+              className="flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-2 rounded-lg hover:bg-[#8B4423] transition-colors"
+            >
+              <Plus className="w-4 h-4" /> Nuevo
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-5 pt-4 pb-28">
@@ -88,7 +100,7 @@ export function ListaPedidos({
             {entregados.length > 0 && (
               <>
                 <p className="text-xs font-semibold text-[#6B7A4E] uppercase tracking-wide mb-2">
-                  Entregados hoy — {entregados.length}
+                  Entregados últimos 7 días — {entregados.length}
                 </p>
                 <div className="space-y-2">
                   {entregados.map((p) => (
@@ -98,6 +110,7 @@ export function ListaPedidos({
                       estado="entregado"
                       rol={rol}
                       onRectificar={onRectificar}
+                      fechaFormateada={formatearFechaEntrega && p.entregado_en ? formatearFechaEntrega(p.entregado_en.split('T')[0]) : undefined}
                     />
                   ))}
                 </div>
@@ -107,14 +120,6 @@ export function ListaPedidos({
         )}
       </div>
 
-      {rol === 'dueño' && (
-        <button
-          onClick={onNuevo}
-          className="absolute bottom-6 right-5 flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-5 py-3.5 rounded-full shadow-lg active:scale-95 transition-transform"
-        >
-          <Plus className="w-5 h-5" /> Nuevo pedido
-        </button>
-      )}
     </div>
   );
 }

@@ -1,10 +1,11 @@
-import React from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import * as api from '../api/producciones';
 
 export function useProducciones() {
   const queryClient = useQueryClient();
+  const channelRef = useRef<any>(null);
 
   const query = useQuery({
     queryKey: ['producciones'],
@@ -12,7 +13,9 @@ export function useProducciones() {
   });
 
   // Suscripción a cambios en tiempo real
-  React.useEffect(() => {
+  useEffect(() => {
+    if (channelRef.current) return;
+
     const channel = supabase
       .channel('producciones-changes')
       .on(
@@ -24,8 +27,12 @@ export function useProducciones() {
       )
       .subscribe();
 
+    channelRef.current = channel;
+
     return () => {
-      supabase.removeChannel(channel);
+      if (channelRef.current) {
+        channelRef.current.unsubscribe();
+      }
     };
   }, [queryClient]);
 
