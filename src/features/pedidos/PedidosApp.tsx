@@ -1,7 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { usePedidos, useCrearPedido, useRectificarPedido, useCancelarPedido, useMarcarEntregado } from '../../hooks/usePedidos';
 import { useClientes } from '../../hooks/useClientes';
-import { usePagos } from '../../hooks/usePagos';
 import { useAuth } from '../../auth/useAuth';
 import { ListaPedidos } from './ListaPedidos';
 import { FormPedido } from './FormPedido';
@@ -13,18 +12,6 @@ type Vista = 'lista' | 'nuevo' | 'rectificar';
 function getTodayDate(): string {
   const hoy = new Date();
   return hoy.toISOString().split('T')[0];
-}
-
-function formatearFechaEntrega(fechaIso: string): string {
-  const fecha = new Date(fechaIso + 'T00:00:00');
-  const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-  const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-  const diaSemana = diasSemana[fecha.getDay()];
-  const dia = fecha.getDate();
-  const mes = meses[fecha.getMonth()];
-
-  return `${diaSemana} ${dia} - ${mes}`;
 }
 
 export function PedidosApp() {
@@ -61,7 +48,6 @@ export function PedidosApp() {
 
   const pedidosQuery = usePedidos();
   const clientesQuery = useClientes();
-  const pagosQuery = usePagos();
 
   const crearPedidoMutation = useCrearPedido();
   const rectificarPedidoMutation = useRectificarPedido();
@@ -184,40 +170,6 @@ export function PedidosApp() {
   const pedidos = pedidosQuery.data || [];
   const pendientes = pedidos.filter((p) => p.estado === 'pendiente');
 
-  // Entregados en últimos 7 días con saldo pendiente
-  const hace7Dias = new Date();
-  hace7Dias.setDate(hace7Dias.getDate() - 7);
-  const fecha7DiasAgo = hace7Dias.toISOString().split('T')[0];
-
-  const entregados = useMemo(() => {
-    const pagos = pagosQuery.data || [];
-
-    // Calcular total pagado por cliente
-    const pagoPorCliente = new Map<string, number>();
-    pagos.forEach((p) => {
-      pagoPorCliente.set(p.cliente_id, (pagoPorCliente.get(p.cliente_id) || 0) + p.monto);
-    });
-
-    // Calcular total despachado por cliente (últimos 7 días)
-    const despachoPorCliente = new Map<string, number>();
-    const pedidosEntregados7Dias = pedidos.filter((p) => {
-      if (p.estado !== 'entregado' || !p.entregado_en) return false;
-      const fechaEntrega = p.entregado_en.split('T')[0];
-      return fechaEntrega >= fecha7DiasAgo;
-    });
-
-    pedidosEntregados7Dias.forEach((p) => {
-      despachoPorCliente.set(p.cliente_id, (despachoPorCliente.get(p.cliente_id) || 0) + p.monto_total);
-    });
-
-    // Filtrar solo los que tienen saldo pendiente
-    return pedidosEntregados7Dias.filter((p) => {
-      const totalDespachado = despachoPorCliente.get(p.cliente_id) || 0;
-      const totalPagado = pagoPorCliente.get(p.cliente_id) || 0;
-      return totalDespachado > totalPagado;
-    });
-  }, [pedidos, pagosQuery.data, fecha7DiasAgo]);
-
   const clientes = clientesQuery.data || [];
 
   return (
@@ -227,7 +179,6 @@ export function PedidosApp() {
           {(vista === 'lista' || vista === 'nuevo' || vista === 'rectificar') && (
             <ListaPedidos
               pendientes={pendientes}
-              entregados={entregados}
               loading={pedidosQuery.isLoading}
               error={pedidosQuery.error}
               rol={rol}
@@ -237,7 +188,6 @@ export function PedidosApp() {
               onRectificar={abrirRectificar}
               onRetry={() => pedidosQuery.refetch()}
               markingId={marcarEntregadoMutation.isPending ? undefined : undefined}
-              formatearFechaEntrega={formatearFechaEntrega}
               todosPedidos={pedidos}
             />
           )}

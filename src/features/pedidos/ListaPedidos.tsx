@@ -3,9 +3,20 @@ import type { Pedido, Rol } from '../../types/domain';
 import { PedidoCard } from './PedidoCard';
 import { formatoPedidoId, resumenLineas, formatoPesos } from './helpers';
 
+function formatearFechaHistorico(fechaIso: string): string {
+  const fecha = new Date(fechaIso + 'T00:00:00');
+  const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+  const diaSemana = diasSemana[fecha.getDay()];
+  const dia = fecha.getDate();
+  const mes = meses[fecha.getMonth()];
+
+  return `${diaSemana} ${dia} de ${mes}`;
+}
+
 interface ListaPedidosProps {
   pendientes: Pedido[];
-  entregados: Pedido[];
   loading: boolean;
   error: Error | null;
   rol: Rol | null;
@@ -15,13 +26,11 @@ interface ListaPedidosProps {
   onRectificar: (pedido: Pedido) => void;
   onRetry: () => void;
   markingId?: number;
-  formatearFechaEntrega?: (fecha: string) => string;
   todosPedidos?: Pedido[];
 }
 
 export function ListaPedidos({
   pendientes,
-  entregados,
   loading,
   error,
   rol,
@@ -31,7 +40,6 @@ export function ListaPedidos({
   onRectificar,
   onRetry,
   markingId,
-  formatearFechaEntrega,
   todosPedidos = [],
 }: ListaPedidosProps) {
   return (
@@ -100,25 +108,6 @@ export function ListaPedidos({
               ))}
             </div>
 
-            {entregados.length > 0 && (
-              <>
-                <p className="text-xs font-semibold text-[#6B7A4E] uppercase tracking-wide mb-2">
-                  Entregados últimos 7 días — {entregados.length}
-                </p>
-                <div className="space-y-2">
-                  {entregados.map((p) => (
-                    <PedidoCard
-                      key={p.id}
-                      pedido={p}
-                      estado="entregado"
-                      rol={rol}
-                      onRectificar={onRectificar}
-                      fechaFormateada={formatearFechaEntrega && p.entregado_en ? formatearFechaEntrega(p.entregado_en.split('T')[0]) : undefined}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
 
             {/* Histórico Completo */}
             {todosPedidos.length > 0 && (
@@ -149,7 +138,7 @@ export function ListaPedidos({
                           <div className="text-right shrink-0">
                             <p className="font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</p>
                             <p className="text-[#8A7A5C] text-xs mt-0.5">
-                              {p.fecha_pedido}
+                              {formatearFechaHistorico(p.fecha_pedido)}
                             </p>
                             <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-1 ${
                               p.estado === 'entregado' ? 'bg-[#E8F5E9] text-[#6B7A4E]' :
