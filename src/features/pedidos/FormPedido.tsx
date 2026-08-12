@@ -1,6 +1,6 @@
 import { ChevronLeft, Trash2, Plus } from 'lucide-react';
 import { useState } from 'react';
-import type { Cliente, Rol, LineaPedido, Producto } from '../../types/domain';
+import type { Cliente, Rol, LineaPedido } from '../../types/domain';
 import {
   totalUnidadesGeneric,
   totalPedidoGeneric,

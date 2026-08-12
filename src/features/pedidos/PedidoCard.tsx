@@ -1,11 +1,10 @@
 import { Check, Pencil, X } from 'lucide-react';
-import type { Pedido, Precios, Rol } from '../../types/domain';
-import { formatoPesos, resumenLineas, totalPedido, formatoPedidoId } from './helpers';
+import type { Pedido, Rol } from '../../types/domain';
+import { formatoPesos, resumenLineas, formatoPedidoId } from './helpers';
 
 interface PedidoCardProps {
   pedido: Pedido;
   estado: 'pendiente' | 'entregado';
-  precios?: Precios;
   rol: Rol | null;
   onEntregar?: (id: number) => void;
   onCancelar?: (id: number) => void;
@@ -17,7 +16,6 @@ interface PedidoCardProps {
 export function PedidoCard({
   pedido,
   estado,
-  precios,
   rol,
   onEntregar,
   onCancelar,
@@ -46,7 +44,7 @@ export function PedidoCard({
                 day: '2-digit',
                 month: '2-digit',
                 year: 'numeric'
-              })} · {formatoPesos(totalPedido(pedido.lineas, pedido.precios_snapshot || precios || {}))}
+              })} · {formatoPesos(pedido.monto_total || 0)}
             </p>
           </div>
           <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide bg-[#FCEFD4] text-[#8A5A0B] px-2 py-1 rounded-full">

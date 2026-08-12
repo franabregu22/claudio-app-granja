@@ -1,6 +1,5 @@
 import { Plus, Package, Check, Pencil, X } from 'lucide-react';
 import type { Pedido, Rol } from '../../types/domain';
-import { PedidoCard } from './PedidoCard';
 import { formatoPedidoId, resumenLineas, formatoPesos } from './helpers';
 
 function formatearFechaHistorico(fechaIso: string): string {

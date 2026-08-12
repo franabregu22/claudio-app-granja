@@ -32,7 +32,7 @@ export async function listarPedidos(): Promise<Pedido[]> {
   // Combine pedidos with their lineas and calculate monto_total
   const result = pedidos.map(p => {
     const lineas = lineasByPedidoId[p.id] || [];
-    const calculatedTotal = lineas.reduce((sum, linea) => sum + (Number(linea.subtotal) || 0), 0);
+    const calculatedTotal = lineas.reduce((sum: number, linea: any) => sum + (Number(linea.subtotal) || 0), 0);
 
     // Ensure stored monto_total is a valid number
     const storedTotal = Number(p.monto_total);
