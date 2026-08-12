@@ -1,8 +1,10 @@
 export type Categoria = 'xl' | 'n1' | 'n2' | 'n3' | 'docena';
 export type PedidoEstado = 'pendiente' | 'entregado' | 'cancelado';
-export type MetodoPago = 'efectivo' | 'transferencia' | 'tarjeta' | 'mercadopago' | 'otro';
+export type MetodoPago = 'efectivo' | 'transferencia' | 'tarjeta' | 'mercadopago' | 'otro' | 'cheque' | 'echeq';
 export type Rol = 'dueño' | 'repartidor' | 'colaborador';
+export type ProductoCategoria = 'huevos' | 'cereales' | 'alimento' | 'subproducto' | 'otro';
 
+// Legacy: mantener por compatibilidad temporal
 export interface Lineas {
   xl: number;
   n1: number;
@@ -17,6 +19,26 @@ export interface Precios {
   n2: number;
   n3: number;
   docena: number;
+}
+
+// New: Generic products structure
+export interface Producto {
+  id: string;
+  nombre: string;
+  categoria: ProductoCategoria;
+  precio_actual: number;
+  unidad: string;
+  activo: boolean;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+export interface LineaPedido {
+  producto_id: string;
+  producto_nombre: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
 }
 
 export type ClienteCategoria = 'particular' | 'comercio' | 'distribuidor' | 'feria municipal';
@@ -34,13 +56,17 @@ export interface Pedido {
   id: number;
   cliente_id: string;
   cliente_nombre: string;
-  lineas: Lineas;
-  precios_snapshot: Precios;
+  // Support both old (Lineas object) and new (LineaPedido array) structures
+  lineas?: Lineas | LineaPedido[];
+  precios_snapshot?: Precios;
+  lineas_generic?: LineaPedido[];
   monto_total: number;
   observaciones?: string;
   estado: PedidoEstado;
   rectificado: boolean;
-  fecha_pedido: string;
+  fecha_pedido?: string; // legacy
+  fecha_operacion: string;
+  fecha_pago?: string;
   creado_por: string | null;
   entregado_por: string | null;
   entregado_en: string | null;

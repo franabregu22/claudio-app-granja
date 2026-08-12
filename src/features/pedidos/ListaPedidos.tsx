@@ -1,4 +1,4 @@
-import { Plus, Package } from 'lucide-react';
+import { Plus, Package, Check, Pencil, X } from 'lucide-react';
 import type { Pedido, Rol } from '../../types/domain';
 import { PedidoCard } from './PedidoCard';
 import { formatoPedidoId, resumenLineas, formatoPesos } from './helpers';
@@ -95,16 +95,79 @@ export function ListaPedidos({
 
             <div className="space-y-3 mb-8">
               {pendientes.map((p) => (
-                <PedidoCard
-                  key={p.id}
-                  pedido={p}
-                  estado="pendiente"
-                  rol={rol}
-                  onEntregar={onEntregar}
-                  onCancelar={onCancelar}
-                  onRectificar={onRectificar}
-                  isMarking={markingId === p.id}
-                />
+                <div key={p.id} className="bg-white rounded-xl border border-[#E4DCC8] p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-[#2C2419]">
+                          #{formatoPedidoId(p.id)} · {p.cliente_nombre}
+                        </p>
+                        <span className="shrink-0 bg-[#A8552E] text-white text-sm font-bold px-3 py-1 rounded-lg">
+                          {formatoPesos(p.monto_total)}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide bg-[#FCEFD4] text-[#8A5A0B] px-2 py-1 rounded-full">
+                      Pendiente
+                    </span>
+                  </div>
+
+                  {/* Items como bullets */}
+                  {Array.isArray(p.lineas) && p.lineas.length > 0 && (
+                    <ul className="space-y-1 mb-3 text-sm text-[#2C2419]">
+                      {p.lineas.map((linea, idx) => (
+                        <li key={idx} className="flex justify-between gap-2">
+                          <span>• {linea.cantidad} {linea.producto_nombre}</span>
+                          <span className="text-[#8A7A5C]">{formatoPesos(linea.subtotal)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {p.observaciones && (
+                    <p className="text-xs text-[#8B7355] italic mb-3">📝 {p.observaciones}</p>
+                  )}
+
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-[#A89878]">
+                      {new Date(p.fecha_pedido + 'T00:00:00').toLocaleDateString('es-AR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric'
+                      })}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    {rol === 'dueño' || rol === 'repartidor' ? (
+                      <button
+                        onClick={() => onEntregar?.(p.id)}
+                        disabled={markingId === p.id}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-[#3B6D11] disabled:bg-[#B0C85E] text-white text-sm font-semibold py-2.5 rounded-lg active:scale-95 transition-transform disabled:active:scale-100"
+                      >
+                        <Check className="w-4 h-4" /> Marcar entregado
+                      </button>
+                    ) : null}
+                    {rol === 'dueño' ? (
+                      <>
+                        <button
+                          onClick={() => onRectificar?.(p)}
+                          aria-label="Editar pedido"
+                          className="w-11 flex items-center justify-center bg-[#A8552E] rounded-lg text-white active:scale-95 transition-transform"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => onCancelar?.(p.id)}
+                          aria-label="Cancelar pedido"
+                          className="w-11 flex items-center justify-center bg-[#A8552E] rounded-lg text-white active:scale-95 transition-transform"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
               ))}
             </div>
 
@@ -138,7 +201,7 @@ export function ListaPedidos({
                           <div className="text-right shrink-0">
                             <p className="font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</p>
                             <p className="text-[#8A7A5C] text-xs mt-0.5">
-                              {formatearFechaHistorico(p.fecha_pedido)}
+                              {formatearFechaHistorico(p.fecha_operacion || p.fecha_pedido || '')}
                             </p>
                             <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-1 ${
                               p.estado === 'entregado' ? 'bg-[#E8F5E9] text-[#6B7A4E]' :

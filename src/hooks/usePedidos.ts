@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import * as pedidosApi from '../api/pedidos';
-import type { Pedido, Lineas, Precios } from '../types/domain';
+import type { Pedido, LineaPedido } from '../types/domain';
 
 export function usePedidos(): UseQueryResult<Pedido[], Error> {
   const queryClient = useQueryClient();
@@ -55,8 +55,7 @@ export function useCrearPedido(): UseMutationResult<
   {
     clienteId: string;
     clienteNombre: string;
-    lineas: Lineas;
-    preciosSnapshot: Precios;
+    lineas: LineaPedido[];
     fechaPedido: string;
     observaciones?: string;
   }
@@ -64,8 +63,8 @@ export function useCrearPedido(): UseMutationResult<
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido, observaciones }) =>
-      pedidosApi.crearPedido(clienteId, clienteNombre, lineas, preciosSnapshot, fechaPedido, observaciones),
+    mutationFn: ({ clienteId, clienteNombre, lineas, fechaPedido, observaciones }) =>
+      pedidosApi.crearPedido(clienteId, clienteNombre, lineas, fechaPedido, observaciones),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedidos'] });
     },
@@ -77,8 +76,7 @@ export function useRectificarPedido(): UseMutationResult<
   Error,
   {
     id: number;
-    lineas: Lineas;
-    preciosSnapshot: Precios;
+    lineas: LineaPedido[];
     fechaPedido: string;
     clienteId: string;
     clienteNombre: string;
@@ -88,8 +86,8 @@ export function useRectificarPedido(): UseMutationResult<
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre, observaciones }) =>
-      pedidosApi.rectificarPedido(id, lineas, preciosSnapshot, fechaPedido, clienteId, clienteNombre, observaciones),
+    mutationFn: ({ id, lineas, fechaPedido, clienteId, clienteNombre, observaciones }) =>
+      pedidosApi.rectificarPedido(id, lineas, fechaPedido, clienteId, clienteNombre, observaciones),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedidos'] });
     },

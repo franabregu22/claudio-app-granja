@@ -4,8 +4,8 @@ import { useClientes } from '../../hooks/useClientes';
 import { useAuth } from '../../auth/useAuth';
 import { ListaPedidos } from './ListaPedidos';
 import { FormPedido } from './FormPedido';
-import { lineasVacias } from './helpers';
-import type { Lineas, Precios, Pedido } from '../../types/domain';
+import { lineasGenericasVacias } from './helpers';
+import type { LineaPedido, Pedido } from '../../types/domain';
 
 type Vista = 'lista' | 'nuevo' | 'rectificar';
 
@@ -34,14 +34,7 @@ export function PedidosApp() {
   const [clienteSel, setClienteSel] = useState('');
   const [clienteSelNombre, setClienteSelNombre] = useState('');
   const [clienteNuevo, setClienteNuevo] = useState('');
-  const [lineas, setLineas] = useState<Lineas>(lineasVacias());
-  const [precios, setPrecios] = useState<Precios>({
-    xl: 0,
-    n1: 0,
-    n2: 0,
-    n3: 0,
-    docena: 0,
-  });
+  const [lineas, setLineas] = useState<LineaPedido[]>(lineasGenericasVacias());
   const [fechaPedido, setFechaPedido] = useState(getTodayDate());
   const [observaciones, setObservaciones] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -54,12 +47,11 @@ export function PedidosApp() {
   const cancelarPedidoMutation = useCancelarPedido();
   const marcarEntregadoMutation = useMarcarEntregado();
 
-
   function abrirNuevo() {
     setClienteSel('');
     setClienteSelNombre('');
     setClienteNuevo('');
-    setLineas(lineasVacias());
+    setLineas(lineasGenericasVacias());
     setFechaPedido(getTodayDate());
     setObservaciones('');
     setPedidoEnEdicion(null);
@@ -70,30 +62,17 @@ export function PedidosApp() {
   function abrirRectificar(pedido: Pedido) {
     setClienteSel(pedido.cliente_id);
     setClienteSelNombre(pedido.cliente_nombre);
-    setLineas({ ...pedido.lineas });
-    setPrecios({ ...pedido.precios_snapshot });
-    setFechaPedido(pedido.fecha_pedido);
+    // Support both old and new structure
+    if (Array.isArray(pedido.lineas)) {
+      setLineas([...(pedido.lineas as LineaPedido[])]);
+    } else {
+      setLineas(lineasGenericasVacias());
+    }
+    setFechaPedido(pedido.fecha_operacion || pedido.fecha_pedido || getTodayDate());
     setObservaciones(pedido.observaciones || '');
     setPedidoEnEdicion(pedido);
     setFormError(null);
     setVista('rectificar');
-  }
-
-  function cambiarCantidad(catId: string, delta: number) {
-    setLineas((prev) => ({
-      ...prev,
-      [catId]: Math.max(0, prev[catId as keyof Lineas] + delta),
-    }));
-  }
-
-  function setCantidadDirecta(catId: string, valor: string) {
-    const n = Math.max(0, Math.floor(Number(valor)) || 0);
-    setLineas((prev) => ({ ...prev, [catId]: n }));
-  }
-
-  function cambiarPrecio(catId: string, valor: string) {
-    const n = Math.max(0, Number(valor) || 0);
-    setPrecios((prev) => ({ ...prev, [catId]: n }));
   }
 
   async function guardarPedido() {
@@ -111,9 +90,9 @@ export function PedidosApp() {
         return;
       }
 
-      const total = Object.values(lineas).reduce((a, b) => a + b, 0);
-      if (total === 0) {
-        setFormError('Agrega al menos una cantidad');
+      const totalUnidades = lineas.reduce((acc, l) => acc + l.cantidad, 0);
+      if (totalUnidades === 0) {
+        setFormError('Agrega al menos un producto');
         return;
       }
 
@@ -121,7 +100,6 @@ export function PedidosApp() {
         await rectificarPedidoMutation.mutateAsync({
           id: pedidoEnEdicion.id,
           lineas,
-          preciosSnapshot: precios,
           fechaPedido,
           clienteId: clienteSel,
           clienteNombre: nombreCliente,
@@ -139,7 +117,6 @@ export function PedidosApp() {
           clienteId,
           clienteNombre: nombreCliente,
           lineas,
-          preciosSnapshot: precios,
           fechaPedido,
           observaciones: observaciones || undefined,
         });
@@ -216,10 +193,7 @@ export function PedidosApp() {
                 }
               }}
               lineas={lineas}
-              cambiarCantidad={cambiarCantidad}
-              setCantidadDirecta={setCantidadDirecta}
-              precios={precios}
-              cambiarPrecio={cambiarPrecio}
+              setLineas={setLineas}
               fechaPedido={fechaPedido}
               setFechaPedido={setFechaPedido}
               observaciones={observaciones}
