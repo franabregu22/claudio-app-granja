@@ -120,3 +120,59 @@ export interface User {
   id: string;
   email?: string;
 }
+
+// Caja (Finanzas)
+export type MovimientoTipo = 'ingreso' | 'egreso';
+export type FormaPago = 'efectivo' | 'mercadopago' | 'echeq' | 'cheque';
+export type MovimientoEstado = 'pendiente' | 'confirmado' | 'cancelado';
+export type ChequeEstado = 'emitido' | 'cobrado' | 'rechazado' | 'cancelado';
+
+export interface MovimientoCaja {
+  id: number;
+  tipo: MovimientoTipo;
+  concepto: string;
+  monto: number;
+  forma_pago: FormaPago;
+  fecha_operacion: string;
+  fecha_pago: string;
+  estado: MovimientoEstado;
+  cuenta_origen?: string;
+  cuenta_destino?: string;
+  vinculado_a?: string; // 'pedido', 'pago', 'ninguno'
+  vinculado_id?: number;
+  notas?: string;
+  creado_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+export interface Cheque {
+  id: number;
+  numero: string;
+  banco: string;
+  monto: number;
+  fecha_emision: string;
+  fecha_vencimiento: string;
+  girador: string;
+  estado: ChequeEstado;
+  movimiento_caja_id?: number;
+  notas?: string;
+  creado_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+export interface Comision {
+  id: number;
+  concepto: string;
+  monto: number;
+  porcentaje?: number;
+  base_monto?: number;
+  fecha_operacion: string;
+  estado: MovimientoEstado;
+  movimiento_caja_id?: number;
+  notas?: string;
+  creado_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
