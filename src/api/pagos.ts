@@ -5,22 +5,43 @@ export async function crearPago(
   clienteId: string,
   monto: number,
   metodoPago: MetodoPago,
+  fechaPago: string,
   notas?: string
 ): Promise<Pago> {
-  const { data, error } = await supabase
+  // Crear pago
+  const { data: pago, error: pagoError } = await supabase
     .from('pagos')
     .insert({
       cliente_id: clienteId,
       monto,
       metodo_pago: metodoPago,
       notas: notas || null,
-      fecha_pago: new Date().toISOString().split('T')[0],
+      fecha_pago: fechaPago,
     })
     .select()
     .single();
 
-  if (error) throw error;
-  return data;
+  if (pagoError) throw pagoError;
+
+  // Crear movimiento en Caja automáticamente (ingreso)
+  const { error: cajaError } = await supabase
+    .from('movimientos_caja')
+    .insert({
+      tipo: 'ingreso',
+      concepto: `Pago cliente`,
+      monto,
+      forma_pago: metodoPago === 'mercadopago' ? 'mercadopago' : 'efectivo',
+      fecha_operacion: fechaPago,
+      fecha_pago: fechaPago,
+      estado: 'confirmado',
+      vinculado_a: 'pago',
+      vinculado_id: pago.id,
+      notas: notas ? `Pago de ${notas}` : undefined,
+    });
+
+  if (cajaError) console.error('Error al crear movimiento en Caja:', cajaError);
+
+  return pago;
 }
 
 export async function listarPagosCliente(clienteId: string): Promise<Pago[]> {

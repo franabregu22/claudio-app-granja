@@ -17,9 +17,18 @@ const METODOS_PAGO: Array<{ id: MetodoPago; label: string }> = [
   { id: 'otro', label: 'Otro' },
 ];
 
+function getTodayDate(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) {
   const [monto, setMonto] = useState('');
   const [metodo, setMetodo] = useState<MetodoPago>('efectivo');
+  const [fechaPago, setFechaPago] = useState(getTodayDate());
   const [notas, setNotas] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +54,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         clienteId: cliente.cliente_id,
         monto: montoNum,
         metodoPago: metodo,
+        fechaPago,
         notas: notas || undefined,
       });
       onClose();
@@ -111,6 +121,19 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Fecha de pago */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Fecha del pago
+            </label>
+            <input
+              type="date"
+              value={fechaPago}
+              onChange={(e) => setFechaPago(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600"
+            />
           </div>
 
           {/* Notas */}

@@ -52,15 +52,18 @@ export function useCrearPago() {
       clienteId,
       monto,
       metodoPago,
+      fechaPago,
       notas,
     }: {
       clienteId: string;
       monto: number;
       metodoPago: MetodoPago;
+      fechaPago: string;
       notas?: string;
-    }) => pagoApi.crearPago(clienteId, monto, metodoPago, notas),
+    }) => pagoApi.crearPago(clienteId, monto, metodoPago, fechaPago, notas),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pagos'] });
+      queryClient.invalidateQueries({ queryKey: ['movimientos-caja'] });
     },
   });
 }

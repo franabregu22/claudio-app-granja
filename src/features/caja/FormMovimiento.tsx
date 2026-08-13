@@ -60,18 +60,19 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col">
-      <header className="px-5 pt-6 pb-4 border-b border-[#E4DCC8] flex items-center gap-3">
-        <button
-          onClick={onCancelar}
-          className="w-9 h-9 flex items-center justify-center rounded-full bg-[#A8552E] text-white active:scale-95 transition-transform"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <h1 className="text-lg font-bold text-[#2C2419]">Nuevo movimiento</h1>
-      </header>
+    <div className="min-h-screen bg-stone-100 flex justify-center">
+      <div className="w-full max-w-2xl bg-[#FAF6EE] min-h-screen flex flex-col">
+        <header className="px-5 pt-6 pb-4 border-b border-[#E4DCC8] flex items-center gap-3">
+          <button
+            onClick={onCancelar}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-[#A8552E] text-white active:scale-95 transition-transform"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <h1 className="text-lg font-bold text-[#2C2419]">Nuevo movimiento</h1>
+        </header>
 
-      <div className="flex-1 overflow-y-auto px-5 pt-4 pb-20">
+        <div className="flex-1 overflow-y-auto px-5 pt-4 pb-32">
         {error && (
           <div className="bg-[#FCE4E4] border border-[#E4B0B0] text-[#A32D2D] text-sm px-3 py-2 rounded-lg mb-4">
             {error}
@@ -196,7 +197,7 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-5 bg-[#FAF6EE] border-t border-[#E4DCC8]">
+      <div className="fixed bottom-0 left-0 right-0 p-5 bg-[#FAF6EE] border-t border-[#E4DCC8]">
         <button
           onClick={handleGuardar}
           disabled={crearMutation.isPending || !concepto.trim() || !monto}
@@ -206,5 +207,6 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
         </button>
       </div>
     </div>
+  </div>
   );
 }
