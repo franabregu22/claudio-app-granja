@@ -4,10 +4,12 @@ import { useAuth } from './auth/useAuth';
 import { LoginScreen } from './auth/LoginScreen';
 import { PedidosApp } from './features/pedidos/PedidosApp';
 import { CobrosApp } from './features/cobros/CobrosApp';
+import { CajaApp } from './features/caja/CajaApp';
 import { AdminApp } from './features/admin/AdminApp';
 import { ProductionApp } from './features/production/ProductionApp';
+import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings } from 'lucide-react';
 
-type Tab = 'pedidos' | 'cobros' | 'admin' | 'produccion';
+type Tab = 'pedidos' | 'cobros' | 'caja' | 'admin' | 'produccion';
 
 function App() {
   const { user, rol, loading, signOut } = useAuth();
@@ -25,74 +27,75 @@ function App() {
     return <LoginScreen />;
   }
 
+  const modules = [
+    ...(rol === 'dueño' || rol === 'colaborador' ? [
+      { id: 'produccion' as Tab, label: 'Producción', icon: BarChart3 }
+    ] : []),
+    ...(rol === 'dueño' ? [
+      { id: 'pedidos' as Tab, label: 'Pedidos', icon: ShoppingCart },
+      { id: 'cobros' as Tab, label: 'Cuentas a Cobrar', icon: DollarSign },
+      { id: 'caja' as Tab, label: 'Caja & Finanzas', icon: Wallet },
+      { id: 'admin' as Tab, label: 'Admin', icon: Settings }
+    ] : [])
+  ];
+
   return (
-    <div className="min-h-screen bg-stone-100 flex flex-col">
-      <div className="bg-[#FAF6EE] border-b border-[#E4DCC8] px-5 py-3 flex items-center justify-between">
-        <div className="text-sm font-medium text-[#2C2419]">
-          {user.email} {rol === 'dueño' && <span className="text-xs ml-2 bg-[#FCEFD4] text-[#8A5A0B] px-2 py-1 rounded-full">Dueño</span>}
+    <div className="min-h-screen bg-stone-100 flex">
+      {/* Sidebar */}
+      <div className="w-64 bg-[#2C2419] text-white flex flex-col">
+        {/* Logo */}
+        <div className="p-6 border-b border-[#4A4338]">
+          <p className="text-xs font-semibold tracking-wide text-[#D4AF37] uppercase mb-1">
+            Granja Santo Tomás
+          </p>
+          <p className="text-lg font-bold">Gestión</p>
         </div>
-        <button
-          onClick={signOut}
-          className="text-sm text-[#A8552E] hover:text-[#8B4426] font-medium"
-        >
-          Cerrar sesión
-        </button>
-      </div>
 
-      <div className="bg-[#FAF6EE] border-b border-[#E4DCC8] flex gap-4 px-5">
-        {(rol === 'dueño' || rol === 'colaborador') && (
+        {/* Menu */}
+        <nav className="flex-1 overflow-y-auto py-4">
+          {modules.map((mod) => {
+            const Icon = mod.icon;
+            return (
+              <button
+                key={mod.id}
+                onClick={() => setTab(mod.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${
+                  tab === mod.id
+                    ? 'bg-[#A8552E] text-white border-r-4 border-[#D4AF37]'
+                    : 'text-[#B8A89F] hover:text-white hover:bg-[#3A3430]'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="text-sm font-medium">{mod.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* User Info & Logout */}
+        <div className="border-t border-[#4A4338] p-4 space-y-3">
+          <div className="text-xs">
+            <p className="text-[#D4AF37] font-semibold mb-1">{user.email}</p>
+            <span className="inline-block text-[10px] bg-[#A8552E] text-white px-2 py-1 rounded">
+              {rol === 'dueño' ? 'Administrador' : 'Usuario'}
+            </span>
+          </div>
           <button
-            onClick={() => setTab('produccion')}
-            className={`px-4 py-3 font-medium border-b-2 transition ${
-              tab === 'produccion'
-                ? 'text-[#78350f] border-[#B45309]'
-                : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
-            }`}
+            onClick={signOut}
+            className="w-full flex items-center justify-center gap-2 text-sm text-[#B8A89F] hover:text-white hover:bg-[#3A3430] px-3 py-2 rounded transition-colors"
           >
-            Producción
+            <LogOut className="w-4 h-4" />
+            Cerrar sesión
           </button>
-        )}
-
-        {rol === 'dueño' && (
-          <>
-            <button
-              onClick={() => setTab('pedidos')}
-              className={`px-4 py-3 font-medium border-b-2 transition ${
-                tab === 'pedidos'
-                  ? 'text-[#78350f] border-[#B45309]'
-                  : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
-              }`}
-            >
-              Pedidos
-            </button>
-            <button
-              onClick={() => setTab('cobros')}
-              className={`px-4 py-3 font-medium border-b-2 transition ${
-                tab === 'cobros'
-                  ? 'text-[#78350f] border-[#B45309]'
-                  : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
-              }`}
-            >
-              Cuentas a Cobrar
-            </button>
-            <button
-              onClick={() => setTab('admin')}
-              className={`px-4 py-3 font-medium border-b-2 transition ${
-                tab === 'admin'
-                  ? 'text-[#78350f] border-[#B45309]'
-                  : 'text-[#A8886A] border-transparent hover:text-[#78350f]'
-              }`}
-            >
-              Admin
-            </button>
-          </>
-        )}
+        </div>
       </div>
 
-      <div className="flex-1 p-6">
+      {/* Main Content */}
+      <div className="flex-1 min-h-screen">
         {tab === 'produccion' && <ProductionApp />}
         {tab === 'pedidos' && <PedidosApp />}
         {tab === 'cobros' && <CobrosApp />}
+        {tab === 'caja' && <CajaApp />}
         {tab === 'admin' && <AdminApp />}
       </div>
     </div>
