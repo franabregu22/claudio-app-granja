@@ -23,23 +23,43 @@ export async function crearPago(
 
   if (pagoError) throw pagoError;
 
+  console.log('Pago creado:', pago.id, 'Creando movimiento en Caja...');
+
+  // Mapear forma de pago
+  const formasPago: Record<MetodoPago, 'efectivo' | 'mercadopago' | 'echeq' | 'cheque'> = {
+    'efectivo': 'efectivo',
+    'transferencia': 'efectivo',
+    'tarjeta': 'mercadopago',
+    'mercadopago': 'mercadopago',
+    'otro': 'efectivo',
+    'cheque': 'cheque',
+    'echeq': 'echeq',
+  };
+
   // Crear movimiento en Caja automáticamente (ingreso)
-  const { error: cajaError } = await supabase
+  const { data: movimiento, error: cajaError } = await supabase
     .from('movimientos_caja')
     .insert({
       tipo: 'ingreso',
-      concepto: `Pago cliente`,
+      concepto: 'Pago cliente',
       monto,
-      forma_pago: metodoPago === 'mercadopago' ? 'mercadopago' : 'efectivo',
+      forma_pago: formasPago[metodoPago] || 'efectivo',
       fecha_operacion: fechaPago,
       fecha_pago: fechaPago,
       estado: 'confirmado',
       vinculado_a: 'pago',
       vinculado_id: pago.id,
-      notas: notas ? `Pago de ${notas}` : undefined,
-    });
+      notas: notas ? `Pago: ${notas}` : 'Pago registrado en Cobros',
+    })
+    .select()
+    .single();
 
-  if (cajaError) console.error('Error al crear movimiento en Caja:', cajaError);
+  if (cajaError) {
+    console.error('Error al crear movimiento en Caja:', cajaError);
+    throw new Error(`Pago creado pero no se registró en Caja: ${cajaError.message}`);
+  }
+
+  console.log('Movimiento en Caja creado:', movimiento.id);
 
   return pago;
 }
