@@ -10,21 +10,29 @@ type Vista = 'lista' | 'nuevo';
 type Periodo = 'hoy' | 'semana' | 'mes' | 'custom';
 
 function getTodayDate(): string {
-  return new Date().toISOString().split('T')[0];
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function getStartOfWeek(): string {
   const today = new Date();
   const day = today.getDay();
   const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(today.setDate(diff));
-  return monday.toISOString().split('T')[0];
+  const monday = new Date(today.getFullYear(), today.getMonth(), diff);
+  const year = monday.getFullYear();
+  const month = String(monday.getMonth() + 1).padStart(2, '0');
+  const dateStr = String(monday.getDate()).padStart(2, '0');
+  return `${year}-${month}-${dateStr}`;
 }
 
 function getStartOfMonth(): string {
   const today = new Date();
-  const first = new Date(today.getFullYear(), today.getMonth(), 1);
-  return first.toISOString().split('T')[0];
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01`;
 }
 
 export function CajaApp() {
