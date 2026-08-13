@@ -134,6 +134,19 @@ export async function crearComision(
   return data;
 }
 
+// Anular movimiento
+export async function anularMovimiento(id: number, motivo?: string): Promise<void> {
+  const { error } = await supabase
+    .from('movimientos_caja')
+    .update({
+      estado: 'cancelado',
+      notas: motivo ? `ANULADO: ${motivo}` : 'ANULADO',
+    })
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
 // Resumen de Caja (para dashboard)
 export async function obtenerResumenCaja(fecha: string): Promise<{
   ingresos: number;

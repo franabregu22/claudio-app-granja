@@ -115,3 +115,19 @@ export function useResumenCaja(fecha: string) {
     queryFn: () => cajaApi.obtenerResumenCaja(fecha),
   });
 }
+
+export function useAnularMovimiento(): UseMutationResult<
+  void,
+  Error,
+  { id: number; motivo?: string }
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, motivo }) => cajaApi.anularMovimiento(id, motivo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['movimientos-caja'] });
+      queryClient.invalidateQueries({ queryKey: ['resumen-caja'] });
+    },
+  });
+}

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Plus, AlertTriangle } from 'lucide-react';
-import { useMovimientosCaja, useCheques } from '../../hooks/useCaja';
+import { useMovimientosCaja, useCheques, useAnularMovimiento } from '../../hooks/useCaja';
 import { useAuth } from '../../auth/useAuth';
 import { ListaMovimientos } from './ListaMovimientos';
 import { FormMovimiento } from './FormMovimiento';
@@ -44,6 +44,7 @@ export function CajaApp() {
 
   const movimientosQuery = useMovimientosCaja();
   const chequesQuery = useCheques();
+  const anularMutation = useAnularMovimiento();
 
   if (rol !== 'dueño') {
     return (
@@ -327,7 +328,10 @@ export function CajaApp() {
               <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-3">
                 Movimientos Detallados
               </p>
-              <ListaMovimientos movimientos={movimientosFiltrados} />
+              <ListaMovimientos
+                movimientos={movimientosFiltrados}
+                onAnular={(id, motivo) => anularMutation.mutateAsync({ id, motivo })}
+              />
             </div>
           )}
 
