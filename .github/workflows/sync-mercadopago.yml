@@ -1,0 +1,26 @@
+name: Sync MercadoPago to Caja
+
+on:
+  schedule:
+    # Ejecuta cada 4 horas (0, 4, 8, 12, 16, 20 UTC)
+    - cron: '0 */4 * * *'
+
+  # También permite ejecución manual desde GitHub
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    name: Sincronizar transacciones de MercadoPago
+
+    steps:
+      - name: Ejecutar sync de MercadoPago
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.SYNC_SECRET_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.SUPABASE_FUNCTION_URL }}/sync-mercadopago" \
+            -d '{}'
+
+      - name: Log resultado
+        run: echo "Sincronización completada"
