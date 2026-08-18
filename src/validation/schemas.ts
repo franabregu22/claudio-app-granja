@@ -3,7 +3,7 @@ import { z } from 'zod';
 // ===== AUTH =====
 export const loginSchema = z.object({
   email: z.string().email('Email inválido').trim().toLowerCase(),
-  password: z.string().min(8, 'Min 8 caracteres').max(128, 'Max 128 caracteres'),
+  password: z.string().min(3, 'Min 3 caracteres').max(128, 'Max 128 caracteres'),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 

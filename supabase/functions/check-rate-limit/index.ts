@@ -16,12 +16,40 @@ interface RateLimitResponse {
   message: string;
 }
 
+const getCorsHeaders = (origin: string | null) => {
+  const allowedOrigins = [
+    "https://santotomasapp.netlify.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+  ];
+
+  const corsOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+
+  return {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": corsOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+};
+
 serve(async (req) => {
+  const origin = req.headers.get("origin");
+  const corsHeaders = getCorsHeaders(origin);
+
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
+  }
+
   // Only POST allowed
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), {
       status: 405,
-      headers: { "Content-Type": "application/json" },
+      headers: corsHeaders,
     });
   }
 
@@ -31,7 +59,7 @@ serve(async (req) => {
     if (!ip) {
       return new Response(
         JSON.stringify({ error: "IP address required" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -71,7 +99,7 @@ serve(async (req) => {
           attemptsRemaining: MAX_ATTEMPTS,
           message: "Rate limit check passed",
         } as RateLimitResponse),
-        { status: 200, headers: { "Content-Type": "application/json" } }
+        { status: 200, headers: corsHeaders }
       );
     }
 
@@ -93,7 +121,7 @@ serve(async (req) => {
           attemptsRemaining: MAX_ATTEMPTS,
           message: "Rate limit check passed",
         } as RateLimitResponse),
-        { status: 200, headers: { "Content-Type": "application/json" } }
+        { status: 200, headers: corsHeaders }
       );
     }
 
@@ -116,7 +144,7 @@ serve(async (req) => {
                 (lockoutUntil.getTime() - new Date().getTime()) / 60000
               )} minutos.`,
             } as RateLimitResponse),
-            { status: 429, headers: { "Content-Type": "application/json" } }
+            { status: 429, headers: corsHeaders }
           );
         }
       }
@@ -131,13 +159,13 @@ serve(async (req) => {
         attemptsRemaining,
         message: "Rate limit check passed",
       } as RateLimitResponse),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: corsHeaders }
     );
   } catch (error) {
     console.error("Error:", error);
     return new Response(
       JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: 500, headers: corsHeaders }
     );
   }
 });
