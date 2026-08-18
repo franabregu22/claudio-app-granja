@@ -43,6 +43,7 @@ export function CajaApp() {
   const [periodo, setPeriodo] = useState<Periodo>('mes');
   const [fechaDesde, setFechaDesde] = useState(getStartOfMonth());
   const [fechaHasta, setFechaHasta] = useState(getTodayDate());
+  const [mostrarImportarSheets, setMostrarImportarSheets] = useState(false);
 
   const movimientosQuery = useMovimientosCaja();
   const chequesQuery = useCheques();
@@ -167,13 +168,14 @@ export function CajaApp() {
 
       if (!m.categoria_tecnica) {
         // Gastos sin categoría
-        if (!sinCategoria.categorias[categoria]) {
-          sinCategoria.categorias[categoria] = {};
+        const cats = sinCategoria.categorias as Record<string, Record<string, number>>;
+        if (!cats[categoria]) {
+          cats[categoria] = {};
         }
-        if (!sinCategoria.categorias[categoria][subcategoria]) {
-          sinCategoria.categorias[categoria][subcategoria] = 0;
+        if (!cats[categoria][subcategoria]) {
+          cats[categoria][subcategoria] = 0;
         }
-        sinCategoria.categorias[categoria][subcategoria] += m.monto;
+        cats[categoria][subcategoria] += m.monto;
         sinCategoria.total += m.monto;
       } else {
         // Gastos categorizados

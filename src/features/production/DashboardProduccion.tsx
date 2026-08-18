@@ -72,7 +72,6 @@ export function DashboardProduccion({ producciones, lotes }: DashboardProduccion
   );
   const metricasMes = calcularMetricasMes(
     producciones,
-    lotes,
     inicioMesActualStr,
     inicioMesPasadoStr,
     finMesActualStr,

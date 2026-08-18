@@ -49,8 +49,14 @@ export function useCrearLote() {
       aves_iniciales_postura: number;
       linea?: string;
       lote_id?: string;
+      estado?: 'Activo' | 'Retirado' | 'Planificado';
+      fecha_salida?: string | null;
       notas?: string;
-    }) => api.crearLote(data),
+    }) => api.crearLote({
+      ...data,
+      estado: (data.estado || 'Activo') as 'Activo' | 'Retirado' | 'Planificado',
+      fecha_salida: data.fecha_salida || null,
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['lotes'] });
     },

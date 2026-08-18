@@ -119,7 +119,6 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
         url_factura: urlFactura || undefined,
         notas: notas.trim() || undefined,
         aplica_impuesto_cheque: aplicaImpuesto && puedeAplicarImpuesto,
-        creado_por: user.id,
       });
       onGuardar();
     } catch (err) {

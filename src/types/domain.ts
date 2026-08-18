@@ -80,7 +80,9 @@ export interface Pago {
   monto: number;
   metodo_pago: MetodoPago;
   fecha_pago: string;
+  estado?: MovimientoEstado;
   notas?: string;
+  creado_por?: string;
   creado_en: string;
 }
 
