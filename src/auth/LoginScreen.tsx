@@ -1,31 +1,44 @@
 import { useState } from 'react';
+import { z } from 'zod';
 import { supabase } from '../lib/supabase';
+import { loginSchema } from '../validation/schemas';
+import { useFormValidation } from '../hooks/useFormValidation';
 
 export function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    try {
+  const { isSubmitting, generalError, handleSubmit } = useFormValidation({
+    schema: loginSchema,
+    onSubmit: async (data) => {
       const { error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: data.email,
+        password: data.password,
       });
 
       if (authError) {
-        setError(authError.message);
+        throw new Error(authError.message);
       }
-    } catch (err) {
-      setError('Error al iniciar sesión. Intenta de nuevo.');
-    } finally {
-      setLoading(false);
+    },
+  });
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFieldErrors({});
+
+    const result = loginSchema.safeParse({ email, password });
+    if (!result.success) {
+      const errors: Record<string, string> = {};
+      const zodError = result.error as any;
+      zodError.errors?.forEach((err: any) => {
+        errors[err.path[0] as string] = err.message;
+      });
+      setFieldErrors(errors);
+      return;
     }
+
+    await handleSubmit({ email, password });
   }
 
   return (
@@ -38,7 +51,7 @@ export function LoginScreen() {
           <h1 className="text-2xl font-bold text-[#2C2419] mt-2">Pedidos</h1>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-4">
+        <form onSubmit={handleLoginSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-2">
               Correo electrónico
@@ -47,11 +60,16 @@ export function LoginScreen() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] placeholder:text-[#B3A484]"
+              className={`w-full border rounded-lg px-3 py-2.5 bg-white text-[#2C2419] placeholder:text-[#B3A484] ${
+                fieldErrors.email ? 'border-red-500' : 'border-[#D8CDB0]'
+              }`}
               placeholder="tu@email.com"
-              disabled={loading}
+              disabled={isSubmitting}
               required
             />
+            {fieldErrors.email && (
+              <p className="text-red-600 text-xs mt-1">{fieldErrors.email}</p>
+            )}
           </div>
 
           <div>
@@ -62,25 +80,30 @@ export function LoginScreen() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] placeholder:text-[#B3A484]"
+              className={`w-full border rounded-lg px-3 py-2.5 bg-white text-[#2C2419] placeholder:text-[#B3A484] ${
+                fieldErrors.password ? 'border-red-500' : 'border-[#D8CDB0]'
+              }`}
               placeholder="••••••••"
-              disabled={loading}
+              disabled={isSubmitting}
               required
             />
+            {fieldErrors.password && (
+              <p className="text-red-600 text-xs mt-1">{fieldErrors.password}</p>
+            )}
           </div>
 
-          {error && (
+          {generalError && (
             <div className="bg-[#FCE4E4] border border-[#E4B0B0] text-[#A32D2D] text-sm px-3 py-2 rounded-lg">
-              {error}
+              {generalError}
             </div>
           )}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={isSubmitting}
             className="w-full bg-[#A8552E] hover:bg-[#8B4426] disabled:bg-[#D8CDB0] text-white font-semibold py-3 rounded-lg transition-colors disabled:text-[#A89878]"
           >
-            {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
+            {isSubmitting ? 'Iniciando sesión...' : 'Iniciar sesión'}
           </button>
         </form>
 
