@@ -101,10 +101,28 @@ export interface Perfil {
   created_at: string;
 }
 
+export type LoteEstado = 'Activo' | 'Retirado' | 'Planificado';
+
+export interface Lote {
+  id: string;
+  galpon: string;
+  fecha_entrada: string;
+  fecha_salida: string | null;
+  aves_iniciales_postura: number;
+  linea?: string;
+  lote_id?: string;
+  estado: LoteEstado;
+  notas?: string;
+  creado_por: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
 export interface Produccion {
   id: string;
   fecha: string;
   galpon: string;
+  lote_id?: string;
   huevos_sanos_mediodia: number;
   huevos_cachados_mediodia: number;
   huevos_sanos_tarde: number;
@@ -123,9 +141,12 @@ export interface User {
 
 // Caja (Finanzas)
 export type MovimientoTipo = 'ingreso' | 'egreso';
-export type FormaPago = 'efectivo' | 'mercadopago' | 'echeq' | 'cheque';
+export type FormaPago = 'efectivo' | 'mercadopago' | 'echeq' | 'cheque' | 'transferencia';
 export type MovimientoEstado = 'pendiente' | 'confirmado' | 'cancelado';
+export type NaturalezaGasto = 'gasto_operativo' | 'reinversion_operativa' | 'inversion' | 'distribucion_ganancias' | 'ajuste_contable';
 export type ChequeEstado = 'emitido' | 'cobrado' | 'rechazado' | 'cancelado';
+
+export type CategoriaAnalisis = 'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION';
 
 export interface MovimientoCaja {
   id: number;
@@ -136,10 +157,21 @@ export interface MovimientoCaja {
   fecha_operacion: string;
   fecha_pago: string;
   estado: MovimientoEstado;
+  categoria?: string;
+  subcategoria?: string;
+  categoria_tecnica?: string;
+  categoria_analisis?: CategoriaAnalisis;
+  impuesto_cheque?: number;
+  naturaleza_gasto?: NaturalezaGasto;
   cuenta_origen?: string;
   cuenta_destino?: string;
-  vinculado_a?: string; // 'pedido', 'pago', 'ninguno'
-  vinculado_id?: number;
+  vinculado_a?: string; // 'pedido', 'pago', 'impuesto_cheque', 'ninguno'
+  vinculado_id?: string | number;
+  aplica_impuesto_cheque?: boolean;
+  es_facturada?: boolean;
+  alicuota_iva?: number;
+  monto_iva?: number;
+  url_factura?: string;
   notas?: string;
   creado_por: string | null;
   creado_en: string;

@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import { ClientesAdmin } from './ClientesAdmin';
 import { PreciosAdmin } from './PreciosAdmin';
+import { LotesAdmin } from './LotesAdmin';
+import { CategoriasAdmin } from './CategoriasAdmin';
 
-type Tab = 'clientes' | 'precios';
+type Tab = 'clientes' | 'precios' | 'lotes' | 'categorias';
 
 export function AdminApp() {
   const { rol } = useAuth();
@@ -51,12 +53,34 @@ export function AdminApp() {
           >
             Precios
           </button>
+          <button
+            onClick={() => setTab('lotes')}
+            className={`px-4 py-3 font-medium border-b-2 transition ${
+              tab === 'lotes'
+                ? 'text-amber-900 border-amber-600'
+                : 'text-gray-600 border-transparent hover:text-amber-900'
+            }`}
+          >
+            Maestro de Lotes
+          </button>
+          <button
+            onClick={() => setTab('categorias')}
+            className={`px-4 py-3 font-medium border-b-2 transition ${
+              tab === 'categorias'
+                ? 'text-amber-900 border-amber-600'
+                : 'text-gray-600 border-transparent hover:text-amber-900'
+            }`}
+          >
+            Categorías
+          </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto p-6">
           {tab === 'clientes' && <ClientesAdmin />}
           {tab === 'precios' && <PreciosAdmin />}
+          {tab === 'lotes' && <LotesAdmin />}
+          {tab === 'categorias' && <CategoriasAdmin />}
         </div>
       </div>
     </div>

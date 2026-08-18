@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Upload, X } from 'lucide-react';
 import { useCrearMovimientoCaja } from '../../hooks/useCaja';
-import type { MovimientoTipo, FormaPago } from '../../types/domain';
+import { useAuth } from '../../auth/useAuth';
+import { subirFactura } from '../../api/caja';
+import { CATEGORIAS_EGRESOS, CATEGORIAS_INGRESOS, NATURALEZA_LABELS } from '../../constants/categorias-caja';
+import type { MovimientoTipo, FormaPago, NaturalezaGasto } from '../../types/domain';
 
 interface FormMovimientoProps {
   onGuardar: () => void;
@@ -18,6 +21,7 @@ function getTodayDate(): string {
 
 export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
   const crearMutation = useCrearMovimientoCaja();
+  const { user } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
   const [tipo, setTipo] = useState<MovimientoTipo>('ingreso');
@@ -27,12 +31,62 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
   const [fechaOperacion, setFechaOperacion] = useState(getTodayDate());
   const [fechaPago, setFechaPago] = useState(getTodayDate());
   const [notas, setNotas] = useState('');
+  const [aplicaImpuesto, setAplicaImpuesto] = useState(true);
+  const [categoria, setCategoria] = useState('');
+  const [subcategoria, setSubcategoria] = useState('');
+  const [naturalezaGasto, setNaturalezaGasto] = useState<NaturalezaGasto>('gasto_operativo');
+  const [esFacturada, setEsFacturada] = useState(false);
+  const [alicuotaIva, setAlicuotaIva] = useState(21);
+  const [urlFactura, setUrlFactura] = useState('');
+  const [previewFactura, setPreviewFactura] = useState('');
+  const [subiendo, setSubiendo] = useState(false);
+
+  const categorias = tipo === 'ingreso' ? CATEGORIAS_INGRESOS : CATEGORIAS_EGRESOS;
+  const categoriaActual = categorias.find((c) => c.categoria === categoria);
+  const subcategorias = categoriaActual?.subcategorias || [];
+
+  const formasPagables = ['transferencia', 'mercadopago', 'cheque', 'echeq'];
+  const puedeAplicarImpuesto = formasPagables.includes(formaPago);
+
+  const montoNum = parseFloat(monto) || 0;
+  const montoIva = esFacturada ? (montoNum * alicuotaIva) / 100 : 0;
+  const montoNeto = montoNum - montoIva;
+
+  async function handleSubirFactura(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSubiendo(true);
+    setError(null);
+
+    try {
+      // Mostrar preview
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setPreviewFactura(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+
+      // Subir a Supabase Storage
+      const url = await subirFactura(file);
+      setUrlFactura(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al subir factura');
+    } finally {
+      setSubiendo(false);
+    }
+  }
 
   async function handleGuardar() {
     setError(null);
 
-    if (!concepto.trim()) {
-      setError('El concepto es requerido');
+    if (!categoria) {
+      setError('La categoría es requerida');
+      return;
+    }
+
+    if (!subcategoria) {
+      setError('La subcategoría es requerida');
       return;
     }
 
@@ -43,15 +97,29 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
     }
 
     try {
+      if (!user?.id) {
+        setError('Usuario no autenticado');
+        return;
+      }
+
       await crearMutation.mutateAsync({
         tipo,
-        concepto: concepto.trim(),
+        concepto: concepto.trim() || categoria,
         monto: montoNum,
         forma_pago: formaPago,
         fecha_operacion: fechaOperacion,
         fecha_pago: fechaPago,
         estado: 'confirmado',
+        categoria,
+        subcategoria,
+        naturaleza_gasto: tipo === 'egreso' ? naturalezaGasto : undefined,
+        es_facturada: esFacturada,
+        alicuota_iva: esFacturada ? alicuotaIva : 0,
+        monto_iva: montoIva,
+        url_factura: urlFactura || undefined,
         notas: notas.trim() || undefined,
+        aplica_impuesto_cheque: aplicaImpuesto && puedeAplicarImpuesto,
+        creado_por: user.id,
       });
       onGuardar();
     } catch (err) {
@@ -108,14 +176,83 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
           </div>
         </div>
 
-        {/* Concepto */}
+        {/* Categoría */}
         <div className="mb-4">
           <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
-            Concepto
+            Categoría
+          </label>
+          <select
+            value={categoria}
+            onChange={(e) => {
+              setCategoria(e.target.value);
+              setSubcategoria('');
+              if (tipo === 'egreso') {
+                const cat = categorias.find((c) => c.categoria === e.target.value);
+                if (cat?.naturalezaDefault) {
+                  setNaturalezaGasto(cat.naturalezaDefault);
+                }
+              }
+            }}
+            className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
+          >
+            <option value="">Seleccionar categoría</option>
+            {categorias.map((cat) => (
+              <option key={cat.categoria} value={cat.categoria}>
+                {cat.categoria}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Subcategoría */}
+        {categoria && (
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+              Subcategoría
+            </label>
+            <select
+              value={subcategoria}
+              onChange={(e) => setSubcategoria(e.target.value)}
+              className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
+            >
+              <option value="">Seleccionar subcategoría</option>
+              {subcategorias.map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Naturaleza de gasto (solo para egresos) */}
+        {tipo === 'egreso' && (
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+              Tipo de gasto
+            </label>
+            <select
+              value={naturalezaGasto}
+              onChange={(e) => setNaturalezaGasto(e.target.value as NaturalezaGasto)}
+              className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
+            >
+              <option value="gasto_operativo">Gasto Operativo</option>
+              <option value="reinversion_operativa">Reinversión Operativa</option>
+              <option value="inversion">Inversión</option>
+              <option value="distribucion_ganancias">Distribución de Ganancias</option>
+              <option value="ajuste_contable">Ajuste Contable</option>
+            </select>
+          </div>
+        )}
+
+        {/* Concepto (opcional) */}
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+            Detalles / Notas
           </label>
           <input
             type="text"
-            placeholder="Ej: Venta de huevos, Pago de sueldo"
+            placeholder="Ej: Factura #123, Cliente X"
             value={concepto}
             onChange={(e) => setConcepto(e.target.value)}
             className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
@@ -138,7 +275,94 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
               className="flex-1 border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
             />
           </div>
+          {esFacturada && montoNeto > 0 && (
+            <div className="mt-2 text-xs text-[#8A7A5C]">
+              <p>IVA {alicuotaIva}%: ${montoIva.toFixed(2)}</p>
+              <p className="font-semibold">Neto: ${montoNeto.toFixed(2)}</p>
+            </div>
+          )}
         </div>
+
+        {/* Factura */}
+        <div className="mb-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={esFacturada}
+              onChange={(e) => setEsFacturada(e.target.checked)}
+              className="w-4 h-4 rounded border-[#D8CDB0]"
+            />
+            <span className="text-sm font-medium text-[#2C2419]">¿Tiene factura?</span>
+          </label>
+        </div>
+
+        {esFacturada && (
+          <>
+            {/* Alícuota IVA */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+                Alícuota IVA
+              </label>
+              <select
+                value={alicuotaIva}
+                onChange={(e) => setAlicuotaIva(parseFloat(e.target.value))}
+                className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
+              >
+                <option value={0}>Sin IVA</option>
+                <option value={5}>5%</option>
+                <option value={10.5}>10.5%</option>
+                <option value={21}>21%</option>
+              </select>
+            </div>
+
+            {/* Upload Factura */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+                📷 Foto de factura
+              </label>
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleSubirFactura}
+                  disabled={subiendo}
+                  className="hidden"
+                  id="factura-input"
+                />
+                <label
+                  htmlFor="factura-input"
+                  className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-[#D8CDB0] rounded-lg px-3 py-4 bg-[#FAF6EE] cursor-pointer hover:bg-white transition-colors"
+                >
+                  <Upload className="w-5 h-5 text-[#A8552E]" />
+                  <span className="text-sm text-[#2C2419] font-medium">
+                    {subiendo ? 'Subiendo...' : urlFactura ? '✓ Factura cargada' : 'Subir factura'}
+                  </span>
+                </label>
+              </div>
+
+              {/* Preview */}
+              {previewFactura && (
+                <div className="mt-3 relative">
+                  <img
+                    src={previewFactura}
+                    alt="Preview factura"
+                    className="w-full rounded-lg border border-[#D8CDB0] max-h-48 object-cover"
+                  />
+                  <button
+                    onClick={() => {
+                      setPreviewFactura('');
+                      setUrlFactura('');
+                    }}
+                    className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Forma de pago */}
         <div className="mb-4">
@@ -181,6 +405,28 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
             className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
           />
         </div>
+
+        {/* Impuesto al Cheque */}
+        {puedeAplicarImpuesto && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={aplicaImpuesto}
+                onChange={(e) => setAplicaImpuesto(e.target.checked)}
+                className="w-4 h-4 rounded border-[#D8CDB0]"
+              />
+              <span className="text-sm font-medium text-[#2C2419]">
+                Aplicar impuesto al cheque (0.6%)
+              </span>
+            </label>
+            {aplicaImpuesto && (
+              <p className="text-xs text-blue-700 mt-2">
+                Se descenderá automáticamente ${(parseFloat(monto) * 0.006 || 0).toFixed(2)} en impuesto
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Notas */}
         <div className="mb-4">

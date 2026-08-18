@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useCrearPago } from '../../hooks/usePagos';
+import { useMovimientosDisponibles } from '../../hooks/useCaja';
 import type { ClienteSaldo, MetodoPago } from '../../types/domain';
 import { formatoPesos } from '../pedidos/helpers';
 
@@ -31,35 +32,75 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
   const [fechaPago, setFechaPago] = useState(getTodayDate());
   const [notas, setNotas] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [movimientoSeleccionado, setMovimientoSeleccionado] = useState<number | null>(null);
 
   const crearPagoMutation = useCrearPago();
+  const movimientosDisponiblesQuery = useMovimientosDisponibles();
 
   async function guardarPago(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    const montoNum = Number(monto);
-    if (!montoNum || montoNum <= 0) {
-      setError('Ingresa un monto válido');
-      return;
-    }
+    // Si se selecciona un movimiento, usar su monto
+    if (movimientoSeleccionado) {
+      const movimiento = movimientosDisponiblesQuery.data?.find(m => m.id === movimientoSeleccionado);
+      if (!movimiento) {
+        setError('Movimiento no encontrado');
+        return;
+      }
 
-    if (montoNum > cliente.saldo) {
-      setError(`El monto supera el saldo (${formatoPesos(cliente.saldo)})`);
-      return;
-    }
+      // Extraer monto bruto de las notas si existe (para MercadoPago)
+      let montoAVincular = movimiento.monto;
+      if (movimiento.notas && movimiento.notas.includes('Bruto:')) {
+        const match = movimiento.notas.match(/Bruto:\s*\$?([\d.]+)/);
+        if (match && match[1]) {
+          montoAVincular = Number(match[1]);
+        }
+      }
 
-    try {
-      await crearPagoMutation.mutateAsync({
-        clienteId: cliente.cliente_id,
-        monto: montoNum,
-        metodoPago: metodo,
-        fechaPago,
-        notas: notas || undefined,
-      });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar pago');
+      if (montoAVincular > cliente.saldo) {
+        setError(`El monto (${formatoPesos(montoAVincular)}) supera el saldo (${formatoPesos(cliente.saldo)})`);
+        return;
+      }
+
+      try {
+        await crearPagoMutation.mutateAsync({
+          clienteId: cliente.cliente_id,
+          monto: montoAVincular,
+          metodoPago: metodo,
+          fechaPago: movimiento.fecha_operacion,
+          notas: notas || undefined,
+          movimientoCajaId: movimiento.id,
+        });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al guardar pago');
+      }
+    } else {
+      // Flujo normal de ingreso manual
+      const montoNum = Number(monto);
+      if (!montoNum || montoNum <= 0) {
+        setError('Ingresa un monto válido');
+        return;
+      }
+
+      if (montoNum > cliente.saldo) {
+        setError(`El monto supera el saldo (${formatoPesos(cliente.saldo)})`);
+        return;
+      }
+
+      try {
+        await crearPagoMutation.mutateAsync({
+          clienteId: cliente.cliente_id,
+          monto: montoNum,
+          metodoPago: metodo,
+          fechaPago,
+          notas: notas || undefined,
+        });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error al guardar pago');
+      }
     }
   }
 
@@ -84,57 +125,94 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         </div>
 
         <form onSubmit={guardarPago} className="space-y-4">
-          {/* Monto */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Monto a registrar
-            </label>
-            <input
-              type="number"
-              value={monto}
-              onChange={(e) => setMonto(e.target.value)}
-              placeholder="0"
-              step="1"
-              min="0"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600"
-            />
-          </div>
-
-          {/* Método de pago */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Método de pago
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {METODOS_PAGO.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setMetodo(m.id)}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    metodo === m.id
-                      ? 'bg-amber-600 text-white'
-                      : 'bg-stone-100 text-gray-700 hover:bg-stone-200'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
+          {/* Seleccionar movimiento existente o ingresar manual */}
+          {movimientosDisponiblesQuery.data && movimientosDisponiblesQuery.data.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                ¿Vincular movimiento de Caja existente?
+              </label>
+              <select
+                value={movimientoSeleccionado || ''}
+                onChange={(e) => setMovimientoSeleccionado(e.target.value ? Number(e.target.value) : null)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600"
+              >
+                <option value="">— Ingresar monto manual —</option>
+                {movimientosDisponiblesQuery.data.map((mov) => {
+                  // Extraer bruto si existe
+                  let montoMostrar = mov.monto;
+                  if (mov.notas && mov.notas.includes('Bruto:')) {
+                    const match = mov.notas.match(/Bruto:\s*\$?([\d.]+)/);
+                    if (match && match[1]) {
+                      montoMostrar = Number(match[1]);
+                    }
+                  }
+                  return (
+                    <option key={mov.id} value={mov.id}>
+                      {mov.concepto} ({formatoPesos(montoMostrar)}) - {mov.fecha_operacion}
+                    </option>
+                  );
+                })}
+              </select>
             </div>
-          </div>
+          )}
 
-          {/* Fecha de pago */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Fecha del pago
-            </label>
-            <input
-              type="date"
-              value={fechaPago}
-              onChange={(e) => setFechaPago(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600"
-            />
-          </div>
+          {/* Monto (solo si no se selecciona movimiento) */}
+          {!movimientoSeleccionado && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Monto a registrar
+              </label>
+              <input
+                type="number"
+                value={monto}
+                onChange={(e) => setMonto(e.target.value)}
+                placeholder="0"
+                step="1"
+                min="0"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600"
+              />
+            </div>
+          )}
+
+          {/* Método de pago (solo si no se selecciona movimiento) */}
+          {!movimientoSeleccionado && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Método de pago
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {METODOS_PAGO.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setMetodo(m.id)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                      metodo === m.id
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-stone-100 text-gray-700 hover:bg-stone-200'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Fecha de pago (solo si no se selecciona movimiento) */}
+          {!movimientoSeleccionado && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Fecha del pago
+              </label>
+              <input
+                type="date"
+                value={fechaPago}
+                onChange={(e) => setFechaPago(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600"
+              />
+            </div>
+          )}
 
           {/* Notas */}
           <div>

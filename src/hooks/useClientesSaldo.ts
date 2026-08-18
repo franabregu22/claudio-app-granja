@@ -37,10 +37,10 @@ export function useClientesSaldo() {
       cliente.pedidos.push(pedido);
     });
 
-    // Sumar pagos por cliente
+    // Sumar pagos confirmados por cliente (ignorar cancelados)
     pagos.forEach((pago) => {
       const cliente = clienteMap.get(pago.cliente_id);
-      if (cliente) {
+      if (cliente && pago.estado !== 'cancelado') {
         cliente.totalPagado += pago.monto;
         cliente.pagos.push(pago);
       }

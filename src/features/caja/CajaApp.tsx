@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, AlertTriangle } from 'lucide-react';
+import { Plus, AlertTriangle, Download } from 'lucide-react';
 import { useMovimientosCaja, useCheques, useAnularMovimiento } from '../../hooks/useCaja';
 import { useAuth } from '../../auth/useAuth';
 import { ListaMovimientos } from './ListaMovimientos';
@@ -10,6 +10,8 @@ type Vista = 'lista' | 'nuevo';
 type Periodo = 'hoy' | 'semana' | 'mes' | 'custom';
 
 function getTodayDate(): string {
+
+
   const today = new Date();
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -82,26 +84,54 @@ export function CajaApp() {
     );
   }, [movimientos, desde, hasta]);
 
-  // Calcular resumen
+  // Calcular resumen por categoría analítica
   const resumen = useMemo(() => {
     let ingresos = 0;
-    let egresos = 0;
+    let egresosOperativos = 0;
+    let egresosReinversion = 0;
+    let egresosInversion = 0;
 
     movimientosFiltrados.forEach((m) => {
       if (m.estado === 'confirmado') {
         if (m.tipo === 'ingreso') {
           ingresos += m.monto;
         } else {
-          egresos += m.monto;
+          switch (m.categoria_analisis) {
+            case 'GASTOS_OPERATIVOS':
+              egresosOperativos += m.monto;
+              break;
+            case 'REINVERSION_OPERATIVA':
+              egresosReinversion += m.monto;
+              break;
+            case 'INVERSION':
+              egresosInversion += m.monto;
+              break;
+            default:
+              egresosOperativos += m.monto;
+          }
         }
       }
     });
 
+    const egresosTotal = egresosOperativos + egresosReinversion + egresosInversion;
+    const balanceOperativo = ingresos - egresosOperativos;
+
     return {
       ingresos,
-      egresos,
-      balance: ingresos - egresos,
+      egresosOperativos,
+      egresosReinversion,
+      egresosInversion,
+      egresosTotal,
+      balance: ingresos - egresosTotal,
+      balanceOperativo,
     };
+  }, [movimientosFiltrados]);
+
+  // Calcular total impuesto al cheque
+  const totalImpuestoAlCheque = useMemo(() => {
+    return movimientosFiltrados
+      .filter((m) => m.estado === 'confirmado')
+      .reduce((sum, m) => sum + (m.impuesto_cheque || 0), 0);
   }, [movimientosFiltrados]);
 
   // Cheques próximos a vencer (30 días)
@@ -117,27 +147,63 @@ export function CajaApp() {
     });
   }, [chequesQuery.data]);
 
-  // Agrupación de movimientos por concepto
-  const movimientosPorConcepto = useMemo(() => {
-    const grupos: Record<string, { ingresos: number; egresos: number; count: number }> = {};
+  // Agrupación por clasificación analítica → categoría técnica → subcategorías (solo egresos)
+  const resumenPorClasificacion = useMemo(() => {
+    const clasificaciones: Record<string, any> = {
+      GASTOS_OPERATIVOS: { label: 'Operativo', categorias: {}, total: 0 },
+      REINVERSION_OPERATIVA: { label: 'Reinversión', categorias: {}, total: 0 },
+      INVERSION: { label: 'Inversión', categorias: {}, total: 0 },
+    };
+
+    let sinCategoria = { label: 'Sin Categoría', categorias: {}, total: 0 };
 
     movimientosFiltrados.forEach((m) => {
-      if (m.estado !== 'confirmado') return;
-      if (!grupos[m.concepto]) {
-        grupos[m.concepto] = { ingresos: 0, egresos: 0, count: 0 };
-      }
-      if (m.tipo === 'ingreso') {
-        grupos[m.concepto].ingresos += m.monto;
+      // Solo procesar egresos confirmados
+      if (m.estado !== 'confirmado' || m.tipo !== 'egreso') return;
+
+      const clasificacion = m.categoria_analisis || 'GASTOS_OPERATIVOS';
+      const categoria = m.categoria_tecnica || 'Sin categoría';
+      const subcategoria = m.subcategoria || 'Sin subcategoría';
+
+      if (!m.categoria_tecnica) {
+        // Gastos sin categoría
+        if (!sinCategoria.categorias[categoria]) {
+          sinCategoria.categorias[categoria] = {};
+        }
+        if (!sinCategoria.categorias[categoria][subcategoria]) {
+          sinCategoria.categorias[categoria][subcategoria] = 0;
+        }
+        sinCategoria.categorias[categoria][subcategoria] += m.monto;
+        sinCategoria.total += m.monto;
       } else {
-        grupos[m.concepto].egresos += m.monto;
+        // Gastos categorizados
+        if (!clasificaciones[clasificacion].categorias[categoria]) {
+          clasificaciones[clasificacion].categorias[categoria] = {};
+        }
+        if (!clasificaciones[clasificacion].categorias[categoria][subcategoria]) {
+          clasificaciones[clasificacion].categorias[categoria][subcategoria] = 0;
+        }
+        clasificaciones[clasificacion].categorias[categoria][subcategoria] += m.monto;
+        clasificaciones[clasificacion].total += m.monto;
       }
-      grupos[m.concepto].count += 1;
     });
 
-    return Object.entries(grupos).map(([concepto, data]) => ({
-      concepto,
-      ...data,
-    }));
+    // Ordenar y retornar
+    const resultado = [];
+
+    // Agregar clasificaciones con gastos
+    Object.entries(clasificaciones).forEach(([key, data]) => {
+      if (data.total > 0) {
+        resultado.push({ key, ...data });
+      }
+    });
+
+    // Agregar gastos sin categoría al final
+    if (sinCategoria.total > 0) {
+      resultado.push({ key: 'SIN_CATEGORIA', ...sinCategoria });
+    }
+
+    return resultado;
   }, [movimientosFiltrados]);
 
   if (vista === 'nuevo') {
@@ -231,35 +297,51 @@ export function CajaApp() {
 
         {/* Contenido Principal */}
         <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
-          {/* Tarjetas de Resumen */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+          {/* Tarjetas de Resumen - Primera fila */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <p className="text-xs text-green-700 font-semibold uppercase mb-1">Ingresos</p>
               <p className="text-2xl font-bold text-green-700">{formatoPesos(resumen.ingresos)}</p>
             </div>
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-xs text-red-700 font-semibold uppercase mb-1">Egresos</p>
-              <p className="text-2xl font-bold text-red-700">{formatoPesos(resumen.egresos)}</p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <p className="text-xs text-amber-700 font-semibold uppercase mb-1">Gasto Operativo</p>
+              <p className="text-2xl font-bold text-amber-700">{formatoPesos(resumen.egresosOperativos)}</p>
             </div>
             <div className={`${
-              resumen.balance >= 0
+              resumen.balanceOperativo >= 0
                 ? 'bg-blue-50 border border-blue-200'
                 : 'bg-orange-50 border border-orange-200'
             } rounded-lg p-4`}>
               <p className={`text-xs font-semibold uppercase mb-1 ${
-                resumen.balance >= 0 ? 'text-blue-700' : 'text-orange-700'
+                resumen.balanceOperativo >= 0 ? 'text-blue-700' : 'text-orange-700'
               }`}>
-                Balance
+                Balance Operativo
               </p>
               <p className={`text-2xl font-bold ${
-                resumen.balance >= 0 ? 'text-blue-700' : 'text-orange-700'
+                resumen.balanceOperativo >= 0 ? 'text-blue-700' : 'text-orange-700'
               }`}>
-                {formatoPesos(resumen.balance)}
+                {formatoPesos(resumen.balanceOperativo)}
               </p>
+            </div>
+          </div>
+
+          {/* Tarjetas de Resumen - Segunda fila */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-4">
+              <p className="text-xs text-violet-700 font-semibold uppercase mb-1">Reinversión Op.</p>
+              <p className="text-2xl font-bold text-violet-700">{formatoPesos(resumen.egresosReinversion)}</p>
+            </div>
+            <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-4">
+              <p className="text-xs text-cyan-700 font-semibold uppercase mb-1">Inversión</p>
+              <p className="text-2xl font-bold text-cyan-700">{formatoPesos(resumen.egresosInversion)}</p>
             </div>
             <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
               <p className="text-xs text-purple-700 font-semibold uppercase mb-1">Cheques</p>
               <p className="text-2xl font-bold text-purple-700">{chequesPorVencer.length}</p>
+            </div>
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+              <p className="text-xs text-indigo-700 font-semibold uppercase mb-1">Impuesto Cheque</p>
+              <p className="text-2xl font-bold text-indigo-700">{formatoPesos(totalImpuestoAlCheque)}</p>
             </div>
           </div>
 
@@ -287,37 +369,47 @@ export function CajaApp() {
             </div>
           )}
 
-          {/* Análisis por Concepto */}
-          {movimientosPorConcepto.length > 0 && (
+          {/* Análisis por Categoría */}
+          {resumenPorClasificacion.length > 0 && (
             <div className="mb-6">
-              <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-3">
-                Análisis por Concepto
+              <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
+                Resumen por Categoría
               </p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#D8CDB0]">
-                      <th className="text-left px-3 py-2 text-[#6B5D45] font-semibold">Concepto</th>
-                      <th className="text-right px-3 py-2 text-[#6B5D45] font-semibold">Ingresos</th>
-                      <th className="text-right px-3 py-2 text-[#6B5D45] font-semibold">Egresos</th>
-                      <th className="text-right px-3 py-2 text-[#6B5D45] font-semibold">Movs</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {movimientosPorConcepto.map((item) => (
-                      <tr key={item.concepto} className="border-b border-[#E4DCC8] hover:bg-white/50">
-                        <td className="px-3 py-2 text-[#2C2419]">{item.concepto}</td>
-                        <td className="text-right px-3 py-2 text-green-700 font-medium">
-                          {item.ingresos > 0 ? formatoPesos(item.ingresos) : '—'}
-                        </td>
-                        <td className="text-right px-3 py-2 text-red-700 font-medium">
-                          {item.egresos > 0 ? formatoPesos(item.egresos) : '—'}
-                        </td>
-                        <td className="text-right px-3 py-2 text-[#8A7A5C]">{item.count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-6">
+                {resumenPorClasificacion.map((clasificacion) => (
+                  <div key={clasificacion.key} className="border border-[#D8CDB0] rounded-lg overflow-hidden bg-white">
+                    {/* Header de clasificación */}
+                    <div className="bg-amber-50 px-4 py-3 border-b border-[#D8CDB0] flex items-center justify-between">
+                      <h3 className="font-bold text-[#2C2419] text-sm uppercase">
+                        {clasificacion.label}
+                      </h3>
+                      <p className="text-red-700 font-bold">{formatoPesos(clasificacion.total)}</p>
+                    </div>
+
+                    {/* Categorías técnicas dentro de la clasificación */}
+                    <div className="p-4 space-y-3">
+                      {Object.entries(clasificacion.categorias).map(([categoria, subcategorias]) => {
+                        // Ordenar subcategorías por monto descendente
+                        const subcatOrdenadas = Object.entries(subcategorias as Record<string, number>)
+                          .sort((a, b) => b[1] - a[1]);
+
+                        return (
+                          <div key={categoria} className="border-l-4 border-amber-300 pl-3">
+                            <p className="text-sm font-semibold text-[#2C2419] mb-2">{categoria}</p>
+                            <div className="space-y-1 text-xs text-[#8A7A5C]">
+                              {subcatOrdenadas.map(([subcategoria, monto]) => (
+                                <div key={subcategoria} className="flex justify-between">
+                                  <span>• {subcategoria}</span>
+                                  <span className="font-medium text-red-700">{formatoPesos(monto)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -342,13 +434,23 @@ export function CajaApp() {
           )}
         </div>
 
-        {/* Botón flotante */}
-        <button
-          onClick={() => setVista('nuevo')}
-          className="fixed bottom-6 right-6 flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-3 rounded-lg hover:bg-[#8B4423] transition-colors shadow-lg"
-        >
-          <Plus className="w-5 h-5" /> Nuevo movimiento
-        </button>
+        {/* Botones flotantes */}
+        <div className="fixed bottom-6 right-6 flex flex-col gap-3">
+          <button
+            onClick={() => setMostrarImportarSheets(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white font-semibold px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
+            title="Importar desde Google Sheets"
+          >
+            <Download className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setVista('nuevo')}
+            className="flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-3 rounded-lg hover:bg-[#8B4423] transition-colors shadow-lg"
+          >
+            <Plus className="w-5 h-5" /> Nuevo
+          </button>
+        </div>
+
       </div>
     </div>
   );

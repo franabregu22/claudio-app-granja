@@ -9,10 +9,18 @@ export function useMovimientosCaja(desde?: string, hasta?: string): UseQueryResu
   });
 }
 
+export function useMovimientosDisponibles(): UseQueryResult<MovimientoCaja[], Error> {
+  return useQuery({
+    queryKey: ['movimientos-caja-disponibles'],
+    queryFn: () => cajaApi.listarMovimientosDisponibles(),
+    staleTime: 30000,
+  });
+}
+
 export function useCrearMovimientoCaja(): UseMutationResult<
   MovimientoCaja,
   Error,
-  Omit<MovimientoCaja, 'id' | 'creado_en' | 'actualizado_en' | 'creado_por'>
+  Omit<MovimientoCaja, 'id' | 'creado_en' | 'actualizado_en' | 'creado_por'> & { aplica_impuesto_cheque?: boolean }
 > {
   const queryClient = useQueryClient();
 
@@ -20,6 +28,7 @@ export function useCrearMovimientoCaja(): UseMutationResult<
     mutationFn: (movimiento) => cajaApi.crearMovimientoCaja(movimiento),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['movimientos-caja'] });
+      queryClient.invalidateQueries({ queryKey: ['resumen-caja'] });
     },
   });
 }
@@ -128,6 +137,7 @@ export function useAnularMovimiento(): UseMutationResult<
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['movimientos-caja'] });
       queryClient.invalidateQueries({ queryKey: ['resumen-caja'] });
+      queryClient.invalidateQueries({ queryKey: ['pagos'] });
     },
   });
 }

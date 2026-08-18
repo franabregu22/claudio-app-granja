@@ -93,20 +93,49 @@ export function ListaClientes({
                           Pedidos entregados
                         </h3>
                         <div className="space-y-2">
-                          {cliente.pedidos.map((pedido) => (
-                            <div
-                              key={pedido.id}
-                              className="bg-white p-3 rounded border border-gray-200 text-sm"
-                            >
-                              <div className="font-medium text-gray-800">Pedido #{formatoPedidoId(pedido.id)}</div>
-                              <div className="text-xs text-gray-600 mt-1">
-                                {pedido.entregado_en}
+                          {cliente.pedidos.map((pedido) => {
+                            const lineas = Array.isArray(pedido.lineas) ? pedido.lineas : [];
+                            const fechaPedido = pedido.fecha_operacion || pedido.fecha_pedido;
+
+                            return (
+                              <div
+                                key={pedido.id}
+                                className="bg-white p-3 rounded border border-gray-200 text-sm"
+                              >
+                                <div className="font-medium text-gray-800">Pedido #{formatoPedidoId(pedido.id)}</div>
+                                <div className="text-xs text-gray-600 mt-1">
+                                  Cargado: {fechaPedido ? new Date(fechaPedido).toLocaleDateString('es-AR') : '-'}
+                                </div>
+                                {pedido.entregado_en && (
+                                  <div className="text-xs text-gray-600">
+                                    Entregado: {new Date(pedido.entregado_en).toLocaleDateString('es-AR')}
+                                  </div>
+                                )}
+
+                                {/* Detalle de líneas */}
+                                {lineas.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-gray-200">
+                                    <div className="space-y-1">
+                                      {lineas.map((linea: any, idx: number) => (
+                                        <div key={idx} className="flex justify-between text-xs">
+                                          <span className="text-gray-700">
+                                            {linea.producto_nombre || 'Producto'} x{linea.cantidad}
+                                          </span>
+                                          <span className="text-gray-600">
+                                            {formatoPesos(linea.subtotal || 0)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="text-sm font-semibold text-green-600 mt-2">
+                                  {formatoPesos(pedido.monto_total)}
+                                </div>
                               </div>
-                              <div className="text-sm font-semibold text-green-600 mt-1">
-                                {formatoPesos(pedido.monto_total)}
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
 

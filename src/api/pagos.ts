@@ -6,8 +6,20 @@ export async function crearPago(
   monto: number,
   metodoPago: MetodoPago,
   fechaPago: string,
-  notas?: string
+  notas?: string,
+  movimientoCajaId?: number
 ): Promise<Pago> {
+  // Obtener nombre del cliente
+  const { data: cliente, error: clienteError } = await supabase
+    .from('clientes')
+    .select('nombre')
+    .eq('id', clienteId)
+    .single();
+
+  if (clienteError || !cliente) {
+    throw new Error('Cliente no encontrado');
+  }
+
   // Crear pago
   const { data: pago, error: pagoError } = await supabase
     .from('pagos')
@@ -36,30 +48,51 @@ export async function crearPago(
     'echeq': 'echeq',
   };
 
-  // Crear movimiento en Caja automáticamente (ingreso)
-  const { data: movimiento, error: cajaError } = await supabase
-    .from('movimientos_caja')
-    .insert({
-      tipo: 'ingreso',
-      concepto: 'Pago cliente',
-      monto,
-      forma_pago: formasPago[metodoPago] || 'efectivo',
-      fecha_operacion: fechaPago,
-      fecha_pago: fechaPago,
-      estado: 'confirmado',
-      vinculado_a: 'pago',
-      vinculado_id: pago.id,
-      notas: notas ? `Pago: ${notas}` : 'Pago registrado en Cobros',
-    })
-    .select()
-    .single();
+  // Si se proporciona un movimiento existente, vincularlo; si no, crear uno nuevo
+  if (movimientoCajaId) {
+    // Vincular a movimiento existente
+    const { error: vincularError } = await supabase
+      .from('movimientos_caja')
+      .update({
+        vinculado_a: 'pago',
+        vinculado_id: pago.id,
+        cliente_id: clienteId,
+      })
+      .eq('id', movimientoCajaId);
 
-  if (cajaError) {
-    console.error('Error al crear movimiento en Caja:', cajaError);
-    throw new Error(`Pago creado pero no se registró en Caja: ${cajaError.message}`);
+    if (vincularError) {
+      console.error('Error al vincular movimiento:', vincularError);
+      throw new Error(`Pago creado pero no se pudo vincular el movimiento: ${vincularError.message}`);
+    }
+
+    console.log('Movimiento vinculado:', movimientoCajaId);
+  } else {
+    // Crear movimiento nuevo
+    const { data: movimiento, error: cajaError } = await supabase
+      .from('movimientos_caja')
+      .insert({
+        tipo: 'ingreso',
+        concepto: `Cobro - ${cliente.nombre}`,
+        monto,
+        forma_pago: formasPago[metodoPago] || 'efectivo',
+        fecha_operacion: fechaPago,
+        fecha_pago: fechaPago,
+        estado: 'confirmado',
+        vinculado_a: 'pago',
+        vinculado_id: pago.id,
+        cliente_id: clienteId,
+        notas: notas || null,
+      })
+      .select()
+      .single();
+
+    if (cajaError) {
+      console.error('Error al crear movimiento en Caja:', cajaError);
+      throw new Error(`Pago creado pero no se registró en Caja: ${cajaError.message}`);
+    }
+
+    console.log('Movimiento en Caja creado:', movimiento.id);
   }
-
-  console.log('Movimiento en Caja creado:', movimiento.id);
 
   return pago;
 }

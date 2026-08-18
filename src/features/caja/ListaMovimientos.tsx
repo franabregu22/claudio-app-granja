@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Trash2, X } from 'lucide-react';
+import { Trash2, X, Edit2 } from 'lucide-react';
 import type { MovimientoCaja } from '../../types/domain';
 import { formatoPesos } from '../pedidos/helpers';
+import { ModalEditarCategoria } from './ModalEditarCategoria';
 
 interface ListaMovimientosProps {
   movimientos: MovimientoCaja[];
@@ -12,6 +13,7 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
   const [anularId, setAnularId] = useState<number | null>(null);
   const [motivo, setMotivo] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [movimientoEnEdicion, setMovimientoEnEdicion] = useState<MovimientoCaja | null>(null);
   if (movimientos.length === 0) {
     return (
       <div className="border border-dashed border-[#D8CDB0] rounded-lg p-6 text-center">
@@ -46,7 +48,7 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
             }`}
           >
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <p className={`font-semibold ${m.estado === 'cancelado' ? 'line-through text-[#8A7A5C]' : 'text-[#2C2419]'}`}>
                   {m.concepto}
                 </p>
@@ -65,10 +67,24 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
                 }`}>
                   {m.forma_pago}
                 </span>
+                {m.tipo === 'egreso' && (
+                  <button
+                    onClick={() => setMovimientoEnEdicion(m)}
+                    className="flex items-center gap-1 text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 hover:bg-orange-200 transition-colors"
+                    title="Editar categoría"
+                  >
+                    {m.categoria_tecnica || 'Sin categoría'}
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                )}
               </div>
-              {m.notas && (
-                <p className="text-xs text-[#8A7A5C] mt-1">{m.notas}</p>
-              )}
+              <div className="flex gap-4 mt-1 text-xs text-[#8A7A5C]">
+                <p className="font-medium">{m.fecha_operacion}</p>
+                {m.notas && <p>{m.notas}</p>}
+                {m.impuesto_cheque && m.impuesto_cheque > 0 && (
+                  <p className="font-semibold text-indigo-700">Impuesto: ${m.impuesto_cheque.toFixed(1)}</p>
+                )}
+              </div>
               {m.estado !== 'confirmado' && (
                 <p className="text-xs text-[#A89878] mt-1">Estado: {m.estado}</p>
               )}
@@ -94,6 +110,18 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
           </div>
         ))}
       </div>
+
+      {/* Modal de edición de categoría */}
+      {movimientoEnEdicion && (
+        <ModalEditarCategoria
+          movimiento={movimientoEnEdicion}
+          onClose={() => setMovimientoEnEdicion(null)}
+          onGuardar={() => {
+            setMovimientoEnEdicion(null);
+            // Opcional: refetch movimientos aquí si es necesario
+          }}
+        />
+      )}
 
       {/* Modal de anulación */}
       {anularId && (
