@@ -6,7 +6,22 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "https://santotomasapp.netlify.app",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Content-Type": "application/json",
+};
+
 serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
+  }
+
   try {
     // Validate authorization
     const authHeader = req.headers.get("Authorization");
@@ -15,7 +30,7 @@ serve(async (req) => {
     if (!authHeader || !edgeSecret) {
       return new Response(JSON.stringify({ error: "Missing configuration" }), {
         status: 500,
-        headers: { "Content-Type": "application/json" },
+        headers: corsHeaders,
       });
     }
 
@@ -23,12 +38,15 @@ serve(async (req) => {
     if (token !== edgeSecret) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
-        headers: { "Content-Type": "application/json" },
+        headers: corsHeaders,
       });
     }
 
     if (req.method !== "POST") {
-      return new Response("POST only", { status: 405 });
+      return new Response(JSON.stringify({ error: "POST only" }), {
+        status: 405,
+        headers: corsHeaders,
+      });
     }
 
     const clientId = Deno.env.get("MERCADOPAGO_CLIENT_ID");
@@ -47,7 +65,7 @@ serve(async (req) => {
     if (!token) {
       return new Response(JSON.stringify({ success: false, error: "No token" }), {
         status: 400,
-        headers: { "Content-Type": "application/json" },
+        headers: corsHeaders,
       });
     }
 
@@ -172,7 +190,7 @@ serve(async (req) => {
       }),
       {
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: corsHeaders,
       }
     );
   } catch (error) {
@@ -181,7 +199,7 @@ serve(async (req) => {
       JSON.stringify({ success: false, error: String(error) }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json" },
+        headers: corsHeaders,
       }
     );
   }
