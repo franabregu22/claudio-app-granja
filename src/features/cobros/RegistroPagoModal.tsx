@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useCrearPago } from '../../hooks/usePagos';
 import { useMovimientosDisponibles } from '../../hooks/useCaja';
+import { getTodayDate } from '../../utils/dateUtils';
 import type { ClienteSaldo, MetodoPago } from '../../types/domain';
 import { formatoPesos } from '../pedidos/helpers';
 
@@ -17,14 +18,6 @@ const METODOS_PAGO: Array<{ id: MetodoPago; label: string }> = [
   { id: 'mercadopago', label: 'MercadoPago' },
   { id: 'otro', label: 'Otro' },
 ];
-
-function getTodayDate(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) {
   const [monto, setMonto] = useState('');

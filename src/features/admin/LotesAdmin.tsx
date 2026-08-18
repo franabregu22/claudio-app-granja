@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Trash2, Check } from 'lucide-react';
 import { useLotes, useCrearLote, useActualizarLote } from '../../hooks/useLotes';
+import { getTodayDate } from '../../utils/dateUtils';
 import type { Lote } from '../../types/domain';
 
 export function LotesAdmin() {
@@ -10,10 +11,10 @@ export function LotesAdmin() {
 
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const [loteParaMarcarSalida, setLoteParaMarcarSalida] = useState<string | null>(null);
-  const [fechaSalida, setFechaSalida] = useState(new Date().toISOString().split('T')[0]);
+  const [fechaSalida, setFechaSalida] = useState(getTodayDate());
   const [formData, setFormData] = useState({
     galpon: 'Galpón 1',
-    fecha_entrada: new Date().toISOString().split('T')[0],
+    fecha_entrada: getTodayDate(),
     aves_iniciales_postura: '',
     linea: '',
     lote_id: '',
@@ -33,7 +34,7 @@ export function LotesAdmin() {
       });
       setFormData({
         galpon: 'Galpón 1',
-        fecha_entrada: new Date().toISOString().split('T')[0],
+        fecha_entrada: getTodayDate(),
         aves_iniciales_postura: '',
         linea: '',
         lote_id: '',
@@ -41,7 +42,7 @@ export function LotesAdmin() {
       });
       setMostrarFormulario(false);
     } catch (err) {
-      console.error('Error al crear lote:', err);
+      throw err;
     }
   };
 

@@ -5,19 +5,10 @@ import { useAuth } from '../../auth/useAuth';
 import { ListaMovimientos } from './ListaMovimientos';
 import { FormMovimiento } from './FormMovimiento';
 import { formatoPesos } from '../pedidos/helpers';
+import { getTodayDate } from '../../utils/dateUtils';
 
 type Vista = 'lista' | 'nuevo';
 type Periodo = 'hoy' | 'semana' | 'mes' | 'custom';
-
-function getTodayDate(): string {
-
-
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 function getStartOfWeek(): string {
   const today = new Date();

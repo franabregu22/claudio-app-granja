@@ -3,20 +3,13 @@ import { ChevronLeft, Upload, X } from 'lucide-react';
 import { useCrearMovimientoCaja } from '../../hooks/useCaja';
 import { useAuth } from '../../auth/useAuth';
 import { subirFactura } from '../../api/caja';
+import { getTodayDate } from '../../utils/dateUtils';
 import { CATEGORIAS_EGRESOS, CATEGORIAS_INGRESOS, NATURALEZA_LABELS } from '../../constants/categorias-caja';
 import type { MovimientoTipo, FormaPago, NaturalezaGasto } from '../../types/domain';
 
 interface FormMovimientoProps {
   onGuardar: () => void;
   onCancelar: () => void;
-}
-
-function getTodayDate(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {

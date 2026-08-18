@@ -58,7 +58,6 @@ export function useRateLimit() {
 
       return data;
     } catch (err) {
-      console.error('Rate limit check failed:', err);
       // Fail open - allow attempt if rate limit check fails
       return {
         allowed: true,

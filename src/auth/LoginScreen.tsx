@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import { supabase } from '../lib/supabase';
 import { loginSchema } from '../validation/schemas';
 import { useFormValidation } from '../hooks/useFormValidation';

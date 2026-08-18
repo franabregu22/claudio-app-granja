@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getTodayDate } from '../../utils/dateUtils';
 import type { Produccion } from '../../types/domain';
 
 interface FormProduccionProps {
@@ -16,7 +17,7 @@ export function FormProduccion({
   produccionEnEdicion,
   onCancelar,
 }: FormProduccionProps) {
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [fecha, setFecha] = useState(getTodayDate());
   const [galpon, setGalpon] = useState(galpones[0]);
   const [huevosSanosMediodia, setHuevosSanosMediodia] = useState(0);
   const [huevosCachadosMediodia, setHuevosCachadosMediodia] = useState(0);

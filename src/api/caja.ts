@@ -49,8 +49,6 @@ export async function crearMovimientoCaja(
   const { aplica_impuesto_cheque, creado_por, ...resto } = movimiento as any;
   const movimientoData = { ...resto, creado_por };
 
-  console.log('Insertando movimiento:', movimientoData);
-
   const { data, error } = await supabase
     .from('movimientos_caja')
     .insert([movimientoData])
@@ -58,7 +56,6 @@ export async function crearMovimientoCaja(
     .single();
 
   if (error) {
-    console.error('Error de Supabase:', error);
     throw new Error(`${error.message} (${error.code})`);
   }
 
@@ -83,7 +80,6 @@ export async function crearMovimientoCaja(
       }]);
 
     if (impuestoError) {
-      console.error('Error al crear impuesto al cheque:', impuestoError);
       throw new Error(`Error al crear impuesto: ${impuestoError.message}`);
     }
   }

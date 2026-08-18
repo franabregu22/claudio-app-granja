@@ -75,7 +75,7 @@ serve(async (req) => {
     });
 
     if (logError) {
-      console.error("Error logging attempt:", logError);
+      // Log attempt failed - continue with rate limit check
     }
 
     // 2. Check if IP is currently locked out
@@ -162,7 +162,6 @@ serve(async (req) => {
       { status: 200, headers: corsHeaders }
     );
   } catch (error) {
-    console.error("Error:", error);
     return new Response(
       JSON.stringify({ error: "Internal server error" }),
       { status: 500, headers: corsHeaders }

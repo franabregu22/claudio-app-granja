@@ -1,26 +1,5 @@
 import { CATEGORIAS } from '../../constants/categorias';
-import type { Lineas, Precios, LineaPedido, Producto } from '../../types/domain';
-
-export function lineasVacias(): Lineas {
-  return {
-    xl: 0,
-    n1: 0,
-    n2: 0,
-    n3: 0,
-    docena: 0,
-  };
-}
-
-export function totalUnidades(lineas: Lineas): number {
-  return Object.values(lineas).reduce((a, b) => a + b, 0);
-}
-
-export function totalPedido(lineas: Lineas, precios: Precios): number {
-  return CATEGORIAS.reduce(
-    (acc, c) => acc + lineas[c.id] * (precios[c.id] || 0),
-    0
-  );
-}
+import type { Lineas, LineaPedido, Producto } from '../../types/domain';
 
 export function formatoPesos(n: number | null | undefined): string {
   const num = Number(n) || 0;
@@ -68,14 +47,11 @@ export function totalUnidadesGeneric(lineas: LineaPedido[]): number {
 
 export function totalPedidoGeneric(lineas: LineaPedido[]): number {
   if (!lineas || !Array.isArray(lineas)) return 0;
-  console.log('totalPedidoGeneric recibió:', JSON.stringify(lineas, null, 2));
   const result = lineas.reduce((acc, linea) => {
     if (!linea) return acc;
     const subtotal = typeof linea.subtotal === 'string' ? Number(linea.subtotal) : linea.subtotal || 0;
-    console.log(`Línea ${linea.producto_nombre}: subtotal=${subtotal}, acc=${acc}`);
     return acc + (isNaN(subtotal) ? 0 : subtotal);
   }, 0);
-  console.log('totalPedidoGeneric resultado:', result);
   return result;
 }
 

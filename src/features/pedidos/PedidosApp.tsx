@@ -5,17 +5,10 @@ import { useAuth } from '../../auth/useAuth';
 import { ListaPedidos } from './ListaPedidos';
 import { FormPedido } from './FormPedido';
 import { lineasGenericasVacias } from './helpers';
+import { getTodayDate } from '../../utils/dateUtils';
 import type { LineaPedido, Pedido } from '../../types/domain';
 
 type Vista = 'lista' | 'nuevo' | 'rectificar';
-
-function getTodayDate(): string {
-  const hoy = new Date();
-  const year = hoy.getFullYear();
-  const month = String(hoy.getMonth() + 1).padStart(2, '0');
-  const day = String(hoy.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 export function PedidosApp() {
   const { rol } = useAuth();
