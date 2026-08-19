@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useCategorias, useActualizarMovimientoCategoria } from '../../hooks/useCategorias';
 import type { MovimientoCaja } from '../../types/domain';
@@ -10,17 +10,28 @@ interface ModalEditarCategoriaProps {
 }
 
 export function ModalEditarCategoria({ movimiento, onClose, onGuardar }: ModalEditarCategoriaProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const categoriasQuery = useCategorias();
   const actualizarMutation = useActualizarMovimientoCategoria();
-
-  // Solo se permite categorizar egresos
-  if (movimiento.tipo !== 'egreso') {
-    return null;
-  }
 
   const [categoriaTecnica, setCategoriaTecnica] = useState(movimiento.categoria_tecnica || '');
   const [subcategoria, setSubcategoria] = useState(movimiento.subcategoria || '');
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (dialogRef.current && movimiento.tipo === 'egreso') {
+      dialogRef.current.showModal();
+    }
+  }, [movimiento.tipo]);
+
+  const handleClose = () => {
+    dialogRef.current?.close();
+    onClose();
+  };
+
+  if (movimiento.tipo !== 'egreso') {
+    return null;
+  }
 
   // Obtener subcategorías disponibles para la categoría seleccionada
   const subcategoriasDisponibles = useMemo(() => {
@@ -61,14 +72,17 @@ export function ModalEditarCategoria({ movimiento, onClose, onGuardar }: ModalEd
   }, [categoriasQuery.data]);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-md w-full p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-[#2C2419]">Editar Categoría</h3>
-          <button onClick={onClose} className="text-[#8A7A5C] hover:text-[#2C2419]">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <dialog
+      ref={dialogRef}
+      className="w-full max-w-md p-6 rounded-lg backdrop:bg-black backdrop:bg-opacity-50 backdrop:backdrop-blur-sm"
+      onClose={handleClose}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-bold text-[#2C2419]">Editar Categoría</h3>
+        <button onClick={handleClose} className="text-[#8A7A5C] hover:text-[#2C2419]">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
 
         <p className="text-sm text-[#8A7A5C] mb-4">{movimiento.concepto}</p>
 
@@ -123,7 +137,7 @@ export function ModalEditarCategoria({ movimiento, onClose, onGuardar }: ModalEd
 
         <div className="flex gap-2 mt-6">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="flex-1 px-4 py-2 border border-[#D8CDB0] rounded-lg text-[#2C2419] font-medium hover:bg-[#F5EFE6]"
           >
             Cancelar
@@ -136,7 +150,6 @@ export function ModalEditarCategoria({ movimiento, onClose, onGuardar }: ModalEd
             {actualizarMutation.isPending ? 'Guardando...' : 'Guardar'}
           </button>
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }

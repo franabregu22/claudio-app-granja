@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useCrearPago } from '../../hooks/usePagos';
 import { useMovimientosDisponibles } from '../../hooks/useCaja';
@@ -20,6 +20,7 @@ const METODOS_PAGO: Array<{ id: MetodoPago; label: string }> = [
 ];
 
 export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [monto, setMonto] = useState('');
   const [metodo, setMetodo] = useState<MetodoPago>('efectivo');
   const [fechaPago, setFechaPago] = useState(getTodayDate());
@@ -29,6 +30,17 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
 
   const crearPagoMutation = useCrearPago();
   const movimientosDisponiblesQuery = useMovimientosDisponibles();
+
+  useEffect(() => {
+    if (dialogRef.current) {
+      dialogRef.current.showModal();
+    }
+  }, []);
+
+  const handleClose = () => {
+    dialogRef.current?.close();
+    onClose();
+  };
 
   async function guardarPago(e: React.FormEvent) {
     e.preventDefault();
@@ -65,7 +77,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
           notas: notas || undefined,
           movimientoCajaId: movimiento.id,
         });
-        onClose();
+        handleClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al guardar pago');
       }
@@ -90,7 +102,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
           fechaPago,
           notas: notas || undefined,
         });
-        onClose();
+        handleClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al guardar pago');
       }
@@ -98,17 +110,20 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-sm w-full p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-amber-900">Registrar pago</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <X size={24} />
-          </button>
-        </div>
+    <dialog
+      ref={dialogRef}
+      className="w-full max-w-sm p-6 rounded-lg backdrop:bg-black backdrop:bg-opacity-50 backdrop:backdrop-blur-sm"
+      onClose={handleClose}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-amber-900">Registrar pago</h2>
+        <button
+          onClick={handleClose}
+          className="text-gray-400 hover:text-gray-600"
+        >
+          <X size={24} />
+        </button>
+      </div>
 
         <div className="bg-stone-50 p-3 rounded-lg text-sm mb-4">
           <div className="text-gray-600">
@@ -232,7 +247,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
           <div className="flex gap-2 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition"
             >
               Cancelar
@@ -246,7 +261,6 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </dialog>
   );
 }
