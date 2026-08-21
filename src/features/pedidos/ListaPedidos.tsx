@@ -196,19 +196,35 @@ export function ListaPedidos({
                             {p.observaciones && (
                               <p className="text-[#8B7355] italic mt-1">📝 {p.observaciones}</p>
                             )}
+                            {p.estado === 'entregado' && p.entregado_por_nombre && (
+                              <p className="text-[#6B7A4E] font-medium mt-1">
+                                ✓ Entregado por: {p.entregado_por_nombre}
+                              </p>
+                            )}
                           </div>
-                          <div className="text-right shrink-0">
-                            <p className="font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</p>
-                            <p className="text-[#8A7A5C] text-xs mt-0.5">
-                              {formatearFechaHistorico(p.fecha_operacion || p.fecha_pedido || '')}
-                            </p>
-                            <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-1 ${
-                              p.estado === 'entregado' ? 'bg-[#E8F5E9] text-[#6B7A4E]' :
-                              p.estado === 'pendiente' ? 'bg-[#FCEFD4] text-[#8A5A0B]' :
-                              'bg-[#FCE4E4] text-[#A32D2D]'
-                            }`}>
-                              {p.estado}
-                            </span>
+                          <div className="text-right shrink-0 flex gap-1">
+                            {rol === 'dueño' && (
+                              <button
+                                onClick={() => onRectificar?.(p)}
+                                aria-label="Editar pedido"
+                                className="w-7 h-7 flex items-center justify-center bg-[#A8552E] rounded text-white active:scale-95 transition-transform"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            )}
+                            <div>
+                              <p className="font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</p>
+                              <p className="text-[#8A7A5C] text-xs mt-0.5">
+                                {formatearFechaHistorico(p.fecha_operacion || p.fecha_pedido || '')}
+                              </p>
+                              <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-1 ${
+                                p.estado === 'entregado' ? 'bg-[#E8F5E9] text-[#6B7A4E]' :
+                                p.estado === 'pendiente' ? 'bg-[#FCEFD4] text-[#8A5A0B]' :
+                                'bg-[#FCE4E4] text-[#A32D2D]'
+                              }`}>
+                                {p.estado}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
