@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './index.css';
 import { useAuth } from './auth/useAuth';
 import { LoginScreen } from './auth/LoginScreen';
@@ -7,13 +7,27 @@ import { CobrosApp } from './features/cobros/CobrosApp';
 import { CajaApp } from './features/caja/CajaApp';
 import { AdminApp } from './features/admin/AdminApp';
 import { ProductionApp } from './features/production/ProductionApp';
-import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings } from 'lucide-react';
+import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X } from 'lucide-react';
 
 type Tab = 'pedidos' | 'cobros' | 'caja' | 'admin' | 'produccion';
 
 function App() {
   const { user, rol, loading, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>('pedidos');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setSidebarOpen(false);
+      else setSidebarOpen(true);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   if (loading) {
     return (
@@ -42,7 +56,11 @@ function App() {
   return (
     <div className="min-h-screen bg-stone-100 flex">
       {/* Sidebar */}
-      <div className="w-64 bg-[#2C2419] text-white flex flex-col">
+      <div
+        className={`bg-[#2C2419] text-white flex flex-col transition-all duration-300 ease-in-out ${
+          sidebarOpen ? 'w-64' : 'w-0'
+        } ${isMobile ? 'fixed h-full z-40' : 'relative'}`}
+      >
         {/* Logo */}
         <div className="p-6 border-b border-[#4A4338]">
           <p className="text-xs font-semibold tracking-wide text-[#D4AF37] uppercase mb-1">
@@ -90,13 +108,35 @@ function App() {
         </div>
       </div>
 
+      {/* Mobile overlay */}
+      {isMobile && sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-30"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Main Content */}
-      <div className="flex-1 min-h-screen">
-        {tab === 'produccion' && <ProductionApp />}
-        {tab === 'pedidos' && <PedidosApp />}
-        {tab === 'cobros' && <CobrosApp />}
-        {tab === 'caja' && <CajaApp />}
-        {tab === 'admin' && <AdminApp />}
+      <div className="flex-1 min-h-screen flex flex-col">
+        {/* Mobile header with toggle */}
+        <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="text-[#2C2419] hover:bg-gray-100 p-2 rounded"
+          >
+            {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+          <p className="text-sm font-semibold text-[#2C2419]">Granja Santo Tomás</p>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1">
+          {tab === 'produccion' && <ProductionApp />}
+          {tab === 'pedidos' && <PedidosApp />}
+          {tab === 'cobros' && <CobrosApp />}
+          {tab === 'caja' && <CajaApp />}
+          {tab === 'admin' && <AdminApp />}
+        </div>
       </div>
     </div>
   );

@@ -4,7 +4,10 @@ import type { Pedido, LineaPedido } from '../types/domain';
 export async function listarPedidos(): Promise<Pedido[]> {
   const { data: pedidos, error: pedidosError } = await supabase
     .from('pedidos')
-    .select('*')
+    .select(`
+      *,
+      entregado_por_user:entregado_por(nombre)
+    `)
     .neq('estado', 'cancelado')
     .order('creado_en', { ascending: false });
 
@@ -30,7 +33,7 @@ export async function listarPedidos(): Promise<Pedido[]> {
   }, {} as Record<number, any[]>);
 
   // Combine pedidos with their lineas and calculate monto_total
-  const result = pedidos.map(p => {
+  const result = pedidos.map((p: any) => {
     const lineas = lineasByPedidoId[p.id] || [];
     const calculatedTotal = lineas.reduce((sum: number, linea: any) => sum + (Number(linea.subtotal) || 0), 0);
 
@@ -41,10 +44,13 @@ export async function listarPedidos(): Promise<Pedido[]> {
     // Prefer calculated if there are lineas, otherwise use stored (which is now guaranteed valid)
     const finalTotal = lineas.length > 0 ? calculatedTotal : validStoredTotal;
 
+    const entregadoPorNombre = p.entregado_por_user?.nombre || null;
+
     return {
       ...p,
       lineas,
       monto_total: isNaN(finalTotal) ? 0 : finalTotal,
+      entregado_por_nombre: entregadoPorNombre,
     };
   });
 

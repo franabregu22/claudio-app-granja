@@ -9,6 +9,9 @@ export async function crearPago(
   notas?: string,
   movimientoCajaId?: number
 ): Promise<Pago> {
+  // Get current user ID for audit trail
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id;
   // Obtener nombre del cliente
   const { data: cliente, error: clienteError } = await supabase
     .from('clientes')
@@ -29,13 +32,13 @@ export async function crearPago(
       metodo_pago: metodoPago,
       notas: notas || null,
       fecha_pago: fechaPago,
+      creado_por: userId || null,
     })
     .select()
     .single();
 
   if (pagoError) throw pagoError;
 
-  console.log('Pago creado:', pago.id, 'Creando movimiento en Caja...');
 
   // Mapear forma de pago
   const formasPago: Record<MetodoPago, 'efectivo' | 'mercadopago' | 'echeq' | 'cheque'> = {
@@ -61,11 +64,9 @@ export async function crearPago(
       .eq('id', movimientoCajaId);
 
     if (vincularError) {
-      console.error('Error al vincular movimiento:', vincularError);
       throw new Error(`Pago creado pero no se pudo vincular el movimiento: ${vincularError.message}`);
     }
 
-    console.log('Movimiento vinculado:', movimientoCajaId);
   } else {
     // Crear movimiento nuevo
     const { data: movimiento, error: cajaError } = await supabase
@@ -87,11 +88,9 @@ export async function crearPago(
       .single();
 
     if (cajaError) {
-      console.error('Error al crear movimiento en Caja:', cajaError);
       throw new Error(`Pago creado pero no se registró en Caja: ${cajaError.message}`);
     }
 
-    console.log('Movimiento en Caja creado:', movimiento.id);
   }
 
   return pago;
@@ -100,22 +99,38 @@ export async function crearPago(
 export async function listarPagosCliente(clienteId: string): Promise<Pago[]> {
   const { data, error } = await supabase
     .from('pagos')
-    .select('*')
+    .select(`
+      *,
+      creado_por_user:creado_por(nombre),
+      pago_en_caja(agregado_por, agregado_en, agregado_por_user:agregado_por(nombre))
+    `)
     .eq('cliente_id', clienteId)
     .order('fecha_pago', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []).map((p: any) => ({
+    ...p,
+    creado_por_nombre: p.creado_por_user?.nombre || null,
+    pago_en_caja: p.pago_en_caja?.[0] || null,
+  }));
 }
 
 export async function listarTodosPagos(): Promise<Pago[]> {
   const { data, error } = await supabase
     .from('pagos')
-    .select('*')
+    .select(`
+      *,
+      creado_por_user:creado_por(nombre),
+      pago_en_caja(agregado_por, agregado_en, agregado_por_user:agregado_por(nombre))
+    `)
     .order('fecha_pago', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []).map((p: any) => ({
+    ...p,
+    creado_por_nombre: p.creado_por_user?.nombre || null,
+    pago_en_caja: p.pago_en_caja?.[0] || null,
+  }));
 }
 
 export async function eliminarPago(pagoId: string): Promise<void> {
@@ -125,4 +140,31 @@ export async function eliminarPago(pagoId: string): Promise<void> {
     .eq('id', pagoId);
 
   if (error) throw error;
+}
+
+export async function agregarPagoAlaCaja(pagoId: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id;
+
+  if (!userId) throw new Error('No authenticated user');
+
+  const { error } = await supabase
+    .from('pago_en_caja')
+    .insert({
+      pago_id: pagoId,
+      agregado_por: userId,
+    });
+
+  if (error) throw error;
+}
+
+export async function verificarPagoEnCaja(pagoId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('pago_en_caja')
+    .select('id')
+    .eq('pago_id', pagoId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return !!data;
 }

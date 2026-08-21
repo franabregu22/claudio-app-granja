@@ -69,6 +69,7 @@ export interface Pedido {
   fecha_pago?: string;
   creado_por: string | null;
   entregado_por: string | null;
+  entregado_por_nombre?: string | null;
   entregado_en: string | null;
   creado_en: string;
   actualizado_en: string;
@@ -83,7 +84,15 @@ export interface Pago {
   estado?: MovimientoEstado;
   notas?: string;
   creado_por?: string;
+  creado_por_nombre?: string | null;
   creado_en: string;
+  pago_en_caja?: {
+    id: string;
+    pago_id: string;
+    agregado_por: string;
+    agregado_por_nombre?: string | null;
+    agregado_en: string;
+  } | null;
 }
 
 export interface ClienteSaldo {
