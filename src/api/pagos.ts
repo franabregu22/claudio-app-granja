@@ -99,37 +99,85 @@ export async function crearPago(
 export async function listarPagosCliente(clienteId: string): Promise<Pago[]> {
   const { data, error } = await supabase
     .from('pagos')
-    .select(`
-      *,
-      creado_por_user:creado_por(nombre),
-      pago_en_caja(agregado_por, agregado_en, agregado_por_user:agregado_por(nombre))
-    `)
+    .select('*, pago_en_caja(*)')
     .eq('cliente_id', clienteId)
     .order('fecha_pago', { ascending: false });
 
   if (error) throw error;
+
+  // Fetch user names
+  const userIds = new Set<string>();
+  (data || []).forEach(p => {
+    if (p.creado_por) userIds.add(p.creado_por);
+    if (p.pago_en_caja?.[0]?.agregado_por) userIds.add(p.pago_en_caja[0].agregado_por);
+  });
+
+  const userNames: Record<string, string> = {};
+  if (userIds.size > 0) {
+    const { data: perfiles } = await supabase
+      .from('perfiles')
+      .select('id, primer_nombre, apellido')
+      .in('id', Array.from(userIds));
+
+    if (perfiles) {
+      perfiles.forEach(p => {
+        const nombreCompleto = [p.primer_nombre, p.apellido]
+          .filter(Boolean)
+          .join(' ') || '(sin nombre)';
+        userNames[p.id] = nombreCompleto;
+      });
+    }
+  }
+
   return (data || []).map((p: any) => ({
     ...p,
-    creado_por_nombre: p.creado_por_user?.nombre || null,
-    pago_en_caja: p.pago_en_caja?.[0] || null,
+    creado_por_nombre: p.creado_por ? userNames[p.creado_por] || null : null,
+    pago_en_caja: p.pago_en_caja?.[0] ? {
+      ...p.pago_en_caja[0],
+      agregado_por_nombre: userNames[p.pago_en_caja[0].agregado_por] || null,
+    } : null,
   }));
 }
 
 export async function listarTodosPagos(): Promise<Pago[]> {
   const { data, error } = await supabase
     .from('pagos')
-    .select(`
-      *,
-      creado_por_user:creado_por(nombre),
-      pago_en_caja(agregado_por, agregado_en, agregado_por_user:agregado_por(nombre))
-    `)
+    .select('*, pago_en_caja(*)')
     .order('fecha_pago', { ascending: false });
 
   if (error) throw error;
+
+  // Fetch user names
+  const userIds = new Set<string>();
+  (data || []).forEach(p => {
+    if (p.creado_por) userIds.add(p.creado_por);
+    if (p.pago_en_caja?.[0]?.agregado_por) userIds.add(p.pago_en_caja[0].agregado_por);
+  });
+
+  const userNames: Record<string, string> = {};
+  if (userIds.size > 0) {
+    const { data: perfiles } = await supabase
+      .from('perfiles')
+      .select('id, primer_nombre, apellido')
+      .in('id', Array.from(userIds));
+
+    if (perfiles) {
+      perfiles.forEach(p => {
+        const nombreCompleto = [p.primer_nombre, p.apellido]
+          .filter(Boolean)
+          .join(' ') || '(sin nombre)';
+        userNames[p.id] = nombreCompleto;
+      });
+    }
+  }
+
   return (data || []).map((p: any) => ({
     ...p,
-    creado_por_nombre: p.creado_por_user?.nombre || null,
-    pago_en_caja: p.pago_en_caja?.[0] || null,
+    creado_por_nombre: p.creado_por ? userNames[p.creado_por] || null : null,
+    pago_en_caja: p.pago_en_caja?.[0] ? {
+      ...p.pago_en_caja[0],
+      agregado_por_nombre: userNames[p.pago_en_caja[0].agregado_por] || null,
+    } : null,
   }));
 }
 

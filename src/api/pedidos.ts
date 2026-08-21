@@ -4,17 +4,37 @@ import type { Pedido, LineaPedido } from '../types/domain';
 export async function listarPedidos(): Promise<Pedido[]> {
   const { data: pedidos, error: pedidosError } = await supabase
     .from('pedidos')
-    .select(`
-      *,
-      creado_por_user:creado_por(nombre),
-      entregado_por_user:entregado_por(nombre)
-    `)
+    .select('*')
     .neq('estado', 'cancelado')
     .order('creado_en', { ascending: false });
 
   if (pedidosError) throw pedidosError;
 
   if (!pedidos || pedidos.length === 0) return [];
+
+  // Fetch user names separately
+  const userIds = new Set<string>();
+  pedidos.forEach(p => {
+    if (p.creado_por) userIds.add(p.creado_por);
+    if (p.entregado_por) userIds.add(p.entregado_por);
+  });
+
+  const userNames: Record<string, string> = {};
+  if (userIds.size > 0) {
+    const { data: perfiles } = await supabase
+      .from('perfiles')
+      .select('id, primer_nombre, apellido')
+      .in('id', Array.from(userIds));
+
+    if (perfiles) {
+      perfiles.forEach(p => {
+        const nombreCompleto = [p.primer_nombre, p.apellido]
+          .filter(Boolean)
+          .join(' ') || '(sin nombre)';
+        userNames[p.id] = nombreCompleto;
+      });
+    }
+  }
 
   // Fetch lineas for all pedidos
   const { data: lineas, error: lineasError } = await supabase
@@ -45,8 +65,8 @@ export async function listarPedidos(): Promise<Pedido[]> {
     // Prefer calculated if there are lineas, otherwise use stored (which is now guaranteed valid)
     const finalTotal = lineas.length > 0 ? calculatedTotal : validStoredTotal;
 
-    const creadoPorNombre = p.creado_por_user?.nombre || null;
-    const entregadoPorNombre = p.entregado_por_user?.nombre || null;
+    const creadoPorNombre = p.creado_por ? userNames[p.creado_por] || null : null;
+    const entregadoPorNombre = p.entregado_por ? userNames[p.entregado_por] || null : null;
 
     return {
       ...p,
