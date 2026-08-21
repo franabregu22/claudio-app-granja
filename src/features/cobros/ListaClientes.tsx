@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { ClienteSaldo } from '../../types/domain';
 import { formatoPesos, formatoPedidoId } from '../pedidos/helpers';
+import { agregarPagoAlaCaja } from '../../api/pagos';
 
 interface ListaClientesProps {
   clientes: ClienteSaldo[];
@@ -22,6 +23,23 @@ export function ListaClientes({
   mostrarTotal = true,
 }: ListaClientesProps) {
   const [expandido, setExpandido] = useState<string | null>(null);
+  const [marcandoCaja, setMarcandoCaja] = useState<string | null>(null);
+  const [errorCaja, setErrorCaja] = useState<string | null>(null);
+
+  const handleAgregarAlaCaja = async (pagoId: string) => {
+    setMarcandoCaja(pagoId);
+    setErrorCaja(null);
+    try {
+      await agregarPagoAlaCaja(pagoId);
+      // Success - wait a moment then clear
+      setTimeout(() => {
+        setMarcandoCaja(null);
+      }, 1000);
+    } catch (err) {
+      setErrorCaja((err instanceof Error ? err.message : 'Error al agregar a caja'));
+      setMarcandoCaja(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -178,16 +196,22 @@ export function ListaClientes({
                                         ✓ Sumado a caja por: {pago.pago_en_caja.agregado_por_nombre}
                                       </p>
                                     ) : (
-                                      <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => handleAgregarAlaCaja(pago.id)}
+                                        disabled={marcandoCaja === pago.id}
+                                        className="flex items-center gap-2 w-full hover:bg-gray-100 p-1 rounded transition disabled:opacity-50"
+                                      >
                                         <input
                                           type="checkbox"
                                           checked={false}
+                                          disabled={marcandoCaja === pago.id}
                                           className="w-4 h-4 rounded cursor-pointer"
+                                          onChange={() => {}}
                                         />
                                         <label className="text-xs text-gray-700 cursor-pointer flex-1">
-                                          Marcar sumado a caja
+                                          {marcandoCaja === pago.id ? 'Guardando...' : 'Marcar sumado a caja'}
                                         </label>
-                                      </div>
+                                      </button>
                                     )}
                                   </div>
                                 )}
