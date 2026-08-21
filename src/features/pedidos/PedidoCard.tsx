@@ -85,36 +85,43 @@ export function PedidoCard({
   }
 
   return (
-    <div className="bg-white/70 rounded-xl border border-[#E4DCC8] p-3.5 flex items-center justify-between gap-2">
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <p className="font-medium text-[#2C2419] text-sm">
-            {pedido.cliente_nombre}
-            {pedido.rectificado && (
-              <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide bg-[#FCE4E4] text-[#A32D2D] px-1.5 py-0.5 rounded-full align-middle">
-                Rectificado
+    <div className="bg-white/70 rounded-xl border border-[#E4DCC8] p-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-[#2C2419] text-sm">
+              {pedido.cliente_nombre}
+              {pedido.rectificado && (
+                <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide bg-[#FCE4E4] text-[#A32D2D] px-1.5 py-0.5 rounded-full align-middle">
+                  Rectificado
+                </span>
+              )}
+            </p>
+            {fechaFormateada && (
+              <span className="text-xs text-[#8A6A2E] bg-[#FCEFD4] px-2 py-0.5 rounded-full">
+                {fechaFormateada}
               </span>
             )}
+          </div>
+          <p className="text-xs text-[#8A7A5C] mt-0.5">
+            {resumenLineas(pedido.lineas)}
           </p>
-          {fechaFormateada && (
-            <span className="text-xs text-[#8A6A2E] bg-[#FCEFD4] px-2 py-0.5 rounded-full">
-              {fechaFormateada}
-            </span>
+          {pedido.entregado_por_nombre && (
+            <p className="text-xs text-[#8A7A5C] mt-1 font-medium">
+              ✓ Entregado por: {pedido.entregado_por_nombre}
+            </p>
           )}
         </div>
-        <p className="text-xs text-[#8A7A5C] mt-0.5">
-          {resumenLineas(pedido.lineas)}
-        </p>
+        {rol === 'dueño' ? (
+          <button
+            onClick={() => onRectificar?.(pedido)}
+            aria-label="Editar pedido"
+            className="w-9 h-9 shrink-0 flex items-center justify-center bg-[#A8552E] rounded-lg text-white active:scale-95 transition-transform"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+        ) : null}
       </div>
-      {rol === 'dueño' ? (
-        <button
-          onClick={() => onRectificar?.(pedido)}
-          aria-label="Rectificar pedido"
-          className="w-9 h-9 shrink-0 flex items-center justify-center bg-[#A8552E] rounded-lg text-white active:scale-95 transition-transform"
-        >
-          <Pencil className="w-4 h-4" />
-        </button>
-      ) : null}
     </div>
   );
 }

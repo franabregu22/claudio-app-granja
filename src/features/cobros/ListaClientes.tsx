@@ -161,9 +161,32 @@ export function ListaClientes({
                                   {pago.metodo_pago.charAt(0).toUpperCase() +
                                     pago.metodo_pago.slice(1)}
                                 </div>
+                                {pago.creado_por_nombre && (
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    Cargado por: {pago.creado_por_nombre}
+                                  </div>
+                                )}
                                 {pago.notas && (
                                   <div className="text-xs text-gray-500 italic mt-1">
                                     "{pago.notas}"
+                                  </div>
+                                )}
+                                {pago.metodo_pago === 'efectivo' && (
+                                  <div className="mt-2 pt-2 border-t border-gray-200 flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!pago.pago_en_caja}
+                                      disabled={!!pago.pago_en_caja}
+                                      className="w-4 h-4 rounded cursor-pointer disabled:cursor-not-allowed"
+                                    />
+                                    <label className="text-xs text-gray-700 cursor-pointer flex-1 disabled:cursor-not-allowed">
+                                      Agregado a la caja
+                                    </label>
+                                    {pago.pago_en_caja && (
+                                      <span className="text-xs text-gray-500">
+                                        por {pago.pago_en_caja.agregado_por_nombre}
+                                      </span>
+                                    )}
                                   </div>
                                 )}
                               </div>
