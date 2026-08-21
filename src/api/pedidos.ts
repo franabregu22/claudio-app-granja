@@ -6,6 +6,7 @@ export async function listarPedidos(): Promise<Pedido[]> {
     .from('pedidos')
     .select(`
       *,
+      creado_por_user:creado_por(nombre),
       entregado_por_user:entregado_por(nombre)
     `)
     .neq('estado', 'cancelado')
@@ -44,12 +45,14 @@ export async function listarPedidos(): Promise<Pedido[]> {
     // Prefer calculated if there are lineas, otherwise use stored (which is now guaranteed valid)
     const finalTotal = lineas.length > 0 ? calculatedTotal : validStoredTotal;
 
+    const creadoPorNombre = p.creado_por_user?.nombre || null;
     const entregadoPorNombre = p.entregado_por_user?.nombre || null;
 
     return {
       ...p,
       lineas,
       monto_total: isNaN(finalTotal) ? 0 : finalTotal,
+      creado_por_nombre: creadoPorNombre,
       entregado_por_nombre: entregadoPorNombre,
     };
   });

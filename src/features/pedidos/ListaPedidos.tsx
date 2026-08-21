@@ -188,18 +188,23 @@ export function ListaPedidos({
                         <div className="flex items-start justify-between gap-2 mb-1">
                           <div className="flex-1">
                             <p className="font-semibold text-[#2C2419]">
-                              #{formatoPedidoId(p.id)} · {p.cliente_nombre}
+                              Pedido #{formatoPedidoId(p.id)}
                             </p>
-                            <p className="text-[#8A7A5C] text-xs mt-0.5">
-                              {resumenLineas(p.lineas)}
+                            <p className="text-[#8A7A5C]">
+                              {p.cliente_nombre}
                             </p>
+                            <p className="text-[#8A7A5C] text-xs mt-1">
+                              Cargado: {p.fecha_operacion ? new Date(p.fecha_operacion).toLocaleDateString('es-AR') : '-'}
+                              {p.creado_por_nombre && ` por ${p.creado_por_nombre}`}
+                            </p>
+                            {p.estado === 'entregado' && (
+                              <p className="text-[#6B7A4E] font-medium mt-1">
+                                Entregado: {p.entregado_en ? new Date(p.entregado_en).toLocaleDateString('es-AR') : '-'}
+                                {p.entregado_por_nombre && ` por ${p.entregado_por_nombre}`}
+                              </p>
+                            )}
                             {p.observaciones && (
                               <p className="text-[#8B7355] italic mt-1">📝 {p.observaciones}</p>
-                            )}
-                            {p.estado === 'entregado' && p.entregado_por_nombre && (
-                              <p className="text-[#6B7A4E] font-medium mt-1">
-                                ✓ Entregado por: {p.entregado_por_nombre}
-                              </p>
                             )}
                           </div>
                           <div className="text-right shrink-0 flex gap-1">

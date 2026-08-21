@@ -68,6 +68,7 @@ export interface Pedido {
   fecha_operacion: string;
   fecha_pago?: string;
   creado_por: string | null;
+  creado_por_nombre?: string | null;
   entregado_por: string | null;
   entregado_por_nombre?: string | null;
   entregado_en: string | null;
