@@ -202,11 +202,15 @@ export async function agregarPagoAlaCaja(pagoId: string): Promise<void> {
   if (!userId) throw new Error('No authenticated user');
 
   // First check if it already exists
-  const { data: existing } = await supabase
+  const { data: existing, error: checkError } = await supabase
     .from('pago_en_caja')
     .select('id')
     .eq('pago_id', pagoId)
-    .single();
+    .maybeSingle();
+
+  if (checkError && checkError.code !== 'PGRST116') {
+    throw checkError;
+  }
 
   // If it already exists, just return without error
   if (existing) {
@@ -223,8 +227,11 @@ export async function agregarPagoAlaCaja(pagoId: string): Promise<void> {
     });
 
   if (error) {
+    console.error('Error inserting pago_en_caja:', error);
     throw error;
   }
+
+  console.log('Pago agregado a caja correctamente');
 }
 
 export async function verificarPagoEnCaja(pagoId: string): Promise<boolean> {
