@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { Plus, Package, Check, Pencil, X } from 'lucide-react';
 import type { Pedido, Rol } from '../../types/domain';
 import { formatoPedidoId, resumenLineas, formatoPesos } from './helpers';
+import { Pagination } from '../../components/Pagination';
 
 function formatearFechaHistorico(fechaIso: string): string {
   const fecha = new Date(fechaIso + 'T00:00:00');
@@ -41,6 +43,14 @@ export function ListaPedidos({
   markingId,
   todosPedidos = [],
 }: ListaPedidosProps) {
+  const [historicoPage, setHistoricoPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  const sortedHistorico = [...todosPedidos].sort((a, b) => b.id - a.id);
+  const totalHistoricoPages = Math.ceil(sortedHistorico.length / ITEMS_PER_PAGE);
+  const startIdx = (historicoPage - 1) * ITEMS_PER_PAGE;
+  const paginatedHistorico = sortedHistorico.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+
   return (
     <div className="flex-1 flex flex-col">
       <header className="px-5 pt-6 pb-4 border-b border-[#E4DCC8]">
@@ -178,9 +188,7 @@ export function ListaPedidos({
                   Histórico Completo — {todosPedidos.length} pedidos
                 </p>
                 <div className="space-y-2">
-                  {todosPedidos
-                    .sort((a, b) => b.id - a.id)
-                    .map((p) => (
+                  {paginatedHistorico.map((p) => (
                       <div
                         key={p.id}
                         className="bg-white/70 border border-[#E4DCC8] rounded-lg p-3 text-xs hover:bg-white transition"
@@ -235,6 +243,13 @@ export function ListaPedidos({
                       </div>
                     ))}
                 </div>
+                {totalHistoricoPages > 1 && (
+                  <Pagination
+                    currentPage={historicoPage}
+                    totalPages={totalHistoricoPages}
+                    onPageChange={setHistoricoPage}
+                  />
+                )}
               </div>
             )}
           </>

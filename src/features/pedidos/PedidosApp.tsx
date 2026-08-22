@@ -4,6 +4,7 @@ import { useClientes } from '../../hooks/useClientes';
 import { useAuth } from '../../auth/useAuth';
 import { ListaPedidos } from './ListaPedidos';
 import { FormPedido } from './FormPedido';
+import { Modal } from '../../components/Modal';
 import { lineasGenericasVacias } from './helpers';
 import { getTodayDate } from '../../utils/dateUtils';
 import type { LineaPedido, Pedido } from '../../types/domain';
@@ -165,8 +166,9 @@ export function PedidosApp() {
           )}
         </div>
 
+        {/* Desktop panel */}
         {(vista === 'nuevo' || vista === 'rectificar') && (
-          <div className="w-full lg:w-96 border-t lg:border-t-0 lg:border-l border-[#E4DCC8] lg:max-h-screen lg:overflow-y-auto">
+          <div className="hidden lg:flex w-96 border-l border-[#E4DCC8] lg:max-h-screen lg:overflow-y-auto">
             <FormPedido
               modo={vista}
               clientes={clientes}
@@ -200,6 +202,45 @@ export function PedidosApp() {
             />
           </div>
         )}
+
+        {/* Mobile modal */}
+        <Modal
+          isOpen={vista === 'nuevo' || vista === 'rectificar'}
+          onClose={() => setVista('lista')}
+          title={vista === 'nuevo' ? 'Nuevo Pedido' : 'Rectificar Pedido'}
+        >
+          <FormPedido
+            modo={vista as 'nuevo' | 'rectificar'}
+            clientes={clientes}
+            clienteSel={clienteSel}
+            setClienteSel={(id) => {
+              setClienteSel(id);
+              if (id) {
+                const cliente = clientes.find((c) => c.id === id);
+                setClienteSelNombre(cliente?.nombre || '');
+                setClienteNuevo('');
+              }
+            }}
+            clienteNuevo={clienteNuevo}
+            setClienteNuevo={(nombre) => {
+              setClienteNuevo(nombre);
+              if (nombre.trim()) {
+                setClienteSel('');
+                setClienteSelNombre('');
+              }
+            }}
+            lineas={lineas}
+            setLineas={setLineas}
+            fechaPedido={fechaPedido}
+            setFechaPedido={setFechaPedido}
+            observaciones={observaciones}
+            setObservaciones={setObservaciones}
+            onGuardar={guardarPedido}
+            onVolver={() => setVista('lista')}
+            error={formError}
+            rol={rol}
+          />
+        </Modal>
       </div>
     </div>
   );

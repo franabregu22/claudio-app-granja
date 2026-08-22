@@ -4,6 +4,7 @@ import { useMovimientosCaja, useCheques, useAnularMovimiento } from '../../hooks
 import { useAuth } from '../../auth/useAuth';
 import { ListaMovimientos } from './ListaMovimientos';
 import { FormMovimiento } from './FormMovimiento';
+import { Pagination } from '../../components/Pagination';
 import { formatoPesos } from '../pedidos/helpers';
 import { getTodayDate } from '../../utils/dateUtils';
 
@@ -35,6 +36,8 @@ export function CajaApp() {
   const [fechaDesde, setFechaDesde] = useState(getStartOfMonth());
   const [fechaHasta, setFechaHasta] = useState(getTodayDate());
   const [mostrarImportarSheets, setMostrarImportarSheets] = useState(false);
+  const [movimientosPage, setMovimientosPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   const movimientosQuery = useMovimientosCaja();
   const chequesQuery = useCheques();
@@ -198,6 +201,11 @@ export function CajaApp() {
 
     return resultado;
   }, [movimientosFiltrados]);
+
+  // Paginación de movimientos
+  const totalMovimientosPages = Math.ceil(movimientosFiltrados.length / ITEMS_PER_PAGE);
+  const startIdx = (movimientosPage - 1) * ITEMS_PER_PAGE;
+  const paginatedMovimientos = movimientosFiltrados.slice(startIdx, startIdx + ITEMS_PER_PAGE);
 
   if (vista === 'nuevo') {
     return (
@@ -414,9 +422,16 @@ export function CajaApp() {
                 Movimientos Detallados
               </p>
               <ListaMovimientos
-                movimientos={movimientosFiltrados}
+                movimientos={paginatedMovimientos}
                 onAnular={(id, motivo) => anularMutation.mutateAsync({ id, motivo })}
               />
+              {totalMovimientosPages > 1 && (
+                <Pagination
+                  currentPage={movimientosPage}
+                  totalPages={totalMovimientosPages}
+                  onPageChange={setMovimientosPage}
+                />
+              )}
             </div>
           )}
 
