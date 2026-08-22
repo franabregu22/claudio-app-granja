@@ -105,6 +105,11 @@ export async function listarPagosCliente(clienteId: string): Promise<Pago[]> {
 
   if (error) throw error;
 
+  console.log('Pagos cliente:', data?.length);
+  if (data && data.length > 0) {
+    console.log('First pago pago_en_caja:', JSON.stringify(data[0].pago_en_caja, null, 2));
+  }
+
   // Fetch user names
   const userIds = new Set<string>();
   (data || []).forEach(p => {
@@ -203,8 +208,13 @@ export async function agregarPagoAlaCaja(pagoId: string): Promise<void> {
       agregado_por: userId,
     });
 
-  // If it's a duplicate key error, that's OK - it means it's already marked
-  if (error && error.code !== '23505') {
+  // If it's a duplicate key error (code 23505), that's OK - it means it's already marked
+  // Supabase returns this as a 409 Conflict with the postgres code
+  if (error) {
+    if (error.code === '23505' || error.message?.includes('duplicate')) {
+      console.log('Pago ya estaba agregado a caja');
+      return;
+    }
     throw error;
   }
 }
