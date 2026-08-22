@@ -108,16 +108,16 @@ function App() {
         </div>
       </div>
 
-      {/* Mobile overlay */}
-      {isMobile && sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-30"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
       {/* Main Content */}
-      <div className="flex-1 min-h-screen flex flex-col">
+      <div className="flex-1 min-h-screen flex flex-col relative">
+        {/* Mobile overlay - only covers content area */}
+        {isMobile && sidebarOpen && (
+          <div
+            className="absolute inset-0 bg-black bg-opacity-50 z-30"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
         {/* Mobile header with toggle */}
         <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
           <button
