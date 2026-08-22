@@ -89,7 +89,7 @@ export function ProductionApp() {
         <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-4 z-50 overflow-y-auto p-4">
           <div className="bg-[#FAF6EE] rounded-lg max-w-2xl w-full">
             {/* Header del modal */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E4DCC8]">
+            <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#E4DCC8]">
               <h2 className="text-lg font-bold text-[#2C2419]">
                 {produccionEnEdicion ? 'Editar producción' : 'Nueva producción'}
               </h2>
@@ -102,7 +102,7 @@ export function ProductionApp() {
             </div>
 
             {/* Contenido del modal */}
-            <div className="px-6 py-6 overflow-y-auto max-h-[calc(100vh-200px)]">
+            <div className="px-4 md:px-6 py-6 overflow-y-auto max-h-[calc(100vh-200px)]">
               <FormProduccion
                 galpones={GALPONES}
                 onGuardar={handleGuardar}

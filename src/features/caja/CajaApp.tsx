@@ -223,7 +223,7 @@ export function CajaApp() {
     <div className="min-h-screen bg-stone-100 flex justify-center">
       <div className="w-full max-w-6xl bg-[#FAF6EE] min-h-screen flex flex-col">
         {/* Header */}
-        <header className="px-6 pt-6 pb-4 border-b border-[#E4DCC8]">
+        <header className="px-4 md:px-6 pt-6 pb-4 border-b border-[#E4DCC8]">
           <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">
             Granja Santo Tomás
           </p>
@@ -231,7 +231,7 @@ export function CajaApp() {
         </header>
 
         {/* Selector de Período */}
-        <div className="px-6 pt-4 pb-2 border-b border-[#E4DCC8]">
+        <div className="px-4 md:px-6 pt-4 pb-2 border-b border-[#E4DCC8]">
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <button
               onClick={() => setPeriodo('hoy')}
@@ -297,7 +297,7 @@ export function CajaApp() {
         </div>
 
         {/* Contenido Principal */}
-        <div className="flex-1 overflow-y-auto px-6 pt-6 pb-20">
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
           {/* Tarjetas de Resumen - Primera fila */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">

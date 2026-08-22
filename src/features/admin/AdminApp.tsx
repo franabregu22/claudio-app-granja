@@ -32,7 +32,7 @@ export function AdminApp() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-[#FAF6EE] border-b border-amber-200 flex gap-0 px-6">
+        <div className="bg-[#FAF6EE] border-b border-amber-200 flex gap-0 px-4 md:px-6">
           <button
             onClick={() => setTab('clientes')}
             className={`px-4 py-3 font-medium border-b-2 transition ${

@@ -130,7 +130,7 @@ export function PreciosAdmin() {
 
           return (
             <div key={cat.id} className="bg-white rounded-lg border border-amber-200 overflow-hidden">
-              <div className="bg-amber-50 px-6 py-4 border-b border-amber-200">
+              <div className="bg-amber-50 px-4 md:px-6 py-4 border-b border-amber-200">
                 <h3 className="font-semibold text-amber-900">{cat.label}</h3>
               </div>
 
@@ -150,7 +150,7 @@ export function PreciosAdmin() {
                       </div>
                       <button
                         onClick={() => abrirModal(minorista)}
-                        className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded font-medium"
+                        className="bg-amber-600 hover:bg-amber-700 text-white px-4 md:px-6 py-2 rounded font-medium"
                       >
                         Actualizar precio
                       </button>

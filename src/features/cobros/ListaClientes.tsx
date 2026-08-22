@@ -95,7 +95,7 @@ export function ListaClientes({
   return (
     <div className="flex-1 flex flex-col">
       {mostrarTotal && (
-        <div className="px-6 pt-4 pb-6 border-b border-amber-200">
+        <div className="px-4 md:px-6 pt-4 pb-6 border-b border-amber-200">
           <div className="bg-gradient-to-r from-amber-100 to-amber-50 border border-amber-200 rounded-lg p-4">
             <div className="text-sm text-amber-900 font-medium">Total a cobrar:</div>
             <div className="text-2xl font-bold text-amber-900 mt-1">{formatoPesos(totalDeudor)}</div>
