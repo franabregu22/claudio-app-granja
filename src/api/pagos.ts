@@ -201,6 +201,20 @@ export async function agregarPagoAlaCaja(pagoId: string): Promise<void> {
 
   if (!userId) throw new Error('No authenticated user');
 
+  // First check if it already exists
+  const { data: existing } = await supabase
+    .from('pago_en_caja')
+    .select('id')
+    .eq('pago_id', pagoId)
+    .single();
+
+  // If it already exists, just return without error
+  if (existing) {
+    console.log('Pago ya estaba agregado a caja');
+    return;
+  }
+
+  // If it doesn't exist, insert it
   const { error } = await supabase
     .from('pago_en_caja')
     .insert({
@@ -208,13 +222,7 @@ export async function agregarPagoAlaCaja(pagoId: string): Promise<void> {
       agregado_por: userId,
     });
 
-  // If it's a duplicate key error (code 23505), that's OK - it means it's already marked
-  // Supabase returns this as a 409 Conflict with the postgres code
   if (error) {
-    if (error.code === '23505' || error.message?.includes('duplicate')) {
-      console.log('Pago ya estaba agregado a caja');
-      return;
-    }
     throw error;
   }
 }
