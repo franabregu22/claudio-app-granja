@@ -49,6 +49,12 @@ export function CobrosApp() {
           error={error}
           onRegistrarPago={abrirModal}
           onRetry={() => {}}
+          onPagoAgregado={() => {
+            // Refetch data by reloading page
+            setTimeout(() => {
+              window.location.reload();
+            }, 500);
+          }}
         />
 
         {/* Saldos Finalizados */}

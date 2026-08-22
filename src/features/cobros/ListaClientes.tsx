@@ -11,6 +11,7 @@ interface ListaClientesProps {
   error: unknown;
   onRegistrarPago: (cliente: ClienteSaldo) => void;
   onRetry: () => void;
+  onPagoAgregado?: () => void;
   mostrarTotal?: boolean;
 }
 
@@ -20,6 +21,7 @@ export function ListaClientes({
   loading,
   error,
   onRegistrarPago,
+  onPagoAgregado,
   mostrarTotal = true,
 }: ListaClientesProps) {
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -31,7 +33,8 @@ export function ListaClientes({
     setErrorCaja(null);
     try {
       await agregarPagoAlaCaja(pagoId);
-      // Success - wait a moment then clear
+      // Success - refetch data
+      onPagoAgregado?.();
       setTimeout(() => {
         setMarcandoCaja(null);
       }, 1000);

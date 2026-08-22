@@ -203,7 +203,10 @@ export async function agregarPagoAlaCaja(pagoId: string): Promise<void> {
       agregado_por: userId,
     });
 
-  if (error) throw error;
+  // If it's a duplicate key error, that's OK - it means it's already marked
+  if (error && error.code !== '23505') {
+    throw error;
+  }
 }
 
 export async function verificarPagoEnCaja(pagoId: string): Promise<boolean> {
