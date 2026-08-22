@@ -117,7 +117,7 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div className={`flex-1 min-h-screen flex flex-col ${isMobile ? 'z-20 relative' : ''}`}>
+      <div className={`flex-1 min-h-screen flex flex-col ${isMobile && sidebarOpen ? 'z-20 relative pointer-events-none' : ''}`}>
         {/* Mobile header with toggle */}
         <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
           <button
