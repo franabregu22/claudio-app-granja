@@ -97,24 +97,37 @@ export async function crearPago(
 }
 
 export async function listarPagosCliente(clienteId: string): Promise<Pago[]> {
-  const { data, error } = await supabase
+  // Fetch pagos
+  const { data: pagos, error: pagosError } = await supabase
     .from('pagos')
-    .select('*, pago_en_caja(*)')
+    .select('*')
     .eq('cliente_id', clienteId)
     .order('fecha_pago', { ascending: false });
 
-  if (error) throw error;
+  if (pagosError) throw pagosError;
 
-  console.log('Pagos cliente:', data?.length);
-  if (data && data.length > 0) {
-    console.log('First pago pago_en_caja:', JSON.stringify(data[0].pago_en_caja, null, 2));
-  }
+  if (!pagos || pagos.length === 0) return [];
+
+  // Fetch pago_en_caja records for these pagos
+  const pagoIds = pagos.map(p => p.id);
+  const { data: pagoEnCajaRecords, error: cajaError } = await supabase
+    .from('pago_en_caja')
+    .select('*')
+    .in('pago_id', pagoIds);
+
+  if (cajaError) throw cajaError;
+
+  // Map pago_en_caja by pago_id
+  const pagoEnCajaMap = (pagoEnCajaRecords || []).reduce((acc, record) => {
+    acc[record.pago_id] = record;
+    return acc;
+  }, {} as Record<string, any>);
 
   // Fetch user names
   const userIds = new Set<string>();
-  (data || []).forEach(p => {
+  pagos.forEach(p => {
     if (p.creado_por) userIds.add(p.creado_por);
-    if (p.pago_en_caja?.[0]?.agregado_por) userIds.add(p.pago_en_caja[0].agregado_por);
+    if (pagoEnCajaMap[p.id]?.agregado_por) userIds.add(pagoEnCajaMap[p.id].agregado_por);
   });
 
   const userNames: Record<string, string> = {};
@@ -134,29 +147,50 @@ export async function listarPagosCliente(clienteId: string): Promise<Pago[]> {
     }
   }
 
-  return (data || []).map((p: any) => ({
-    ...p,
-    creado_por_nombre: p.creado_por ? userNames[p.creado_por] || null : null,
-    pago_en_caja: p.pago_en_caja?.[0] ? {
-      ...p.pago_en_caja[0],
-      agregado_por_nombre: userNames[p.pago_en_caja[0].agregado_por] || null,
-    } : null,
-  }));
+  return pagos.map((p: any) => {
+    const pagoEnCaja = pagoEnCajaMap[p.id];
+    return {
+      ...p,
+      creado_por_nombre: p.creado_por ? userNames[p.creado_por] || null : null,
+      pago_en_caja: pagoEnCaja ? {
+        ...pagoEnCaja,
+        agregado_por_nombre: userNames[pagoEnCaja.agregado_por] || null,
+      } : null,
+    };
+  });
 }
 
 export async function listarTodosPagos(): Promise<Pago[]> {
-  const { data, error } = await supabase
+  // Fetch all pagos
+  const { data: pagos, error: pagosError } = await supabase
     .from('pagos')
-    .select('*, pago_en_caja(*)')
+    .select('*')
     .order('fecha_pago', { ascending: false });
 
-  if (error) throw error;
+  if (pagosError) throw pagosError;
+
+  if (!pagos || pagos.length === 0) return [];
+
+  // Fetch all pago_en_caja records
+  const pagoIds = pagos.map(p => p.id);
+  const { data: pagoEnCajaRecords, error: cajaError } = await supabase
+    .from('pago_en_caja')
+    .select('*')
+    .in('pago_id', pagoIds);
+
+  if (cajaError) throw cajaError;
+
+  // Map pago_en_caja by pago_id
+  const pagoEnCajaMap = (pagoEnCajaRecords || []).reduce((acc, record) => {
+    acc[record.pago_id] = record;
+    return acc;
+  }, {} as Record<string, any>);
 
   // Fetch user names
   const userIds = new Set<string>();
-  (data || []).forEach(p => {
+  pagos.forEach(p => {
     if (p.creado_por) userIds.add(p.creado_por);
-    if (p.pago_en_caja?.[0]?.agregado_por) userIds.add(p.pago_en_caja[0].agregado_por);
+    if (pagoEnCajaMap[p.id]?.agregado_por) userIds.add(pagoEnCajaMap[p.id].agregado_por);
   });
 
   const userNames: Record<string, string> = {};
@@ -176,14 +210,17 @@ export async function listarTodosPagos(): Promise<Pago[]> {
     }
   }
 
-  return (data || []).map((p: any) => ({
-    ...p,
-    creado_por_nombre: p.creado_por ? userNames[p.creado_por] || null : null,
-    pago_en_caja: p.pago_en_caja?.[0] ? {
-      ...p.pago_en_caja[0],
-      agregado_por_nombre: userNames[p.pago_en_caja[0].agregado_por] || null,
-    } : null,
-  }));
+  return pagos.map((p: any) => {
+    const pagoEnCaja = pagoEnCajaMap[p.id];
+    return {
+      ...p,
+      creado_por_nombre: p.creado_por ? userNames[p.creado_por] || null : null,
+      pago_en_caja: pagoEnCaja ? {
+        ...pagoEnCaja,
+        agregado_por_nombre: userNames[pagoEnCaja.agregado_por] || null,
+      } : null,
+    };
+  });
 }
 
 export async function eliminarPago(pagoId: string): Promise<void> {
@@ -239,8 +276,8 @@ export async function verificarPagoEnCaja(pagoId: string): Promise<boolean> {
     .from('pago_en_caja')
     .select('id')
     .eq('pago_id', pagoId)
-    .single();
+    .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') throw error;
+  if (error) throw error;
   return !!data;
 }
