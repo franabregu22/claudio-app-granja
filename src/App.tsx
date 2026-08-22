@@ -111,7 +111,7 @@ function App() {
       {/* Mobile overlay */}
       {isMobile && sidebarOpen && (
         <div
-          className="fixed inset-0 bg-gray-800 bg-opacity-5 z-30"
+          className="fixed inset-0 bg-black/10 z-30"
           onClick={() => setSidebarOpen(false)}
         />
       )}
