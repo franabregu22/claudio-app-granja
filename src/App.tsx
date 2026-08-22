@@ -57,7 +57,7 @@ function App() {
     <div className="min-h-screen bg-stone-100 flex">
       {/* Sidebar */}
       <div
-        className={`bg-[#2C2419] text-white flex flex-col transition-all duration-300 ease-in-out ${
+        className={`bg-[#2C2419] text-white flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${
           sidebarOpen ? 'w-64' : 'w-0'
         } ${isMobile ? 'fixed h-full z-40' : 'relative'}`}
       >
@@ -117,7 +117,7 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div className="flex-1 min-h-screen flex flex-col">
+      <div className={`flex-1 min-h-screen flex flex-col ${isMobile ? 'z-10 relative' : ''}`}>
         {/* Mobile header with toggle */}
         <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
           <button
