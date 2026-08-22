@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { ClienteSaldo } from '../../types/domain';
+import type { ClienteSaldo, Pago } from '../../types/domain';
 import { formatoPesos, formatoPedidoId } from '../pedidos/helpers';
 import { agregarPagoAlaCaja } from '../../api/pagos';
 
@@ -16,7 +16,7 @@ interface ListaClientesProps {
 }
 
 export function ListaClientes({
-  clientes,
+  clientes: initialClientes,
   totalDeudor,
   loading,
   error,
@@ -24,20 +24,49 @@ export function ListaClientes({
   onPagoAgregado,
   mostrarTotal = true,
 }: ListaClientesProps) {
+  const [clientes, setClientes] = useState<ClienteSaldo[]>(initialClientes);
   const [expandido, setExpandido] = useState<string | null>(null);
   const [marcandoCaja, setMarcandoCaja] = useState<string | null>(null);
   const [errorCaja, setErrorCaja] = useState<string | null>(null);
 
-  const handleAgregarAlaCaja = async (pagoId: string) => {
+  useEffect(() => {
+    setClientes(initialClientes);
+  }, [initialClientes]);
+
+  const handleAgregarAlaCaja = async (pagoId: string, clienteId: string) => {
     setMarcandoCaja(pagoId);
     setErrorCaja(null);
     try {
       await agregarPagoAlaCaja(pagoId);
-      // Success - refetch data
-      onPagoAgregado?.();
+
+      // Update local state - mark pago as agregado_a_caja
+      setClientes(prevClientes =>
+        prevClientes.map(cliente =>
+          cliente.cliente_id === clienteId
+            ? {
+                ...cliente,
+                pagos: cliente.pagos.map(pago =>
+                  pago.id === pagoId
+                    ? {
+                        ...pago,
+                        pago_en_caja: {
+                          id: crypto.randomUUID(),
+                          pago_id: pagoId,
+                          agregado_por: '',
+                          agregado_en: new Date().toISOString(),
+                          agregado_por_nombre: 'Tú',
+                        },
+                      }
+                    : pago
+                ),
+              }
+            : cliente
+        )
+      );
+
       setTimeout(() => {
         setMarcandoCaja(null);
-      }, 1000);
+      }, 500);
     } catch (err) {
       setErrorCaja((err instanceof Error ? err.message : 'Error al agregar a caja'));
       setMarcandoCaja(null);
@@ -200,7 +229,7 @@ export function ListaClientes({
                                       </p>
                                     ) : (
                                       <button
-                                        onClick={() => handleAgregarAlaCaja(pago.id)}
+                                        onClick={() => handleAgregarAlaCaja(pago.id, cliente.cliente_id)}
                                         disabled={marcandoCaja === pago.id}
                                         className="flex items-center gap-2 w-full hover:bg-gray-100 p-1 rounded transition disabled:opacity-50"
                                       >
