@@ -7,6 +7,7 @@ import { ListaProducciones } from './ListaProducciones';
 import { DashboardProduccion } from './DashboardProduccion';
 
 const GALPONES = ['Galpón 1', 'Galpón 2', 'Galpón 3', 'Galpón 4'];
+type Periodo = 'hoy' | 'semana' | 'mes' | 'ultimas4';
 
 export function ProductionApp() {
   const { data: producciones = [], isLoading: loadingProd } = useProducciones();
@@ -16,6 +17,7 @@ export function ProductionApp() {
 
   const [produccionEnEdicion, setProduccionEnEdicion] = useState<string | null>(null);
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  const [periodo, setPeriodo] = useState<Periodo>('hoy');
 
   const handleGuardar = (data: any) => {
     if (produccionEnEdicion) {
@@ -56,10 +58,56 @@ export function ProductionApp() {
   }
 
   return (
-    <div className="relative flex flex-col min-h-screen gap-6 pb-20">
+    <div className="relative flex flex-col min-h-screen gap-6 pb-20 px-4 md:px-6">
+      {/* Selector de período */}
+      <div className="pt-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setPeriodo('hoy')}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
+              periodo === 'hoy'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Hoy
+          </button>
+          <button
+            onClick={() => setPeriodo('semana')}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
+              periodo === 'semana'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Semana
+          </button>
+          <button
+            onClick={() => setPeriodo('mes')}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
+              periodo === 'mes'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Mes
+          </button>
+          <button
+            onClick={() => setPeriodo('ultimas4')}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
+              periodo === 'ultimas4'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Últimas 4 semanas
+          </button>
+        </div>
+      </div>
+
       {/* Dashboard */}
       <div>
-        <DashboardProduccion producciones={producciones} lotes={lotes} />
+        <DashboardProduccion producciones={producciones} lotes={lotes} periodo={periodo} />
       </div>
 
       {/* Lista de producciones */}
