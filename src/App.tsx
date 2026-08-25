@@ -61,7 +61,7 @@ function App() {
     if (!isTabAvailable && modules.length > 0) {
       setTab(modules[0].id);
     }
-  }, [isTabAvailable, modules]);
+  }, [isTabAvailable]);
 
   return (
     <div className="min-h-screen bg-stone-100 flex">
