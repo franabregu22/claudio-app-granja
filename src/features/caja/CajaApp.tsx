@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, AlertTriangle, Download } from 'lucide-react';
+import { Plus, AlertTriangle } from 'lucide-react';
 import { useMovimientosCaja, useCheques, useAnularMovimiento } from '../../hooks/useCaja';
 import { useAuth } from '../../auth/useAuth';
 import { ListaMovimientos } from './ListaMovimientos';
@@ -444,13 +444,6 @@ export function CajaApp() {
 
         {/* Botones flotantes */}
         <div className="fixed bottom-6 right-6 flex flex-col gap-3">
-          <button
-            onClick={() => setMostrarImportarSheets(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white font-semibold px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
-            title="Importar desde Google Sheets"
-          >
-            <Download className="w-5 h-5" />
-          </button>
           <button
             onClick={() => setVista('nuevo')}
             className="flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-3 rounded-lg hover:bg-[#8B4423] transition-colors shadow-lg"

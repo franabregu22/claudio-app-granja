@@ -146,6 +146,19 @@ export interface Produccion {
   actualizado_en: string;
 }
 
+export interface RecuentoLote {
+  id: string;
+  lote_id: string;
+  fecha_recuento: string;
+  aves_contadas: number;
+  mortandad_esperada?: number;
+  diferencia?: number;
+  notas?: string;
+  registrado_por?: string | null;
+  registrado_en: string;
+  actualizado_en: string;
+}
+
 export interface User {
   id: string;
   email?: string;

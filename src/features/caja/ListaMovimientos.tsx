@@ -37,78 +37,92 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
 
   return (
     <>
-      <div className="space-y-2">
-        {movimientos.map((m) => (
-          <div
-            key={m.id}
-            className={`border rounded-lg p-4 flex items-center justify-between ${
-              m.estado === 'cancelado'
-                ? 'bg-gray-50 border-gray-200 opacity-60'
-                : 'bg-white border-[#E4DCC8]'
-            }`}
-          >
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <p className={`font-semibold ${m.estado === 'cancelado' ? 'line-through text-[#8A7A5C]' : 'text-[#2C2419]'}`}>
-                  {m.concepto}
-                </p>
-                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                  m.tipo === 'ingreso'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-red-100 text-red-700'
-                }`}>
-                  {m.tipo}
-                </span>
-                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                  m.forma_pago === 'efectivo' ? 'bg-yellow-100 text-yellow-700' :
-                  m.forma_pago === 'mercadopago' ? 'bg-blue-100 text-blue-700' :
-                  m.forma_pago === 'cheque' ? 'bg-purple-100 text-purple-700' :
-                  'bg-gray-100 text-gray-700'
-                }`}>
-                  {m.forma_pago}
-                </span>
-                {m.tipo === 'egreso' && (
-                  <button
-                    onClick={() => setMovimientoEnEdicion(m)}
-                    className="flex items-center gap-1 text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 hover:bg-orange-200 transition-colors"
-                    title="Editar categoría"
-                  >
-                    {m.categoria_tecnica || 'Sin categoría'}
-                    <Edit2 className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-              <div className="flex gap-4 mt-1 text-xs text-[#8A7A5C]">
-                <p className="font-medium">{m.fecha_operacion}</p>
-                {m.notas && <p>{m.notas}</p>}
-                {m.impuesto_cheque && m.impuesto_cheque > 0 && (
-                  <p className="font-semibold text-indigo-700">Impuesto: ${m.impuesto_cheque.toFixed(1)}</p>
-                )}
-              </div>
-              {m.estado !== 'confirmado' && (
-                <p className="text-xs text-[#A89878] mt-1">Estado: {m.estado}</p>
-              )}
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="text-right">
-                <p className={`text-lg font-bold ${
-                  m.tipo === 'ingreso' ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {m.tipo === 'ingreso' ? '+' : '-'}{formatoPesos(m.monto)}
-                </p>
-              </div>
-              {m.estado === 'confirmado' && onAnular && (
-                <button
-                  onClick={() => setAnularId(m.id)}
-                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                  title="Anular movimiento"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
+      <div className="bg-white rounded-lg border border-[#E4DCC8] overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-amber-50 border-b border-[#D8CDB0]">
+            <tr>
+              <th className="px-3 py-2 text-left font-semibold text-[#2C2419]">Fecha</th>
+              <th className="px-3 py-2 text-left font-semibold text-[#2C2419]">Tipo</th>
+              <th className="px-3 py-2 text-left font-semibold text-[#2C2419]">Medio</th>
+              <th className="px-3 py-2 text-left font-semibold text-[#2C2419]">Nombre</th>
+              <th className="px-3 py-2 text-left font-semibold text-[#2C2419]">Comentario</th>
+              <th className="px-3 py-2 text-right font-semibold text-[#2C2419]">Monto</th>
+              <th className="px-3 py-2 text-center font-semibold text-[#2C2419]">Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {movimientos.map((m) => (
+              <tr
+                key={m.id}
+                className={`border-b border-[#E4DCC8] hover:bg-amber-50 transition-colors ${
+                  m.estado === 'cancelado'
+                    ? 'bg-gray-50 opacity-60'
+                    : ''
+                }`}
+              >
+                <td className="px-3 py-2 text-[#2C2419] font-medium">{m.fecha_operacion}</td>
+                <td className="px-3 py-2">
+                  <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full whitespace-nowrap ${
+                    m.tipo === 'ingreso'
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-red-100 text-red-700'
+                  }`}>
+                    {m.tipo}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full whitespace-nowrap ${
+                    m.forma_pago === 'efectivo' ? 'bg-yellow-100 text-yellow-700' :
+                    m.forma_pago === 'mercadopago' ? 'bg-blue-100 text-blue-700' :
+                    m.forma_pago === 'cheque' ? 'bg-purple-100 text-purple-700' :
+                    'bg-gray-100 text-gray-700'
+                  }`}>
+                    {m.forma_pago}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <p className={`font-semibold truncate ${m.estado === 'cancelado' ? 'line-through text-[#8A7A5C]' : 'text-[#2C2419]'}`}>
+                    {m.concepto}
+                  </p>
+                  {m.tipo === 'egreso' && (
+                    <button
+                      onClick={() => setMovimientoEnEdicion(m)}
+                      className="flex items-center gap-1 text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded text-orange-700 hover:bg-orange-100 transition-colors mt-1"
+                      title="Editar categoría"
+                    >
+                      {m.categoria_tecnica || 'Sin categoría'}
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-[#8A7A5C] text-xs truncate max-w-xs">
+                  {m.notas || (m.impuesto_cheque && m.impuesto_cheque > 0 ? `Imp: $${m.impuesto_cheque.toFixed(0)}` : '—')}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <p className={`font-bold ${
+                    m.tipo === 'ingreso' ? 'text-green-700' : 'text-red-700'
+                  }`}>
+                    {m.tipo === 'ingreso' ? '+' : '-'}{formatoPesos(m.monto)}
+                  </p>
+                  {m.estado !== 'confirmado' && (
+                    <p className="text-[9px] text-[#A89878]">({m.estado})</p>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {m.estado === 'confirmado' && onAnular && (
+                    <button
+                      onClick={() => setAnularId(m.id)}
+                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors inline-block"
+                      title="Anular movimiento"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Modal de edición de categoría */}

@@ -2,22 +2,21 @@ import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useProducciones, useCrearProduccion, useActualizarProduccion } from '../../hooks/useProducciones';
 import { useLotes } from '../../hooks/useLotes';
+import { useRecuentos } from '../../hooks/useRecuentos';
 import { FormProduccion } from './FormProduccion';
-import { ListaProducciones } from './ListaProducciones';
 import { DashboardProduccion } from './DashboardProduccion';
 
 const GALPONES = ['Galpón 1', 'Galpón 2', 'Galpón 3', 'Galpón 4'];
-type Periodo = 'hoy' | 'semana' | 'mes' | 'ultimas4';
 
 export function ProductionApp() {
   const { data: producciones = [], isLoading: loadingProd } = useProducciones();
   const { data: lotes = [], isLoading: loadingLotes } = useLotes();
+  const { data: recuentos = [], isLoading: loadingRecuentos } = useRecuentos();
   const crearMutation = useCrearProduccion();
   const actualizarMutation = useActualizarProduccion();
 
   const [produccionEnEdicion, setProduccionEnEdicion] = useState<string | null>(null);
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
-  const [periodo, setPeriodo] = useState<Periodo>('hoy');
 
   const handleGuardar = (data: any) => {
     if (produccionEnEdicion) {
@@ -49,7 +48,7 @@ export function ProductionApp() {
     setProduccionEnEdicion(null);
   };
 
-  if (loadingProd || loadingLotes) {
+  if (loadingProd || loadingLotes || loadingRecuentos) {
     return (
       <div className="flex items-center justify-center py-12">
         <p className="text-gray-500">Cargando datos de producción...</p>
@@ -59,67 +58,15 @@ export function ProductionApp() {
 
   return (
     <div className="relative flex flex-col min-h-screen gap-6 pb-20 px-4 md:px-6">
-      {/* Selector de período */}
       <div className="pt-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setPeriodo('hoy')}
-            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
-              periodo === 'hoy'
-                ? 'bg-[#A8552E] text-white'
-                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
-            }`}
-          >
-            Hoy
-          </button>
-          <button
-            onClick={() => setPeriodo('semana')}
-            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
-              periodo === 'semana'
-                ? 'bg-[#A8552E] text-white'
-                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
-            }`}
-          >
-            Semana
-          </button>
-          <button
-            onClick={() => setPeriodo('mes')}
-            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
-              periodo === 'mes'
-                ? 'bg-[#A8552E] text-white'
-                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
-            }`}
-          >
-            Mes
-          </button>
-          <button
-            onClick={() => setPeriodo('ultimas4')}
-            className={`px-3 py-1.5 text-sm font-medium rounded transition ${
-              periodo === 'ultimas4'
-                ? 'bg-[#A8552E] text-white'
-                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
-            }`}
-          >
-            Últimas 4 semanas
-          </button>
-        </div>
-      </div>
-
-      {/* Dashboard */}
-      <div>
-        <DashboardProduccion producciones={producciones} lotes={lotes} periodo={periodo} />
-      </div>
-
-      {/* Lista de producciones */}
-      <div>
-        <h2 className="text-xl font-bold text-amber-900 mb-3">Registros</h2>
-        <ListaProducciones
+        <DashboardProduccion
           producciones={producciones}
+          lotes={lotes}
+          recuentos={recuentos}
           onEditar={(id) => {
             setProduccionEnEdicion(id);
             setMostrarFormulario(true);
           }}
-          produccionEnEdicion={produccionEnEdicion}
         />
       </div>
 

@@ -53,6 +53,16 @@ function App() {
     ] : [])
   ];
 
+  // Si el tab actual no está disponible, ir al primer módulo disponible
+  const isTabAvailable = modules.some(m => m.id === tab);
+  const currentTab = isTabAvailable ? tab : (modules[0]?.id || 'pedidos');
+
+  useEffect(() => {
+    if (!isTabAvailable && modules.length > 0) {
+      setTab(modules[0].id);
+    }
+  }, [isTabAvailable, modules]);
+
   return (
     <div className="min-h-screen bg-stone-100 flex">
       {/* Sidebar */}
@@ -78,7 +88,7 @@ function App() {
                 key={mod.id}
                 onClick={() => setTab(mod.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${
-                  tab === mod.id
+                  currentTab === mod.id
                     ? 'bg-[#A8552E] text-white border-r-4 border-[#D4AF37]'
                     : 'text-[#B8A89F] hover:text-white hover:bg-[#3A3430]'
                 }`}
@@ -131,11 +141,11 @@ function App() {
 
         {/* Content */}
         <div className="flex-1">
-          {tab === 'produccion' && <ProductionApp />}
-          {tab === 'pedidos' && <PedidosApp />}
-          {tab === 'cobros' && <CobrosApp />}
-          {tab === 'caja' && <CajaApp />}
-          {tab === 'admin' && <AdminApp />}
+          {currentTab === 'produccion' && <ProductionApp />}
+          {currentTab === 'pedidos' && <PedidosApp />}
+          {currentTab === 'cobros' && <CobrosApp />}
+          {currentTab === 'caja' && <CajaApp />}
+          {currentTab === 'admin' && <AdminApp />}
         </div>
       </div>
     </div>

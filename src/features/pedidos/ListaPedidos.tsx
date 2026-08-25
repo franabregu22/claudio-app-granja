@@ -1,20 +1,6 @@
-import { useState } from 'react';
 import { Plus, Package, Check, Pencil, X } from 'lucide-react';
 import type { Pedido, Rol } from '../../types/domain';
 import { formatoPedidoId, resumenLineas, formatoPesos } from './helpers';
-import { Pagination } from '../../components/Pagination';
-
-function formatearFechaHistorico(fechaIso: string): string {
-  const fecha = new Date(fechaIso + 'T00:00:00');
-  const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-  const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-  const diaSemana = diasSemana[fecha.getDay()];
-  const dia = fecha.getDate();
-  const mes = meses[fecha.getMonth()];
-
-  return `${diaSemana} ${dia} de ${mes}`;
-}
 
 interface ListaPedidosProps {
   pendientes: Pedido[];
@@ -43,13 +29,6 @@ export function ListaPedidos({
   markingId,
   todosPedidos = [],
 }: ListaPedidosProps) {
-  const [historicoPage, setHistoricoPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
-
-  const sortedHistorico = [...todosPedidos].sort((a, b) => b.id - a.id);
-  const totalHistoricoPages = Math.ceil(sortedHistorico.length / ITEMS_PER_PAGE);
-  const startIdx = (historicoPage - 1) * ITEMS_PER_PAGE;
-  const paginatedHistorico = sortedHistorico.slice(startIdx, startIdx + ITEMS_PER_PAGE);
 
   return (
     <div className="flex-1 flex flex-col">
@@ -179,79 +158,6 @@ export function ListaPedidos({
                 </div>
               ))}
             </div>
-
-
-            {/* Histórico Completo */}
-            {todosPedidos.length > 0 && (
-              <div className="mt-8 pt-6 border-t-4 border-[#D8CDB0]">
-                <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
-                  Histórico Completo — {todosPedidos.length} pedidos
-                </p>
-                <div className="space-y-2">
-                  {paginatedHistorico.map((p) => (
-                      <div
-                        key={p.id}
-                        className="bg-white/70 border border-[#E4DCC8] rounded-lg p-3 text-xs hover:bg-white transition"
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-1">
-                          <div className="flex-1">
-                            <p className="font-semibold text-[#2C2419]">
-                              Pedido #{formatoPedidoId(p.id)}
-                            </p>
-                            <p className="text-[#8A7A5C]">
-                              {p.cliente_nombre}
-                            </p>
-                            <p className="text-[#8A7A5C] text-xs mt-1">
-                              Cargado: {p.fecha_operacion ? new Date(p.fecha_operacion).toLocaleDateString('es-AR') : '-'}
-                              {p.creado_por_nombre && ` por ${p.creado_por_nombre}`}
-                            </p>
-                            {p.estado === 'entregado' && (
-                              <p className="text-[#6B7A4E] font-medium mt-1">
-                                Entregado: {p.entregado_en ? new Date(p.entregado_en).toLocaleDateString('es-AR') : '-'}
-                                {p.entregado_por_nombre && ` por ${p.entregado_por_nombre}`}
-                              </p>
-                            )}
-                            {p.observaciones && (
-                              <p className="text-[#8B7355] italic mt-1">📝 {p.observaciones}</p>
-                            )}
-                          </div>
-                          <div className="text-right shrink-0 flex gap-1">
-                            {rol === 'dueño' && (
-                              <button
-                                onClick={() => onRectificar?.(p)}
-                                aria-label="Editar pedido"
-                                className="w-7 h-7 flex items-center justify-center bg-[#A8552E] rounded text-white active:scale-95 transition-transform"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                            )}
-                            <div>
-                              <p className="font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</p>
-                              <p className="text-[#8A7A5C] text-xs mt-0.5">
-                                {formatearFechaHistorico(p.fecha_operacion || p.fecha_pedido || '')}
-                              </p>
-                              <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-1 ${
-                                p.estado === 'entregado' ? 'bg-[#E8F5E9] text-[#6B7A4E]' :
-                                p.estado === 'pendiente' ? 'bg-[#FCEFD4] text-[#8A5A0B]' :
-                                'bg-[#FCE4E4] text-[#A32D2D]'
-                              }`}>
-                                {p.estado}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-                {totalHistoricoPages > 1 && (
-                  <Pagination
-                    currentPage={historicoPage}
-                    totalPages={totalHistoricoPages}
-                    onPageChange={setHistoricoPage}
-                  />
-                )}
-              </div>
-            )}
           </>
         )}
       </div>

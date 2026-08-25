@@ -1,89 +1,259 @@
-import { AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
-import type { Produccion, Lote } from '../../types/domain';
+import { useState, useEffect } from 'react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
+import type { Produccion, Lote, RecuentoLote } from '../../types/domain';
 import {
-  calcularMetricasHoy,
-  calcularMetricasSemana,
-  calcularMetricasMes,
-  calcularPosturaPorGalpon,
+  calcularMetricasPeriodo,
+  calcularMetricasPorGalpon,
   generarAlertas,
-  calcularUltimas4Semanas,
-  type Alerta,
-  type SemanaTendencia,
-} from './produccionHelpers';
+  calcularSparklineUltimos7Dias,
+  type MetricaPeriodo,
+} from './produccionCalculos';
 
 interface DashboardProduccionProps {
   producciones: Produccion[];
   lotes: Lote[];
-  periodo: 'hoy' | 'semana' | 'mes' | 'ultimas4';
+  recuentos: RecuentoLote[];
+  onEditar?: (id: string) => void;
 }
 
-function formatoPesos(num: number): string {
-  return new Intl.NumberFormat('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(num);
+type Periodo = 'ayer' | 'semana' | 'mes' | 'personalizado';
+
+function formatearFecha(fecha: string): string {
+  const [año, mes, día] = fecha.split('-');
+  return `${día}/${mes}/${año}`;
 }
 
-function obtenerDiasDelMes(fecha: Date): number {
-  return new Date(fecha.getFullYear(), fecha.getMonth() + 1, 0).getDate();
+function agregarDias(fecha: string, dias: number): string {
+  const d = new Date(fecha);
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().split('T')[0];
 }
 
-export function DashboardProduccion({ producciones, lotes, periodo }: DashboardProduccionProps) {
-  const hoy = new Date();
-  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+function obtenerInicioSemana(fecha: string): string {
+  const d = new Date(fecha);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.setDate(diff)).toISOString().split('T')[0];
+}
 
-  const ayer = new Date(hoy);
-  ayer.setDate(ayer.getDate() - 1);
-  const ayerStr = `${ayer.getFullYear()}-${String(ayer.getMonth() + 1).padStart(2, '0')}-${String(ayer.getDate()).padStart(2, '0')}`;
+function obtenerInicioMes(fecha: string): string {
+  const [año, mes] = fecha.split('-');
+  return `${año}-${mes}-01`;
+}
 
-  // Semana
-  const inicioSemanaActual = new Date(hoy);
-  inicioSemanaActual.setDate(hoy.getDate() - hoy.getDay() + (hoy.getDay() === 0 ? -6 : 1));
-  const inicioSemanaActualStr = `${inicioSemanaActual.getFullYear()}-${String(inicioSemanaActual.getMonth() + 1).padStart(2, '0')}-${String(inicioSemanaActual.getDate()).padStart(2, '0')}`;
+function calcularDiasEntre(fechaInicio: string, fechaFin: string): number {
+  const inicio = new Date(fechaInicio);
+  const fin = new Date(fechaFin);
+  return Math.floor((fin.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+}
 
-  const inicioSemanaPasada = new Date(inicioSemanaActual);
-  inicioSemanaPasada.setDate(inicioSemanaPasada.getDate() - 7);
-  const inicioSemanaPasadaStr = `${inicioSemanaPasada.getFullYear()}-${String(inicioSemanaPasada.getMonth() + 1).padStart(2, '0')}-${String(inicioSemanaPasada.getDate()).padStart(2, '0')}`;
+export function DashboardProduccion({
+  producciones,
+  lotes,
+  recuentos,
+  onEditar,
+}: DashboardProduccionProps) {
+  const hoy = new Date().toISOString().split('T')[0];
+  const ayer = agregarDias(hoy, -1);
 
-  const finSemanaPasadaStr = `${inicioSemanaPasada.getFullYear()}-${String(inicioSemanaPasada.getMonth() + 1).padStart(2, '0')}-${String(new Date(inicioSemanaPasada.getTime() + 6 * 24 * 60 * 60 * 1000).getDate()).padStart(2, '0')}`;
+  const [periodo, setPeriodo] = useState<Periodo>('ayer');
+  const [fechaPersonalizadaInicio, setFechaPersonalizadaInicio] = useState<string>(ayer);
+  const [fechaPersonalizadaFin, setFechaPersonalizadaFin] = useState<string>(ayer);
+  const [fechaComparacionInicio, setFechaComparacionInicio] = useState<string>(agregarDias(ayer, -1));
+  const [fechaComparacionFin, setFechaComparacionFin] = useState<string>(agregarDias(ayer, -1));
+  const [paginaHistorico, setPaginaHistorico] = useState(0);
 
-  // Mes
-  const inicioMesActual = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  const inicioMesActualStr = `${inicioMesActual.getFullYear()}-${String(inicioMesActual.getMonth() + 1).padStart(2, '0')}-01`;
+  const ITEMS_POR_PAGINA = 15;
 
-  const inicioMesPasado = new Date(inicioMesActual);
-  inicioMesPasado.setMonth(inicioMesPasado.getMonth() - 1);
-  const inicioMesPasadoStr = `${inicioMesPasado.getFullYear()}-${String(inicioMesPasado.getMonth() + 1).padStart(2, '0')}-01`;
+  // Auto-actualizar fechas de comparación según período
+  useEffect(() => {
+    if (periodo === 'ayer') {
+      const dosYasAtrás = agregarDias(ayer, -1);
+      setFechaComparacionInicio(dosYasAtrás);
+      setFechaComparacionFin(dosYasAtrás);
+    } else if (periodo === 'semana') {
+      const inicioSemana = obtenerInicioSemana(ayer);
+      const diasEnSemana = calcularDiasEntre(inicioSemana, ayer);
+      const finSemanaPasada = agregarDias(inicioSemana, -1);
+      const inicioSemanaPasada = agregarDias(finSemanaPasada, -(diasEnSemana - 1));
+      setFechaComparacionInicio(inicioSemanaPasada);
+      setFechaComparacionFin(finSemanaPasada);
+    } else if (periodo === 'mes') {
+      const inicioMes = obtenerInicioMes(ayer);
+      const diasEnMes = calcularDiasEntre(inicioMes, ayer);
+      const finMesPasado = agregarDias(inicioMes, -1);
+      const inicioMesPasado = agregarDias(finMesPasado, -(diasEnMes - 1));
+      setFechaComparacionInicio(inicioMesPasado);
+      setFechaComparacionFin(finMesPasado);
+    }
+  }, [periodo, ayer]);
 
-  const finMesPasadoStr = `${inicioMesPasado.getFullYear()}-${String(inicioMesPasado.getMonth() + 1).padStart(2, '0')}-${obtenerDiasDelMes(inicioMesPasado)}`;
+  // Calcular rangos de fechas según período (usando ayer como referencia, no hoy)
+  let fechaInicio = ayer;
+  let fechaFin = ayer;
+  let fechaInicioComparacion = fechaComparacionInicio;
+  let fechaFinComparacion = fechaComparacionFin;
 
-  const finMesActualStr = hoyStr;
+  if (periodo === 'ayer') {
+    fechaInicio = ayer;
+    fechaFin = ayer;
+  } else if (periodo === 'semana') {
+    fechaInicio = obtenerInicioSemana(ayer);
+    fechaFin = ayer;
+  } else if (periodo === 'mes') {
+    fechaInicio = obtenerInicioMes(ayer);
+    fechaFin = ayer;
+  } else if (periodo === 'personalizado') {
+    fechaInicio = fechaPersonalizadaInicio;
+    fechaFin = fechaPersonalizadaFin;
+  }
 
-  // Calcular métricas
-  const metricasHoy = calcularMetricasHoy(producciones, lotes, hoyStr, ayerStr);
-  const metricasSemana = calcularMetricasSemana(
+  const metricasActuales = calcularMetricasPeriodo(
     producciones,
     lotes,
-    inicioSemanaActualStr,
-    inicioSemanaPasadaStr,
-    hoyStr,
-    finSemanaPasadaStr
+    recuentos,
+    fechaInicio,
+    fechaFin
   );
-  const metricasMes = calcularMetricasMes(
+
+  const metricasComparacion = calcularMetricasPeriodo(
     producciones,
-    inicioMesActualStr,
-    inicioMesPasadoStr,
-    finMesActualStr,
-    finMesPasadoStr
+    lotes,
+    recuentos,
+    fechaInicioComparacion,
+    fechaFinComparacion
   );
-  const posturaPorGalpon = calcularPosturaPorGalpon(producciones, lotes, hoyStr);
-  const alertas = generarAlertas(producciones, lotes, hoyStr, ayerStr);
-  const ultimas4Semanas = calcularUltimas4Semanas(producciones, lotes, hoyStr);
+
+  // Las métricas por galpón se calculan para el último día del período seleccionado
+  const metricasPorGalpon = calcularMetricasPorGalpon(producciones, lotes, recuentos, fechaFin);
+  // Las alertas son para ayer (no incluir hoy porque la info no está completa)
+  const alertas = generarAlertas(producciones, lotes, recuentos, ayer);
+  // El sparkline es para los últimos 7 días hasta ayer
+  const sparklineData = calcularSparklineUltimos7Dias(producciones, lotes, recuentos, ayer);
+
+  // Histórico de producciones paginado
+  const historico = producciones
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
+    .slice(paginaHistorico * ITEMS_POR_PAGINA, (paginaHistorico + 1) * ITEMS_POR_PAGINA);
+
+  const totalPaginas = Math.ceil(producciones.length / ITEMS_POR_PAGINA);
+
+  const calculoVariacion = (actual: number, anterior: number): number => {
+    if (anterior === 0) return 0;
+    return ((actual - anterior) / anterior) * 100;
+  };
+
+  const CardMetrica = ({ label, valor, comparacion, unidad, alerta }: any) => (
+    <div className={`bg-white rounded-lg p-4 border ${alerta ? 'border-red-200' : 'border-amber-200'}`}>
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{label}</p>
+      <p className={`text-3xl font-bold ${alerta ? 'text-red-600' : 'text-amber-900'}`}>
+        {valor}{unidad && <span className="text-lg ml-1">{unidad}</span>}
+      </p>
+      {comparacion !== undefined && comparacion !== 0 && (
+        <p className={`text-xs font-semibold mt-2 ${comparacion > 0 ? 'text-green-600' : 'text-red-600'}`}>
+          {comparacion > 0 ? '↑' : '↓'} {Math.abs(comparacion).toFixed(1)}%
+        </p>
+      )}
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
+      {/* Selector de período */}
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setPeriodo('ayer')}
+            className={`px-4 py-2 text-sm font-medium rounded transition ${
+              periodo === 'ayer'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Ayer
+          </button>
+          <button
+            onClick={() => setPeriodo('semana')}
+            className={`px-4 py-2 text-sm font-medium rounded transition ${
+              periodo === 'semana'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Semana
+          </button>
+          <button
+            onClick={() => setPeriodo('mes')}
+            className={`px-4 py-2 text-sm font-medium rounded transition ${
+              periodo === 'mes'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Mes
+          </button>
+          <button
+            onClick={() => setPeriodo('personalizado')}
+            className={`px-4 py-2 text-sm font-medium rounded transition ${
+              periodo === 'personalizado'
+                ? 'bg-[#A8552E] text-white'
+                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
+            }`}
+          >
+            Período personalizado
+          </button>
+        </div>
+
+        {/* Período personalizado */}
+        {periodo === 'personalizado' && (
+          <div className="space-y-3 bg-amber-50 rounded-lg p-4 border border-amber-200">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Desde</label>
+                <input
+                  type="date"
+                  value={fechaPersonalizadaInicio}
+                  onChange={(e) => setFechaPersonalizadaInicio(e.target.value)}
+                  className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-700 block mb-1">Hasta</label>
+                <input
+                  type="date"
+                  value={fechaPersonalizadaFin}
+                  onChange={(e) => setFechaPersonalizadaFin(e.target.value)}
+                  className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-700 block mb-2">Comparar con</label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-600 block mb-1">Desde</label>
+                  <input
+                    type="date"
+                    value={fechaComparacionInicio}
+                    onChange={(e) => setFechaComparacionInicio(e.target.value)}
+                    className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600 block mb-1">Hasta</label>
+                  <input
+                    type="date"
+                    value={fechaComparacionFin}
+                    onChange={(e) => setFechaComparacionFin(e.target.value)}
+                    className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Alertas */}
       {alertas.length > 0 && (
         <div className="space-y-2">
@@ -110,133 +280,194 @@ export function DashboardProduccion({ producciones, lotes, periodo }: DashboardP
         </div>
       )}
 
-      {/* HOY */}
-      {periodo === 'hoy' && (
-        <div>
-          <h3 className="text-lg font-bold text-amber-900 mb-3">HOY</h3>
+      {/* Métricas principales - Orden específica del usuario */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <CardMetrica
+          label="Huevos totales"
+          valor={metricasActuales.huevos_totales}
+          comparacion={calculoVariacion(metricasActuales.huevos_totales, metricasComparacion.huevos_totales)}
+          unidad=""
+        />
+        <CardMetrica
+          label="Postura promedio"
+          valor={metricasActuales.postura_promedio.toFixed(1)}
+          comparacion={calculoVariacion(metricasActuales.postura_promedio, metricasComparacion.postura_promedio)}
+          unidad="%"
+          alerta={metricasActuales.postura_promedio < 80}
+        />
+        <CardMetrica
+          label="Mortandad"
+          valor={metricasActuales.mortandad_total}
+          comparacion={calculoVariacion(metricasActuales.mortandad_total, metricasComparacion.mortandad_total)}
+          unidad="aves"
+        />
+        <CardMetrica
+          label="Huevos cachados"
+          valor={metricasActuales.huevos_cachados}
+          comparacion={calculoVariacion(metricasActuales.huevos_cachados, metricasComparacion.huevos_cachados)}
+          unidad=""
+        />
+        <CardMetrica
+          label="% Cachados"
+          valor={metricasActuales.ratio_cachados.toFixed(1)}
+          unidad="%"
+        />
+        <CardMetrica
+          label="Días registrados"
+          valor={metricasActuales.dias}
+          unidad=""
+        />
+      </div>
+
+      {/* Postura por galpón */}
+      {metricasPorGalpon.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide">Postura por galpón</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Huevos</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasHoy.huevos_totales}</p>
-              {metricasHoy.variacion_vs_ayer !== 0 && (
-                <p className={`text-xs font-semibold flex items-center gap-1 mt-1 ${metricasHoy.variacion_vs_ayer > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {metricasHoy.variacion_vs_ayer > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                  {Math.abs(metricasHoy.variacion_vs_ayer).toFixed(1)}% vs ayer
+            {metricasPorGalpon.map((gal) => (
+              <div key={gal.galpon} className="bg-white rounded-lg p-4 border border-amber-200">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                  {gal.galpon}
                 </p>
-              )}
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Mortandad</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasHoy.mortandad_total}</p>
-              <p className="text-xs text-gray-500 mt-1">aves</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Postura promedio</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasHoy.postura_promedio.toFixed(1)}%</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Lotes activos</p>
-              <p className="text-2xl font-bold text-amber-900">{lotes.filter((l) => !l.fecha_salida).length}</p>
-            </div>
-          </div>
-          <div className="mt-6">
-            <h3 className="text-lg font-bold text-amber-900 mb-3">POSTURA POR GALPÓN</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              {posturaPorGalpon.map((gal) => (
-                <div key={gal.galpon} className="bg-white border border-amber-200 rounded-lg p-4">
-                  <p className="text-sm font-bold text-amber-900">{gal.galpon}</p>
-                  <p className="text-3xl font-bold text-amber-700 mt-2">{gal.postura}%</p>
-                  <div className="space-y-1 mt-3 text-xs text-gray-600">
-                    <p>Huevos: {gal.huevos_totales}</p>
-                    <p>Mortandad: {gal.mortandad}</p>
-                  </div>
+                <p
+                  className={`text-2xl font-bold ${
+                    gal.postura < 80 ? 'text-red-600' : 'text-amber-900'
+                  }`}
+                >
+                  {gal.postura.toFixed(1)}%
+                </p>
+                <div className="space-y-0.5 mt-2 text-xs text-gray-600">
+                  <p>Gallinas: {gal.galinasActuales}</p>
+                  <p>Huevos sanos: {gal.huevos_sanos}</p>
+                  <p>Mortandad: {gal.mortandad}</p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* SEMANA */}
-      {periodo === 'semana' && (
-        <div>
-          <h3 className="text-lg font-bold text-amber-900 mb-3">SEMANA ACTUAL</h3>
+      {/* Huevos por galpón */}
+      {metricasPorGalpon.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide">Huevos por galpón</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Huevos</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasSemana.actual.huevos_totales}</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Promedio diario</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasSemana.actual.promedio_diario}</p>
-              <p className="text-xs text-gray-500 mt-1">huevos/día</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Mortandad</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasSemana.actual.mortandad_total}</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Días registrados</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasSemana.actual.dias}</p>
-            </div>
+            {metricasPorGalpon.map((gal) => (
+              <div key={`huevos-${gal.galpon}`} className="bg-white rounded-lg p-4 border border-amber-200">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                  {gal.galpon}
+                </p>
+                <p className="text-2xl font-bold text-amber-900">{gal.huevos_totales}</p>
+                <div className="space-y-0.5 mt-2 text-xs text-gray-600">
+                  <p>Sanos: {gal.huevos_sanos}</p>
+                  <p>Cachados: {gal.huevos_cachados}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* MES */}
-      {periodo === 'mes' && (
-        <div>
-          <h3 className="text-lg font-bold text-amber-900 mb-3">MES ACTUAL</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Huevos</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasMes.actual.huevos_totales}</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Promedio diario</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasMes.actual.promedio_diario}</p>
-              <p className="text-xs text-gray-500 mt-1">huevos/día</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Mortandad</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasMes.actual.mortandad_total}</p>
-            </div>
-            <div className="bg-white border border-amber-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 font-semibold uppercase tracking-wide mb-1">Días registrados</p>
-              <p className="text-2xl font-bold text-amber-900">{metricasMes.actual.dias}</p>
-            </div>
+      {/* Sparkline - Últimos 7 días */}
+      {sparklineData.length > 0 && (
+        <div className="bg-white rounded-lg p-4 border border-amber-200">
+          <p className="text-xs font-bold text-amber-900 uppercase tracking-wide mb-3">
+            Postura - Últimos 7 días
+          </p>
+          <div className="flex items-end justify-between gap-2 h-20">
+            {sparklineData.map((d, i) => (
+              <div key={i} className="flex-1 flex flex-col items-center">
+                <div
+                  className="w-full bg-amber-300 rounded-t"
+                  style={{
+                    height: `${Math.max(d.postura, 10)}px`,
+                    minHeight: '4px',
+                  }}
+                  title={`${d.postura.toFixed(1)}%`}
+                />
+                <p className="text-xs text-gray-500 mt-1">{d.fecha.slice(5)}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* ÚLTIMAS 4 SEMANAS */}
-      {periodo === 'ultimas4' && (
-        <div>
-          <h3 className="text-lg font-bold text-amber-900 mb-3">ÚLTIMAS 4 SEMANAS</h3>
-          <div className="bg-white border border-amber-200 rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-amber-50 border-b border-amber-200">
-                <tr>
-                  <th className="px-4 py-2 text-left font-semibold text-amber-900">Semana</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">Huevos</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">Postura</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
+      {/* Histórico de producciones */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide">Histórico</h3>
+        <div className="bg-white rounded-lg border border-amber-200 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-amber-50 border-b border-amber-200">
+              <tr>
+                <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha</th>
+                <th className="px-4 py-2 text-left font-semibold text-amber-900">Galpón</th>
+                <th className="px-4 py-2 text-right font-semibold text-amber-900">Huevos</th>
+                <th className="px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
+                <th className="px-4 py-2 text-left font-semibold text-amber-900">Observaciones</th>
+                {onEditar && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {historico.map((prod) => (
+                <tr key={prod.id} className="border-b border-amber-100 hover:bg-amber-50">
+                  <td className="px-4 py-2 text-gray-700">{formatearFecha(prod.fecha)}</td>
+                  <td className="px-4 py-2 text-gray-700">{prod.galpon}</td>
+                  <td className="px-4 py-2 text-right font-semibold text-amber-900">
+                    {prod.huevos_sanos_mediodia +
+                      prod.huevos_cachados_mediodia +
+                      prod.huevos_sanos_tarde +
+                      prod.huevos_cachados_tarde}
+                  </td>
+                  <td className="px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
+                  <td className="px-4 py-2 text-left text-gray-700 max-w-xs truncate" title={prod.observaciones || ''}>
+                    {prod.observaciones ? (
+                      <span className="text-amber-700 font-medium">📝 {prod.observaciones}</span>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
+                  {onEditar && (
+                    <td className="px-4 py-2 text-center">
+                      <button
+                        onClick={() => onEditar(prod.id)}
+                        className="text-amber-600 hover:text-amber-900 inline-flex items-center gap-1"
+                        title="Editar"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  )}
                 </tr>
-              </thead>
-              <tbody>
-                {ultimas4Semanas.map((semana, i) => (
-                  <tr key={i} className="border-b border-amber-100 hover:bg-amber-50">
-                    <td className="px-4 py-2 text-gray-700">{semana.semana}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-amber-900">{semana.huevos}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-amber-900">{semana.postura_promedio}%</td>
-                    <td className="px-4 py-2 text-right text-gray-700">{semana.mortandad}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+
+        {/* Paginación */}
+        {totalPaginas > 1 && (
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
+              disabled={paginaHistorico === 0}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Anterior
+            </button>
+            <span className="text-xs text-gray-600">
+              Página {paginaHistorico + 1} de {totalPaginas}
+            </span>
+            <button
+              onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
+              disabled={paginaHistorico === totalPaginas - 1}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
+            >
+              Siguiente
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
