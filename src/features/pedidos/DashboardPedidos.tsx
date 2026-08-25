@@ -55,7 +55,7 @@ function formatearFecha(fecha: string): string {
   return `${día}/${mes}/${año}`;
 }
 
-export function DashboardPedidos({ pedidos }: Omit<DashboardPedidosProps, 'onEditar'>) {
+export function DashboardPedidos({ pedidos, onEditar }: DashboardPedidosProps) {
   const hoy = getTodayDate();
   const ayer = agregarDias(hoy, -1);
 
@@ -261,7 +261,7 @@ export function DashboardPedidos({ pedidos }: Omit<DashboardPedidosProps, 'onEdi
                   color: '#FAF6EE'
                 }}
                 labelStyle={{ color: '#FAF6EE' }}
-                formatter={(value) => value.toLocaleString('es-AR')}
+                formatter={(value) => (value ?? 0).toLocaleString('es-AR')}
               />
               <Legend wrapperStyle={{ paddingTop: '10px' }} />
               <Bar dataKey="xl" stackId="a" fill={coloresCategoria.xl} name="XL" />
