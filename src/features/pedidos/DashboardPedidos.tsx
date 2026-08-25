@@ -12,7 +12,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 interface DashboardPedidosProps {
   pedidos: Pedido[];
-  onEditar?: (id: string) => void;
+  onEditar?: (pedido: Pedido) => void;
 }
 
 type Periodo = 'semana' | 'mes' | 'personalizado';
