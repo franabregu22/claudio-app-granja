@@ -57,12 +57,6 @@ function App() {
   const isTabAvailable = modules.some(m => m.id === tab);
   const currentTab = isTabAvailable ? tab : (modules[0]?.id || 'pedidos');
 
-  useEffect(() => {
-    if (!isTabAvailable && modules.length > 0) {
-      setTab(modules[0].id);
-    }
-  }, [isTabAvailable]);
-
   return (
     <div className="min-h-screen bg-stone-100 flex">
       {/* Sidebar */}
