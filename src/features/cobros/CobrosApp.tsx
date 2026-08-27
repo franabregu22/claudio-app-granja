@@ -37,6 +37,43 @@ export function CobrosApp() {
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
       <div className="w-full max-w-7xl bg-[#FAF6EE] min-h-screen flex flex-col relative">
+        {/* Últimos Pagos Registrados */}
+        <div className="px-5 pt-6 pb-4 border-b border-[#E4DCC8] bg-white/50">
+          <h2 className="text-lg font-bold text-[#8A5A0B]">Últimos Pagos Registrados</h2>
+          {isLoading ? (
+            <p className="text-xs text-gray-500 mt-2">Cargando...</p>
+          ) : !error && clientes.length > 0 ? (
+            <div className="mt-3 space-y-1 max-h-48 overflow-y-auto">
+              {Array.from(
+                new Map(
+                  clientes
+                    .flatMap(c => c.pagos.map(p => ({ ...p, cliente_nombre: c.cliente_nombre })))
+                    .sort((a, b) => new Date(b.fecha_pago).getTime() - new Date(a.fecha_pago).getTime())
+                    .slice(0, 5)
+                    .map(p => [p.id, p])
+                )
+                .values()
+              ).map((pago: any) => (
+                <div key={pago.id} className="text-xs text-gray-700 py-1">
+                  <span className="font-semibold text-red-600">{formatoPesos(pago.monto)}</span>
+                  <span className="text-gray-500"> · </span>
+                  <span>{pago.cliente_nombre}</span>
+                  <span className="text-gray-500"> · </span>
+                  <span>{pago.metodo_pago}</span>
+                  <span className="text-gray-500"> · </span>
+                  <span>{pago.fecha_pago}</span>
+                  {pago.creado_por_nombre && (
+                    <>
+                      <span className="text-gray-500"> · </span>
+                      <span className="text-gray-600">por {pago.creado_por_nombre}</span>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
         {/* Saldos Pendientes */}
         <div className="px-5 pt-6 pb-2 border-b border-[#E4DCC8] bg-white/50">
           <h2 className="text-lg font-bold text-[#8A5A0B]">Cuentas a Cobrar</h2>

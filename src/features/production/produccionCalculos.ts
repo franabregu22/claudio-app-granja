@@ -89,6 +89,141 @@ export function calcularPostura(huevosSanos: number, galinasActuales: number): n
 }
 
 // ============================================================================
+// FUNCIONES PARA TABLA DE HISTÓRICO
+// ============================================================================
+
+/**
+ * Encuentra el lote correcto para un registro de producción
+ * Busca el lote donde:
+ * - El galpón coincide (case-insensitive, sin acentos)
+ * - fecha_entrada <= fecha del registro
+ * - fecha_salida no existe O fecha_salida > fecha del registro
+ */
+export function encontrarLotePorGalponYFecha(
+  galpon: string,
+  fecha: string,
+  lotes: Lote[]
+): Lote | null {
+  const normalizeText = (text: string): string => {
+    return text
+      .toLowerCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '');
+  };
+
+  const galponNorm = normalizeText(galpon);
+
+  return lotes.find((lote) => {
+    const loteGalponNorm = normalizeText(lote.galpon || '');
+
+    if (loteGalponNorm !== galponNorm) return false;
+    if (lote.fecha_entrada > fecha) return false;
+    if (lote.fecha_salida && lote.fecha_salida <= fecha) return false;
+    return true;
+  }) || null;
+}
+
+/**
+ * Calcula las aves actuales para un registro específico
+ */
+export function calcularAvesActualesParaRegistro(
+  lote: Lote,
+  producciones: Produccion[],
+  recuentos: RecuentoLote[],
+  fechaRegistro: string,
+  galpon?: string
+): number {
+  const recuentoMasReciente = obtenerRecuentoMasReciente(lote.id, recuentos, fechaRegistro);
+
+  // Filtrar producciones del lote: primero por lote_id, luego por galpón si no hay lote_id
+  const filtrarProducciones = (hasta: string) => {
+    let prodsDelLote = producciones.filter((p) => p.lote_id === lote.id && p.fecha <= hasta);
+
+    // Si no hay registros por lote_id, intenta filtrar por galpón
+    if (prodsDelLote.length === 0 && galpon) {
+      prodsDelLote = producciones.filter(
+        (p) => p.galpon === galpon && p.fecha <= hasta
+      );
+    }
+
+    return prodsDelLote;
+  };
+
+  if (recuentoMasReciente) {
+    // Usar recuento como base y restar mortandad posterior
+    const mortandadPostRecuento = producciones
+      .filter(
+        (p) =>
+          (p.lote_id === lote.id || (galpon && p.galpon === galpon)) &&
+          p.fecha > recuentoMasReciente.fecha_recuento &&
+          p.fecha <= fechaRegistro
+      )
+      .reduce((acc, p) => acc + (p.mortandad || 0), 0);
+
+    return Math.max(0, recuentoMasReciente.aves_contadas - mortandadPostRecuento);
+  } else {
+    // No hay recuento, usar cálculo desde el inicio
+    const prodsDelLote = filtrarProducciones(fechaRegistro);
+    const mortandadAcumulada = prodsDelLote.reduce((acc, p) => acc + (p.mortandad || 0), 0);
+
+    return Math.max(0, lote.aves_iniciales_postura - mortandadAcumulada);
+  }
+}
+
+/**
+ * Calcula el % de postura para un registro específico
+ * huevos_sanos_tarde / aves_actuales * 100
+ */
+export function calcularPosturaPorcentajeDelRegistro(
+  prod: Produccion,
+  avesActuales: number
+): number {
+  const huevosSanosTarde = prod.huevos_sanos_tarde || 0;
+  if (avesActuales === 0) return 0;
+  return (huevosSanosTarde / avesActuales) * 100;
+}
+
+/**
+ * Calcula postura bruta para un período
+ * (suma huevos totales del período) / (suma aves cada día) * 100
+ */
+export function calcularPosturaBrutaPeriodo(
+  producciones: Produccion[],
+  lotes: Lote[],
+  recuentos: RecuentoLote[],
+  fechaInicio: string,
+  fechaFin: string
+): number {
+  const prodDelPeriodo = producciones.filter(
+    (p) => p.fecha >= fechaInicio && p.fecha <= fechaFin
+  );
+
+  if (prodDelPeriodo.length === 0) return 0;
+
+  const huevosTotal = prodDelPeriodo.reduce((acc, p) => acc + calcularHuevosTotales(p), 0);
+
+  // Calcular aves promedio del período
+  const diasUnicos = [...new Set(prodDelPeriodo.map((p) => p.fecha))];
+  let totalAves = 0;
+
+  diasUnicos.forEach((fecha) => {
+    const prodsDelDia = prodDelPeriodo.filter((p) => p.fecha === fecha);
+    const loteIds = [...new Set(prodsDelDia.map((p) => p.lote_id).filter(Boolean))];
+
+    loteIds.forEach((loteId) => {
+      const lote = lotes.find((l) => l.id === loteId);
+      if (lote) {
+        totalAves += calcularGalinasActuales(lote, producciones, recuentos, fecha);
+      }
+    });
+  });
+
+  if (totalAves === 0) return 0;
+  return (huevosTotal / totalAves) * 100;
+}
+
+// ============================================================================
 // AGREGACIONES POR PERÍODO
 // ============================================================================
 
@@ -264,32 +399,37 @@ export function generarAlertas(
 }
 
 // ============================================================================
-// SPARKLINE DATA (últimos 7 días)
+// GRÁFICO DE HUEVOS POR GALPÓN
 // ============================================================================
 
-export interface SparklineData {
+export interface DatosGraficoHuevos {
   fecha: string;
-  postura: number;
+  [galpon: string]: number;
 }
 
-export function calcularSparklineUltimos7Dias(
+export function calcularHuevosPorGalponUltimos15Dias(
   producciones: Produccion[],
-  lotes: Lote[],
-  recuentos: RecuentoLote[],
   hastaFecha: string
-): SparklineData[] {
-  const data: SparklineData[] = [];
+): DatosGraficoHuevos[] {
+  const data: DatosGraficoHuevos[] = [];
+  const galpones = [...new Set(producciones.map((p) => p.galpon))];
 
-  for (let i = 6; i >= 0; i--) {
+  for (let i = 9; i >= 0; i--) {
     const fecha = new Date(hastaFecha);
     fecha.setDate(fecha.getDate() - i);
     const fechaStr = fecha.toISOString().split('T')[0];
 
-    const metrica = calcularMetricasPeriodo(producciones, lotes, recuentos, fechaStr, fechaStr);
-    data.push({
-      fecha: fechaStr,
-      postura: metrica.postura_promedio,
+    const entrada: DatosGraficoHuevos = { fecha: fechaStr };
+
+    galpones.forEach((galpon) => {
+      const prodsDelGalpon = producciones.filter(
+        (p) => p.fecha === fechaStr && p.galpon === galpon
+      );
+      const huevosTotal = prodsDelGalpon.reduce((acc, p) => acc + calcularHuevosTotales(p), 0);
+      entrada[galpon] = huevosTotal;
     });
+
+    data.push(entrada);
   }
 
   return data;

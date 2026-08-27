@@ -151,7 +151,7 @@ export function PedidosApp() {
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
       <div className="w-full max-w-7xl bg-[#FAF6EE] min-h-screen flex flex-col relative">
         {/* Vista única: Dashboard + Pedidos Pendientes + Histórico */}
-        <div className="flex-1 min-h-screen overflow-y-auto px-4 md:px-6 py-6 space-y-8">
+        <div className="flex-1 min-h-screen overflow-y-auto overflow-x-hidden px-4 md:px-6 py-6 space-y-8 relative">
           {/* Header */}
           <header className="border-b border-[#E4DCC8] pb-4">
             <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">
@@ -162,13 +162,26 @@ export function PedidosApp() {
               {rol === 'dueño' && (
                 <button
                   onClick={abrirNuevo}
-                  className="flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-2 rounded-lg hover:bg-[#8B4423] transition-colors"
+                  className="hidden md:flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-2 rounded-lg hover:bg-[#8B4423] transition-colors"
                 >
                   <Plus className="w-4 h-4" /> Nuevo
                 </button>
               )}
             </div>
           </header>
+
+          {/* Botón flotante para mobile */}
+          {rol === 'dueño' && (
+            <div className="md:hidden fixed bottom-6 right-4 z-40">
+              <button
+                onClick={abrirNuevo}
+                className="bg-[#A8552E] text-white rounded-full p-3 shadow-lg hover:bg-[#8B4423] transition-colors"
+                title="Nuevo pedido"
+              >
+                <Plus className="w-6 h-6" />
+              </button>
+            </div>
+          )}
 
           {/* Dashboard */}
           {!pedidosQuery.isLoading && !pedidosQuery.error && (
@@ -277,6 +290,7 @@ export function PedidosApp() {
                         <th className="px-4 py-2 text-left font-semibold text-amber-900">Contenido</th>
                         <th className="px-4 py-2 text-right font-semibold text-amber-900">Monto</th>
                         <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha carga</th>
+                        <th className="px-4 py-2 text-left font-semibold text-amber-900">Entregado por</th>
                         {rol === 'dueño' && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
                       </tr>
                     </thead>
@@ -308,6 +322,9 @@ export function PedidosApp() {
                               </td>
                               <td className="px-4 py-2 text-gray-700">
                                 {p.fecha_operacion ? formatearFechaLocal(p.fecha_operacion) : '—'}
+                              </td>
+                              <td className="px-4 py-2 text-gray-700 text-xs">
+                                {p.entregado_por_nombre || '—'}
                               </td>
                               {rol === 'dueño' && (
                                 <td className="px-4 py-2 text-center">

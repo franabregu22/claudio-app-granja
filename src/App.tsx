@@ -14,8 +14,8 @@ type Tab = 'pedidos' | 'cobros' | 'caja' | 'admin' | 'produccion';
 function App() {
   const { user, rol, loading, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>('pedidos');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 768);
 
   useEffect(() => {
     const handleResize = () => {
@@ -80,7 +80,10 @@ function App() {
             return (
               <button
                 key={mod.id}
-                onClick={() => setTab(mod.id)}
+                onClick={() => {
+                  setTab(mod.id);
+                  if (isMobile) setSidebarOpen(false);
+                }}
                 className={`w-full flex items-center gap-3 px-4 py-3 transition-colors ${
                   currentTab === mod.id
                     ? 'bg-[#A8552E] text-white border-r-4 border-[#D4AF37]'

@@ -3,6 +3,7 @@ import { ChevronDown } from 'lucide-react';
 import type { ClienteSaldo, Pago } from '../../types/domain';
 import { formatoPesos, formatoPedidoId } from '../pedidos/helpers';
 import { agregarPagoAlaCaja } from '../../api/pagos';
+import { calcularDíasDesdeBA, isoAFechaBA } from '../../utils/dateUtils';
 
 interface ListaClientesProps {
   clientes: ClienteSaldo[];
@@ -113,6 +114,15 @@ export function ListaClientes({
             {clientes.map((cliente) => {
               const isExpanded = expandido === cliente.cliente_id;
 
+              // Calcular días desde última entrega (zona horaria Buenos Aires)
+              const ultimaEntrega = cliente.pedidos
+                .filter(p => p.entregado_en)
+                .sort((a, b) => new Date(b.entregado_en!).getTime() - new Date(a.entregado_en!).getTime())[0];
+
+              const diasDesdeUltimaEntrega = ultimaEntrega
+                ? calcularDíasDesdeBA(isoAFechaBA(ultimaEntrega.entregado_en!))
+                : null;
+
               return (
                 <div
                   key={cliente.cliente_id}
@@ -120,18 +130,24 @@ export function ListaClientes({
                 >
                   <button
                     onClick={() => setExpandido(isExpanded ? null : cliente.cliente_id)}
-                    className="w-full px-4 py-4 hover:bg-stone-50 flex items-center justify-between transition"
+                    className="w-full px-4 py-2.5 hover:bg-stone-50 flex items-center justify-between transition"
                   >
                     <div className="flex-1 text-left">
-                      <div className="font-semibold text-amber-900">{cliente.cliente_nombre}</div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        Saldo:{' '}
+                      <div className="text-sm text-gray-800">
+                        <span className="font-semibold text-amber-900">{cliente.cliente_nombre}</span>
+                        <span className="text-gray-500"> · Saldo: </span>
                         <span className="font-bold text-red-600">{formatoPesos(cliente.saldo)}</span>
+                        {diasDesdeUltimaEntrega !== null && (
+                          <>
+                            <span className="text-gray-500"> · Último pedido </span>
+                            <span className="text-gray-700">{diasDesdeUltimaEntrega}d atrás</span>
+                          </>
+                        )}
                       </div>
                     </div>
                     <ChevronDown
                       size={20}
-                      className={`text-gray-400 transition ${isExpanded ? 'rotate-180' : ''}`}
+                      className={`text-gray-400 transition flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
                     />
                   </button>
 
@@ -153,12 +169,10 @@ export function ListaClientes({
                                 className="bg-white p-3 rounded border border-gray-200 text-sm"
                               >
                                 <div className="font-medium text-gray-800">Pedido #{formatoPedidoId(pedido.id)}</div>
-                                <div className="text-xs text-gray-600 mt-1">
-                                  Cargado: {fechaPedido ? new Date(fechaPedido).toLocaleDateString('es-AR') : '-'}
-                                </div>
                                 {pedido.entregado_en && (
-                                  <div className="text-xs text-gray-600">
-                                    Entregado: {new Date(pedido.entregado_en).toLocaleDateString('es-AR')}
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    Entregado por: <span className="font-medium">{pedido.entregado_por_nombre || 'Usuario'}</span> ·{' '}
+                                    {new Date(pedido.entregado_en).toLocaleDateString('es-AR')}
                                   </div>
                                 )}
 
@@ -207,13 +221,12 @@ export function ListaClientes({
                                   {formatoPesos(pago.monto)}
                                 </div>
                                 <div className="text-xs text-gray-600 mt-1">
-                                  {pago.fecha_pago} ·{' '}
                                   {pago.metodo_pago.charAt(0).toUpperCase() +
-                                    pago.metodo_pago.slice(1)}
+                                    pago.metodo_pago.slice(1)} · {pago.fecha_pago}
                                 </div>
                                 {pago.creado_por_nombre && (
                                   <div className="text-xs text-gray-600 mt-1">
-                                    Cargado por: {pago.creado_por_nombre}
+                                    Registrado por: <span className="font-medium">{pago.creado_por_nombre}</span>
                                   </div>
                                 )}
                                 {pago.notas && (

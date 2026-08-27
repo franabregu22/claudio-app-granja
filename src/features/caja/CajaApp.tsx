@@ -220,7 +220,7 @@ export function CajaApp() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-100 flex justify-center">
+    <div className="min-h-screen bg-stone-100 flex justify-center relative">
       <div className="w-full max-w-6xl bg-[#FAF6EE] min-h-screen flex flex-col">
         {/* Header */}
         <header className="px-4 md:px-6 pt-6 pb-4 border-b border-[#E4DCC8]">
@@ -442,13 +442,24 @@ export function CajaApp() {
           )}
         </div>
 
-        {/* Botones flotantes */}
-        <div className="fixed bottom-6 right-6 flex flex-col gap-3">
+        {/* Botón flotante desktop */}
+        <div className="fixed bottom-6 right-6 hidden md:flex z-40">
           <button
             onClick={() => setVista('nuevo')}
             className="flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-3 rounded-lg hover:bg-[#8B4423] transition-colors shadow-lg"
           >
             <Plus className="w-5 h-5" /> Nuevo
+          </button>
+        </div>
+
+        {/* Botón flotante mobile */}
+        <div className="md:hidden fixed bottom-6 right-4 z-40">
+          <button
+            onClick={() => setVista('nuevo')}
+            className="flex items-center justify-center bg-[#A8552E] text-white font-semibold p-3 rounded-full hover:bg-[#8B4423] transition-colors shadow-lg"
+            title="Nuevo movimiento"
+          >
+            <Plus className="w-6 h-6" />
           </button>
         </div>
 

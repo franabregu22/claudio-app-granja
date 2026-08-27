@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { Produccion, Lote, RecuentoLote } from '../../types/domain';
 import {
   calcularMetricasPeriodo,
-  calcularMetricasPorGalpon,
+  calcularPosturaBrutaPeriodo,
   generarAlertas,
-  calcularSparklineUltimos7Dias,
+  calcularHuevosPorGalponUltimos15Dias,
+  encontrarLotePorGalponYFecha,
+  calcularAvesActualesParaRegistro,
+  calcularPosturaPorcentajeDelRegistro,
   type MetricaPeriodo,
+  type Alerta,
 } from './produccionCalculos';
+import { calcularDíasDesdeBA, isoAFechaBA } from '../../utils/dateUtils';
 
 interface DashboardProduccionProps {
   producciones: Produccion[];
@@ -16,7 +22,13 @@ interface DashboardProduccionProps {
   onEditar?: (id: string) => void;
 }
 
-type Periodo = 'ayer' | 'semana' | 'mes' | 'personalizado';
+interface Linea {
+  producto_nombre?: string;
+  cantidad?: number;
+  [key: string]: any;
+}
+
+type Periodo = 'ayer' | 'semana' | 'mes';
 
 function formatearFecha(fecha: string): string {
   const [año, mes, día] = fecha.split('-');
@@ -24,16 +36,25 @@ function formatearFecha(fecha: string): string {
 }
 
 function agregarDias(fecha: string, dias: number): string {
-  const d = new Date(fecha);
+  const [año, mes, día] = fecha.split('-').map(Number);
+  const d = new Date(año, mes - 1, día);
   d.setDate(d.getDate() + dias);
-  return d.toISOString().split('T')[0];
+  const nuevoAño = d.getFullYear();
+  const nuevoMes = String(d.getMonth() + 1).padStart(2, '0');
+  const nuevoDía = String(d.getDate()).padStart(2, '0');
+  return `${nuevoAño}-${nuevoMes}-${nuevoDía}`;
 }
 
 function obtenerInicioSemana(fecha: string): string {
-  const d = new Date(fecha);
+  const [año, mes, día] = fecha.split('-').map(Number);
+  const d = new Date(año, mes - 1, día);
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.setDate(diff)).toISOString().split('T')[0];
+  d.setDate(diff);
+  const nuevoAño = d.getFullYear();
+  const nuevoMes = String(d.getMonth() + 1).padStart(2, '0');
+  const nuevoDía = String(d.getDate()).padStart(2, '0');
+  return `${nuevoAño}-${nuevoMes}-${nuevoDía}`;
 }
 
 function obtenerInicioMes(fecha: string): string {
@@ -57,88 +78,54 @@ export function DashboardProduccion({
   const ayer = agregarDias(hoy, -1);
 
   const [periodo, setPeriodo] = useState<Periodo>('ayer');
-  const [fechaPersonalizadaInicio, setFechaPersonalizadaInicio] = useState<string>(ayer);
-  const [fechaPersonalizadaFin, setFechaPersonalizadaFin] = useState<string>(ayer);
-  const [fechaComparacionInicio, setFechaComparacionInicio] = useState<string>(agregarDias(ayer, -1));
-  const [fechaComparacionFin, setFechaComparacionFin] = useState<string>(agregarDias(ayer, -1));
   const [paginaHistorico, setPaginaHistorico] = useState(0);
 
   const ITEMS_POR_PAGINA = 15;
 
-  // Auto-actualizar fechas de comparación según período
-  useEffect(() => {
-    if (periodo === 'ayer') {
-      const dosYasAtrás = agregarDias(ayer, -1);
-      setFechaComparacionInicio(dosYasAtrás);
-      setFechaComparacionFin(dosYasAtrás);
-    } else if (periodo === 'semana') {
-      const inicioSemana = obtenerInicioSemana(ayer);
-      const diasEnSemana = calcularDiasEntre(inicioSemana, ayer);
-      const finSemanaPasada = agregarDias(inicioSemana, -1);
-      const inicioSemanaPasada = agregarDias(finSemanaPasada, -(diasEnSemana - 1));
-      setFechaComparacionInicio(inicioSemanaPasada);
-      setFechaComparacionFin(finSemanaPasada);
-    } else if (periodo === 'mes') {
-      const inicioMes = obtenerInicioMes(ayer);
-      const diasEnMes = calcularDiasEntre(inicioMes, ayer);
-      const finMesPasado = agregarDias(inicioMes, -1);
-      const inicioMesPasado = agregarDias(finMesPasado, -(diasEnMes - 1));
-      setFechaComparacionInicio(inicioMesPasado);
-      setFechaComparacionFin(finMesPasado);
-    }
-  }, [periodo, ayer]);
-
-  // Calcular rangos de fechas según período (usando ayer como referencia, no hoy)
+  // Calcular rangos según período
   let fechaInicio = ayer;
   let fechaFin = ayer;
-  let fechaInicioComparacion = fechaComparacionInicio;
-  let fechaFinComparacion = fechaComparacionFin;
+  let fechaComparacionInicio = agregarDias(ayer, -1);
+  let fechaComparacionFin = agregarDias(ayer, -1);
+  let etiquetaPeriodo = `${formatearFecha(ayer)}`;
+  let etiquetaComparacion = `${formatearFecha(agregarDias(ayer, -1))}`;
 
-  if (periodo === 'ayer') {
-    fechaInicio = ayer;
+  if (periodo === 'semana') {
+    const inicioSemana = obtenerInicioSemana(ayer);
+    const diasEnSemana = calcularDiasEntre(inicioSemana, ayer);
+    const inicioSemanaPasada = agregarDias(inicioSemana, -7);
+    const finSemanaPasada = agregarDias(inicioSemanaPasada, diasEnSemana - 1);
+
+    fechaInicio = inicioSemana;
     fechaFin = ayer;
-  } else if (periodo === 'semana') {
-    fechaInicio = obtenerInicioSemana(ayer);
-    fechaFin = ayer;
+    fechaComparacionInicio = inicioSemanaPasada;
+    fechaComparacionFin = finSemanaPasada;
+    etiquetaPeriodo = `${formatearFecha(inicioSemana)} → ${formatearFecha(ayer)}`;
+    etiquetaComparacion = `${formatearFecha(inicioSemanaPasada)} → ${formatearFecha(finSemanaPasada)}`;
   } else if (periodo === 'mes') {
-    fechaInicio = obtenerInicioMes(ayer);
+    const inicioMes = obtenerInicioMes(ayer);
+    const diasEnMes = calcularDiasEntre(inicioMes, ayer);
+    const inicioMesPasado = obtenerInicioMes(agregarDias(inicioMes, -1));
+    const finMesPasado = agregarDias(inicioMesPasado, diasEnMes - 1);
+
+    fechaInicio = inicioMes;
     fechaFin = ayer;
-  } else if (periodo === 'personalizado') {
-    fechaInicio = fechaPersonalizadaInicio;
-    fechaFin = fechaPersonalizadaFin;
+    fechaComparacionInicio = inicioMesPasado;
+    fechaComparacionFin = finMesPasado;
+    etiquetaPeriodo = `${formatearFecha(inicioMes)} → ${formatearFecha(ayer)}`;
+    etiquetaComparacion = `${formatearFecha(inicioMesPasado)} → ${formatearFecha(finMesPasado)}`;
   }
 
-  const metricasActuales = calcularMetricasPeriodo(
-    producciones,
-    lotes,
-    recuentos,
-    fechaInicio,
-    fechaFin
-  );
+  const metricasActuales = calcularMetricasPeriodo(producciones, lotes, recuentos, fechaInicio, fechaFin);
+  const metricasComparacion = calcularMetricasPeriodo(producciones, lotes, recuentos, fechaComparacionInicio, fechaComparacionFin);
 
-  const metricasComparacion = calcularMetricasPeriodo(
-    producciones,
-    lotes,
-    recuentos,
-    fechaInicioComparacion,
-    fechaFinComparacion
-  );
+  const posturaActual = calcularPosturaBrutaPeriodo(producciones, lotes, recuentos, fechaInicio, fechaFin);
+  const posturaComparacion = calcularPosturaBrutaPeriodo(producciones, lotes, recuentos, fechaComparacionInicio, fechaComparacionFin);
 
-  // Las métricas por galpón se calculan para el último día del período seleccionado
-  const metricasPorGalpon = calcularMetricasPorGalpon(producciones, lotes, recuentos, fechaFin);
-  // Las alertas son para ayer (no incluir hoy porque la info no está completa)
   const alertas = generarAlertas(producciones, lotes, recuentos, ayer);
-  // El sparkline es para los últimos 7 días hasta ayer
-  const sparklineData = calcularSparklineUltimos7Dias(producciones, lotes, recuentos, ayer);
+  const datosGrafico = calcularHuevosPorGalponUltimos15Dias(producciones, ayer);
 
-  // Histórico de producciones paginado
-  const historico = producciones
-    .sort((a, b) => b.fecha.localeCompare(a.fecha))
-    .slice(paginaHistorico * ITEMS_POR_PAGINA, (paginaHistorico + 1) * ITEMS_POR_PAGINA);
-
-  const totalPaginas = Math.ceil(producciones.length / ITEMS_POR_PAGINA);
-
-  const calculoVariacion = (actual: number, anterior: number): number => {
+  const calcularVariacion = (actual: number, anterior: number): number => {
     if (anterior === 0) return 0;
     return ((actual - anterior) / anterior) * 100;
   };
@@ -157,10 +144,18 @@ export function DashboardProduccion({
     </div>
   );
 
+  // Obtener galpones disponibles
+  const galpones = [...new Set(producciones.map(p => p.galpon))].sort();
+  const colores = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899'];
+  const mapaColores: Record<string, string> = {};
+  galpones.forEach((galpon, idx) => {
+    mapaColores[galpon] = colores[idx % colores.length];
+  });
+
   return (
     <div className="space-y-6 pb-20">
       {/* Selector de período */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setPeriodo('ayer')}
@@ -192,66 +187,7 @@ export function DashboardProduccion({
           >
             Mes
           </button>
-          <button
-            onClick={() => setPeriodo('personalizado')}
-            className={`px-4 py-2 text-sm font-medium rounded transition ${
-              periodo === 'personalizado'
-                ? 'bg-[#A8552E] text-white'
-                : 'bg-white border border-[#D8CDB0] text-[#2C2419]'
-            }`}
-          >
-            Período personalizado
-          </button>
         </div>
-
-        {/* Período personalizado */}
-        {periodo === 'personalizado' && (
-          <div className="space-y-3 bg-amber-50 rounded-lg p-4 border border-amber-200">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-700 block mb-1">Desde</label>
-                <input
-                  type="date"
-                  value={fechaPersonalizadaInicio}
-                  onChange={(e) => setFechaPersonalizadaInicio(e.target.value)}
-                  className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700 block mb-1">Hasta</label>
-                <input
-                  type="date"
-                  value={fechaPersonalizadaFin}
-                  onChange={(e) => setFechaPersonalizadaFin(e.target.value)}
-                  className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-2">Comparar con</label>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-600 block mb-1">Desde</label>
-                  <input
-                    type="date"
-                    value={fechaComparacionInicio}
-                    onChange={(e) => setFechaComparacionInicio(e.target.value)}
-                    className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600 block mb-1">Hasta</label>
-                  <input
-                    type="date"
-                    value={fechaComparacionFin}
-                    onChange={(e) => setFechaComparacionFin(e.target.value)}
-                    className="w-full px-3 py-2 border border-amber-300 rounded text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Alertas */}
@@ -280,115 +216,81 @@ export function DashboardProduccion({
         </div>
       )}
 
-      {/* Métricas principales - Orden específica del usuario */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {/* Métricas principales */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <CardMetrica
-          label="Huevos totales"
+          label="Huevos Totales"
           valor={metricasActuales.huevos_totales}
-          comparacion={calculoVariacion(metricasActuales.huevos_totales, metricasComparacion.huevos_totales)}
+          comparacion={calcularVariacion(metricasActuales.huevos_totales, metricasComparacion.huevos_totales)}
           unidad=""
         />
         <CardMetrica
-          label="Postura promedio"
-          valor={metricasActuales.postura_promedio.toFixed(1)}
-          comparacion={calculoVariacion(metricasActuales.postura_promedio, metricasComparacion.postura_promedio)}
+          label="Postura Bruta"
+          valor={posturaActual.toFixed(1)}
+          comparacion={calcularVariacion(posturaActual, posturaComparacion)}
           unidad="%"
-          alerta={metricasActuales.postura_promedio < 80}
+          alerta={posturaActual < 80}
         />
         <CardMetrica
           label="Mortandad"
           valor={metricasActuales.mortandad_total}
-          comparacion={calculoVariacion(metricasActuales.mortandad_total, metricasComparacion.mortandad_total)}
+          comparacion={calcularVariacion(metricasActuales.mortandad_total, metricasComparacion.mortandad_total)}
           unidad="aves"
         />
         <CardMetrica
-          label="Huevos cachados"
+          label="Huevos Cachados"
           valor={metricasActuales.huevos_cachados}
-          comparacion={calculoVariacion(metricasActuales.huevos_cachados, metricasComparacion.huevos_cachados)}
-          unidad=""
-        />
-        <CardMetrica
-          label="% Cachados"
-          valor={metricasActuales.ratio_cachados.toFixed(1)}
-          unidad="%"
-        />
-        <CardMetrica
-          label="Días registrados"
-          valor={metricasActuales.dias}
+          comparacion={calcularVariacion(metricasActuales.huevos_cachados, metricasComparacion.huevos_cachados)}
           unidad=""
         />
       </div>
 
-      {/* Postura por galpón */}
-      {metricasPorGalpon.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide">Postura por galpón</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {metricasPorGalpon.map((gal) => (
-              <div key={gal.galpon} className="bg-white rounded-lg p-4 border border-amber-200">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                  {gal.galpon}
-                </p>
-                <p
-                  className={`text-2xl font-bold ${
-                    gal.postura < 80 ? 'text-red-600' : 'text-amber-900'
-                  }`}
-                >
-                  {gal.postura.toFixed(1)}%
-                </p>
-                <div className="space-y-0.5 mt-2 text-xs text-gray-600">
-                  <p>Gallinas: {gal.galinasActuales}</p>
-                  <p>Huevos sanos: {gal.huevos_sanos}</p>
-                  <p>Mortandad: {gal.mortandad}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* Información de períodos */}
+      <div className="grid grid-cols-2 gap-4 text-xs text-gray-600">
+        <div>
+          <p className="font-semibold">Período actual</p>
+          <p>{etiquetaPeriodo}</p>
         </div>
-      )}
-
-      {/* Huevos por galpón */}
-      {metricasPorGalpon.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide">Huevos por galpón</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {metricasPorGalpon.map((gal) => (
-              <div key={`huevos-${gal.galpon}`} className="bg-white rounded-lg p-4 border border-amber-200">
-                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                  {gal.galpon}
-                </p>
-                <p className="text-2xl font-bold text-amber-900">{gal.huevos_totales}</p>
-                <div className="space-y-0.5 mt-2 text-xs text-gray-600">
-                  <p>Sanos: {gal.huevos_sanos}</p>
-                  <p>Cachados: {gal.huevos_cachados}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+        <div>
+          <p className="font-semibold">Período anterior</p>
+          <p>{etiquetaComparacion}</p>
         </div>
-      )}
+      </div>
 
-      {/* Sparkline - Últimos 7 días */}
-      {sparklineData.length > 0 && (
-        <div className="bg-white rounded-lg p-4 border border-amber-200">
-          <p className="text-xs font-bold text-amber-900 uppercase tracking-wide mb-3">
-            Postura - Últimos 7 días
-          </p>
-          <div className="flex items-end justify-between gap-2 h-20">
-            {sparklineData.map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center">
-                <div
-                  className="w-full bg-amber-300 rounded-t"
-                  style={{
-                    height: `${Math.max(d.postura, 10)}px`,
-                    minHeight: '4px',
-                  }}
-                  title={`${d.postura.toFixed(1)}%`}
+      {/* Gráfico de huevos por galpón */}
+      {datosGrafico.length > 0 && (
+        <div className="bg-white rounded-lg border border-amber-200 p-4">
+          <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide mb-4">
+            Huevos Totales - Últimos 10 días
+          </h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={datosGrafico} margin={{ top: 5, right: 60, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis
+                dataKey="fecha"
+                tickFormatter={(fecha) => fecha.slice(5)}
+                tick={{ fontSize: 12 }}
+              />
+              <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+              <Tooltip
+                formatter={(value: any) => value.toLocaleString('es-AR')}
+                labelFormatter={(label) => formatearFecha(label)}
+              />
+              <Legend />
+              {galpones.map((galpon, idx) => (
+                <Bar
+                  key={galpon}
+                  dataKey={galpon}
+                  fill={mapaColores[galpon]}
+                  name={galpon}
+                  isAnimationActive={false}
+                  stackId="huevos"
+                  yAxisId={idx === 0 ? 'right' : 'left'}
                 />
-                <p className="text-xs text-gray-500 mt-1">{d.fecha.slice(5)}</p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
 
@@ -402,71 +304,112 @@ export function DashboardProduccion({
                 <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha</th>
                 <th className="px-4 py-2 text-left font-semibold text-amber-900">Galpón</th>
                 <th className="px-4 py-2 text-right font-semibold text-amber-900">Huevos</th>
+                <th className="px-4 py-2 text-right font-semibold text-amber-900">Cachados</th>
+                <th className="px-4 py-2 text-right font-semibold text-amber-900">% Rotos</th>
                 <th className="px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
                 <th className="px-4 py-2 text-left font-semibold text-amber-900">Observaciones</th>
+                <th className="px-4 py-2 text-center font-semibold text-amber-900">ID Lote</th>
+                <th className="px-4 py-2 text-right font-semibold text-amber-900">Aves Actuales</th>
+                <th className="px-4 py-2 text-right font-semibold text-amber-900">% Postura</th>
                 {onEditar && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
               </tr>
             </thead>
             <tbody>
-              {historico.map((prod) => (
-                <tr key={prod.id} className="border-b border-amber-100 hover:bg-amber-50">
-                  <td className="px-4 py-2 text-gray-700">{formatearFecha(prod.fecha)}</td>
-                  <td className="px-4 py-2 text-gray-700">{prod.galpon}</td>
-                  <td className="px-4 py-2 text-right font-semibold text-amber-900">
-                    {prod.huevos_sanos_mediodia +
-                      prod.huevos_cachados_mediodia +
-                      prod.huevos_sanos_tarde +
-                      prod.huevos_cachados_tarde}
-                  </td>
-                  <td className="px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
-                  <td className="px-4 py-2 text-left text-gray-700 max-w-xs truncate" title={prod.observaciones || ''}>
-                    {prod.observaciones ? (
-                      <span className="text-amber-700 font-medium">📝 {prod.observaciones}</span>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                  {onEditar && (
-                    <td className="px-4 py-2 text-center">
-                      <button
-                        onClick={() => onEditar(prod.id)}
-                        className="text-amber-600 hover:text-amber-900 inline-flex items-center gap-1"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
+              {(() => {
+                const historico = producciones
+                  .sort((a, b) => b.fecha.localeCompare(a.fecha))
+                  .slice(paginaHistorico * ITEMS_POR_PAGINA, (paginaHistorico + 1) * ITEMS_POR_PAGINA);
+
+                return historico.map((prod) => {
+                  const loteBuscado = encontrarLotePorGalponYFecha(prod.galpon, prod.fecha, lotes);
+                  const avesActuales = loteBuscado
+                    ? calcularAvesActualesParaRegistro(loteBuscado, producciones, recuentos, prod.fecha, prod.galpon)
+                    : 0;
+                  const porcentajePostura = loteBuscado
+                    ? calcularPosturaPorcentajeDelRegistro(prod, avesActuales)
+                    : 0;
+
+                  return (
+                    <tr key={prod.id} className="border-b border-amber-100 hover:bg-amber-50">
+                      <td className="px-4 py-2 text-gray-700">{formatearFecha(prod.fecha)}</td>
+                      <td className="px-4 py-2 text-gray-700">{prod.galpon}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-amber-900">
+                        {prod.huevos_sanos_mediodia + prod.huevos_sanos_tarde}
+                      </td>
+                      <td className="px-4 py-2 text-right text-gray-700">
+                        {prod.huevos_cachados_mediodia + prod.huevos_cachados_tarde}
+                      </td>
+                      <td className="px-4 py-2 text-right text-gray-700">
+                        {(() => {
+                          const rotos = prod.huevos_cachados_mediodia + prod.huevos_cachados_tarde;
+                          const sanos = prod.huevos_sanos_mediodia + prod.huevos_sanos_tarde;
+                          const total = rotos + sanos;
+                          return total > 0 ? `${((rotos / total) * 100).toFixed(2)}%` : '—';
+                        })()}
+                      </td>
+                      <td className="px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
+                      <td className="px-4 py-2 text-left text-gray-700 max-w-xs truncate" title={prod.observaciones || ''}>
+                        {prod.observaciones ? (
+                          <span className="text-amber-700 font-medium">📝 {prod.observaciones}</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-center font-medium text-amber-900 text-xs">
+                        {loteBuscado ? loteBuscado.lote_id || loteBuscado.id.slice(-8) : 'No determinado'}
+                      </td>
+                      <td className="px-4 py-2 text-right font-semibold text-gray-700">
+                        {loteBuscado ? avesActuales : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-right font-semibold text-amber-900">
+                        {loteBuscado ? `${porcentajePostura.toFixed(1)}%` : '—'}
+                      </td>
+                      {onEditar && (
+                        <td className="px-4 py-2 text-center">
+                          <button
+                            onClick={() => onEditar(prod.id)}
+                            className="text-amber-600 hover:text-amber-900 inline-flex items-center gap-1"
+                            title="Editar"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                });
+              })()}
             </tbody>
           </table>
         </div>
 
         {/* Paginación */}
-        {totalPaginas > 1 && (
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
-              disabled={paginaHistorico === 0}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Anterior
-            </button>
-            <span className="text-xs text-gray-600">
-              Página {paginaHistorico + 1} de {totalPaginas}
-            </span>
-            <button
-              onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
-              disabled={paginaHistorico === totalPaginas - 1}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
-            >
-              Siguiente
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {(() => {
+          const totalPaginas = Math.ceil(producciones.length / ITEMS_POR_PAGINA);
+          return totalPaginas > 1 ? (
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
+                disabled={paginaHistorico === 0}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Anterior
+              </button>
+              <span className="text-xs text-gray-600">
+                Página {paginaHistorico + 1} de {totalPaginas}
+              </span>
+              <button
+                onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
+                disabled={paginaHistorico === totalPaginas - 1}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
+              >
+                Siguiente
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : null;
+        })()}
       </div>
     </div>
   );
