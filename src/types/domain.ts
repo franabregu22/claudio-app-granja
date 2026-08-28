@@ -135,9 +135,9 @@ export interface Produccion {
   fecha: string;
   galpon: string;
   lote_id?: string;
-  huevos_sanos_mediodia: number;
+  huevos_totales_mediodia: number;
   huevos_cachados_mediodia: number;
-  huevos_sanos_tarde: number;
+  huevos_totales_tarde: number;
   huevos_cachados_tarde: number;
   mortandad: number;
   observaciones?: string;

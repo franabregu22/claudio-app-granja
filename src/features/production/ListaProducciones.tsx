@@ -39,9 +39,9 @@ export function ListaProducciones({
             </thead>
             <tbody>
               {producciones.map((p) => {
-                const sanos = p.huevos_sanos_mediodia + p.huevos_sanos_tarde;
+                const totales = p.huevos_totales_mediodia + p.huevos_totales_tarde;
                 const cachados = p.huevos_cachados_mediodia + p.huevos_cachados_tarde;
-                const total = sanos + cachados;
+                const total = totales + cachados;
 
                 return (
                   <tr
@@ -52,7 +52,7 @@ export function ListaProducciones({
                   >
                     <td className="px-4 py-3 font-medium text-gray-900">{p.fecha}</td>
                     <td className="px-4 py-3 text-gray-700">{p.galpon}</td>
-                    <td className="px-4 py-3 text-right text-green-600 font-semibold">{sanos}</td>
+                    <td className="px-4 py-3 text-right text-green-600 font-semibold">{totales}</td>
                     <td className="px-4 py-3 text-right text-orange-600 font-semibold">{cachados}</td>
                     <td className="px-4 py-3 text-right font-bold text-gray-900">{total}</td>
                     <td className="px-4 py-3 text-right text-red-600 font-semibold">{p.mortandad}</td>

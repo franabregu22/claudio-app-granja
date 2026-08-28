@@ -31,6 +31,11 @@ input[type='number'] {
   appearance: textfield;
 }
 
+/* Disable scroll wheel and arrow keys from changing number input values */
+input[type='number']:focus {
+  outline: none;
+}
+
 /* Native dialog styling */
 dialog {
   border: none;

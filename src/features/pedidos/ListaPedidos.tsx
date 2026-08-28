@@ -116,14 +116,19 @@ export function ListaPedidos({
                     <p className="text-xs text-[#8B7355] italic mb-3">📝 {p.observaciones}</p>
                   )}
 
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs text-[#A89878]">
-                      {new Date(p.fecha_pedido + 'T00:00:00').toLocaleDateString('es-AR', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric'
-                      })}
-                    </p>
+                  <div className="flex items-center justify-between mb-3 text-xs text-[#A89878]">
+                    <div className="space-y-0.5">
+                      {p.creado_por_nombre && (
+                        <p>Cargado por: <span className="font-medium">{p.creado_por_nombre}</span></p>
+                      )}
+                      <p>
+                        {new Date((p.fecha_operacion || p.fecha_pedido) + 'T00:00:00').toLocaleDateString('es-AR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        })}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="flex gap-2">

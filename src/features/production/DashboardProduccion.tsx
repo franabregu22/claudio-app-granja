@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Edit2 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { Produccion, Lote, RecuentoLote } from '../../types/domain';
 import {
   calcularMetricasPeriodo,
   calcularPosturaBrutaPeriodo,
   generarAlertas,
   calcularHuevosPorGalponUltimos15Dias,
+  calcularPosturaPorGalponUltimos15Dias,
   encontrarLotePorGalponYFecha,
   calcularAvesActualesParaRegistro,
   calcularPosturaPorcentajeDelRegistro,
@@ -123,26 +124,36 @@ export function DashboardProduccion({
   const posturaComparacion = calcularPosturaBrutaPeriodo(producciones, lotes, recuentos, fechaComparacionInicio, fechaComparacionFin);
 
   const alertas = generarAlertas(producciones, lotes, recuentos, ayer);
-  const datosGrafico = calcularHuevosPorGalponUltimos15Dias(producciones, ayer);
+  const datosGrafico = calcularPosturaPorGalponUltimos15Dias(producciones, lotes, recuentos, ayer);
 
   const calcularVariacion = (actual: number, anterior: number): number => {
     if (anterior === 0) return 0;
     return ((actual - anterior) / anterior) * 100;
   };
 
-  const CardMetrica = ({ label, valor, comparacion, unidad, alerta }: any) => (
-    <div className={`bg-white rounded-lg p-4 border ${alerta ? 'border-red-200' : 'border-amber-200'}`}>
-      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{label}</p>
-      <p className={`text-3xl font-bold ${alerta ? 'text-red-600' : 'text-amber-900'}`}>
-        {valor}{unidad && <span className="text-lg ml-1">{unidad}</span>}
-      </p>
-      {comparacion !== undefined && comparacion !== 0 && (
-        <p className={`text-xs font-semibold mt-2 ${comparacion > 0 ? 'text-green-600' : 'text-red-600'}`}>
-          {comparacion > 0 ? '↑' : '↓'} {Math.abs(comparacion).toFixed(1)}%
+  const CardMetrica = ({ label, valor, comparacion, unidad, alerta, valorComparacion, invertirColores }: any) => {
+    const esPositivo = comparacion > 0;
+    const esVerde = invertirColores ? !esPositivo : esPositivo;
+
+    return (
+      <div className={`bg-white rounded-lg p-4 border ${alerta ? 'border-red-200' : 'border-amber-200'}`}>
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{label}</p>
+        <p className={`text-3xl font-bold ${alerta ? 'text-red-600' : 'text-amber-900'}`}>
+          {valor}{unidad && <span className="text-lg ml-1">{unidad}</span>}
         </p>
-      )}
-    </div>
-  );
+        {comparacion !== undefined && comparacion !== 0 && (
+          <div className="mt-2 space-y-1">
+            {valorComparacion !== undefined && (
+              <p className="text-xs text-gray-500">vs {valorComparacion}{unidad}</p>
+            )}
+            <p className={`text-xs font-semibold ${esVerde ? 'text-green-600' : 'text-red-600'}`}>
+              {esPositivo ? '↑' : '↓'} {Math.abs(comparacion).toFixed(1)}%
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Obtener galpones disponibles
   const galpones = [...new Set(producciones.map(p => p.galpon))].sort();
@@ -223,6 +234,7 @@ export function DashboardProduccion({
           valor={metricasActuales.huevos_totales}
           comparacion={calcularVariacion(metricasActuales.huevos_totales, metricasComparacion.huevos_totales)}
           unidad=""
+          valorComparacion={metricasComparacion.huevos_totales}
         />
         <CardMetrica
           label="Postura Bruta"
@@ -230,18 +242,22 @@ export function DashboardProduccion({
           comparacion={calcularVariacion(posturaActual, posturaComparacion)}
           unidad="%"
           alerta={posturaActual < 80}
+          valorComparacion={posturaComparacion.toFixed(1)}
         />
         <CardMetrica
           label="Mortandad"
           valor={metricasActuales.mortandad_total}
           comparacion={calcularVariacion(metricasActuales.mortandad_total, metricasComparacion.mortandad_total)}
           unidad="aves"
+          valorComparacion={metricasComparacion.mortandad_total}
+          invertirColores={true}
         />
         <CardMetrica
           label="Huevos Cachados"
           valor={metricasActuales.huevos_cachados}
           comparacion={calcularVariacion(metricasActuales.huevos_cachados, metricasComparacion.huevos_cachados)}
           unidad=""
+          valorComparacion={metricasComparacion.huevos_cachados}
         />
       </div>
 
@@ -257,40 +273,51 @@ export function DashboardProduccion({
         </div>
       </div>
 
-      {/* Gráfico de huevos por galpón */}
+      {/* Gráfico de postura por galpón */}
       {datosGrafico.length > 0 && (
         <div className="bg-white rounded-lg border border-amber-200 p-4">
           <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide mb-4">
-            Huevos Totales - Últimos 10 días
+            % Postura - Últimos 15 días
           </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={datosGrafico} margin={{ top: 5, right: 60, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="fecha"
-                tickFormatter={(fecha) => fecha.slice(5)}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
-              <Tooltip
-                formatter={(value: any) => value.toLocaleString('es-AR')}
-                labelFormatter={(label) => formatearFecha(label)}
-              />
-              <Legend />
-              {galpones.map((galpon, idx) => (
-                <Bar
-                  key={galpon}
-                  dataKey={galpon}
-                  fill={mapaColores[galpon]}
-                  name={galpon}
-                  isAnimationActive={false}
-                  stackId="huevos"
-                  yAxisId={idx === 0 ? 'right' : 'left'}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
+          {(() => {
+            const datosAjustados = datosGrafico.map((d: any) => ({
+              fecha: d.fecha,
+              ...Object.fromEntries(
+                Object.entries(d)
+                  .filter(([k]) => k !== 'fecha')
+                  .map(([k, v]: [string, any]) => [k, typeof v === 'number' ? v - 50 : v])
+              )
+            }));
+            return (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={datosAjustados} margin={{ top: 5, right: 60, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="fecha"
+                    tickFormatter={(fecha) => fecha.slice(5)}
+                    tick={{ fontSize: 12 }}
+                  />
+                  <YAxis yAxisId="left" label={{ value: '%', angle: -90, position: 'insideLeft' }} tick={{ fontSize: 12 }} domain={[0, 50]} tickFormatter={(value) => `${value + 50}%`} />
+                  <Tooltip
+                    formatter={(value: any) => `${typeof value === 'number' ? (value + 50).toFixed(1) : value}%`}
+                    labelFormatter={(label) => formatearFecha(label)}
+                  />
+                  <Legend />
+                  {galpones.map((galpon) => (
+                    <Line
+                      key={galpon}
+                      dataKey={galpon}
+                      stroke={mapaColores[galpon]}
+                      name={galpon}
+                      isAnimationActive={false}
+                      yAxisId="left"
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            );
+          })()}
         </div>
       )}
 
@@ -306,11 +333,12 @@ export function DashboardProduccion({
                 <th className="px-4 py-2 text-right font-semibold text-amber-900">Huevos</th>
                 <th className="px-4 py-2 text-right font-semibold text-amber-900">Cachados</th>
                 <th className="px-4 py-2 text-right font-semibold text-amber-900">% Rotos</th>
+                <th className="px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100">% Postura</th>
                 <th className="px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
-                <th className="px-4 py-2 text-left font-semibold text-amber-900">Observaciones</th>
                 <th className="px-4 py-2 text-center font-semibold text-amber-900">ID Lote</th>
                 <th className="px-4 py-2 text-right font-semibold text-amber-900">Aves Actuales</th>
-                <th className="px-4 py-2 text-right font-semibold text-amber-900">% Postura</th>
+                <th className="px-4 py-2 text-left font-semibold text-amber-900">Cargado por</th>
+                <th className="px-4 py-2 text-left font-semibold text-amber-900">Observaciones</th>
                 {onEditar && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
               </tr>
             </thead>
@@ -334,35 +362,37 @@ export function DashboardProduccion({
                       <td className="px-4 py-2 text-gray-700">{formatearFecha(prod.fecha)}</td>
                       <td className="px-4 py-2 text-gray-700">{prod.galpon}</td>
                       <td className="px-4 py-2 text-right font-semibold text-amber-900">
-                        {prod.huevos_sanos_mediodia + prod.huevos_sanos_tarde}
+                        {prod.huevos_totales_mediodia + prod.huevos_totales_tarde}
                       </td>
                       <td className="px-4 py-2 text-right text-gray-700">
                         {prod.huevos_cachados_mediodia + prod.huevos_cachados_tarde}
                       </td>
                       <td className="px-4 py-2 text-right text-gray-700">
                         {(() => {
-                          const rotos = prod.huevos_cachados_mediodia + prod.huevos_cachados_tarde;
-                          const sanos = prod.huevos_sanos_mediodia + prod.huevos_sanos_tarde;
-                          const total = rotos + sanos;
-                          return total > 0 ? `${((rotos / total) * 100).toFixed(2)}%` : '—';
+                          const rotos = (prod.huevos_cachados_mediodia || 0) + (prod.huevos_cachados_tarde || 0);
+                          const totales = (prod.huevos_totales_mediodia || 0) + (prod.huevos_totales_tarde || 0);
+                          return totales > 0 ? `${((rotos / totales) * 100).toFixed(2)}%` : '—';
                         })()}
                       </td>
-                      <td className="px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
-                      <td className="px-4 py-2 text-left text-gray-700 max-w-xs truncate" title={prod.observaciones || ''}>
-                        {prod.observaciones ? (
-                          <span className="text-amber-700 font-medium">📝 {prod.observaciones}</span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
+                      <td className="px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100">
+                        {loteBuscado ? `${porcentajePostura.toFixed(1)}%` : '—'}
                       </td>
+                      <td className="px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
                       <td className="px-4 py-2 text-center font-medium text-amber-900 text-xs">
                         {loteBuscado ? loteBuscado.lote_id || loteBuscado.id.slice(-8) : 'No determinado'}
                       </td>
                       <td className="px-4 py-2 text-right font-semibold text-gray-700">
                         {loteBuscado ? avesActuales : '—'}
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-amber-900">
-                        {loteBuscado ? `${porcentajePostura.toFixed(1)}%` : '—'}
+                      <td className="px-4 py-2 text-left text-gray-700 text-xs">
+                        {prod.creado_por_nombre || '—'}
+                      </td>
+                      <td className="px-4 py-2 text-left text-gray-700 max-w-xs truncate" title={prod.observaciones || ''}>
+                        {prod.observaciones ? (
+                          <span className="text-amber-700 font-medium">📝 {prod.observaciones}</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                       {onEditar && (
                         <td className="px-4 py-2 text-center">

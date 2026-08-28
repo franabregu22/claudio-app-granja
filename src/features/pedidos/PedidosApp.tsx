@@ -238,6 +238,11 @@ export function PedidosApp() {
                                 {p.lineas.map((l) => `${l.cantidad} ${l.producto_nombre}`).join(', ')}
                               </p>
                             )}
+                            {p.creado_por_nombre && (
+                              <p className="text-xs text-[#A89878] mt-1">
+                                Cargado por: <span className="font-medium">{p.creado_por_nombre}</span> · {new Date((p.fecha_operacion || p.fecha_pedido) + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                              </p>
+                            )}
                           </div>
                           <div className="shrink-0 flex items-center gap-2">
                             <span className="text-sm font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</span>
@@ -291,6 +296,7 @@ export function PedidosApp() {
                         <th className="px-4 py-2 text-right font-semibold text-amber-900">Monto</th>
                         <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha carga</th>
                         <th className="px-4 py-2 text-left font-semibold text-amber-900">Entregado por</th>
+                        <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha entrega</th>
                         {rol === 'dueño' && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
                       </tr>
                     </thead>
@@ -325,6 +331,9 @@ export function PedidosApp() {
                               </td>
                               <td className="px-4 py-2 text-gray-700 text-xs">
                                 {p.entregado_por_nombre || '—'}
+                              </td>
+                              <td className="px-4 py-2 text-gray-700">
+                                {p.entregado_en ? formatearFechaLocal(p.entregado_en) : '—'}
                               </td>
                               {rol === 'dueño' && (
                                 <td className="px-4 py-2 text-center">

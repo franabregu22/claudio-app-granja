@@ -46,9 +46,9 @@ export function useCrearProduccion() {
     mutationFn: (data: {
       fecha: string;
       galpon: string;
-      huevos_sanos_mediodia: number;
+      huevos_totales_mediodia: number;
       huevos_cachados_mediodia: number;
-      huevos_sanos_tarde: number;
+      huevos_totales_tarde: number;
       huevos_cachados_tarde: number;
       mortandad: number;
       observaciones?: string;
@@ -56,9 +56,9 @@ export function useCrearProduccion() {
       api.crearProduccion(
         data.fecha,
         data.galpon,
-        data.huevos_sanos_mediodia,
+        data.huevos_totales_mediodia,
         data.huevos_cachados_mediodia,
-        data.huevos_sanos_tarde,
+        data.huevos_totales_tarde,
         data.huevos_cachados_tarde,
         data.mortandad,
         data.observaciones
@@ -75,18 +75,18 @@ export function useActualizarProduccion() {
   return useMutation({
     mutationFn: (data: {
       id: string;
-      huevos_sanos_mediodia: number;
+      huevos_totales_mediodia: number;
       huevos_cachados_mediodia: number;
-      huevos_sanos_tarde: number;
+      huevos_totales_tarde: number;
       huevos_cachados_tarde: number;
       mortandad: number;
       observaciones?: string;
     }) =>
       api.actualizarProduccion(
         data.id,
-        data.huevos_sanos_mediodia,
+        data.huevos_totales_mediodia,
         data.huevos_cachados_mediodia,
-        data.huevos_sanos_tarde,
+        data.huevos_totales_tarde,
         data.huevos_cachados_tarde,
         data.mortandad,
         data.observaciones

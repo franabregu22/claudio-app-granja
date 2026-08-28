@@ -29,6 +29,26 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Disable scroll and arrow keys from changing number input values
+  useEffect(() => {
+    const handleNumberInputChange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      if (target.type === 'number') {
+        if (e instanceof WheelEvent || (e instanceof KeyboardEvent && ['ArrowUp', 'ArrowDown'].includes(e.key))) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    document.addEventListener('wheel', handleNumberInputChange, { passive: false });
+    document.addEventListener('keydown', handleNumberInputChange, { passive: false });
+
+    return () => {
+      document.removeEventListener('wheel', handleNumberInputChange);
+      document.removeEventListener('keydown', handleNumberInputChange);
+    };
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-stone-100 flex items-center justify-center">

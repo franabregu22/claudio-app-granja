@@ -63,9 +63,9 @@ export function obtenerProduccionDia(
 // Calcular huevos totales de un día
 export function calcularHuevosDia(prod: Produccion[]): number {
   return prod.reduce((acc, p) => {
-    const huevos = (p.huevos_sanos_mediodia || 0) +
+    const huevos = (p.huevos_totales_mediodia || 0) +
       (p.huevos_cachados_mediodia || 0) +
-      (p.huevos_sanos_tarde || 0) +
+      (p.huevos_totales_tarde || 0) +
       (p.huevos_cachados_tarde || 0);
     return acc + huevos;
   }, 0);
@@ -97,9 +97,9 @@ export function calcularMetricasHoy(
       const lote = lotes.find((l) => l.id === p.lote_id);
       if (!lote) return 0;
       const aves_actuales = calcularAvesActuales(lote, producciones, hoy);
-      const huevos = (p.huevos_sanos_mediodia || 0) +
+      const huevos = (p.huevos_totales_mediodia || 0) +
         (p.huevos_cachados_mediodia || 0) +
-        (p.huevos_sanos_tarde || 0) +
+        (p.huevos_totales_tarde || 0) +
         (p.huevos_cachados_tarde || 0);
       return calcularPostura(huevos, aves_actuales);
     });

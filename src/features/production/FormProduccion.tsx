@@ -30,27 +30,28 @@ export function FormProduccion({
     if (produccionEnEdicion) {
       setFecha(produccionEnEdicion.fecha);
       setGalpon(produccionEnEdicion.galpon);
-      setHuevosSanosMediodia(produccionEnEdicion.huevos_sanos_mediodia);
+      setHuevosSanosMediodia(produccionEnEdicion.huevos_totales_mediodia);
       setHuevosCachadosMediodia(produccionEnEdicion.huevos_cachados_mediodia);
-      setHuevosSanosTarde(produccionEnEdicion.huevos_sanos_tarde);
+      setHuevosSanosTarde(produccionEnEdicion.huevos_totales_tarde);
       setHuevosCachadosTarde(produccionEnEdicion.huevos_cachados_tarde);
       setMortandad(produccionEnEdicion.mortandad);
       setObservaciones(produccionEnEdicion.observaciones || '');
     }
   }, [produccionEnEdicion]);
 
-  const huevosSanosTotal = huevosSanosMediodia + huevosSanosTarde;
+  const huevosTotalesToardeMedio = huevosSanosMediodia + huevosSanosTarde;
   const huevosCachadosTotal = huevosCachadosMediodia + huevosCachadosTarde;
-  const huevosGrandTotal = huevosSanosTotal + huevosCachadosTotal;
+  const huevosSanosTotal = huevosTotalesToardeMedio - huevosCachadosTotal;
+  const huevosGrandTotal = huevosTotalesToardeMedio;
 
   const handleGuardar = () => {
     onGuardar({
       id: produccionEnEdicion?.id,
       fecha,
       galpon,
-      huevos_sanos_mediodia: huevosSanosMediodia,
+      huevos_totales_mediodia: huevosSanosMediodia,
       huevos_cachados_mediodia: huevosCachadosMediodia,
-      huevos_sanos_tarde: huevosSanosTarde,
+      huevos_totales_tarde: huevosSanosTarde,
       huevos_cachados_tarde: huevosCachadosTarde,
       mortandad,
       observaciones,
@@ -96,7 +97,7 @@ export function FormProduccion({
         <h3 className="font-semibold text-amber-900 mb-3">Carga mediodía</h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Huevos sanos</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Huevos totales</label>
             <input
               type="number"
               min="0"
@@ -125,7 +126,7 @@ export function FormProduccion({
         <h3 className="font-semibold text-blue-900 mb-3">Carga tarde</h3>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Huevos sanos</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Huevos totales</label>
             <input
               type="number"
               min="0"

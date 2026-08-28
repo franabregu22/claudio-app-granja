@@ -5,20 +5,19 @@ import type { Produccion, Lote, RecuentoLote } from '../../types/domain';
 // ============================================================================
 
 export function calcularHuevosTotales(prod: Produccion): number {
-  return (
-    (prod.huevos_sanos_mediodia || 0) +
-    (prod.huevos_cachados_mediodia || 0) +
-    (prod.huevos_sanos_tarde || 0) +
-    (prod.huevos_cachados_tarde || 0)
-  );
+  return (prod.huevos_totales_mediodia || 0) + (prod.huevos_totales_tarde || 0);
 }
 
 export function calcularHuevosSanos(prod: Produccion): number {
-  return (prod.huevos_sanos_mediodia || 0) + (prod.huevos_sanos_tarde || 0);
+  return (prod.huevos_totales_mediodia || 0) + (prod.huevos_totales_tarde || 0);
 }
 
 export function calcularHuevosCachados(prod: Produccion): number {
   return (prod.huevos_cachados_mediodia || 0) + (prod.huevos_cachados_tarde || 0);
+}
+
+export function calcularHuevosSanosDelRegistro(prod: Produccion): number {
+  return calcularHuevosTotales(prod) - calcularHuevosCachados(prod);
 }
 
 export function calcularRatioCachados(huevosTotal: number, huevosCachados: number): number {
@@ -173,15 +172,15 @@ export function calcularAvesActualesParaRegistro(
 
 /**
  * Calcula el % de postura para un registro específico
- * huevos_sanos_tarde / aves_actuales * 100
+ * (huevos_totales_mediodia + huevos_totales_tarde) / aves_actuales * 100
  */
 export function calcularPosturaPorcentajeDelRegistro(
   prod: Produccion,
   avesActuales: number
 ): number {
-  const huevosSanosTarde = prod.huevos_sanos_tarde || 0;
+  const huevosTotalesToardeDia = (prod.huevos_totales_mediodia || 0) + (prod.huevos_totales_tarde || 0);
   if (avesActuales === 0) return 0;
-  return (huevosSanosTarde / avesActuales) * 100;
+  return (huevosTotalesToardeDia / avesActuales) * 100;
 }
 
 /**
@@ -201,22 +200,19 @@ export function calcularPosturaBrutaPeriodo(
 
   if (prodDelPeriodo.length === 0) return 0;
 
-  const huevosTotal = prodDelPeriodo.reduce((acc, p) => acc + calcularHuevosTotales(p), 0);
-
-  // Calcular aves promedio del período
-  const diasUnicos = [...new Set(prodDelPeriodo.map((p) => p.fecha))];
+  // Postura bruta = (suma de huevos totales del período) / (suma de aves del período) * 100
+  let huevosTotal = 0;
   let totalAves = 0;
 
-  diasUnicos.forEach((fecha) => {
-    const prodsDelDia = prodDelPeriodo.filter((p) => p.fecha === fecha);
-    const loteIds = [...new Set(prodsDelDia.map((p) => p.lote_id).filter(Boolean))];
+  prodDelPeriodo.forEach((prod) => {
+    const huevos = (prod.huevos_totales_mediodia || 0) + (prod.huevos_totales_tarde || 0);
+    huevosTotal += huevos;
 
-    loteIds.forEach((loteId) => {
-      const lote = lotes.find((l) => l.id === loteId);
-      if (lote) {
-        totalAves += calcularGalinasActuales(lote, producciones, recuentos, fecha);
-      }
-    });
+    const loteBuscado = encontrarLotePorGalponYFecha(prod.galpon, prod.fecha, lotes);
+    if (loteBuscado) {
+      const avesActuales = calcularAvesActualesParaRegistro(loteBuscado, producciones, recuentos, prod.fecha, prod.galpon);
+      totalAves += avesActuales;
+    }
   });
 
   if (totalAves === 0) return 0;
@@ -427,6 +423,52 @@ export function calcularHuevosPorGalponUltimos15Dias(
       );
       const huevosTotal = prodsDelGalpon.reduce((acc, p) => acc + calcularHuevosTotales(p), 0);
       entrada[galpon] = huevosTotal;
+    });
+
+    data.push(entrada);
+  }
+
+  return data;
+}
+
+export interface DatosGraficoPostura {
+  fecha: string;
+  [galpon: string]: number | string;
+}
+
+export function calcularPosturaPorGalponUltimos15Dias(
+  producciones: Produccion[],
+  lotes: Lote[],
+  recuentos: RecuentoLote[],
+  hastaFecha: string
+): DatosGraficoPostura[] {
+  const data: DatosGraficoPostura[] = [];
+  const galpones = [...new Set(producciones.map((p) => p.galpon))];
+
+  for (let i = 14; i >= 0; i--) {
+    const fecha = new Date(hastaFecha);
+    fecha.setDate(fecha.getDate() - i);
+    const fechaStr = fecha.toISOString().split('T')[0];
+
+    const entrada: DatosGraficoPostura = { fecha: fechaStr };
+
+    galpones.forEach((galpon) => {
+      const prod = producciones.find(
+        (p) => p.fecha === fechaStr && p.galpon === galpon
+      );
+
+      if (!prod) {
+        entrada[galpon] = 0;
+      } else {
+        const loteBuscado = encontrarLotePorGalponYFecha(galpon, fechaStr, lotes);
+        if (!loteBuscado) {
+          entrada[galpon] = 0;
+        } else {
+          const avesActuales = calcularAvesActualesParaRegistro(loteBuscado, producciones, recuentos, fechaStr, galpon);
+          const postura = calcularPosturaPorcentajeDelRegistro(prod, avesActuales);
+          entrada[galpon] = parseFloat(postura.toFixed(1));
+        }
+      }
     });
 
     data.push(entrada);
