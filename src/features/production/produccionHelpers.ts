@@ -327,9 +327,9 @@ export function calcularUltimas4Semanas(
         const lote = lotes.find((l) => l.id === p.lote_id);
         if (!lote) return 0;
         const aves_actuales = calcularAvesActuales(lote, producciones, fin);
-        const huevos_prod = (p.huevos_sanos_mediodia || 0) +
+        const huevos_prod = (p.huevos_totales_mediodia || 0) +
           (p.huevos_cachados_mediodia || 0) +
-          (p.huevos_sanos_tarde || 0) +
+          (p.huevos_totales_tarde || 0) +
           (p.huevos_cachados_tarde || 0);
         return calcularPostura(huevos_prod, aves_actuales);
       });

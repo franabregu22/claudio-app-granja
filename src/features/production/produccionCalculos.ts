@@ -400,7 +400,7 @@ export function generarAlertas(
 
 export interface DatosGraficoHuevos {
   fecha: string;
-  [galpon: string]: number;
+  [key: string]: string | number;
 }
 
 export function calcularHuevosPorGalponUltimos15Dias(

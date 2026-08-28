@@ -142,6 +142,7 @@ export interface Produccion {
   mortandad: number;
   observaciones?: string;
   creado_por: string | null;
+  creado_por_nombre?: string | null;
   creado_en: string;
   actualizado_en: string;
 }

@@ -300,7 +300,7 @@ export function DashboardProduccion({
                   <YAxis yAxisId="left" label={{ value: '%', angle: -90, position: 'insideLeft' }} tick={{ fontSize: 12 }} domain={[0, 50]} tickFormatter={(value) => `${value + 50}%`} />
                   <Tooltip
                     formatter={(value: any) => `${typeof value === 'number' ? (value + 50).toFixed(1) : value}%`}
-                    labelFormatter={(label) => formatearFecha(label)}
+                    labelFormatter={(label: any) => (label ? formatearFecha(String(label)) : '')}
                   />
                   <Legend />
                   {galpones.map((galpon) => (
