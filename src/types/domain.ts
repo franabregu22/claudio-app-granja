@@ -181,8 +181,9 @@ export interface MovimientoCaja {
   monto: number;
   forma_pago: FormaPago;
   fecha_operacion: string;
-  fecha_pago: string;
+  fecha_pago: string | null;
   estado: MovimientoEstado;
+  movimiento_estado?: 'pendiente' | 'confirmado' | 'cancelado';
   categoria?: string;
   subcategoria?: string;
   categoria_tecnica?: string;
@@ -233,4 +234,28 @@ export interface Comision {
   creado_por: string | null;
   creado_en: string;
   actualizado_en: string;
+}
+
+export type TipoCuenta = 'efectivo' | 'digital';
+
+export interface CuentaCaja {
+  id: string;
+  nombre: string;
+  tipo: TipoCuenta;
+  descripcion?: string;
+  activa: boolean;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+export interface ArqueoCaja {
+  id: string;
+  cuenta_id: string;
+  fecha_arqueo: string;
+  monto_fisico: number;
+  monto_registrado: number;
+  diferencia: number;
+  notas?: string;
+  creado_por: string;
+  creado_en: string;
 }

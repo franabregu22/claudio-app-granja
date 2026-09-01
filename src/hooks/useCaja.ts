@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query';
+import { useAuth } from '../auth/useAuth';
 import * as cajaApi from '../api/caja';
 import type { MovimientoCaja, Cheque, Comision } from '../types/domain';
 
@@ -23,9 +24,13 @@ export function useCrearMovimientoCaja(): UseMutationResult<
   Omit<MovimientoCaja, 'id' | 'creado_en' | 'actualizado_en' | 'creado_por'> & { aplica_impuesto_cheque?: boolean }
 > {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   return useMutation({
-    mutationFn: (movimiento) => cajaApi.crearMovimientoCaja(movimiento),
+    mutationFn: (movimiento) => cajaApi.crearMovimientoCaja({
+      ...movimiento,
+      creado_por: user?.id || null,
+    } as any),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['movimientos-caja'] });
       queryClient.invalidateQueries({ queryKey: ['resumen-caja'] });

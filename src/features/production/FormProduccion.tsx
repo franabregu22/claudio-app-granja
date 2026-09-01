@@ -94,7 +94,8 @@ export function FormProduccion({
 
       {/* Carga mediodía */}
       <div className="mb-6 p-4 bg-amber-50 rounded-lg border border-amber-100">
-        <h3 className="font-semibold text-amber-900 mb-3">Carga mediodía</h3>
+        <h3 className="font-semibold text-amber-900 mb-1">Carga mediodía</h3>
+        <p className="text-xs text-amber-700 mb-3">Los huevos totales = huevos sanos + huevos cachados</p>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Huevos totales</label>
@@ -123,7 +124,8 @@ export function FormProduccion({
 
       {/* Carga tarde */}
       <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
-        <h3 className="font-semibold text-blue-900 mb-3">Carga tarde</h3>
+        <h3 className="font-semibold text-blue-900 mb-1">Carga tarde</h3>
+        <p className="text-xs text-blue-700 mb-3">Estos valores son independientes de la carga del mediodía. No sumar con mediodía.</p>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Huevos totales</label>

@@ -23,11 +23,12 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
   const [formaPago, setFormaPago] = useState<FormaPago>('efectivo');
   const [fechaOperacion, setFechaOperacion] = useState(getTodayDate());
   const [fechaPago, setFechaPago] = useState(getTodayDate());
+  const [movimientoEstado, setMovimientoEstado] = useState<'pendiente' | 'confirmado'>('confirmado');
   const [notas, setNotas] = useState('');
   const [aplicaImpuesto, setAplicaImpuesto] = useState(true);
   const [categoria, setCategoria] = useState('');
   const [subcategoria, setSubcategoria] = useState('');
-  const [naturalezaGasto, setNaturalezaGasto] = useState<NaturalezaGasto>('gasto_operativo');
+  const [categoriaAnalisis, setCategoriaAnalisis] = useState<'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION'>('GASTOS_OPERATIVOS');
   const [esFacturada, setEsFacturada] = useState(false);
   const [alicuotaIva, setAlicuotaIva] = useState(21);
   const [urlFactura, setUrlFactura] = useState('');
@@ -101,18 +102,17 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
         monto: montoNum,
         forma_pago: formaPago,
         fecha_operacion: fechaOperacion,
-        fecha_pago: fechaPago,
-        estado: 'confirmado',
-        categoria,
-        subcategoria,
-        naturaleza_gasto: tipo === 'egreso' ? naturalezaGasto : undefined,
+        fecha_pago: movimientoEstado === 'confirmado' ? fechaPago : null,
+        movimiento_estado: movimientoEstado,
+        categoria_tecnica: subcategoria,
+        categoria_analisis: tipo === 'egreso' ? categoriaAnalisis : undefined,
         es_facturada: esFacturada,
         alicuota_iva: esFacturada ? alicuotaIva : 0,
         monto_iva: montoIva,
         url_factura: urlFactura || undefined,
         notas: notas.trim() || undefined,
         aplica_impuesto_cheque: aplicaImpuesto && puedeAplicarImpuesto,
-      });
+      } as any);
       onGuardar();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al guardar');
@@ -217,22 +217,20 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
           </div>
         )}
 
-        {/* Naturaleza de gasto (solo para egresos) */}
+        {/* Categoría de análisis (solo para egresos) */}
         {tipo === 'egreso' && (
           <div className="mb-4">
             <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
-              Tipo de gasto
+              Clasificación analítica
             </label>
             <select
-              value={naturalezaGasto}
-              onChange={(e) => setNaturalezaGasto(e.target.value as NaturalezaGasto)}
+              value={categoriaAnalisis}
+              onChange={(e) => setCategoriaAnalisis(e.target.value as 'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION')}
               className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
             >
-              <option value="gasto_operativo">Gasto Operativo</option>
-              <option value="reinversion_operativa">Reinversión Operativa</option>
-              <option value="inversion">Inversión</option>
-              <option value="distribucion_ganancias">Distribución de Ganancias</option>
-              <option value="ajuste_contable">Ajuste Contable</option>
+              <option value="GASTOS_OPERATIVOS">Gastos Operativos</option>
+              <option value="REINVERSION_OPERATIVA">Reinversión Operativa</option>
+              <option value="INVERSION">Inversión</option>
             </select>
           </div>
         )}
@@ -373,7 +371,7 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
           </select>
         </div>
 
-        {/* Fechas */}
+        {/* Fecha de operación */}
         <div className="mb-4">
           <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
             Fecha de operación
@@ -386,17 +384,49 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
           />
         </div>
 
+        {/* Estado de pago */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
-            Fecha de pago
+          <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-2">
+            Estado
           </label>
-          <input
-            type="date"
-            value={fechaPago}
-            onChange={(e) => setFechaPago(e.target.value)}
-            className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
-          />
+          <div className="flex gap-3">
+            <button
+              onClick={() => setMovimientoEstado('confirmado')}
+              className={`flex-1 py-2.5 rounded-lg font-semibold transition-colors ${
+                movimientoEstado === 'confirmado'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-green-100 text-green-700'
+              }`}
+            >
+              Confirmado
+            </button>
+            <button
+              onClick={() => setMovimientoEstado('pendiente')}
+              className={`flex-1 py-2.5 rounded-lg font-semibold transition-colors ${
+                movimientoEstado === 'pendiente'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-amber-100 text-amber-700'
+              }`}
+            >
+              Pendiente
+            </button>
+          </div>
         </div>
+
+        {/* Fecha de pago (solo si está confirmado) */}
+        {movimientoEstado === 'confirmado' && (
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-[#6B5D45] uppercase tracking-wide mb-1.5">
+              Fecha de pago
+            </label>
+            <input
+              type="date"
+              value={fechaPago}
+              onChange={(e) => setFechaPago(e.target.value)}
+              className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
+            />
+          </div>
+        )}
 
         {/* Impuesto al Cheque */}
         {puedeAplicarImpuesto && (

@@ -141,14 +141,19 @@ export function DashboardProduccion({
         <p className={`text-3xl font-bold ${alerta ? 'text-red-600' : 'text-amber-900'}`}>
           {valor}{unidad && <span className="text-lg ml-1">{unidad}</span>}
         </p>
-        {comparacion !== undefined && comparacion !== 0 && (
+        {valorComparacion !== undefined && (
           <div className="mt-2 space-y-1">
-            {valorComparacion !== undefined && (
-              <p className="text-xs text-gray-500">vs {valorComparacion}{unidad}</p>
+            <p className="text-xs text-gray-500">vs {valorComparacion}{unidad}</p>
+            {comparacion !== undefined && comparacion !== 0 && (
+              <p className={`text-xs font-semibold ${esVerde ? 'text-green-600' : 'text-red-600'}`}>
+                {esPositivo ? '↑' : '↓'} {Math.abs(comparacion).toFixed(1)}%
+              </p>
             )}
-            <p className={`text-xs font-semibold ${esVerde ? 'text-green-600' : 'text-red-600'}`}>
-              {esPositivo ? '↑' : '↓'} {Math.abs(comparacion).toFixed(1)}%
-            </p>
+            {comparacion === 0 && (
+              <p className="text-xs font-semibold text-gray-500">
+                ↔ 0%
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -258,6 +263,7 @@ export function DashboardProduccion({
           comparacion={calcularVariacion(metricasActuales.huevos_cachados, metricasComparacion.huevos_cachados)}
           unidad=""
           valorComparacion={metricasComparacion.huevos_cachados}
+          invertirColores={true}
         />
       </div>
 
@@ -413,30 +419,56 @@ export function DashboardProduccion({
           </table>
         </div>
 
-        {/* Paginación */}
+        {/* Paginación Responsive */}
         {(() => {
           const totalPaginas = Math.ceil(producciones.length / ITEMS_POR_PAGINA);
           return totalPaginas > 1 ? (
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
-                disabled={paginaHistorico === 0}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Anterior
-              </button>
-              <span className="text-xs text-gray-600">
-                Página {paginaHistorico + 1} de {totalPaginas}
-              </span>
-              <button
-                onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
-                disabled={paginaHistorico === totalPaginas - 1}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
-              >
-                Siguiente
-                <ChevronRight className="w-4 h-4" />
-              </button>
+            <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm">
+              <p className="text-xs text-gray-600">
+                Página {paginaHistorico + 1} de {totalPaginas} ({producciones.length})
+              </p>
+              <div className="flex gap-1 flex-wrap justify-center">
+                <button
+                  onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
+                  disabled={paginaHistorico === 0}
+                  className="px-2 py-1 border border-[#D8CDB0] rounded text-sm disabled:opacity-50 hover:bg-[#F5EFE6]"
+                >
+                  ←
+                </button>
+
+                {Array.from({ length: totalPaginas }, (_, i) => i).map((p) => {
+                  const isVisible = p === 0 || p === totalPaginas - 1 || Math.abs(p - paginaHistorico) <= 1;
+                  const showDotsBefore = p === 1 && paginaHistorico > 2;
+                  const showDotsAfter = p === totalPaginas - 2 && paginaHistorico < totalPaginas - 3;
+
+                  return (
+                    <div key={p}>
+                      {showDotsBefore && <span className="px-1 text-gray-600">...</span>}
+                      {isVisible && (
+                        <button
+                          onClick={() => setPaginaHistorico(p)}
+                          className={`px-2 py-1 rounded text-sm ${
+                            paginaHistorico === p
+                              ? 'bg-[#A8552E] text-white'
+                              : 'border border-[#D8CDB0] hover:bg-[#F5EFE6]'
+                          }`}
+                        >
+                          {p + 1}
+                        </button>
+                      )}
+                      {showDotsAfter && <span className="px-1 text-gray-600">...</span>}
+                    </div>
+                  );
+                })}
+
+                <button
+                  onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
+                  disabled={paginaHistorico === totalPaginas - 1}
+                  className="px-2 py-1 border border-[#D8CDB0] rounded text-sm disabled:opacity-50 hover:bg-[#F5EFE6]"
+                >
+                  →
+                </button>
+              </div>
             </div>
           ) : null;
         })()}
