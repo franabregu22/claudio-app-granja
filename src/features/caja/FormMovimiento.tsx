@@ -178,12 +178,6 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
             onChange={(e) => {
               setCategoria(e.target.value);
               setSubcategoria('');
-              if (tipo === 'egreso') {
-                const cat = categorias.find((c) => c.categoria === e.target.value);
-                if (cat?.naturalezaDefault) {
-                  setNaturalezaGasto(cat.naturalezaDefault);
-                }
-              }
             }}
             className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
           >
