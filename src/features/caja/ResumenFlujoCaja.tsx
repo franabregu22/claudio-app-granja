@@ -131,68 +131,67 @@ export function ResumenFlujoCaja() {
           </tr>
         </thead>
         <tbody>
-          {FORMAS_PAGO.map((forma) => (
-            <tbody key={forma.key}>
-              {/* Encabezado del medio de pago */}
-              <tr className="bg-stone-100 border-b border-[#D8CDB0]">
-                <td colSpan={mesesData.length + 1} className="px-3 py-2 font-bold text-[#2C2419]">
-                  {forma.label}
+          {FORMAS_PAGO.flatMap((forma) => [
+            // Encabezado del medio de pago
+            <tr key={`header-${forma.key}`} className="bg-stone-100 border-b border-[#D8CDB0]">
+              <td className="px-3 py-2 font-bold text-[#2C2419]">{forma.label}</td>
+              {mesesData.map((mes) => (
+                <td key={`header-${forma.key}-${mes.mesNumerico}`} className="border-l border-[#D8CDB0]"></td>
+              ))}
+            </tr>,
+
+            // Saldo Inicial
+            <tr key={`apertura-${forma.key}`} className="border-b border-[#E4DCC8] bg-blue-50 hover:bg-blue-100">
+              <td className="px-3 py-2 pl-6 text-[#2C2419]">Saldo Inicial</td>
+              {mesesData.map((mes) => (
+                <td
+                  key={`apertura-${forma.key}-${mes.mesNumerico}`}
+                  className="px-2 py-2 text-right font-semibold text-blue-700 border-l border-[#E4DCC8]"
+                >
+                  {mes[`${forma.key}_apertura`] !== null ? formatoPesos(mes[`${forma.key}_apertura`]) : '—'}
                 </td>
-              </tr>
+              ))}
+            </tr>,
 
-              {/* Saldo Inicial */}
-              <tr className="border-b border-[#E4DCC8] bg-blue-50 hover:bg-blue-100">
-                <td className="px-3 py-2 pl-6 text-[#2C2419]">Saldo Inicial</td>
-                {mesesData.map((mes) => (
-                  <td
-                    key={`${forma.key}-apertura-${mes.mesNumerico}`}
-                    className="px-2 py-2 text-right font-semibold text-blue-700 border-l border-[#E4DCC8]"
-                  >
-                    {mes[`${forma.key}_apertura`] !== null ? formatoPesos(mes[`${forma.key}_apertura`]) : '—'}
-                  </td>
-                ))}
-              </tr>
+            // Ingresos
+            <tr key={`ingresos-${forma.key}`} className="border-b border-[#E4DCC8] hover:bg-green-50">
+              <td className="px-3 py-2 pl-6 text-[#2C2419]">+ Ingresos</td>
+              {mesesData.map((mes) => (
+                <td
+                  key={`ingresos-${forma.key}-${mes.mesNumerico}`}
+                  className="px-2 py-2 text-right text-green-700 font-medium border-l border-[#E4DCC8]"
+                >
+                  {mes[`${forma.key}_ingresos`] > 0 ? formatoPesos(mes[`${forma.key}_ingresos`]) : '—'}
+                </td>
+              ))}
+            </tr>,
 
-              {/* Ingresos */}
-              <tr className="border-b border-[#E4DCC8] hover:bg-green-50">
-                <td className="px-3 py-2 pl-6 text-[#2C2419]">+ Ingresos</td>
-                {mesesData.map((mes) => (
-                  <td
-                    key={`${forma.key}-ingresos-${mes.mesNumerico}`}
-                    className="px-2 py-2 text-right text-green-700 font-medium border-l border-[#E4DCC8]"
-                  >
-                    {mes[`${forma.key}_ingresos`] > 0 ? formatoPesos(mes[`${forma.key}_ingresos`]) : '—'}
-                  </td>
-                ))}
-              </tr>
+            // Egresos
+            <tr key={`egresos-${forma.key}`} className="border-b border-[#E4DCC8] hover:bg-red-50">
+              <td className="px-3 py-2 pl-6 text-[#2C2419]">- Egresos</td>
+              {mesesData.map((mes) => (
+                <td
+                  key={`egresos-${forma.key}-${mes.mesNumerico}`}
+                  className="px-2 py-2 text-right text-red-700 font-medium border-l border-[#E4DCC8]"
+                >
+                  {mes[`${forma.key}_egresos`] > 0 ? formatoPesos(mes[`${forma.key}_egresos`]) : '—'}
+                </td>
+              ))}
+            </tr>,
 
-              {/* Egresos */}
-              <tr className="border-b border-[#E4DCC8] hover:bg-red-50">
-                <td className="px-3 py-2 pl-6 text-[#2C2419]">- Egresos</td>
-                {mesesData.map((mes) => (
-                  <td
-                    key={`${forma.key}-egresos-${mes.mesNumerico}`}
-                    className="px-2 py-2 text-right text-red-700 font-medium border-l border-[#E4DCC8]"
-                  >
-                    {mes[`${forma.key}_egresos`] > 0 ? formatoPesos(mes[`${forma.key}_egresos`]) : '—'}
-                  </td>
-                ))}
-              </tr>
-
-              {/* Saldo Final */}
-              <tr className="border-b-2 border-[#D8CDB0] bg-amber-50">
-                <td className="px-3 py-2 pl-6 font-bold text-[#2C2419]">= Saldo Final</td>
-                {mesesData.map((mes) => (
-                  <td
-                    key={`${forma.key}-saldo-final-${mes.mesNumerico}`}
-                    className="px-2 py-2 text-right font-bold text-[#2C2419] border-l border-[#E4DCC8]"
-                  >
-                    {formatoPesos(mes[`${forma.key}_saldo_final`])}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          ))}
+            // Saldo Final
+            <tr key={`saldo-final-${forma.key}`} className="border-b-2 border-[#D8CDB0] bg-amber-50">
+              <td className="px-3 py-2 pl-6 font-bold text-[#2C2419]">= Saldo Final</td>
+              {mesesData.map((mes) => (
+                <td
+                  key={`saldo-final-${forma.key}-${mes.mesNumerico}`}
+                  className="px-2 py-2 text-right font-bold text-[#2C2419] border-l border-[#E4DCC8]"
+                >
+                  {formatoPesos(mes[`${forma.key}_saldo_final`])}
+                </td>
+              ))}
+            </tr>,
+          ])}
         </tbody>
       </table>
     </div>
