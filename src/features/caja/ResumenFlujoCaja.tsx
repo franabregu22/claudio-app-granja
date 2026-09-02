@@ -7,7 +7,7 @@ const CAJA_CHICA_ID = 'f64e4f2c-20be-408a-9800-aa539da09e5d';
 
 interface FormaData {
   label: string;
-  key: 'efectivo' | 'mercadopago' | 'cheque' | 'echeq' | 'otros';
+  key: 'efectivo' | 'mercadopago' | 'cheque' | 'echeq' | 'otros' | 'transferencia';
 }
 
 interface MesDatos {
@@ -18,6 +18,7 @@ interface MesDatos {
 
 const FORMAS_PAGO: FormaData[] = [
   { label: 'Efectivo', key: 'efectivo' },
+  { label: 'BNA', key: 'transferencia' },
   { label: 'MercadoPago', key: 'mercadopago' },
   { label: 'Cheque', key: 'cheque' },
   { label: 'E-Cheq', key: 'echeq' },
@@ -48,10 +49,7 @@ export function ResumenFlujoCaja() {
         (m) => m.fecha_operacion >= mesStr && m.fecha_operacion < mesProxStr
       );
 
-      // Buscar el último arqueo anterior a este mes
-      const arqueosAnteriores = arqueos.filter(
-        (a) => a.fecha_arqueo < mesStr
-      );
+      const arqueosAnteriores = arqueos.filter((a) => a.fecha_arqueo < mesStr);
       const ultimoArqueoDeMesAnterior = arqueosAnteriores.length > 0
         ? arqueosAnteriores.reduce((max, a) =>
             new Date(a.fecha_arqueo) > new Date(max.fecha_arqueo) ? a : max
@@ -70,10 +68,10 @@ export function ResumenFlujoCaja() {
 
         if (forma.key === 'otros') {
           ingresos = movimientosMes
-            .filter((m) => m.tipo === 'ingreso' && !['efectivo', 'mercadopago', 'cheque', 'echeq'].includes(m.forma_pago))
+            .filter((m) => m.tipo === 'ingreso' && !['efectivo', 'mercadopago', 'cheque', 'echeq', 'transferencia'].includes(m.forma_pago))
             .reduce((sum, m) => sum + m.monto, 0);
           egresos = movimientosMes
-            .filter((m) => m.tipo === 'egreso' && !['efectivo', 'mercadopago', 'cheque', 'echeq'].includes(m.forma_pago))
+            .filter((m) => m.tipo === 'egreso' && !['efectivo', 'mercadopago', 'cheque', 'echeq', 'transferencia'].includes(m.forma_pago))
             .reduce((sum, m) => sum + m.monto, 0);
         } else {
           ingresos = movimientosMes
@@ -84,17 +82,25 @@ export function ResumenFlujoCaja() {
             .reduce((sum, m) => sum + m.monto, 0);
         }
 
-        // Apertura solo para efectivo (viene del arqueo)
         let apertura: number | null = null;
         if (formaKey === 'efectivo' && ultimoArqueoDeMesAnterior) {
           apertura = ultimoArqueoDeMesAnterior.monto_fisico;
         }
 
+        const subtotal = (apertura || 0) + ingresos - egresos;
+
         mesData[`${formaKey}_apertura`] = apertura;
         mesData[`${formaKey}_ingresos`] = ingresos;
         mesData[`${formaKey}_egresos`] = egresos;
-        mesData[`${formaKey}_saldo_final`] = (apertura || 0) + ingresos - egresos;
+        mesData[`${formaKey}_subtotal`] = subtotal;
       });
+
+      // Neto mensual (suma de todos los subtotales)
+      const netoMensual = FORMAS_PAGO.reduce(
+        (sum, forma) => sum + (mesData[`${forma.key}_subtotal`] || 0),
+        0
+      );
+      mesData.netoMensual = netoMensual;
 
       datos.push(mesData);
     }
@@ -123,7 +129,7 @@ export function ResumenFlujoCaja() {
             {mesesData.map((mes) => (
               <th
                 key={mes.mesNumerico}
-                className="px-2 py-2 text-center font-semibold text-[#2C2419] border-l border-[#D8CDB0] min-w-[130px]"
+                className="px-1 py-2 text-center font-semibold text-[#2C2419] border-l border-[#D8CDB0] min-w-[100px]"
               >
                 {mes.mes}
               </th>
@@ -141,12 +147,12 @@ export function ResumenFlujoCaja() {
             </tr>,
 
             // Saldo Inicial
-            <tr key={`apertura-${forma.key}`} className="border-b border-[#E4DCC8] bg-blue-50 hover:bg-blue-100">
+            <tr key={`apertura-${forma.key}`} className="border-b border-[#E4DCC8]">
               <td className="px-3 py-2 pl-6 text-[#2C2419]">Saldo Inicial</td>
               {mesesData.map((mes) => (
                 <td
                   key={`apertura-${forma.key}-${mes.mesNumerico}`}
-                  className="px-2 py-2 text-right font-semibold text-blue-700 border-l border-[#E4DCC8]"
+                  className="px-1 py-2 text-right text-blue-700 font-medium border-l border-[#E4DCC8]"
                 >
                   {mes[`${forma.key}_apertura`] !== null ? formatoPesos(mes[`${forma.key}_apertura`]) : '—'}
                 </td>
@@ -154,12 +160,12 @@ export function ResumenFlujoCaja() {
             </tr>,
 
             // Ingresos
-            <tr key={`ingresos-${forma.key}`} className="border-b border-[#E4DCC8] hover:bg-green-50">
-              <td className="px-3 py-2 pl-6 text-[#2C2419]">+ Ingresos</td>
+            <tr key={`ingresos-${forma.key}`} className="border-b border-[#E4DCC8]">
+              <td className="px-3 py-2 pl-6 text-[#2C2419]">Ingresos</td>
               {mesesData.map((mes) => (
                 <td
                   key={`ingresos-${forma.key}-${mes.mesNumerico}`}
-                  className="px-2 py-2 text-right text-green-700 font-medium border-l border-[#E4DCC8]"
+                  className="px-1 py-2 text-right text-green-700 font-medium border-l border-[#E4DCC8]"
                 >
                   {mes[`${forma.key}_ingresos`] > 0 ? formatoPesos(mes[`${forma.key}_ingresos`]) : '—'}
                 </td>
@@ -167,31 +173,44 @@ export function ResumenFlujoCaja() {
             </tr>,
 
             // Egresos
-            <tr key={`egresos-${forma.key}`} className="border-b border-[#E4DCC8] hover:bg-red-50">
-              <td className="px-3 py-2 pl-6 text-[#2C2419]">- Egresos</td>
+            <tr key={`egresos-${forma.key}`} className="border-b border-[#E4DCC8]">
+              <td className="px-3 py-2 pl-6 text-[#2C2419]">Egresos</td>
               {mesesData.map((mes) => (
                 <td
                   key={`egresos-${forma.key}-${mes.mesNumerico}`}
-                  className="px-2 py-2 text-right text-red-700 font-medium border-l border-[#E4DCC8]"
+                  className="px-1 py-2 text-right text-red-700 font-medium border-l border-[#E4DCC8]"
                 >
                   {mes[`${forma.key}_egresos`] > 0 ? formatoPesos(mes[`${forma.key}_egresos`]) : '—'}
                 </td>
               ))}
             </tr>,
 
-            // Saldo Final
-            <tr key={`saldo-final-${forma.key}`} className="border-b-2 border-[#D8CDB0] bg-amber-50">
-              <td className="px-3 py-2 pl-6 font-bold text-[#2C2419]">= Saldo Final</td>
+            // Subtotal
+            <tr key={`subtotal-${forma.key}`} className="border-b-2 border-[#D8CDB0] bg-amber-50">
+              <td className="px-3 py-2 pl-6 font-semibold text-[#2C2419]">Subtotal</td>
               {mesesData.map((mes) => (
                 <td
-                  key={`saldo-final-${forma.key}-${mes.mesNumerico}`}
-                  className="px-2 py-2 text-right font-bold text-[#2C2419] border-l border-[#E4DCC8]"
+                  key={`subtotal-${forma.key}-${mes.mesNumerico}`}
+                  className="px-1 py-2 text-right font-semibold text-[#2C2419] border-l border-[#D8CDB0]"
                 >
-                  {formatoPesos(mes[`${forma.key}_saldo_final`])}
+                  {formatoPesos(mes[`${forma.key}_subtotal`])}
                 </td>
               ))}
             </tr>,
           ])}
+
+          {/* NETO MENSUAL */}
+          <tr className="bg-[#A8552E] text-white border-b border-[#8B4423]">
+            <td className="px-3 py-2 font-bold">Neto Mensual</td>
+            {mesesData.map((mes) => (
+              <td
+                key={`neto-${mes.mesNumerico}`}
+                className="px-1 py-2 text-right font-bold border-l border-[#8B4423]"
+              >
+                {formatoPesos(mes.netoMensual)}
+              </td>
+            ))}
+          </tr>
         </tbody>
       </table>
     </div>
