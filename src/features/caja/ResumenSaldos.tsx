@@ -52,39 +52,39 @@ export function ResumenSaldos() {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-[#E4DCC8] p-4">
+    <div className="bg-white rounded-lg border border-[#E4DCC8] p-3">
       {/* Total */}
-      <div className="flex items-center justify-between mb-4 pb-4 border-b border-[#D8CDB0]">
-        <p className="text-xs font-semibold text-[#8A6A2E] uppercase">Total en cajas</p>
-        <p className="text-3xl font-bold text-[#2C2419]">{formatoPesos(resumen.totalSaldos)}</p>
+      <div className="flex items-center justify-between mb-2 pb-2 border-b border-[#D8CDB0]">
+        <p className="text-xs font-semibold text-[#8A6A2E] uppercase">Total</p>
+        <p className="text-2xl font-bold text-[#2C2419]">{formatoPesos(resumen.totalSaldos)}</p>
       </div>
 
       {/* Líneas por cuenta */}
-      <div className="space-y-2 mb-4">
+      <div className="space-y-1">
         {/* Caja Chica */}
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between text-xs">
           <span className="text-[#2C2419] font-medium">💵 Caja Chica</span>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-3">
             <span className="text-[#2C2419] font-bold">{formatoPesos(resumen.saldoCajaChica)}</span>
-            <span className="text-[#8A7A5C] text-xs w-12 text-right">{resumen.pctCajaChica.toFixed(0)}%</span>
+            <span className="text-[#8A7A5C] text-xs w-8 text-right hidden md:inline">{resumen.pctCajaChica.toFixed(0)}%</span>
           </div>
         </div>
 
         {/* MercadoPago */}
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-[#2C2419] font-medium">💳 MercadoPago</span>
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-[#2C2419] font-medium">💳 MP</span>
+          <div className="flex items-center gap-2 md:gap-3">
             <span className="text-[#2C2419] font-bold">{formatoPesos(resumen.saldoMP)}</span>
-            <span className="text-[#8A7A5C] text-xs w-12 text-right">{resumen.pctMP.toFixed(0)}%</span>
+            <span className="text-[#8A7A5C] text-xs w-8 text-right hidden md:inline">{resumen.pctMP.toFixed(0)}%</span>
           </div>
         </div>
 
         {/* BNA */}
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between text-xs">
           <span className="text-[#2C2419] font-medium">🏦 BNA</span>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-3">
             <span className="text-[#2C2419] font-bold">{formatoPesos(resumen.saldoBNA)}</span>
-            <span className="text-[#8A7A5C] text-xs w-12 text-right">{resumen.pctBNA.toFixed(0)}%</span>
+            <span className="text-[#8A7A5C] text-xs w-8 text-right hidden md:inline">{resumen.pctBNA.toFixed(0)}%</span>
           </div>
         </div>
       </div>

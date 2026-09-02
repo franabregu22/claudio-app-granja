@@ -120,9 +120,69 @@ export function ResumenFlujoCaja() {
     );
   }
 
+  const ultimoMes = mesesData[mesesData.length - 1];
+  const mesesParaMostrar = {
+    mobile: [ultimoMes],
+    desktop: mesesData,
+  };
+
   return (
     <div className="bg-white rounded-lg border border-[#E4DCC8] overflow-x-auto">
-      <table className="w-full text-xs">
+      {/* Mobile: solo último mes */}
+      <div className="md:hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-amber-50 border-b border-[#D8CDB0]">
+            <tr>
+              <th className="px-2 py-2 text-left font-semibold text-[#2C2419]">Concepto</th>
+              <th className="px-1 py-2 text-center font-semibold text-[#2C2419] border-l border-[#D8CDB0]">
+                {ultimoMes.mes}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {FORMAS_PAGO.flatMap((forma) => [
+              <tr key={`m-header-${forma.key}`} className="bg-stone-100 border-b border-[#D8CDB0]">
+                <td className="px-2 py-2 font-bold text-[#2C2419]">{forma.label}</td>
+                <td className="border-l border-[#D8CDB0]"></td>
+              </tr>,
+              <tr key={`m-apertura-${forma.key}`} className="border-b border-[#E4DCC8]">
+                <td className="px-2 py-2 pl-4 text-[#2C2419] text-xs">Saldo Inicial</td>
+                <td className="px-1 py-2 text-right text-blue-700 font-medium border-l border-[#E4DCC8]">
+                  {ultimoMes[`${forma.key}_apertura`] !== null ? formatoPesos(ultimoMes[`${forma.key}_apertura`]) : '—'}
+                </td>
+              </tr>,
+              <tr key={`m-ingresos-${forma.key}`} className="border-b border-[#E4DCC8]">
+                <td className="px-2 py-2 pl-4 text-[#2C2419] text-xs">Ingresos</td>
+                <td className="px-1 py-2 text-right text-green-700 font-medium border-l border-[#E4DCC8]">
+                  {ultimoMes[`${forma.key}_ingresos`] > 0 ? formatoPesos(ultimoMes[`${forma.key}_ingresos`]) : '—'}
+                </td>
+              </tr>,
+              <tr key={`m-egresos-${forma.key}`} className="border-b border-[#E4DCC8]">
+                <td className="px-2 py-2 pl-4 text-[#2C2419] text-xs">Egresos</td>
+                <td className="px-1 py-2 text-right text-red-700 font-medium border-l border-[#E4DCC8]">
+                  {ultimoMes[`${forma.key}_egresos`] > 0 ? formatoPesos(ultimoMes[`${forma.key}_egresos`]) : '—'}
+                </td>
+              </tr>,
+              <tr key={`m-subtotal-${forma.key}`} className="border-b-2 border-[#D8CDB0] bg-amber-50">
+                <td className="px-2 py-2 pl-4 font-semibold text-[#2C2419] text-xs">Subtotal</td>
+                <td className="px-1 py-2 text-right font-semibold text-[#2C2419] border-l border-[#D8CDB0]">
+                  {formatoPesos(ultimoMes[`${forma.key}_subtotal`])}
+                </td>
+              </tr>,
+            ])}
+            <tr className="bg-[#A8552E] text-white border-b border-[#8B4423]">
+              <td className="px-2 py-2 font-bold text-sm">Neto Mensual</td>
+              <td className="px-1 py-2 text-right font-bold border-l border-[#8B4423]">
+                {formatoPesos(ultimoMes.netoMensual)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Desktop: todos los meses */}
+      <div className="hidden md:block">
+        <table className="w-full text-xs">
         <thead className="bg-amber-50 border-b border-[#D8CDB0]">
           <tr>
             <th className="px-3 py-2 text-left font-semibold text-[#2C2419]">Concepto</th>
@@ -213,6 +273,7 @@ export function ResumenFlujoCaja() {
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
