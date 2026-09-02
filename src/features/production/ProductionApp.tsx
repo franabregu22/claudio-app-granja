@@ -97,14 +97,14 @@ export function ProductionApp() {
                   <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha</th>
                   <th className="px-4 py-2 text-left font-semibold text-amber-900">Galpón</th>
                   <th className="px-4 py-2 text-right font-semibold text-amber-900">Huevos</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">Cachados</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">% Rotos</th>
+                  <th className="hidden md:table-cell px-4 py-2 text-right font-semibold text-amber-900">Cachados</th>
+                  <th className="hidden lg:table-cell px-4 py-2 text-right font-semibold text-amber-900">% Rotos</th>
                   <th className="px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100">% Postura</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
-                  <th className="px-4 py-2 text-center font-semibold text-amber-900">ID Lote</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">Aves Actuales</th>
-                  <th className="px-4 py-2 text-left font-semibold text-amber-900">Cargado por</th>
-                  <th className="px-4 py-2 text-left font-semibold text-amber-900">Observaciones</th>
+                  <th className="hidden lg:table-cell px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
+                  <th className="hidden lg:table-cell px-4 py-2 text-center font-semibold text-amber-900">ID Lote</th>
+                  <th className="hidden 2xl:table-cell px-4 py-2 text-right font-semibold text-amber-900">Aves Actuales</th>
+                  <th className="hidden 2xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Cargado por</th>
+                  <th className="hidden xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Observaciones</th>
                   <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>
                 </tr>
               </thead>
@@ -125,10 +125,10 @@ export function ProductionApp() {
                       <td className="px-4 py-2 text-right font-semibold text-amber-900">
                         {prod.huevos_totales_mediodia + prod.huevos_totales_tarde}
                       </td>
-                      <td className="px-4 py-2 text-right text-gray-700">
+                      <td className="hidden md:table-cell px-4 py-2 text-right text-gray-700">
                         {prod.huevos_cachados_mediodia + prod.huevos_cachados_tarde}
                       </td>
-                      <td className="px-4 py-2 text-right text-gray-700">
+                      <td className="hidden lg:table-cell px-4 py-2 text-right text-gray-700">
                         {(() => {
                           const rotos = (prod.huevos_cachados_mediodia || 0) + (prod.huevos_cachados_tarde || 0);
                           const totales = (prod.huevos_totales_mediodia || 0) + (prod.huevos_totales_tarde || 0);
@@ -138,17 +138,17 @@ export function ProductionApp() {
                       <td className="px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100">
                         {loteBuscado ? `${porcentajePostura.toFixed(1)}%` : '—'}
                       </td>
-                      <td className="px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
-                      <td className="px-4 py-2 text-center font-medium text-amber-900 text-xs">
+                      <td className="hidden lg:table-cell px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
+                      <td className="hidden lg:table-cell px-4 py-2 text-center font-medium text-amber-900 text-xs">
                         {loteBuscado ? loteBuscado.lote_id || loteBuscado.id.slice(-8) : 'No determinado'}
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-gray-700">
+                      <td className="hidden 2xl:table-cell px-4 py-2 text-right font-semibold text-gray-700">
                         {loteBuscado ? avesActuales : '—'}
                       </td>
-                      <td className="px-4 py-2 text-left text-gray-700 text-xs">
+                      <td className="hidden 2xl:table-cell px-4 py-2 text-left text-gray-700 text-xs">
                         {prod.creado_por_nombre || '—'}
                       </td>
-                      <td className="px-4 py-2 text-left text-gray-700 max-w-xs truncate" title={prod.observaciones || ''}>
+                      <td className="hidden xl:table-cell px-4 py-2 text-left text-gray-700 max-w-xs truncate" title={prod.observaciones || ''}>
                         {prod.observaciones ? (
                           <span className="text-amber-700 font-medium">📝 {prod.observaciones}</span>
                         ) : (
