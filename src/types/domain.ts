@@ -199,6 +199,7 @@ export interface MovimientoCaja {
   alicuota_iva?: number;
   monto_iva?: number;
   url_factura?: string;
+  agregado_a_caja?: boolean;
   notas?: string;
   creado_por: string | null;
   creado_en: string;

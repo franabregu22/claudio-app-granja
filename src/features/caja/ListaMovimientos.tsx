@@ -296,7 +296,7 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
                 </td>
                 <td className="px-3 py-2 text-center">
                   {m.tipo === 'ingreso' && m.forma_pago === 'efectivo' && m.movimiento_estado === 'confirmado' ? (
-                    m.pago_en_caja ? (
+                    m.agregado_a_caja ? (
                       <span className="text-green-600 font-semibold text-lg">✓</span>
                     ) : (
                       <button
