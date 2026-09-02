@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
 import { useMovimientosCaja } from '../../hooks/useCaja';
+import { useArqueos } from '../../hooks/useArqueos';
 import { formatoPesos } from '../pedidos/helpers';
+
+const CAJA_CHICA_ID = 'f64e4f2c-20be-408a-9800-aa539da09e5d';
 
 interface FormaData {
   label: string;
@@ -23,11 +26,14 @@ const FORMAS_PAGO: FormaData[] = [
 
 export function ResumenFlujoCaja() {
   const movimientosQuery = useMovimientosCaja();
+  const arqueosQuery = useArqueos(CAJA_CHICA_ID);
 
   const mesesData = useMemo(() => {
     const movimientos = (movimientosQuery.data || []).filter(
       (m) => m.movimiento_estado === 'confirmado'
     );
+
+    const arqueos = arqueosQuery.data || [];
 
     const hoy = new Date();
     const datos: MesDatos[] = [];
@@ -41,6 +47,16 @@ export function ResumenFlujoCaja() {
       const movimientosMes = movimientos.filter(
         (m) => m.fecha_operacion >= mesStr && m.fecha_operacion < mesProxStr
       );
+
+      // Buscar el último arqueo anterior a este mes
+      const arqueosAnteriores = arqueos.filter(
+        (a) => a.fecha_arqueo < mesStr
+      );
+      const ultimoArqueoDeMesAnterior = arqueosAnteriores.length > 0
+        ? arqueosAnteriores.reduce((max, a) =>
+            new Date(a.fecha_arqueo) > new Date(max.fecha_arqueo) ? a : max
+          )
+        : null;
 
       const mesData: MesDatos = {
         mes: fecha.toLocaleDateString('es-AR', { month: 'long', year: '2-digit' }).replace(/\./g, ''),
@@ -68,19 +84,25 @@ export function ResumenFlujoCaja() {
             .reduce((sum, m) => sum + m.monto, 0);
         }
 
-        mesData[`${formaKey}_apertura`] = null;
+        // Apertura solo para efectivo (viene del arqueo)
+        let apertura: number | null = null;
+        if (formaKey === 'efectivo' && ultimoArqueoDeMesAnterior) {
+          apertura = ultimoArqueoDeMesAnterior.monto_fisico;
+        }
+
+        mesData[`${formaKey}_apertura`] = apertura;
         mesData[`${formaKey}_ingresos`] = ingresos;
         mesData[`${formaKey}_egresos`] = egresos;
-        mesData[`${formaKey}_saldo_final`] = (mesData[`${formaKey}_apertura`] || 0) + ingresos - egresos;
+        mesData[`${formaKey}_saldo_final`] = (apertura || 0) + ingresos - egresos;
       });
 
       datos.push(mesData);
     }
 
     return datos;
-  }, [movimientosQuery.data]);
+  }, [movimientosQuery.data, arqueosQuery.data]);
 
-  if (movimientosQuery.isLoading) {
+  if (movimientosQuery.isLoading || arqueosQuery.isLoading) {
     return <div className="text-center text-[#8A7A5C]">Cargando...</div>;
   }
 
