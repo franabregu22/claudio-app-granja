@@ -290,13 +290,13 @@ export function PedidosApp() {
                     <thead className="bg-amber-50 border-b border-amber-200">
                       <tr>
                         <th className="px-4 py-2 text-left font-semibold text-amber-900">Pedido</th>
-                        <th className="px-4 py-2 text-left font-semibold text-amber-900">Tipo</th>
+                        <th className="hidden md:table-cell px-4 py-2 text-left font-semibold text-amber-900">Tipo</th>
                         <th className="px-4 py-2 text-left font-semibold text-amber-900">Cliente</th>
-                        <th className="px-4 py-2 text-left font-semibold text-amber-900">Contenido</th>
+                        <th className="hidden lg:table-cell px-4 py-2 text-left font-semibold text-amber-900">Contenido</th>
                         <th className="px-4 py-2 text-right font-semibold text-amber-900">Monto</th>
-                        <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha carga</th>
-                        <th className="px-4 py-2 text-left font-semibold text-amber-900">Entregado por</th>
-                        <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha entrega</th>
+                        <th className="hidden xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Fecha carga</th>
+                        <th className="hidden 2xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Entregado por</th>
+                        <th className="hidden lg:table-cell px-4 py-2 text-left font-semibold text-amber-900">Fecha entrega</th>
                         {rol === 'dueño' && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
                       </tr>
                     </thead>
@@ -313,9 +313,9 @@ export function PedidosApp() {
                           return (
                             <tr key={p.id} className="border-b border-amber-100 hover:bg-amber-50">
                               <td className="px-4 py-2 text-gray-700 font-medium">#{p.id}</td>
-                              <td className="px-4 py-2 text-gray-700 text-xs">{cliente?.categoria || '—'}</td>
+                              <td className="hidden md:table-cell px-4 py-2 text-gray-700 text-xs">{cliente?.categoria || '—'}</td>
                               <td className="px-4 py-2 text-gray-700 font-medium">{p.cliente_nombre}</td>
-                              <td className="px-4 py-2 text-gray-700 text-xs">
+                              <td className="hidden lg:table-cell px-4 py-2 text-gray-700 text-xs">
                                 {Array.isArray(p.lineas) && p.lineas.length > 0
                                   ? p.lineas
                                       .filter((l) => l.cantidad > 0)
@@ -326,13 +326,13 @@ export function PedidosApp() {
                               <td className="px-4 py-2 text-right font-semibold text-amber-900">
                                 ${p.monto_total.toLocaleString('es-AR')}
                               </td>
-                              <td className="px-4 py-2 text-gray-700">
+                              <td className="hidden xl:table-cell px-4 py-2 text-gray-700">
                                 {p.fecha_operacion ? formatearFechaLocal(p.fecha_operacion) : '—'}
                               </td>
-                              <td className="px-4 py-2 text-gray-700 text-xs">
+                              <td className="hidden 2xl:table-cell px-4 py-2 text-gray-700 text-xs">
                                 {p.entregado_por_nombre || '—'}
                               </td>
-                              <td className="px-4 py-2 text-gray-700">
+                              <td className="hidden lg:table-cell px-4 py-2 text-gray-700">
                                 {p.entregado_en ? formatearFechaLocal(p.entregado_en) : '—'}
                               </td>
                               {rol === 'dueño' && (
@@ -360,25 +360,70 @@ export function PedidosApp() {
                   const totalPaginas = Math.ceil(totalEntregados / ITEMS_POR_PAGINA);
 
                   return totalPaginas > 1 ? (
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-center gap-1 text-sm flex-wrap">
                       <button
                         onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
                         disabled={paginaHistorico === 0}
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
+                        className="px-2 py-1 border border-amber-200 rounded text-sm disabled:opacity-50 hover:bg-amber-50"
                       >
-                        <ChevronLeft className="w-4 h-4" />
-                        Anterior
+                        ←
                       </button>
-                      <span className="text-xs text-gray-600">
-                        Página {paginaHistorico + 1} de {totalPaginas}
-                      </span>
+
+                      {paginaHistorico > 2 && (
+                        <>
+                          <button
+                            onClick={() => setPaginaHistorico(0)}
+                            className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
+                          >
+                            1
+                          </button>
+                          {paginaHistorico > 3 && <span className="px-1 text-gray-500">…</span>}
+                        </>
+                      )}
+
+                      {paginaHistorico > 0 && (
+                        <button
+                          onClick={() => setPaginaHistorico(paginaHistorico - 1)}
+                          className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
+                        >
+                          {paginaHistorico}
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => setPaginaHistorico(paginaHistorico)}
+                        className="px-2 py-1 bg-amber-900 text-white rounded text-sm"
+                      >
+                        {paginaHistorico + 1}
+                      </button>
+
+                      {paginaHistorico < totalPaginas - 1 && (
+                        <button
+                          onClick={() => setPaginaHistorico(paginaHistorico + 1)}
+                          className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
+                        >
+                          {paginaHistorico + 2}
+                        </button>
+                      )}
+
+                      {paginaHistorico < totalPaginas - 3 && (
+                        <>
+                          {paginaHistorico < totalPaginas - 4 && <span className="px-1 text-gray-500">…</span>}
+                          <button
+                            onClick={() => setPaginaHistorico(totalPaginas - 1)}
+                            className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
+                          >
+                            {totalPaginas}
+                          </button>
+                        </>
+                      )}
+
                       <button
                         onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
                         disabled={paginaHistorico === totalPaginas - 1}
-                        className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-[#A8552E] disabled:text-gray-300 disabled:cursor-not-allowed"
+                        className="px-2 py-1 border border-amber-200 rounded text-sm disabled:opacity-50 hover:bg-amber-50"
                       >
-                        Siguiente
-                        <ChevronRight className="w-4 h-4" />
+                        →
                       </button>
                     </div>
                   ) : null;
