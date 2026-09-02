@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useMovimientosCaja } from '../../hooks/useCaja';
+import { usePedidos } from '../../hooks/usePedidos';
 import { formatoPesos } from '../pedidos/helpers';
 
 interface MesData {
@@ -24,10 +25,16 @@ const CATEGORIAS_ELECTRICIDAD = ['Servicios']; // filtrar por subcategoría
 
 export function PyLProfesional() {
   const movimientosQuery = useMovimientosCaja();
+  const pedidosQuery = usePedidos();
 
   const mesesData = useMemo(() => {
     const movimientos = (movimientosQuery.data || []).filter(
       (m) => m.movimiento_estado === 'confirmado'
+    );
+
+    // Usar pedidos entregados para ingresos (devengado)
+    const pedidos = (pedidosQuery.data || []).filter(
+      (p) => p.estado === 'entregado'
     );
 
     const hoy = new Date();
@@ -40,19 +47,21 @@ export function PyLProfesional() {
       const mesProximo = new Date(fecha.getFullYear(), fecha.getMonth() + 1, 1);
       const mesProxStr = mesProximo.toISOString().slice(0, 7);
 
+      // Ingresos: de PEDIDOS entregados en ese mes (accrual basis)
+      const pedidosMes = pedidos.filter(
+        (p) => (p.fecha_operacion || p.fecha_pedido || '').slice(0, 7) === mesStr
+      );
+
+      const ventasTotales = pedidosMes.reduce((sum, p) => sum + p.monto_total, 0);
+
+      // Asumimos que todas son facturadas por ahora (esto podría mejorar)
+      const ventasFacturadas = ventasTotales;
+      const ventasNoFacturadas = 0;
+
+      // Costos: de movimientos en ese mes
       const movimientosMes = movimientos.filter(
         (m) => m.fecha_operacion >= mesStr && m.fecha_operacion < mesProxStr
       );
-
-      const ventasTotales = movimientosMes
-        .filter((m) => m.tipo === 'ingreso')
-        .reduce((sum, m) => sum + m.monto, 0);
-
-      const ventasFacturadas = movimientosMes
-        .filter((m) => m.tipo === 'ingreso' && m.es_facturada)
-        .reduce((sum, m) => sum + m.monto, 0);
-
-      const ventasNoFacturadas = ventasTotales - ventasFacturadas;
 
       // Costos por categoría
       const costosAlimento = movimientosMes
@@ -116,9 +125,9 @@ export function PyLProfesional() {
     }
 
     return datos;
-  }, [movimientosQuery.data]);
+  }, [movimientosQuery.data, pedidosQuery.data]);
 
-  if (movimientosQuery.isLoading) {
+  if (movimientosQuery.isLoading || pedidosQuery.isLoading) {
     return <div className="text-center text-[#8A7A5C]">Cargando...</div>;
   }
 
