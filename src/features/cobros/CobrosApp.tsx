@@ -3,13 +3,14 @@ import { useAuth } from '../../auth/useAuth';
 import { useClientesSaldo } from '../../hooks/useClientesSaldo';
 import { ListaClientes } from './ListaClientes';
 import { ListaFinalizados } from './ListaFinalizados';
+import { ListaClientesConCredito } from './ListaClientesConCredito';
 import { RegistroPagoModal } from './RegistroPagoModal';
 import type { ClienteSaldo } from '../../types/domain';
 import { formatoPesos } from '../pedidos/helpers';
 
 export function CobrosApp() {
   const { rol } = useAuth();
-  const { clientes, finalizados, totalDeudor, isLoading, error } = useClientesSaldo();
+  const { clientes, finalizados, conCredito, totalDeudor, isLoading, error } = useClientesSaldo();
   const [modalOpen, setModalOpen] = useState(false);
   const [clienteSeleccionado, setClienteSeleccionado] = useState<ClienteSaldo | null>(null);
 
@@ -102,6 +103,17 @@ export function CobrosApp() {
               <p className="text-xs text-[#6B7A4E] mt-1">{finalizados.length} clientes · Ordenado por último pago</p>
             </div>
             <ListaFinalizados clientes={finalizados} />
+          </div>
+        )}
+
+        {/* Clientes con Crédito */}
+        {conCredito && conCredito.length > 0 && (
+          <div className="border-t-4 border-green-200">
+            <div className="px-5 pt-6 pb-3 border-b border-[#E4DCC8] bg-white/50">
+              <h2 className="text-lg font-bold text-green-700">Clientes con Crédito</h2>
+              <p className="text-xs text-green-700 mt-1">{conCredito.length} clientes · Crédito disponible para próximas compras</p>
+            </div>
+            <ListaClientesConCredito clientes={conCredito} />
           </div>
         )}
 

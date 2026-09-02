@@ -7,8 +7,8 @@ export function useClientesSaldo() {
   const pedidosQuery = usePedidos();
   const pagosQuery = usePagos();
 
-  const { clientes: data, finalizados } = useMemo(() => {
-    if (!pedidosQuery.data || !pagosQuery.data) return { clientes: [], finalizados: [] };
+  const { clientes: data, finalizados, conCredito } = useMemo(() => {
+    if (!pedidosQuery.data || !pagosQuery.data) return { clientes: [], finalizados: [], conCredito: [] };
 
     const pedidos = pedidosQuery.data;
     const pagos = pagosQuery.data;
@@ -52,7 +52,7 @@ export function useClientesSaldo() {
       saldo: cliente.totalPedidos - cliente.totalPagado,
     }));
 
-    // Separar en pendientes y finalizados
+    // Separar en pendientes, finalizados y con crédito
     const clientes = todosClientes
       .filter((cliente) => cliente.saldo > 0)
       .sort((a, b) => b.saldo - a.saldo);
@@ -67,7 +67,11 @@ export function useClientesSaldo() {
         return new Date(ultimoPagoB.fecha_pago).getTime() - new Date(ultimoPagoA.fecha_pago).getTime();
       });
 
-    return { clientes, finalizados };
+    const conCredito = todosClientes
+      .filter((cliente) => cliente.saldo < 0 && cliente.totalPedidos > 0)
+      .sort((a, b) => a.saldo - b.saldo); // Menor saldo primero (más crédito)
+
+    return { clientes, finalizados, conCredito };
   }, [pedidosQuery.data, pagosQuery.data]);
 
   const totalDeudor = useMemo(
@@ -78,6 +82,7 @@ export function useClientesSaldo() {
   return {
     clientes: data,
     finalizados,
+    conCredito,
     totalDeudor,
     isLoading: pedidosQuery.isLoading || pagosQuery.isLoading,
     error: pedidosQuery.error || pagosQuery.error,
