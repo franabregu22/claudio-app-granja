@@ -1,5 +1,4 @@
 import { PyLProfesional } from '../caja/PyLProesional';
-import { ResumenCajaFormas } from './ResumenCajaFormas';
 import { useAuth } from '../../auth/useAuth';
 
 export function FinanzasApp() {
@@ -35,14 +34,6 @@ export function FinanzasApp() {
               Estado de Resultados (Devengado)
             </p>
             <PyLProfesional />
-          </div>
-
-          {/* Resumen de Caja por Forma de Pago */}
-          <div className="mb-8">
-            <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
-              Ingresos y Egresos por Medio de Pago (Caja)
-            </p>
-            <ResumenCajaFormas />
           </div>
         </div>
       </div>
