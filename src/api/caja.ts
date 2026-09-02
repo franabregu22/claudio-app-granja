@@ -266,3 +266,88 @@ export async function obtenerResumenCaja(fecha: string): Promise<{
     balance: ingresos - egresos,
   };
 }
+
+// Sincronizar pagos sin movimiento en caja
+export async function sincronizarPagosConCaja(): Promise<{ sincronizados: number; errores: string[] }> {
+  const errores: string[] = [];
+  let sincronizados = 0;
+
+  // Obtener todos los pagos no cancelados
+  const { data: pagos, error: pagosError } = await supabase
+    .from('pagos')
+    .select('id, cliente_id, monto, metodo_pago, fecha_pago, creado_por')
+    .neq('estado', 'cancelado')
+    .order('fecha_pago', { ascending: false });
+
+  if (pagosError) throw pagosError;
+
+  if (!pagos || pagos.length === 0) {
+    return { sincronizados: 0, errores: [] };
+  }
+
+  // Obtener todos los movimientos vinculados a pagos
+  const { data: movimientosVinculados, error: movError } = await supabase
+    .from('movimientos_caja')
+    .select('vinculado_id')
+    .eq('vinculado_a', 'pago');
+
+  if (movError) throw movError;
+
+  const pagoIdsVinculados = new Set((movimientosVinculados || []).map(m => m.vinculado_id));
+
+  // Mapear formas de pago
+  const formasPago: Record<string, 'efectivo' | 'mercadopago' | 'echeq' | 'cheque'> = {
+    'efectivo': 'efectivo',
+    'transferencia': 'efectivo',
+    'tarjeta': 'mercadopago',
+    'mercadopago': 'mercadopago',
+    'otro': 'efectivo',
+    'cheque': 'cheque',
+    'echeq': 'echeq',
+  };
+
+  // Obtener nombres de clientes
+  const clienteIds = [...new Set(pagos.map(p => p.cliente_id))];
+  const { data: clientes } = await supabase
+    .from('clientes')
+    .select('id, nombre')
+    .in('id', clienteIds);
+
+  const clienteNombreMap = new Map((clientes || []).map(c => [c.id, c.nombre]));
+
+  // Crear movimientos para pagos sin vinculación
+  for (const pago of pagos) {
+    if (pagoIdsVinculados.has(pago.id)) {
+      continue; // Ya tiene movimiento
+    }
+
+    try {
+      const clienteNombre = clienteNombreMap.get(pago.cliente_id) || 'Cliente desconocido';
+      const { error: insertError } = await supabase
+        .from('movimientos_caja')
+        .insert({
+          tipo: 'ingreso',
+          concepto: `Cobro - ${clienteNombre}`,
+          monto: pago.monto,
+          forma_pago: formasPago[pago.metodo_pago as keyof typeof formasPago] || 'efectivo',
+          fecha_operacion: pago.fecha_pago,
+          fecha_pago: pago.fecha_pago,
+          movimiento_estado: 'confirmado',
+          vinculado_a: 'pago',
+          vinculado_id: pago.id,
+          cliente_id: pago.cliente_id,
+          creado_por: pago.creado_por,
+        });
+
+      if (insertError) {
+        errores.push(`Pago ${pago.id}: ${insertError.message}`);
+      } else {
+        sincronizados++;
+      }
+    } catch (err) {
+      errores.push(`Pago ${pago.id}: ${err instanceof Error ? err.message : 'Error desconocido'}`);
+    }
+  }
+
+  return { sincronizados, errores };
+}

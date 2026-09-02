@@ -145,3 +145,20 @@ export function useAnularMovimiento(): UseMutationResult<
     },
   });
 }
+
+export function useSincronizarPagos(): UseMutationResult<
+  { sincronizados: number; errores: string[] },
+  Error,
+  void
+> {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => cajaApi.sincronizarPagosConCaja(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['movimientos-caja'] });
+      queryClient.invalidateQueries({ queryKey: ['pagos'] });
+      queryClient.invalidateQueries({ queryKey: ['resumen-caja'] });
+    },
+  });
+}

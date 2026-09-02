@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Plus, AlertTriangle } from 'lucide-react';
-import { useMovimientosCaja, useCheques, useAnularMovimiento } from '../../hooks/useCaja';
+import { Plus, AlertTriangle, RefreshCw } from 'lucide-react';
+import { useMovimientosCaja, useCheques, useAnularMovimiento, useSincronizarPagos } from '../../hooks/useCaja';
 import { useCuentas } from '../../hooks/useArqueos';
 import { useAuth } from '../../auth/useAuth';
 import { ListaMovimientos } from './ListaMovimientos';
@@ -22,10 +22,12 @@ export function CajaApp() {
   const [mostrarImportarSheets, setMostrarImportarSheets] = useState(false);
   const [cuentaArqueando, setCuentaArqueando] = useState<CuentaCaja | null>(null);
   const [mostrarHistorial, setMostrarHistorial] = useState<string | null>(null);
+  const [mensajeSincro, setMensajeSincro] = useState<{ tipo: 'exito' | 'error'; texto: string } | null>(null);
 
   const movimientosQuery = useMovimientosCaja();
   const chequesQuery = useCheques();
   const anularMutation = useAnularMovimiento();
+  const sincronizarMutation = useSincronizarPagos();
   const cuentasQuery = useCuentas();
 
   if (rol !== 'dueño') {
@@ -42,9 +44,31 @@ export function CajaApp() {
   // Todos los movimientos (sin filtro de período)
   const movimientos = movimientosQuery.data || [];
 
-
-
-  // Paginación ahora la maneja ListaMovimientos
+  const handleSincronizar = async () => {
+    try {
+      const resultado = await sincronizarMutation.mutateAsync();
+      if (resultado.sincronizados > 0) {
+        setMensajeSincro({
+          tipo: 'exito',
+          texto: `✓ Sincronizados ${resultado.sincronizados} pago${resultado.sincronizados > 1 ? 's' : ''}`,
+        });
+      } else {
+        setMensajeSincro({
+          tipo: 'exito',
+          texto: 'No hay pagos para sincronizar',
+        });
+      }
+      if (resultado.errores.length > 0) {
+        console.error('Errores en sincronización:', resultado.errores);
+      }
+    } catch (err) {
+      setMensajeSincro({
+        tipo: 'error',
+        texto: `Error: ${err instanceof Error ? err.message : 'Error desconocido'}`,
+      });
+    }
+    setTimeout(() => setMensajeSincro(null), 5000);
+  };
 
   if (vista === 'nuevo') {
     return (
@@ -66,7 +90,27 @@ export function CajaApp() {
           <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">
             Granja Santo Tomás
           </p>
-          <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Caja & Finanzas</h1>
+          <div className="flex items-center justify-between mt-1">
+            <h1 className="text-2xl font-bold text-[#2C2419]">Caja & Finanzas</h1>
+            <button
+              onClick={handleSincronizar}
+              disabled={sincronizarMutation.isPending}
+              className="flex items-center gap-2 text-xs px-3 py-1.5 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 transition"
+              title="Sincronizar pagos sin movimiento a la tabla de caja"
+            >
+              <RefreshCw className={`w-4 h-4 ${sincronizarMutation.isPending ? 'animate-spin' : ''}`} />
+              Sincronizar Pagos
+            </button>
+          </div>
+          {mensajeSincro && (
+            <div className={`mt-2 text-xs p-2 rounded ${
+              mensajeSincro.tipo === 'exito'
+                ? 'bg-green-100 text-green-700'
+                : 'bg-red-100 text-red-700'
+            }`}>
+              {mensajeSincro.texto}
+            </div>
+          )}
         </header>
 
 
