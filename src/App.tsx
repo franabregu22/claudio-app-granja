@@ -8,7 +8,7 @@ import { CajaApp } from './features/caja/CajaApp';
 import { AdminApp } from './features/admin/AdminApp';
 import { ProductionApp } from './features/production/ProductionApp';
 import { ProductionDashboard } from './features/production/ProductionDashboard';
-import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X } from 'lucide-react';
+import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table } from 'lucide-react';
 
 type Tab = 'pedidos' | 'cobros' | 'caja' | 'admin' | 'produccion' | 'dashboard_produccion';
 
@@ -63,11 +63,13 @@ function App() {
   }
 
   const modules = [
-    ...(rol === 'dueño' || rol === 'colaborador' ? [
-      { id: 'produccion' as Tab, label: 'Producción', icon: BarChart3 }
-    ] : []),
     ...(rol === 'dueño' ? [
       { id: 'dashboard_produccion' as Tab, label: 'Dashboard', icon: BarChart3 },
+    ] : []),
+    ...(rol === 'dueño' || rol === 'colaborador' ? [
+      { id: 'produccion' as Tab, label: 'Producción', icon: Table }
+    ] : []),
+    ...(rol === 'dueño' ? [
       { id: 'pedidos' as Tab, label: 'Pedidos', icon: ShoppingCart },
       { id: 'cobros' as Tab, label: 'Cuentas a Cobrar', icon: DollarSign },
       { id: 'caja' as Tab, label: 'Caja & Finanzas', icon: Wallet },
