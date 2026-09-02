@@ -6,7 +6,6 @@ import { useAuth } from '../../auth/useAuth';
 import { ListaMovimientos } from './ListaMovimientos';
 import { FormMovimiento } from './FormMovimiento';
 import { ResumenSaldos } from './ResumenSaldos';
-import { PyLProfesional } from './PyLProesional';
 import { ArqueoCard } from './ArqueoCard';
 import { FormArqueo } from './FormArqueo';
 import { HistorialArqueos } from './HistorialArqueos';
@@ -122,14 +121,6 @@ export function CajaApp() {
               Resumen de Saldos
             </p>
             <ResumenSaldos />
-          </div>
-
-          {/* Estado de Resultados (P&L) */}
-          <div className="mb-8">
-            <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
-              Estado de Resultados (P&L)
-            </p>
-            <PyLProfesional />
           </div>
 
           {/* Listado de Movimientos */}
