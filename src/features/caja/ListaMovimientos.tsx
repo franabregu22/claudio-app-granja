@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Trash2, X, Edit2, Filter, ChevronUp, ChevronDown } from 'lucide-react';
+import { Trash2, X, Edit2, Filter, ChevronUp, ChevronDown, Loader2 } from 'lucide-react';
 import { useActualizarMovimientoCaja } from '../../hooks/useCaja';
+import { agregarPagoAlaCaja } from '../../api/pagos';
 import type { MovimientoCaja } from '../../types/domain';
 import { formatoPesos } from '../pedidos/helpers';
 import { ModalEditarCategoria } from './ModalEditarCategoria';
@@ -33,6 +34,7 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
   const [confirmarPagoId, setConfirmarPagoId] = useState<number | null>(null);
   const [fechaPagoConfirmar, setFechaPagoConfirmar] = useState('');
   const [isLoadingConfirmar, setIsLoadingConfirmar] = useState(false);
+  const [agregantoId, setAgregandoId] = useState<string | null>(null);
 
   const [filtros, setFiltros] = useState<Filtros>({});
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
@@ -62,6 +64,19 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
       setFechaPagoConfirmar('');
     } finally {
       setIsLoadingConfirmar(false);
+    }
+  };
+
+  const handleAgregarAlaCaja = async (pagoId: string) => {
+    setAgregandoId(pagoId);
+    try {
+      await agregarPagoAlaCaja(pagoId);
+      // Refetch para actualizar pago_en_caja
+      window.location.reload();
+    } catch (err) {
+      console.error('Error al agregar a caja:', err);
+    } finally {
+      setAgregandoId(null);
     }
   };
 
@@ -194,13 +209,13 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
           <thead className="bg-amber-50 border-b border-[#D8CDB0]">
             <tr>
               <HeaderCell col="fecha_operacion" label="Fecha Op." />
-              <HeaderCell col="fecha_pago" label="Fecha Pago" />
               <HeaderCell col="tipo" label="Tipo" />
               <HeaderCell col="forma_pago" label="Medio" />
               <HeaderCell col="concepto" label="Nombre" />
               <th className="px-3 py-2 text-left font-semibold text-[#2C2419]">Comentario</th>
               <HeaderCell col="monto" label="Monto" />
               <HeaderCell col="movimiento_estado" label="Estado" />
+              <th className="px-3 py-2 text-center font-semibold text-[#2C2419]">Agregado a Caja</th>
               <th className="px-3 py-2 text-center font-semibold text-[#2C2419]">Acción</th>
             </tr>
           </thead>
@@ -217,7 +232,6 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
                 }`}
               >
                 <td className="px-3 py-2 text-[#2C2419] font-medium">{m.fecha_operacion}</td>
-                <td className="px-3 py-2 text-[#2C2419] font-medium">{m.fecha_pago || '—'}</td>
                 <td className="px-3 py-2">
                   <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full whitespace-nowrap ${
                     m.tipo === 'ingreso'
@@ -278,6 +292,32 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
                     <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full whitespace-nowrap bg-green-100 text-green-700">
                       Confirmado
                     </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {m.tipo === 'ingreso' && m.forma_pago === 'efectivo' && m.movimiento_estado === 'confirmado' ? (
+                    m.pago_en_caja ? (
+                      <span className="text-green-600 font-semibold text-lg">✓</span>
+                    ) : (
+                      <button
+                        onClick={() => handleAgregarAlaCaja(m.vinculado_id?.toString() || '')}
+                        disabled={agregantoId === m.vinculado_id?.toString()}
+                        className="flex items-center justify-center p-1 hover:bg-green-50 rounded transition disabled:opacity-50"
+                        title="Marcar como agregado a caja"
+                      >
+                        {agregantoId === m.vinculado_id?.toString() ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+                        ) : (
+                          <input
+                            type="checkbox"
+                            disabled={agregantoId === m.vinculado_id?.toString()}
+                            className="w-4 h-4 rounded cursor-pointer"
+                          />
+                        )}
+                      </button>
+                    )
+                  ) : (
+                    '—'
                   )}
                 </td>
                 <td className="px-3 py-2 text-center">
