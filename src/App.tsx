@@ -7,9 +7,10 @@ import { CobrosApp } from './features/cobros/CobrosApp';
 import { CajaApp } from './features/caja/CajaApp';
 import { AdminApp } from './features/admin/AdminApp';
 import { ProductionApp } from './features/production/ProductionApp';
+import { ProductionDashboard } from './features/production/ProductionDashboard';
 import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X } from 'lucide-react';
 
-type Tab = 'pedidos' | 'cobros' | 'caja' | 'admin' | 'produccion';
+type Tab = 'pedidos' | 'cobros' | 'caja' | 'admin' | 'produccion' | 'dashboard_produccion';
 
 function App() {
   const { user, rol, loading, signOut } = useAuth();
@@ -66,6 +67,7 @@ function App() {
       { id: 'produccion' as Tab, label: 'Producción', icon: BarChart3 }
     ] : []),
     ...(rol === 'dueño' ? [
+      { id: 'dashboard_produccion' as Tab, label: 'Dashboard', icon: BarChart3 },
       { id: 'pedidos' as Tab, label: 'Pedidos', icon: ShoppingCart },
       { id: 'cobros' as Tab, label: 'Cuentas a Cobrar', icon: DollarSign },
       { id: 'caja' as Tab, label: 'Caja & Finanzas', icon: Wallet },
@@ -159,6 +161,7 @@ function App() {
         {/* Content */}
         <div className="flex-1">
           {currentTab === 'produccion' && <ProductionApp />}
+          {currentTab === 'dashboard_produccion' && <ProductionDashboard />}
           {currentTab === 'pedidos' && <PedidosApp />}
           {currentTab === 'cobros' && <CobrosApp />}
           {currentTab === 'caja' && <CajaApp />}
