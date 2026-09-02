@@ -78,7 +78,7 @@ export async function crearPago(
         forma_pago: formasPago[metodoPago] || 'efectivo',
         fecha_operacion: fechaPago,
         fecha_pago: fechaPago,
-        estado: 'confirmado',
+        movimiento_estado: 'confirmado',
         vinculado_a: 'pago',
         vinculado_id: pago.id,
         cliente_id: clienteId,
