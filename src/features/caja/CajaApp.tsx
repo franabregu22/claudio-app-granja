@@ -151,48 +151,47 @@ export function CajaApp() {
             </div>
           )}
 
-          {/* Sección de Arqueo de Caja */}
-          {cuentasQuery.data && cuentasQuery.data.length > 0 && (
-            <div className="mt-8">
-              <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
-                Arqueo de Caja
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {cuentasQuery.data.map((cuenta) => (
-                  <div key={cuenta.id}>
-                    <ArqueoCard
-                      cuenta={cuenta}
-                      onArquear={() => setCuentaArqueando(cuenta)}
-                    />
-                    {mostrarHistorial === cuenta.id && (
-                      <div className="mt-3">
-                        <div className="flex justify-between items-center mb-2">
-                          <p className="text-xs font-semibold text-[#8A6A2E] uppercase">
-                            Historial
-                          </p>
-                          <button
-                            onClick={() => setMostrarHistorial(null)}
-                            className="text-xs text-[#A8552E] hover:underline"
-                          >
-                            Ocultar
-                          </button>
-                        </div>
-                        <HistorialArqueos cuenta={cuenta} />
+          {/* Sección de Arqueo de Caja Chica */}
+          {cuentasQuery.data && cuentasQuery.data.length > 0 && (() => {
+            const cajachica = cuentasQuery.data.find(c => c.nombre === 'Caja Chica');
+            return cajachica ? (
+              <div className="mt-8">
+                <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
+                  Arqueo de Caja Chica
+                </p>
+                <div className="max-w-sm">
+                  <ArqueoCard
+                    cuenta={cajachica}
+                    onArquear={() => setCuentaArqueando(cajachica)}
+                  />
+                  {mostrarHistorial === cajachica.id && (
+                    <div className="mt-3">
+                      <div className="flex justify-between items-center mb-2">
+                        <p className="text-xs font-semibold text-[#8A6A2E] uppercase">
+                          Historial
+                        </p>
+                        <button
+                          onClick={() => setMostrarHistorial(null)}
+                          className="text-xs text-[#A8552E] hover:underline"
+                        >
+                          Ocultar
+                        </button>
                       </div>
-                    )}
-                    {mostrarHistorial !== cuenta.id && (
-                      <button
-                        onClick={() => setMostrarHistorial(cuenta.id)}
-                        className="mt-2 w-full text-xs text-[#A8552E] hover:bg-amber-50 px-2 py-1 rounded transition-colors"
-                      >
-                        Ver historial
-                      </button>
-                    )}
-                  </div>
-                ))}
+                      <HistorialArqueos cuenta={cajachica} />
+                    </div>
+                  )}
+                  {mostrarHistorial !== cajachica.id && (
+                    <button
+                      onClick={() => setMostrarHistorial(cajachica.id)}
+                      className="mt-2 w-full text-xs text-[#A8552E] hover:bg-amber-50 px-2 py-1 rounded transition-colors"
+                    >
+                      Ver historial
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            ) : null;
+          })()}
         </div>
 
         {/* Botón flotante desktop */}
