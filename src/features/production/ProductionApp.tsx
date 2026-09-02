@@ -176,39 +176,71 @@ export function ProductionApp() {
 
           {/* Paginación */}
           {totalPaginas > 1 && (
-            <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm">
-              <p className="text-xs text-gray-600">
-                Página {paginaHistorico + 1} de {totalPaginas} ({producciones.length})
-              </p>
-              <div className="flex gap-1 flex-wrap justify-center">
-                <button
-                  onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
-                  disabled={paginaHistorico === 0}
-                  className="px-2 py-1 border border-amber-200 rounded text-sm disabled:opacity-50 hover:bg-amber-50"
-                >
-                  ←
-                </button>
-                {Array.from({ length: totalPaginas }, (_, i) => i).map((p) => (
+            <div className="mt-3 flex items-center justify-center gap-1 text-sm flex-wrap">
+              <button
+                onClick={() => setPaginaHistorico(Math.max(0, paginaHistorico - 1))}
+                disabled={paginaHistorico === 0}
+                className="px-2 py-1 border border-amber-200 rounded text-sm disabled:opacity-50 hover:bg-amber-50"
+              >
+                ←
+              </button>
+
+              {paginaHistorico > 2 && (
+                <>
                   <button
-                    key={p}
-                    onClick={() => setPaginaHistorico(p)}
-                    className={`px-2 py-1 rounded text-sm ${
-                      paginaHistorico === p
-                        ? 'bg-amber-900 text-white'
-                        : 'border border-amber-200 hover:bg-amber-50'
-                    }`}
+                    onClick={() => setPaginaHistorico(0)}
+                    className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
                   >
-                    {p + 1}
+                    1
                   </button>
-                ))}
+                  {paginaHistorico > 3 && <span className="px-1 text-gray-500">…</span>}
+                </>
+              )}
+
+              {paginaHistorico > 0 && (
                 <button
-                  onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
-                  disabled={paginaHistorico === totalPaginas - 1}
-                  className="px-2 py-1 border border-amber-200 rounded text-sm disabled:opacity-50 hover:bg-amber-50"
+                  onClick={() => setPaginaHistorico(paginaHistorico - 1)}
+                  className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
                 >
-                  →
+                  {paginaHistorico}
                 </button>
-              </div>
+              )}
+
+              <button
+                onClick={() => setPaginaHistorico(paginaHistorico)}
+                className="px-2 py-1 bg-amber-900 text-white rounded text-sm"
+              >
+                {paginaHistorico + 1}
+              </button>
+
+              {paginaHistorico < totalPaginas - 1 && (
+                <button
+                  onClick={() => setPaginaHistorico(paginaHistorico + 1)}
+                  className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
+                >
+                  {paginaHistorico + 2}
+                </button>
+              )}
+
+              {paginaHistorico < totalPaginas - 3 && (
+                <>
+                  {paginaHistorico < totalPaginas - 4 && <span className="px-1 text-gray-500">…</span>}
+                  <button
+                    onClick={() => setPaginaHistorico(totalPaginas - 1)}
+                    className="px-2 py-1 border border-amber-200 rounded text-sm hover:bg-amber-50"
+                  >
+                    {totalPaginas}
+                  </button>
+                </>
+              )}
+
+              <button
+                onClick={() => setPaginaHistorico(Math.min(totalPaginas - 1, paginaHistorico + 1))}
+                disabled={paginaHistorico === totalPaginas - 1}
+                className="px-2 py-1 border border-amber-200 rounded text-sm disabled:opacity-50 hover:bg-amber-50"
+              >
+                →
+              </button>
             </div>
           )}
         </div>
