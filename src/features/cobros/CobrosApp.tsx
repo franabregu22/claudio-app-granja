@@ -99,7 +99,7 @@ export function CobrosApp() {
           <div className="border-t-4 border-[#D8CDB0]">
             <div className="px-5 pt-6 pb-3 border-b border-[#E4DCC8] bg-white/50">
               <h2 className="text-lg font-bold text-[#6B7A4E]">Saldos Finalizados</h2>
-              <p className="text-xs text-[#6B7A4E] mt-1">{finalizados.length} clientes · Últimos 15 días</p>
+              <p className="text-xs text-[#6B7A4E] mt-1">{finalizados.length} clientes · Ordenado por último pago</p>
             </div>
             <ListaFinalizados clientes={finalizados} />
           </div>

@@ -53,21 +53,19 @@ export function useClientesSaldo() {
     }));
 
     // Separar en pendientes y finalizados
-    const hace15Dias = new Date();
-    hace15Dias.setDate(hace15Dias.getDate() - 15);
-    const fechaLimite = hace15Dias.toISOString().split('T')[0];
-
     const clientes = todosClientes
       .filter((cliente) => cliente.saldo > 0)
       .sort((a, b) => b.saldo - a.saldo);
 
     const finalizados = todosClientes
       .filter((cliente) => cliente.saldo === 0 && cliente.totalPedidos > 0)
-      .filter((cliente) => {
-        const ultimoPago = cliente.pagos.sort((a, b) => new Date(b.fecha_pago).getTime() - new Date(a.fecha_pago).getTime())[0];
-        return ultimoPago && ultimoPago.fecha_pago >= fechaLimite;
-      })
-      .sort((a, b) => a.cliente_nombre.localeCompare(b.cliente_nombre));
+      .sort((a, b) => {
+        const ultimoPagoA = a.pagos.sort((x, y) => new Date(y.fecha_pago).getTime() - new Date(x.fecha_pago).getTime())[0];
+        const ultimoPagoB = b.pagos.sort((x, y) => new Date(y.fecha_pago).getTime() - new Date(x.fecha_pago).getTime())[0];
+        if (!ultimoPagoA) return 1;
+        if (!ultimoPagoB) return -1;
+        return new Date(ultimoPagoB.fecha_pago).getTime() - new Date(ultimoPagoA.fecha_pago).getTime();
+      });
 
     return { clientes, finalizados };
   }, [pedidosQuery.data, pagosQuery.data]);
