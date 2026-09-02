@@ -116,21 +116,13 @@ export function CajaApp() {
 
         {/* Contenido Principal */}
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
-          {/* TODO: Resumen de Saldos y P&L - deshabilitado por ahora
+          {/* Resumen de Saldos */}
           <div className="mb-8">
             <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
               Resumen de Saldos
             </p>
             <ResumenSaldos />
           </div>
-
-          <div className="mb-8">
-            <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
-              Estado de Resultados (P&L)
-            </p>
-            <PyLProfesional />
-          </div>
-          */}
 
           {/* Listado de Movimientos */}
           {movimientos.length > 0 && (
