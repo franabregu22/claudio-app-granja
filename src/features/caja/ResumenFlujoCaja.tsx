@@ -7,7 +7,7 @@ const CAJA_CHICA_ID = 'f64e4f2c-20be-408a-9800-aa539da09e5d';
 
 interface FormaData {
   label: string;
-  key: 'efectivo' | 'mercadopago' | 'cheque' | 'echeq' | 'otros' | 'transferencia';
+  key: 'efectivo' | 'mercadopago' | 'otros' | 'transferencia';
 }
 
 interface MesDatos {
@@ -20,8 +20,6 @@ const FORMAS_PAGO: FormaData[] = [
   { label: 'Efectivo', key: 'efectivo' },
   { label: 'BNA', key: 'transferencia' },
   { label: 'MercadoPago', key: 'mercadopago' },
-  { label: 'Cheque', key: 'cheque' },
-  { label: 'E-Cheq', key: 'echeq' },
   { label: 'Otros', key: 'otros' },
 ];
 
@@ -68,10 +66,10 @@ export function ResumenFlujoCaja() {
 
         if (forma.key === 'otros') {
           ingresos = movimientosMes
-            .filter((m) => m.tipo === 'ingreso' && !['efectivo', 'mercadopago', 'cheque', 'echeq', 'transferencia'].includes(m.forma_pago))
+            .filter((m) => m.tipo === 'ingreso' && !['efectivo', 'mercadopago', 'transferencia'].includes(m.forma_pago))
             .reduce((sum, m) => sum + m.monto, 0);
           egresos = movimientosMes
-            .filter((m) => m.tipo === 'egreso' && !['efectivo', 'mercadopago', 'cheque', 'echeq', 'transferencia'].includes(m.forma_pago))
+            .filter((m) => m.tipo === 'egreso' && !['efectivo', 'mercadopago', 'transferencia'].includes(m.forma_pago))
             .reduce((sum, m) => sum + m.monto, 0);
         } else {
           ingresos = movimientosMes

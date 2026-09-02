@@ -37,7 +37,7 @@ export const movimientoCajaSchema = z.object({
     .number()
     .positive('Monto debe ser > 0')
     .max(999999999.99, 'Monto muy grande'),
-  forma_pago: z.enum(['efectivo', 'mercadopago', 'echeq', 'cheque', 'transferencia'] as const),
+  forma_pago: z.enum(['efectivo', 'mercadopago', 'transferencia'] as const),
   fecha_operacion: z
     .string()
     .date('Fecha inválida')

@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Trash2, X, Edit2, Filter, ChevronUp, ChevronDown, Loader2 } from 'lucide-react';
+import { Trash2, X, Edit2, Filter, ChevronUp, ChevronDown, Loader2, Pencil } from 'lucide-react';
 import { useActualizarMovimientoCaja } from '../../hooks/useCaja';
 import { agregarPagoAlaCaja } from '../../api/pagos';
 import type { MovimientoCaja } from '../../types/domain';
 import { formatoPesos } from '../pedidos/helpers';
 import { ModalEditarCategoria } from './ModalEditarCategoria';
+import { ModalEditarMovimiento } from './ModalEditarMovimiento';
 
 interface ListaMovimientosProps {
   movimientos: MovimientoCaja[];
@@ -31,6 +32,7 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
   const [motivo, setMotivo] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [movimientoEnEdicion, setMovimientoEnEdicion] = useState<MovimientoCaja | null>(null);
+  const [movimientoPraEditarDatos, setMovimientoPraEditarDatos] = useState<MovimientoCaja | null>(null);
   const [confirmarPagoId, setConfirmarPagoId] = useState<number | null>(null);
   const [fechaPagoConfirmar, setFechaPagoConfirmar] = useState('');
   const [isLoadingConfirmar, setIsLoadingConfirmar] = useState(false);
@@ -314,10 +316,10 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
                   <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full whitespace-nowrap ${
                     m.forma_pago === 'efectivo' ? 'bg-yellow-100 text-yellow-700' :
                     m.forma_pago === 'mercadopago' ? 'bg-blue-100 text-blue-700' :
-                    m.forma_pago === 'cheque' ? 'bg-purple-100 text-purple-700' :
+                    m.forma_pago === 'transferencia' ? 'bg-purple-100 text-purple-700' :
                     'bg-gray-100 text-gray-700'
                   }`}>
-                    {m.forma_pago}
+                    {m.forma_pago === 'transferencia' ? (m.es_cheque ? 'Cheque' : 'BNA') : m.forma_pago}
                   </span>
                 </td>
                 <td className="px-3 py-2">
@@ -389,11 +391,18 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
                     '—'
                   )}
                 </td>
-                <td className="px-3 py-2 text-center">
+                <td className="px-3 py-2 text-center flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => setMovimientoPraEditarDatos(m)}
+                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                    title="Editar monto, concepto, impuesto"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
                   {m.movimiento_estado === 'confirmado' && onAnular && (
                     <button
                       onClick={() => setAnularId(m.id)}
-                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors inline-block"
+                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
                       title="Anular movimiento"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -469,6 +478,17 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
         />
       )}
 
+      {/* Modal de edición de datos */}
+      {movimientoPraEditarDatos && (
+        <ModalEditarMovimiento
+          movimiento={movimientoPraEditarDatos}
+          onClose={() => setMovimientoPraEditarDatos(null)}
+          onGuardar={() => {
+            setMovimientoPraEditarDatos(null);
+          }}
+        />
+      )}
+
       {/* Modal de filtro */}
       {filterOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -518,10 +538,10 @@ export function ListaMovimientos({ movimientos, onAnular }: ListaMovimientosProp
 
             {filterOpen === 'forma_pago' && (
               <div className="space-y-2">
-                {['efectivo', 'mercadopago', 'transferencia', 'cheque', 'echeq'].map((m) => (
+                {['efectivo', 'mercadopago', 'transferencia'].map((m) => (
                   <label key={m} className="flex items-center gap-2 cursor-pointer">
                     <input type="radio" name="medio" value={m} checked={filtros.medio === m} onChange={(e) => setFiltros({...filtros, medio: e.target.checked ? m : undefined})} />
-                    <span className="text-sm capitalize">{m}</span>
+                    <span className="text-sm capitalize">{m === 'transferencia' ? 'Cuenta BNA' : m}</span>
                   </label>
                 ))}
                 <button onClick={() => setFiltros({...filtros, medio: undefined})} className="text-xs text-[#A8552E] hover:underline">Limpiar</button>

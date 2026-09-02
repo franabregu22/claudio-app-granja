@@ -71,8 +71,9 @@ export async function crearMovimientoCaja(
         forma_pago: data.forma_pago,
         fecha_operacion: data.fecha_operacion,
         fecha_pago: data.fecha_pago,
-        estado: 'confirmado',
-        aplica_impuesto_cheque: false,
+        movimiento_estado: 'confirmado',
+        es_cheque: data.es_cheque,
+        impuesto_cheque: impuesto,
         vinculado_a: 'impuesto_cheque',
         vinculado_id: data.id.toString(),
         notas: `Impuesto sobre ${data.concepto}`,
@@ -296,15 +297,17 @@ export async function sincronizarPagosConCaja(): Promise<{ sincronizados: number
   const pagoIdsVinculados = new Set((movimientosVinculados || []).map(m => m.vinculado_id));
 
   // Mapear formas de pago
-  const formasPago: Record<string, 'efectivo' | 'mercadopago' | 'echeq' | 'cheque'> = {
+  const formasPago: Record<string, 'efectivo' | 'mercadopago' | 'transferencia'> = {
     'efectivo': 'efectivo',
-    'transferencia': 'efectivo',
+    'transferencia': 'transferencia',
     'tarjeta': 'mercadopago',
     'mercadopago': 'mercadopago',
     'otro': 'efectivo',
-    'cheque': 'cheque',
-    'echeq': 'echeq',
+    'cheque': 'transferencia',
+    'echeq': 'transferencia',
   };
+
+  const esMetodoCheque = (metodo: string) => ['cheque', 'echeq'].includes(metodo);
 
   // Obtener nombres de clientes
   const clienteIds = [...new Set(pagos.map(p => p.cliente_id))];
@@ -330,6 +333,7 @@ export async function sincronizarPagosConCaja(): Promise<{ sincronizados: number
           concepto: `Cobro - ${clienteNombre}`,
           monto: pago.monto,
           forma_pago: formasPago[pago.metodo_pago as keyof typeof formasPago] || 'efectivo',
+          es_cheque: esMetodoCheque(pago.metodo_pago),
           fecha_operacion: pago.fecha_pago,
           fecha_pago: pago.fecha_pago,
           movimiento_estado: 'confirmado',

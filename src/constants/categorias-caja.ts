@@ -67,6 +67,16 @@ export const CATEGORIAS_EGRESOS: CategoriaSubcategoria[] = [
     subcategorias: ['Gastos no clasificados'],
     naturalezaDefault: 'gasto_operativo',
   },
+  {
+    categoria: 'Créditos',
+    subcategorias: ['Créditos otorgados'],
+    naturalezaDefault: 'ajuste_contable',
+  },
+  {
+    categoria: 'Imputar solo IVA',
+    subcategorias: ['Imputación IVA'],
+    naturalezaDefault: 'ajuste_contable',
+  },
 ];
 
 export const CATEGORIAS_INGRESOS: CategoriaSubcategoria[] = [

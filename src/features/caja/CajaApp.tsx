@@ -7,6 +7,7 @@ import { ListaMovimientos } from './ListaMovimientos';
 import { FormMovimiento } from './FormMovimiento';
 import { ResumenSaldos } from './ResumenSaldos';
 import { ResumenFlujoCaja } from './ResumenFlujoCaja';
+import { CuentasAPagar } from './CuentasAPagar';
 import { ArqueoCard } from './ArqueoCard';
 import { FormArqueo } from './FormArqueo';
 import { HistorialArqueos } from './HistorialArqueos';
@@ -130,6 +131,14 @@ export function CajaApp() {
               Flujo de Caja por Medio de Pago
             </p>
             <ResumenFlujoCaja />
+          </div>
+
+          {/* Cuentas a Pagar */}
+          <div className="mb-8">
+            <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-3">
+              Cronograma de Pagos (Gastos Pendientes)
+            </p>
+            <CuentasAPagar />
           </div>
 
           {/* Listado de Movimientos */}

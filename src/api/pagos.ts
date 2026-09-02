@@ -41,15 +41,17 @@ export async function crearPago(
 
 
   // Mapear forma de pago
-  const formasPago: Record<MetodoPago, 'efectivo' | 'mercadopago' | 'echeq' | 'cheque'> = {
+  const formasPago: Record<MetodoPago, 'efectivo' | 'mercadopago' | 'transferencia'> = {
     'efectivo': 'efectivo',
-    'transferencia': 'efectivo',
+    'transferencia': 'transferencia',
     'tarjeta': 'mercadopago',
     'mercadopago': 'mercadopago',
     'otro': 'efectivo',
-    'cheque': 'cheque',
-    'echeq': 'echeq',
+    'cheque': 'transferencia',
+    'echeq': 'transferencia',
   };
+
+  const esMetodoCheque = (metodo: string) => ['cheque', 'echeq'].includes(metodo);
 
   // Si se proporciona un movimiento existente, vincularlo; si no, crear uno nuevo
   if (movimientoCajaId) {
@@ -76,6 +78,7 @@ export async function crearPago(
         concepto: `Cobro - ${cliente.nombre}`,
         monto,
         forma_pago: formasPago[metodoPago] || 'efectivo',
+        es_cheque: esMetodoCheque(metodoPago),
         fecha_operacion: fechaPago,
         fecha_pago: fechaPago,
         movimiento_estado: 'confirmado',

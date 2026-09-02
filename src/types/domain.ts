@@ -167,12 +167,12 @@ export interface User {
 
 // Caja (Finanzas)
 export type MovimientoTipo = 'ingreso' | 'egreso';
-export type FormaPago = 'efectivo' | 'mercadopago' | 'echeq' | 'cheque' | 'transferencia';
+export type FormaPago = 'efectivo' | 'mercadopago' | 'transferencia';
 export type MovimientoEstado = 'pendiente' | 'confirmado' | 'cancelado';
 export type NaturalezaGasto = 'gasto_operativo' | 'reinversion_operativa' | 'inversion' | 'distribucion_ganancias' | 'ajuste_contable';
 export type ChequeEstado = 'emitido' | 'cobrado' | 'rechazado' | 'cancelado';
 
-export type CategoriaAnalisis = 'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION';
+export type CategoriaAnalisis = 'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION' | 'OTRO';
 
 export interface MovimientoCaja {
   id: number;
@@ -199,6 +199,9 @@ export interface MovimientoCaja {
   alicuota_iva?: number;
   monto_iva?: number;
   url_factura?: string;
+  es_cheque?: boolean;
+  fecha_pago_estimada?: string | null;
+  url_echeq?: string;
   agregado_a_caja?: boolean;
   notas?: string;
   creado_por: string | null;
