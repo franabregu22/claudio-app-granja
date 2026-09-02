@@ -14,7 +14,6 @@ export function useMovimientosDisponibles(): UseQueryResult<MovimientoCaja[], Er
   return useQuery({
     queryKey: ['movimientos-caja-disponibles'],
     queryFn: () => cajaApi.listarMovimientosDisponibles(),
-    staleTime: 30000,
   });
 }
 

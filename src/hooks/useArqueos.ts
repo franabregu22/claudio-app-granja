@@ -6,7 +6,6 @@ export function useCuentas() {
   return useQuery({
     queryKey: ['cuentas_caja'],
     queryFn: api.listarCuentas,
-    staleTime: 1000 * 60 * 5, // 5 minutos
   });
 }
 
@@ -14,7 +13,6 @@ export function useArqueos(cuentaId: string) {
   return useQuery({
     queryKey: ['arqueos_caja', cuentaId],
     queryFn: () => api.listarArqueos(cuentaId),
-    staleTime: 1000 * 60 * 2, // 2 minutos
   });
 }
 
@@ -22,7 +20,6 @@ export function useUltimoArqueo(cuentaId: string) {
   return useQuery({
     queryKey: ['ultimo_arqueo', cuentaId],
     queryFn: () => api.obtenerUltimoArqueo(cuentaId),
-    staleTime: 1000 * 60, // 1 minuto
   });
 }
 

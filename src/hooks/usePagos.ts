@@ -11,7 +11,6 @@ export function usePagos() {
   const query = useQuery({
     queryKey: ['pagos'],
     queryFn: () => pagoApi.listarTodosPagos(),
-    staleTime: 30000,
   });
 
   useEffect(() => {
