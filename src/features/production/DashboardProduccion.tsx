@@ -136,9 +136,9 @@ export function DashboardProduccion({
     const esVerde = invertirColores ? !esPositivo : esPositivo;
 
     return (
-      <div className={`bg-white rounded-lg p-4 border ${alerta ? 'border-red-200' : 'border-amber-200'}`}>
-        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{label}</p>
-        <p className={`text-3xl font-bold ${alerta ? 'text-red-600' : 'text-amber-900'}`}>
+      <div className={`bg-white rounded-lg p-3 border ${alerta ? 'border-red-200' : 'border-amber-200'}`}>
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">{label}</p>
+        <p className={`text-2xl font-bold ${alerta ? 'text-red-600' : 'text-amber-900'}`}>
           {valor}{unidad && <span className="text-lg ml-1">{unidad}</span>}
         </p>
         {valorComparacion !== undefined && (
@@ -169,9 +169,9 @@ export function DashboardProduccion({
   });
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-3 pb-20">
       {/* Selector de período */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setPeriodo('ayer')}
@@ -208,7 +208,7 @@ export function DashboardProduccion({
 
       {/* Alertas */}
       {alertas.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-1">
           {alertas.map((alerta, i) => (
             <div
               key={i}
@@ -233,7 +233,7 @@ export function DashboardProduccion({
       )}
 
       {/* Métricas principales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
         <CardMetrica
           label="Huevos Totales"
           valor={metricasActuales.huevos_totales}
@@ -268,7 +268,7 @@ export function DashboardProduccion({
       </div>
 
       {/* Información de períodos */}
-      <div className="grid grid-cols-2 gap-4 text-xs text-gray-600">
+      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
         <div>
           <p className="font-semibold">Período actual</p>
           <p>{etiquetaPeriodo}</p>
@@ -281,8 +281,8 @@ export function DashboardProduccion({
 
       {/* Gráfico de postura por galpón */}
       {datosGrafico.length > 0 && (
-        <div className="bg-white rounded-lg border border-amber-200 p-4">
-          <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide mb-4">
+        <div className="bg-white rounded-lg border border-amber-200 p-3">
+          <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide mb-3">
             % Postura - Últimos 15 días
           </h3>
           {(() => {
