@@ -91,21 +91,21 @@ export function ProductionApp() {
 
           {/* Tabla */}
           <div className="bg-white rounded-lg border border-amber-200 overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs md:text-sm">
               <thead className="bg-amber-50 border-b border-amber-200">
                 <tr>
-                  <th className="px-4 py-2 text-left font-semibold text-amber-900">Fecha</th>
-                  <th className="px-4 py-2 text-left font-semibold text-amber-900">Galpón</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900">Huevos</th>
-                  <th className="hidden md:table-cell px-4 py-2 text-right font-semibold text-amber-900">Cachados</th>
+                  <th className="px-2 md:px-4 py-2 text-left font-semibold text-amber-900">Fecha</th>
+                  <th className="px-2 md:px-4 py-2 text-left font-semibold text-amber-900">Galpón</th>
+                  <th className="px-2 md:px-4 py-2 text-right font-semibold text-amber-900">Huevos</th>
+                  <th className="px-2 md:px-4 py-2 text-right font-semibold text-amber-900">Cachados</th>
                   <th className="hidden lg:table-cell px-4 py-2 text-right font-semibold text-amber-900">% Rotos</th>
-                  <th className="px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100">% Postura</th>
-                  <th className="hidden lg:table-cell px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
+                  <th className="px-2 md:px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100">% Postura</th>
+                  <th className="px-2 md:px-4 py-2 text-right font-semibold text-amber-900">Mortandad</th>
                   <th className="hidden lg:table-cell px-4 py-2 text-center font-semibold text-amber-900">ID Lote</th>
                   <th className="hidden 2xl:table-cell px-4 py-2 text-right font-semibold text-amber-900">Aves Actuales</th>
                   <th className="hidden 2xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Cargado por</th>
                   <th className="hidden xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Observaciones</th>
-                  <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>
+                  <th className="px-2 md:px-4 py-2 text-center font-semibold text-amber-900">Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,12 +120,12 @@ export function ProductionApp() {
 
                   return (
                     <tr key={prod.id} className="border-b border-amber-100 hover:bg-amber-50">
-                      <td className="px-4 py-2 text-gray-700">{formatearFecha(prod.fecha)}</td>
-                      <td className="px-4 py-2 text-gray-700">{prod.galpon}</td>
-                      <td className="px-4 py-2 text-right font-semibold text-amber-900">
+                      <td className="px-2 md:px-4 py-2 text-gray-700 text-xs md:text-sm">{formatearFecha(prod.fecha)}</td>
+                      <td className="px-2 md:px-4 py-2 text-gray-700 text-xs md:text-sm">{prod.galpon}</td>
+                      <td className="px-2 md:px-4 py-2 text-right font-semibold text-amber-900 text-xs md:text-sm">
                         {prod.huevos_totales_mediodia + prod.huevos_totales_tarde}
                       </td>
-                      <td className="hidden md:table-cell px-4 py-2 text-right text-gray-700">
+                      <td className="px-2 md:px-4 py-2 text-right text-gray-700 text-xs md:text-sm">
                         {prod.huevos_cachados_mediodia + prod.huevos_cachados_tarde}
                       </td>
                       <td className="hidden lg:table-cell px-4 py-2 text-right text-gray-700">
@@ -135,10 +135,10 @@ export function ProductionApp() {
                           return totales > 0 ? `${((rotos / totales) * 100).toFixed(2)}%` : '—';
                         })()}
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100">
+                      <td className="px-2 md:px-4 py-2 text-right font-semibold text-amber-900 bg-amber-100 text-xs md:text-sm">
                         {loteBuscado ? `${porcentajePostura.toFixed(1)}%` : '—'}
                       </td>
-                      <td className="hidden lg:table-cell px-4 py-2 text-right text-gray-700">{prod.mortandad}</td>
+                      <td className="px-2 md:px-4 py-2 text-right text-gray-700 text-xs md:text-sm">{prod.mortandad}</td>
                       <td className="hidden lg:table-cell px-4 py-2 text-center font-medium text-amber-900 text-xs">
                         {loteBuscado ? loteBuscado.lote_id || loteBuscado.id.slice(-8) : 'No determinado'}
                       </td>
@@ -155,7 +155,7 @@ export function ProductionApp() {
                           <span className="text-gray-400">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-center">
+                      <td className="px-2 md:px-4 py-2 text-center">
                         <button
                           onClick={() => {
                             setProduccionEnEdicion(prod.id);
