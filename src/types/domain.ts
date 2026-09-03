@@ -207,6 +207,7 @@ export interface MovimientoCaja {
   creado_por: string | null;
   creado_en: string;
   actualizado_en: string;
+  actualizado_por?: string | null;
 }
 
 export interface Cheque {

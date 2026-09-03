@@ -103,6 +103,27 @@ serve(async (req) => {
 
     console.log(`Total payments: ${allPayments.length}`);
 
+    // FIRST: Save raw data to mercadopago_raw table for debugging
+    let rawSaved = 0;
+    for (const p of allPayments) {
+      if (!p || !p.id) continue;
+
+      const id = String(p.id);
+      const rawRes = await supabase
+        .from("mercadopago_raw")
+        .upsert({
+          id: id,
+          data: p, // Store entire raw payment object
+          processed: false,
+        });
+
+      if (!rawRes.error) {
+        rawSaved++;
+      }
+    }
+
+    console.log(`Saved raw data: ${rawSaved}`);
+
     // Process payments
     let created = 0;
     let skipped = 0;

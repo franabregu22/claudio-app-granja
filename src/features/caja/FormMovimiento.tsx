@@ -27,7 +27,7 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
   const [notas, setNotas] = useState('');
   const [categoria, setCategoria] = useState('');
   const [subcategoria, setSubcategoria] = useState('');
-  const [categoriaAnalisis, setCategoriaAnalisis] = useState<'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION'>('GASTOS_OPERATIVOS');
+  const [categoriaAnalisis, setCategoriaAnalisis] = useState<'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION' | 'OTRO'>('GASTOS_OPERATIVOS');
   const [esFacturada, setEsFacturada] = useState(false);
   const [tipoIva, setTipoIva] = useState<'21' | '10.5' | 'personalizado'>('21');
   const [alicuotaIva, setAlicuotaIva] = useState(21);
@@ -319,12 +319,13 @@ export function FormMovimiento({ onGuardar, onCancelar }: FormMovimientoProps) {
             </label>
             <select
               value={categoriaAnalisis}
-              onChange={(e) => setCategoriaAnalisis(e.target.value as 'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION')}
+              onChange={(e) => setCategoriaAnalisis(e.target.value as 'GASTOS_OPERATIVOS' | 'REINVERSION_OPERATIVA' | 'INVERSION' | 'OTRO')}
               className="w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419]"
             >
               <option value="GASTOS_OPERATIVOS">Gastos Operativos</option>
               <option value="REINVERSION_OPERATIVA">Reinversión Operativa</option>
               <option value="INVERSION">Inversión</option>
+              <option value="OTRO">Otro</option>
             </select>
           </div>
         )}
