@@ -19,14 +19,26 @@ const handler: Handler = async (event) => {
 
   try {
     // Validate token
-    const authHeader = event.headers.authorization || "";
-    const token = authHeader.replace("Bearer ", "");
-    const expectedToken = process.env.SYNC_MERCADOPAGO_TOKEN;
+    const authHeader = event.headers.authorization || event.headers.Authorization || "";
+    const token = authHeader.replace("Bearer ", "").trim();
+    const expectedToken = process.env.SYNC_MERCADOPAGO_TOKEN || "";
 
-    if (!token || token !== expectedToken) {
+    console.log("Token received length:", token.length);
+    console.log("Expected token length:", expectedToken.length);
+    console.log("Auth header:", authHeader.substring(0, 20) + "...");
+
+    if (!token || !expectedToken) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Missing token configuration" }),
+        headers,
+      };
+    }
+
+    if (token !== expectedToken) {
       return {
         statusCode: 401,
-        body: JSON.stringify({ error: "Unauthorized" }),
+        body: JSON.stringify({ error: "Invalid token" }),
         headers,
       };
     }
