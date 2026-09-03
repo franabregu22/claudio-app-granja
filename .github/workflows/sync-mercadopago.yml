@@ -17,9 +17,9 @@ jobs:
       - name: Ejecutar sync de MercadoPago
         run: |
           curl -X POST \
-            -H "Authorization: Bearer ${{ secrets.EDGE_FUNCTION_SECRET }}" \
+            -H "Authorization: Bearer ${{ secrets.SYNC_MERCADOPAGO_TOKEN }}" \
             -H "Content-Type: application/json" \
-            "${{ secrets.SUPABASE_FUNCTION_URL }}/sync-mercadopago" \
+            "https://santotomasapp.netlify.app/.netlify/functions/sync-mercadopago" \
             -d '{}'
 
       - name: Log resultado
