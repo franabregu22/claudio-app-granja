@@ -53,7 +53,7 @@ export function MercadoPagoDebug() {
     setSyncMsg(null);
     try {
       const supabaseUrl = 'https://aplbsutpzgemexayldct.supabase.co';
-      const edgeSecret = '25c0d12b234d78827e65b7373bf071dc9f8c9eb59acffb35ddc1f180604017d7';
+      const edgeSecret = 'cJPlph42yYxImZjpjMQmZ1wQ3B5EzYNrzFvwIXyJxoM';
 
       const url = `${supabaseUrl}/functions/v1/sync-mercadopago`;
 
