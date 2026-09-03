@@ -30,8 +30,11 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
+    console.log("Token received:", token.substring(0, 10) + "...");
+    console.log("Secret length:", edgeSecret?.length);
     if (token !== edgeSecret) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      console.error("Token mismatch:", token.length, "vs", edgeSecret?.length);
+      return new Response(JSON.stringify({ error: "Unauthorized", debug: { tokenLen: token.length, secretLen: edgeSecret?.length } }), {
         status: 401,
         headers: corsHeaders,
       });
