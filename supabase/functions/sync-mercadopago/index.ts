@@ -18,21 +18,14 @@ serve(async (req) => {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "POST only" }), {
+      status: 405,
+      headers: corsHeaders,
+    });
+  }
+
   try {
-    // TODO: Re-enable auth after debugging
-    // const authHeader = req.headers.get("Authorization");
-    // const edgeSecret = Deno.env.get("EDGE_FUNCTION_SECRET");
-    // if (!authHeader || !edgeSecret || authHeader.replace("Bearer ", "") !== edgeSecret) {
-    //   return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
-    // }
-
-    if (req.method !== "POST") {
-      return new Response(JSON.stringify({ error: "POST only" }), {
-        status: 405,
-        headers: corsHeaders,
-      });
-    }
-
     const clientId = Deno.env.get("MERCADOPAGO_CLIENT_ID");
     const clientSecret = Deno.env.get("MERCADOPAGO_CLIENT_SECRET");
 
