@@ -1,6 +1,67 @@
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 
+interface MappedPayment {
+  id: string;
+  transaction_amount: number;
+  currency_id: string;
+  status: string;
+  status_detail: string;
+  date_created: string;
+  date_approved: string | null;
+  money_release_date: string | null;
+  payer_id: string;
+  payer_email: string | null;
+  payer_identification: string | null;
+  collector_id: number;
+  payment_method: string;
+  payment_type_id: string;
+  description: string;
+  net_received_amount: number;
+  total_paid_amount: number;
+  operation_type: string;
+  issuer_id: string | null;
+  authorization_code: string | null;
+  statement_descriptor: string | null;
+  captured: boolean;
+  installments: number;
+  raw_data: Record<string, unknown>;
+}
+
+function mapPayment(payment: Record<string, unknown>): MappedPayment {
+  const transactionDetails = payment.transaction_details as Record<string, unknown> || {};
+  const payer = payment.payer as Record<string, unknown> || {};
+  const payerIdentification = payer.identification as Record<string, unknown> || {};
+  const paymentMethod = payment.payment_method as Record<string, unknown> || {};
+
+  return {
+    id: String(payment.id),
+    transaction_amount: payment.transaction_amount as number || 0,
+    currency_id: payment.currency_id as string || "ARS",
+    status: payment.status as string || "",
+    status_detail: payment.status_detail as string || "",
+    date_created: payment.date_created as string || new Date().toISOString(),
+    date_approved: payment.date_approved as string || null,
+    money_release_date: payment.money_release_date as string || null,
+    payer_id: String(payer.id || ""),
+    payer_email: payer.email as string || null,
+    payer_identification: payerIdentification.number as string || null,
+    collector_id: payment.collector_id as number || 0,
+    payment_method: paymentMethod.id as string || "",
+    payment_type_id: payment.payment_type_id as string || "",
+    description: payment.description as string || "",
+    net_received_amount: transactionDetails.net_received_amount as number || 0,
+    total_paid_amount: transactionDetails.total_paid_amount as number || 0,
+    operation_type: payment.operation_type as string || "",
+    issuer_id: payment.issuer_id as string | null || null,
+    authorization_code: payment.authorization_code as string | null || null,
+    statement_descriptor: payment.statement_descriptor as string | null || null,
+    captured: payment.captured as boolean || false,
+    installments: payment.installments as number || 1,
+    raw_data: payment,
+  };
+}
+
 const handler: Handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -18,46 +79,33 @@ const handler: Handler = async (event) => {
   }
 
   try {
-    // Validate token
     const authHeader = event.headers.authorization || event.headers.Authorization || "";
     const token = authHeader.replace("Bearer ", "").trim();
     const expectedToken = process.env.SYNC_MERCADOPAGO_TOKEN || "";
 
-    console.log("Token received length:", token.length);
-    console.log("Expected token length:", expectedToken.length);
-    console.log("Auth header:", authHeader.substring(0, 20) + "...");
-
-    if (!token || !expectedToken) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Missing token configuration" }),
-        headers,
-      };
-    }
-
-    if (token !== expectedToken) {
+    if (!token || !expectedToken || token !== expectedToken) {
       return {
         statusCode: 401,
-        body: JSON.stringify({ error: "Invalid token" }),
+        body: JSON.stringify({ error: "Unauthorized" }),
         headers,
       };
     }
 
     const supabaseUrl = process.env.SUPABASE_URL || "";
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
     const clientId = process.env.MERCADOPAGO_CLIENT_ID;
     const clientSecret = process.env.MERCADOPAGO_CLIENT_SECRET;
 
-    if (!clientId || !clientSecret) {
+    if (!supabaseUrl || !supabaseKey || !clientId || !clientSecret) {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "Missing MercadoPago credentials" }),
+        body: JSON.stringify({ error: "Missing configuration" }),
         headers,
       };
     }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
 
     // Get MercadoPago token
     const tokenRes = await fetch("https://api.mercadopago.com/oauth/token", {
@@ -77,52 +125,71 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Fetch all payments
-    let allPayments = [];
+    // Fetch all payments (no limit, full pagination)
+    let allPayments: Record<string, unknown>[] = [];
     let offset = 0;
+    let totalRetries = 0;
 
-    console.log("Fetching historical payments from MercadoPago...");
+    console.log("Fetching all payments from MercadoPago...");
 
     while (true) {
-      const res = await fetch(
-        `https://api.mercadopago.com/v1/payments/search?limit=100&offset=${offset}`,
-        {
-          headers: { Authorization: `Bearer ${mpToken}` },
+      try {
+        const res = await fetch(
+          `https://api.mercadopago.com/v1/payments/search?limit=100&offset=${offset}&sort=date_created&criteria=desc`,
+          {
+            headers: { Authorization: `Bearer ${mpToken}` },
+          }
+        );
+
+        if (!res.ok) {
+          console.error(`MercadoPago fetch failed: ${res.status}`);
+          break;
         }
-      );
 
-      if (!res.ok) {
-        console.error("MercadoPago fetch failed:", res.status);
-        break;
-      }
+        const data = await res.json();
+        const results = data.results as Record<string, unknown>[] || [];
 
-      const data = await res.json();
-      const results = data.results;
+        if (!results || results.length === 0) {
+          console.log("Reached end of payments list");
+          break;
+        }
 
-      if (!results || results.length === 0) {
-        break;
-      }
+        allPayments = allPayments.concat(results);
+        offset += 100;
 
-      allPayments = allPayments.concat(results);
-      offset += 100;
+        console.log(`Fetched ${allPayments.length} payments so far...`);
 
-      if (allPayments.length > 10000) {
-        break;
+        // Safety: stop at 50k to avoid excessive costs
+        if (allPayments.length >= 50000) {
+          console.log("Reached safety limit of 50,000 payments");
+          break;
+        }
+
+        // Avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        totalRetries++;
+        if (totalRetries > 3) {
+          console.error("Max retries reached");
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000 * totalRetries));
       }
     }
 
     console.log(`Total payments fetched: ${allPayments.length}`);
 
-    // Save to mercadopago_raw
+    // Map and save payments
     let saved = 0;
     let skipped = 0;
+    let errors = 0;
 
     for (const payment of allPayments) {
       if (!payment || !payment.id) continue;
 
       const id = String(payment.id);
 
-      // Check if exists
+      // Check if already exists
       const { data: existing } = await supabase
         .from("mercadopago_raw")
         .select("id")
@@ -134,10 +201,34 @@ const handler: Handler = async (event) => {
         continue;
       }
 
-      // Insert
+      // Map and insert
+      const mapped = mapPayment(payment);
+
       const { error } = await supabase.from("mercadopago_raw").insert({
-        id: id,
-        data: payment,
+        id: mapped.id,
+        transaction_amount: mapped.transaction_amount,
+        currency_id: mapped.currency_id,
+        status: mapped.status,
+        status_detail: mapped.status_detail,
+        date_created: mapped.date_created,
+        date_approved: mapped.date_approved,
+        money_release_date: mapped.money_release_date,
+        payer_id: mapped.payer_id,
+        payer_email: mapped.payer_email,
+        payer_identification: mapped.payer_identification,
+        collector_id: mapped.collector_id,
+        payment_method: mapped.payment_method,
+        payment_type_id: mapped.payment_type_id,
+        description: mapped.description,
+        net_received_amount: mapped.net_received_amount,
+        total_paid_amount: mapped.total_paid_amount,
+        operation_type: mapped.operation_type,
+        issuer_id: mapped.issuer_id,
+        authorization_code: mapped.authorization_code,
+        statement_descriptor: mapped.statement_descriptor,
+        captured: mapped.captured,
+        installments: mapped.installments,
+        raw_data: mapped.raw_data,
         processed: false,
       });
 
@@ -145,8 +236,20 @@ const handler: Handler = async (event) => {
         saved++;
       } else {
         console.error(`Error saving ${id}:`, error.message);
+        errors++;
       }
     }
+
+    // Update last sync date
+    const now = new Date().toISOString();
+    await supabase.from("sync_metadata").upsert(
+      {
+        sync_type: "mercadopago",
+        last_sync_date: now,
+        last_sync_count: saved,
+      },
+      { onConflict: "sync_type" }
+    );
 
     return {
       statusCode: 200,
@@ -156,6 +259,8 @@ const handler: Handler = async (event) => {
         total_fetched: allPayments.length,
         saved,
         skipped,
+        errors,
+        last_sync: now,
       }),
       headers,
     };
