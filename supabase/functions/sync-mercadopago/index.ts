@@ -19,24 +19,6 @@ serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    const edgeSecret = Deno.env.get("EDGE_FUNCTION_SECRET");
-
-    if (!authHeader || !edgeSecret) {
-      return new Response(JSON.stringify({ error: "Missing configuration" }), {
-        status: 500,
-        headers: corsHeaders,
-      });
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    if (token !== edgeSecret) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: corsHeaders,
-      });
-    }
-
     if (req.method !== "POST") {
       return new Response(JSON.stringify({ error: "POST only" }), {
         status: 405,
