@@ -1,0 +1,157 @@
+<html>
+<head>
+<title>MercadoPago - Datos en Columnas</title>
+<style>
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f5f5f5;
+  padding: 20px;
+  margin: 0;
+}
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+h1 {
+  color: #2c3e50;
+  margin-bottom: 20px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+th {
+  background: #3498db;
+  color: white;
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  border: 1px solid #2980b9;
+}
+td {
+  padding: 12px;
+  border: 1px solid #ecf0f1;
+}
+tr:nth-child(even) {
+  background: #f9f9f9;
+}
+tr:hover {
+  background: #f0f8ff;
+}
+.monto {
+  color: #27ae60;
+  font-weight: 600;
+}
+.impuesto {
+  color: #e74c3c;
+  font-weight: 600;
+}
+.fecha {
+  color: #7f8c8d;
+  font-size: 12px;
+}
+.status {
+  background: #d5f4e6;
+  color: #27ae60;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>📊 MercadoPago - Transacciones Reales</h1>
+
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Fecha Aprobada</th>
+<th>Concepto</th>
+<th>Monto Bruto</th>
+<th>Monto Neto</th>
+<th>Impuesto (0.6%)</th>
+<th>Fecha Acreditación</th>
+<th>Tipo</th>
+<th>Método</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+
+<tr>
+<td>144502568133</td>
+<td class="fecha">2026-02-06 21:44:10</td>
+<td>varios</td>
+<td class="monto">$1.00</td>
+<td>$0.99</td>
+<td class="impuesto">$0.01</td>
+<td class="fecha">2026-02-06 21:44:10</td>
+<td>money_transfer</td>
+<td>account_money</td>
+<td><span class="status">approved</span></td>
+</tr>
+
+<tr>
+<td>145187899970</td>
+<td class="fecha">2026-02-06 21:44:17</td>
+<td>varios</td>
+<td class="monto">$20.00</td>
+<td>$19.88</td>
+<td class="impuesto">$0.12</td>
+<td class="fecha">2026-02-06 21:44:17</td>
+<td>money_transfer</td>
+<td>account_money</td>
+<td><span class="status">approved</span></td>
+</tr>
+
+<tr>
+<td>144503313389</td>
+<td class="fecha">2026-02-06 21:45:52</td>
+<td>Varios</td>
+<td class="monto">$20.00</td>
+<td>$19.88</td>
+<td class="impuesto">$0.12</td>
+<td class="fecha">2026-02-06 21:45:52</td>
+<td>money_transfer</td>
+<td>account_money</td>
+<td><span class="status">approved</span></td>
+</tr>
+
+<tr>
+<td>144503464423</td>
+<td class="fecha">2026-02-06 21:45:56</td>
+<td>Varios</td>
+<td class="monto">--</td>
+<td>--</td>
+<td class="impuesto">--</td>
+<td class="fecha">2026-02-06 21:45:56</td>
+<td>credit_card</td>
+<td>mastercard</td>
+<td><span class="status">approved</span></td>
+</tr>
+
+</tbody>
+</table>
+
+<div style="margin-top: 30px; padding: 15px; background: #ecf0f1; border-radius: 8px;">
+<h2 style="color: #2c3e50; margin-top: 0;">📋 Lo que ves aquí</h2>
+<ul style="color: #34495e; line-height: 1.8;">
+<li><strong>Monto Neto ($19.88):</strong> Es lo que realmente recibís después de impuestos → va a movimientos_caja como monto</li>
+<li><strong>Impuesto 0.6% ($0.12):</strong> Se calcula automáticamente → va a impuesto_cheque</li>
+<li><strong>Fecha Acreditación:</strong> Crítico para cash flow → money_release_date</li>
+<li><strong>Tipo:</strong> money_transfer vs credit_card</li>
+<li><strong>Estado:</strong> "approved" = confirmado y en tu cuenta</li>
+</ul>
+</div>
+
+</div>
+</body>
+</html>
