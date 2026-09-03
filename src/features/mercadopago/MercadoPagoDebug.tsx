@@ -52,17 +52,15 @@ export function MercadoPagoDebug() {
     setSyncing(true);
     setSyncMsg(null);
     try {
-      const supabaseUrl = 'https://aplbsutpzgemexayldct.supabase.co';
-      const edgeSecret = 'cJPlph42yYxImZjpjMQmZ1wQ3B5EzYNrzFvwIXyJxoM';
-
-      const url = `${supabaseUrl}/functions/v1/sync-mercadopago`;
+      const token = 'cJPlph42yYxImZjpjMQmZ1wQ3B5EzYNrzFvwIXyJxoM';
+      const url = '/.netlify/functions/sync-mercadopago';
 
       console.log('Sincronizando desde:', url);
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${edgeSecret}`,
+          'Authorization': `Bearer ${token}`,
         },
       });
 
