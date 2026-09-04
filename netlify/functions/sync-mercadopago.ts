@@ -179,64 +179,64 @@ const handler: Handler = async (event) => {
 
     console.log(`Total payments fetched: ${allPayments.length}`);
 
-    // Map and save payments
-    let saved = 0;
-    let skipped = 0;
-    let errors = 0;
+    // Get existing IDs to check for duplicates (faster than individual queries)
+    console.log("Checking for existing records...");
+    const { data: existingIds } = await supabase
+      .from("mercadopago_raw")
+      .select("id");
 
-    for (const payment of allPayments) {
-      if (!payment || !payment.id) continue;
+    const existingIdSet = new Set((existingIds || []).map(r => r.id));
 
-      const id = String(payment.id);
-
-      // Check if already exists
-      const { data: existing } = await supabase
-        .from("mercadopago_raw")
-        .select("id")
-        .eq("id", id)
-        .single();
-
-      if (existing) {
-        skipped++;
-        continue;
-      }
-
-      // Map and insert
-      const mapped = mapPayment(payment);
-
-      const { error } = await supabase.from("mercadopago_raw").insert({
-        id: mapped.id,
-        transaction_amount: mapped.transaction_amount,
-        currency_id: mapped.currency_id,
-        status: mapped.status,
-        status_detail: mapped.status_detail,
-        date_created: mapped.date_created,
-        date_approved: mapped.date_approved,
-        money_release_date: mapped.money_release_date,
-        payer_id: mapped.payer_id,
-        payer_email: mapped.payer_email,
-        payer_identification: mapped.payer_identification,
-        collector_id: mapped.collector_id,
-        payment_method: mapped.payment_method,
-        payment_type_id: mapped.payment_type_id,
-        description: mapped.description,
-        net_received_amount: mapped.net_received_amount,
-        total_paid_amount: mapped.total_paid_amount,
-        operation_type: mapped.operation_type,
-        issuer_id: mapped.issuer_id,
-        authorization_code: mapped.authorization_code,
-        statement_descriptor: mapped.statement_descriptor,
-        captured: mapped.captured,
-        installments: mapped.installments,
-        raw_data: mapped.raw_data,
-        processed: false,
+    // Prepare bulk insert with mapping
+    const toInsert = allPayments
+      .filter(payment => payment && payment.id && !existingIdSet.has(String(payment.id)))
+      .map(payment => {
+        const mapped = mapPayment(payment);
+        return {
+          id: mapped.id,
+          transaction_amount: mapped.transaction_amount,
+          currency_id: mapped.currency_id,
+          status: mapped.status,
+          status_detail: mapped.status_detail,
+          date_created: mapped.date_created,
+          date_approved: mapped.date_approved,
+          money_release_date: mapped.money_release_date,
+          payer_id: mapped.payer_id,
+          payer_email: mapped.payer_email,
+          payer_identification: mapped.payer_identification,
+          collector_id: mapped.collector_id,
+          payment_method: mapped.payment_method,
+          payment_type_id: mapped.payment_type_id,
+          description: mapped.description,
+          net_received_amount: mapped.net_received_amount,
+          total_paid_amount: mapped.total_paid_amount,
+          operation_type: mapped.operation_type,
+          issuer_id: mapped.issuer_id,
+          authorization_code: mapped.authorization_code,
+          statement_descriptor: mapped.statement_descriptor,
+          captured: mapped.captured,
+          installments: mapped.installments,
+          raw_data: mapped.raw_data,
+          processed: false,
+        };
       });
 
+    let saved = 0;
+    let skipped = allPayments.length - toInsert.length;
+    let errors = 0;
+
+    // Bulk insert in batches of 1000
+    console.log(`Preparing to insert ${toInsert.length} new records...`);
+    for (let i = 0; i < toInsert.length; i += 1000) {
+      const batch = toInsert.slice(i, i + 1000);
+      const { error } = await supabase.from("mercadopago_raw").insert(batch);
+
       if (!error) {
-        saved++;
+        saved += batch.length;
+        console.log(`Inserted batch: ${Math.min(i + 1000, toInsert.length)}/${toInsert.length}`);
       } else {
-        console.error(`Error saving ${id}:`, error.message);
-        errors++;
+        console.error(`Error in batch ${i / 1000}:`, error.message);
+        errors += batch.length;
       }
     }
 
