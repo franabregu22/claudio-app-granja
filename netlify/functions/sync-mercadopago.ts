@@ -184,6 +184,7 @@ const handler: Handler = async (event) => {
         const m = mapPayment(p);
         return {
           id: m.id,
+          data: m.raw_data,
           transaction_amount: m.transaction_amount,
           currency_id: m.currency_id,
           status: m.status,
