@@ -214,11 +214,13 @@ const handler: Handler = async (event) => {
     let saved = 0;
     console.log(`\nInserting ${toInsert.length} records...`);
 
-    for (let i = 0; i < toInsert.length; i += 500) {
-      const batch = toInsert.slice(i, i + 500);
+    for (let i = 0; i < toInsert.length; i += 2000) {
+      const batch = toInsert.slice(i, i + 2000);
       const { error } = await supabase.from("mercadopago_raw").insert(batch);
       if (!error) {
         saved += batch.length;
+      } else {
+        console.error(`Batch error:`, error.message);
       }
     }
 
