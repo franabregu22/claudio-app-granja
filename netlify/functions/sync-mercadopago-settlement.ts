@@ -104,31 +104,18 @@ const handler: Handler = async (event) => {
 
     console.log(`Report queued: ${reportId}. Waiting for generation...`);
 
-    // Wait longer for report to be generated
-    await new Promise(resolve => setTimeout(resolve, 10000));
+    // Wait a bit for report to be generated
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     // Try to download with report ID
     console.log(`Attempting to download report ${reportId}...`);
 
-    let downloadRes = await fetch(
+    const downloadRes = await fetch(
       `https://api.mercadopago.com/v1/account/settlement_report/${reportId}`,
       {
         headers: { Authorization: `Bearer ${mpToken}` },
       }
     );
-
-    // If 404 or 403, might need to wait more
-    if (!downloadRes.ok && (downloadRes.status === 404 || downloadRes.status === 403)) {
-      console.log("Report not ready yet, waiting more...");
-      await new Promise(resolve => setTimeout(resolve, 10000));
-
-      downloadRes = await fetch(
-        `https://api.mercadopago.com/v1/account/settlement_report/${reportId}`,
-        {
-          headers: { Authorization: `Bearer ${mpToken}` },
-        }
-      );
-    }
 
     if (!downloadRes.ok) {
       const errorText = await downloadRes.text();
