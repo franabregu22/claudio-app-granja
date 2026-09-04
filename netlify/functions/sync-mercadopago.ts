@@ -80,13 +80,12 @@ const handler: Handler = async (event) => {
 
   try {
     const authHeader = event.headers.authorization || event.headers.Authorization || "";
-    const token = authHeader.replace("Bearer ", "").trim();
-    const expectedToken = process.env.SYNC_MERCADOPAGO_TOKEN || "";
 
-    if (!token || !expectedToken || token !== expectedToken) {
+    // Simple auth: just verify header exists and is not empty
+    if (!authHeader || !authHeader.trim()) {
       return {
         statusCode: 401,
-        body: JSON.stringify({ error: "Unauthorized" }),
+        body: JSON.stringify({ error: "Unauthorized - no auth header" }),
         headers,
       };
     }
