@@ -26,10 +26,10 @@ const handler: Handler = async (event) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log("Clearing mercadopago_raw...");
-    const { error: e1 } = await supabase.from("mercadopago_raw").delete().neq("id", "");
+    const { error: e1 } = await supabase.from("mercadopago_raw").delete().gte("id", "");
 
     console.log("Clearing sync_metadata...");
-    const { error: e2 } = await supabase.from("sync_metadata").delete().neq("sync_type", "");
+    const { error: e2 } = await supabase.from("sync_metadata").delete().gte("sync_type", "");
 
     if (e1 || e2) {
       console.error("Errors:", e1?.message, e2?.message);
