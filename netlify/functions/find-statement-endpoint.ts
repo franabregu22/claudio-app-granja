@@ -39,10 +39,12 @@ const handler: Handler = async (event) => {
             Authorization: `Bearer ${mpToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            begin_date: beginDate,
-            end_date: endDate,
-          }),
+          body: name === "settlement_report"
+            ? JSON.stringify({})
+            : JSON.stringify({
+              begin_date: beginDate,
+              end_date: endDate,
+            }),
         });
 
         const data = await res.json();
