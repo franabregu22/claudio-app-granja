@@ -209,16 +209,18 @@ const handler: Handler = async (event) => {
       });
 
     let saved = 0;
-    console.log(`\nInserting ${toInsert.length} records...`);
+    console.log(`\nUpserting ${toInsert.length} records...`);
 
-    for (let i = 0; i < toInsert.length; i += 2000) {
-      const batch = toInsert.slice(i, i + 2000);
+    for (let i = 0; i < toInsert.length; i += 500) {
+      const batch = toInsert.slice(i, i + 500);
       const { error } = await supabase.from("mercadopago_raw").upsert(batch, { onConflict: "id" });
       if (!error) {
         saved += batch.length;
+        console.log(`[${i + batch.length}/${toInsert.length}] saved`);
       } else {
-        console.error(`Batch error:`, error.message);
+        console.error(`Batch error at ${i}:`, error.message);
       }
+      await new Promise(r => setTimeout(r, 100));
     }
 
     const now = new Date().toISOString();
