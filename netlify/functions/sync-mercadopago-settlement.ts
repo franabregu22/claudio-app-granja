@@ -91,31 +91,44 @@ const handler: Handler = async (event) => {
     }
 
     const reportData = await reportRes.json();
-    console.log(`Report response:`, JSON.stringify(reportData));
+    const reportId = reportData.id;
 
-    const fileName = reportData.file_name || reportData.filename || reportData.name;
-
-    if (!fileName) {
-      console.error("No filename in response:", reportData);
+    if (!reportId) {
+      console.error("No report ID in response");
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "No filename in settlement report response", response: reportData }),
+        body: JSON.stringify({ error: "No report ID in response" }),
         headers,
       };
     }
 
-    console.log(`Report generated: ${fileName}. Downloading...`);
+    console.log(`Report queued: ${reportId}. Waiting for generation...`);
 
-    // Wait a bit for report to be ready
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Wait longer for report to be generated
+    await new Promise(resolve => setTimeout(resolve, 10000));
 
-    // Download report
-    const downloadRes = await fetch(
-      `https://api.mercadopago.com/v1/account/settlement_report/${fileName}`,
+    // Try to download with report ID
+    console.log(`Attempting to download report ${reportId}...`);
+
+    let downloadRes = await fetch(
+      `https://api.mercadopago.com/v1/account/settlement_report/${reportId}`,
       {
         headers: { Authorization: `Bearer ${mpToken}` },
       }
     );
+
+    // If 404 or 403, might need to wait more
+    if (!downloadRes.ok && (downloadRes.status === 404 || downloadRes.status === 403)) {
+      console.log("Report not ready yet, waiting more...");
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
+      downloadRes = await fetch(
+        `https://api.mercadopago.com/v1/account/settlement_report/${reportId}`,
+        {
+          headers: { Authorization: `Bearer ${mpToken}` },
+        }
+      );
+    }
 
     if (!downloadRes.ok) {
       console.error(`Download failed: ${downloadRes.status}`);
@@ -203,7 +216,7 @@ const handler: Handler = async (event) => {
       body: JSON.stringify({
         success: true,
         message: "Settlement report synced",
-        file_name: fileName,
+        report_id: reportId,
         period: `${beginDate} to ${endDate}`,
         total_lines: lines.length - 1,
         saved,
