@@ -206,7 +206,6 @@ const handler: Handler = async (event) => {
           statement_descriptor: m.statement_descriptor,
           captured: m.captured,
           installments: m.installments,
-          raw_data: m.raw_data,
           processed: false,
         };
       });
