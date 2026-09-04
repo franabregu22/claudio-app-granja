@@ -107,31 +107,80 @@ const handler: Handler = async (event) => {
     // Wait a bit for report to be generated
     await new Promise(resolve => setTimeout(resolve, 5000));
 
-    // Try to download with report ID
-    console.log(`Attempting to download report ${reportId}...`);
+    // Try different endpoints to get the report
+    console.log(`Listing available settlement reports...`);
 
-    const downloadRes = await fetch(
-      `https://api.mercadopago.com/v1/account/settlement_report/${reportId}`,
+    const listRes = await fetch(
+      `https://api.mercadopago.com/v1/account/settlement_reports`,
       {
         headers: { Authorization: `Bearer ${mpToken}` },
       }
     );
 
-    if (!downloadRes.ok) {
-      const errorText = await downloadRes.text();
-      console.error(`Download failed: ${downloadRes.status}`, errorText);
+    if (!listRes.ok) {
+      console.error(`List failed: ${listRes.status}`);
       return {
         statusCode: 400,
-        body: JSON.stringify({
-          error: "Failed to download report",
-          status: downloadRes.status,
-          detail: errorText.substring(0, 200)
-        }),
+        body: JSON.stringify({ error: "Failed to list reports" }),
         headers,
       };
     }
 
-    const csvText = await downloadRes.text();
+    const reportsData = await listRes.json();
+    console.log(`Available reports:`, JSON.stringify(reportsData).substring(0, 300));
+
+    const reports = (reportsData.results || reportsData) as Array<any>;
+    const latestReport = reports.find(r => r.id === reportId || r.id == reportId);
+
+    if (!latestReport) {
+      console.error("Report not found in list");
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Report not found", available: reports.length }),
+        headers,
+      };
+    }
+
+    console.log(`Found report:`, JSON.stringify(latestReport).substring(0, 200));
+
+    // Try to download
+    let csvText: string;
+    try {
+      const downloadRes = await fetch(
+        `https://api.mercadopago.com/v1/account/settlement_report/${reportId}/download`,
+        {
+          headers: { Authorization: `Bearer ${mpToken}` },
+        }
+      );
+
+      if (downloadRes.ok) {
+        csvText = await downloadRes.text();
+      } else {
+        console.log("Download endpoint failed, trying alternative...");
+        const altRes = await fetch(
+          `https://api.mercadopago.com/v1/reports/settlement_reports/${reportId}`,
+          { headers: { Authorization: `Bearer ${mpToken}` } }
+        );
+
+        if (altRes.ok) {
+          csvText = await altRes.text();
+        } else {
+          console.error(`All download attempts failed: ${altRes.status}`);
+          return {
+            statusCode: 400,
+            body: JSON.stringify({ error: "Failed to download report from any endpoint" }),
+            headers,
+          };
+        }
+      }
+    } catch (e) {
+      console.error("Download error:", e);
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Download exception", detail: String(e) }),
+        headers,
+      };
+    }
     const lines = csvText.split("\n").filter(l => l.trim());
 
     console.log(`CSV has ${lines.length} lines. Parsing...`);
