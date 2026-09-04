@@ -91,7 +91,18 @@ const handler: Handler = async (event) => {
     }
 
     const reportData = await reportRes.json();
-    const fileName = reportData.file_name;
+    console.log(`Report response:`, JSON.stringify(reportData));
+
+    const fileName = reportData.file_name || reportData.filename || reportData.name;
+
+    if (!fileName) {
+      console.error("No filename in response:", reportData);
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "No filename in settlement report response", response: reportData }),
+        headers,
+      };
+    }
 
     console.log(`Report generated: ${fileName}. Downloading...`);
 
