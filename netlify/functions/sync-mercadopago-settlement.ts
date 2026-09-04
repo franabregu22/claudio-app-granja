@@ -131,10 +131,15 @@ const handler: Handler = async (event) => {
     }
 
     if (!downloadRes.ok) {
-      console.error(`Download failed: ${downloadRes.status}`);
+      const errorText = await downloadRes.text();
+      console.error(`Download failed: ${downloadRes.status}`, errorText);
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Failed to download report" }),
+        body: JSON.stringify({
+          error: "Failed to download report",
+          status: downloadRes.status,
+          detail: errorText.substring(0, 200)
+        }),
         headers,
       };
     }
