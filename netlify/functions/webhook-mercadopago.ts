@@ -52,26 +52,34 @@ const handler: Handler = async (event) => {
       created_at: new Date().toISOString(),
     }).catch(() => null); // Table might not exist yet
 
-    // Process based on event type
-    if (eventType === "payment.created" || eventType === "payment.updated") {
-      console.log(`Processing payment: ${data.id}`);
+    // Get token once for all API calls
+    const clientId = process.env.MERCADOPAGO_CLIENT_ID;
+    const clientSecret = process.env.MERCADOPAGO_CLIENT_SECRET;
 
-      // Fetch full payment details from MercadoPago
-      const clientId = process.env.MERCADOPAGO_CLIENT_ID;
-      const clientSecret = process.env.MERCADOPAGO_CLIENT_SECRET;
+    let mpToken: string | null = null;
 
+    const getToken = async () => {
+      if (mpToken) return mpToken;
       const tokenRes = await fetch("https://api.mercadopago.com/oauth/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
       });
-
       const tokenData = await tokenRes.json();
-      const mpToken = tokenData.access_token;
+      mpToken = tokenData.access_token;
+      return mpToken;
+    };
 
-      if (mpToken) {
+    // Process based on event type
+    if (eventType === "payment.created" || eventType === "payment.updated") {
+      console.log(`Processing payment: ${data.id}`);
+
+      // Fetch full payment details from MercadoPago
+      const token = await getToken();
+
+      if (token) {
         const paymentRes = await fetch(`https://api.mercadopago.com/v1/payments/${data.id}`, {
-          headers: { Authorization: `Bearer ${mpToken}` },
+          headers: { Authorization: `Bearer ${token}` },
         });
 
         if (paymentRes.ok) {
@@ -119,6 +127,67 @@ const handler: Handler = async (event) => {
             console.log(`Saved payment ${data.id}`);
           }
         }
+      }
+    } else if (eventType === "commission.created" || eventType === "commission.updated") {
+      console.log(`Processing commission: ${data.id}`);
+
+      const token = await getToken();
+      if (token) {
+        const commission = {
+          id: String(data.id),
+          type: "commission",
+          amount: data.amount || data.transaction_amount || 0,
+          currency_id: data.currency_id || "ARS",
+          date_created: data.date_created || new Date().toISOString(),
+          status: data.status || "pending",
+          description: `Commission - ${data.reason || "MercadoPago fee"}`,
+          raw_data: data,
+        };
+
+        const { error } = await supabase.from("mercadopago_movements").upsert([commission], { onConflict: "id" }).catch(() => ({ error: null }));
+
+        if (!error) {
+          console.log(`Saved commission ${data.id}`);
+        }
+      }
+    } else if (eventType === "investment_yield.created" || eventType === "yield.created") {
+      console.log(`Processing investment yield: ${data.id}`);
+
+      const yield_record = {
+        id: String(data.id),
+        type: "investment_yield",
+        amount: data.amount || data.net_amount || 0,
+        currency_id: data.currency_id || "ARS",
+        date_created: data.date_created || new Date().toISOString(),
+        status: "completed",
+        description: `Investment Yield - ${data.fund_name || "Interest"}`,
+        raw_data: data,
+      };
+
+      const { error } = await supabase.from("mercadopago_movements").upsert([yield_record], { onConflict: "id" }).catch(() => ({ error: null }));
+
+      if (!error) {
+        console.log(`Saved yield ${data.id}`);
+      }
+    } else if (eventType === "refund.created" || eventType === "chargeback.created") {
+      console.log(`Processing ${eventType}: ${data.id}`);
+
+      // These are negative movements
+      const refund = {
+        id: String(data.id),
+        type: eventType === "refund.created" ? "refund" : "chargeback",
+        amount: -(data.amount || data.transaction_amount || 0), // Negative
+        currency_id: data.currency_id || "ARS",
+        date_created: data.date_created || new Date().toISOString(),
+        status: data.status || "pending",
+        description: `${eventType === "refund.created" ? "Refund" : "Chargeback"} - ${data.reason || "N/A"}`,
+        raw_data: data,
+      };
+
+      const { error } = await supabase.from("mercadopago_movements").upsert([refund], { onConflict: "id" }).catch(() => ({ error: null }));
+
+      if (!error) {
+        console.log(`Saved ${eventType} ${data.id}`);
       }
     }
 
