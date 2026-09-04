@@ -32,8 +32,8 @@ const handler: Handler = async (event) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        begin_date: `${beginDate}T00:00:00Z`,
-        end_date: `${endDate}T23:59:59Z`,
+        begin_date: beginDate,
+        end_date: endDate,
       }),
     });
 
