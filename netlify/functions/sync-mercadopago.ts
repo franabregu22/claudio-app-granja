@@ -106,8 +106,7 @@ const handler: Handler = async (event) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-
-    // Get MercadoPago token
+    console.log("Getting MercadoPago token...");
     const tokenRes = await fetch("https://api.mercadopago.com/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -125,13 +124,15 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Fetch all payments using offset pagination (simple and reliable)
+    console.log("Fetching ALL payments from MercadoPago (complete history)...");
+
     let allPayments: Record<string, unknown>[] = [];
     let offset = 0;
+    let attempts = 0;
+    const maxAttempts = 600;
 
-    console.log("Fetching all payments from MercadoPago...");
-
-    while (true) {
+    while (attempts < maxAttempts) {
+      attempts++;
       try {
         const res = await fetch(
           `https://api.mercadopago.com/v1/payments/search?limit=100&offset=${offset}&sort=date_created&criteria=desc`,
@@ -141,108 +142,90 @@ const handler: Handler = async (event) => {
         );
 
         if (!res.ok) {
-          console.error(`MercadoPago fetch failed: ${res.status}`);
-          break;
+          console.error(`HTTP ${res.status}, retry...`);
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
         }
 
         const data = await res.json();
         const results = data.results as Record<string, unknown>[] || [];
+        const total = data.paging?.total || 0;
+
+        console.log(`[${attempts}] offset=${offset}: got ${results.length} results (total API: ${total}, fetched: ${allPayments.length})`);
 
         if (!results || results.length === 0) {
-          console.log("Reached end of payments list");
+          console.log(`Done. Fetched all ${allPayments.length} payments`);
           break;
         }
 
         allPayments = allPayments.concat(results);
         offset += 100;
 
-        console.log(`Fetched ${allPayments.length} payments so far...`);
-
-        // Safety: stop at 100k to avoid excessive costs
-        if (allPayments.length >= 100000) {
-          console.log("Reached safety limit of 100,000 payments");
+        if (allPayments.length >= total && total > 0) {
+          console.log("Got all available payments!");
           break;
         }
 
-        // Avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 150));
       } catch (error) {
-        console.error(`Error fetching:`, error);
-        break;
+        console.error(`Attempt ${attempts} error:`, error);
+        await new Promise(r => setTimeout(r, 3000));
       }
     }
 
-    console.log(`Total payments fetched: ${allPayments.length}`);
+    console.log(`\n=== FETCHING COMPLETE ===`);
+    console.log(`Total fetched: ${allPayments.length}`);
 
-    // Get existing IDs to check for duplicates (faster than individual queries)
-    console.log("Checking for existing records...");
-    const { data: existingIds } = await supabase
-      .from("mercadopago_raw")
-      .select("id");
-
+    const { data: existingIds } = await supabase.from("mercadopago_raw").select("id");
     const existingIdSet = new Set((existingIds || []).map(r => r.id));
 
-    // Prepare bulk insert with mapping
     const toInsert = allPayments
-      .filter(payment => payment && payment.id && !existingIdSet.has(String(payment.id)))
-      .map(payment => {
-        const mapped = mapPayment(payment);
+      .filter(p => p && p.id && !existingIdSet.has(String(p.id)))
+      .map(p => {
+        const m = mapPayment(p);
         return {
-          id: mapped.id,
-          transaction_amount: mapped.transaction_amount,
-          currency_id: mapped.currency_id,
-          status: mapped.status,
-          status_detail: mapped.status_detail,
-          date_created: mapped.date_created,
-          date_approved: mapped.date_approved,
-          money_release_date: mapped.money_release_date,
-          payer_id: mapped.payer_id,
-          payer_email: mapped.payer_email,
-          payer_identification: mapped.payer_identification,
-          collector_id: mapped.collector_id,
-          payment_method: mapped.payment_method,
-          payment_type_id: mapped.payment_type_id,
-          description: mapped.description,
-          net_received_amount: mapped.net_received_amount,
-          total_paid_amount: mapped.total_paid_amount,
-          operation_type: mapped.operation_type,
-          issuer_id: mapped.issuer_id,
-          authorization_code: mapped.authorization_code,
-          statement_descriptor: mapped.statement_descriptor,
-          captured: mapped.captured,
-          installments: mapped.installments,
-          raw_data: mapped.raw_data,
+          id: m.id,
+          transaction_amount: m.transaction_amount,
+          currency_id: m.currency_id,
+          status: m.status,
+          status_detail: m.status_detail,
+          date_created: m.date_created,
+          date_approved: m.date_approved,
+          money_release_date: m.money_release_date,
+          payer_id: m.payer_id,
+          payer_email: m.payer_email,
+          payer_identification: m.payer_identification,
+          collector_id: m.collector_id,
+          payment_method: m.payment_method,
+          payment_type_id: m.payment_type_id,
+          description: m.description,
+          net_received_amount: m.net_received_amount,
+          total_paid_amount: m.total_paid_amount,
+          operation_type: m.operation_type,
+          issuer_id: m.issuer_id,
+          authorization_code: m.authorization_code,
+          statement_descriptor: m.statement_descriptor,
+          captured: m.captured,
+          installments: m.installments,
+          raw_data: m.raw_data,
           processed: false,
         };
       });
 
     let saved = 0;
-    let skipped = allPayments.length - toInsert.length;
-    let errors = 0;
+    console.log(`\nInserting ${toInsert.length} records...`);
 
-    // Bulk insert in batches of 1000
-    console.log(`Preparing to insert ${toInsert.length} new records...`);
-    for (let i = 0; i < toInsert.length; i += 1000) {
-      const batch = toInsert.slice(i, i + 1000);
+    for (let i = 0; i < toInsert.length; i += 500) {
+      const batch = toInsert.slice(i, i + 500);
       const { error } = await supabase.from("mercadopago_raw").insert(batch);
-
       if (!error) {
         saved += batch.length;
-        console.log(`Inserted batch: ${Math.min(i + 1000, toInsert.length)}/${toInsert.length}`);
-      } else {
-        console.error(`Error in batch ${i / 1000}:`, error.message);
-        errors += batch.length;
       }
     }
 
-    // Update last sync date
     const now = new Date().toISOString();
     await supabase.from("sync_metadata").upsert(
-      {
-        sync_type: "mercadopago",
-        last_sync_date: now,
-        last_sync_count: saved,
-      },
+      { sync_type: "mercadopago", last_sync_date: now, last_sync_count: saved },
       { onConflict: "sync_type" }
     );
 
@@ -250,26 +233,19 @@ const handler: Handler = async (event) => {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        message: "Sync completed",
         total_fetched: allPayments.length,
         saved,
-        skipped,
-        errors,
-        last_sync: now,
+        duplicates_skipped: allPayments.length - toInsert.length,
+        timestamp: now,
       }),
       headers,
     };
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Fatal:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Internal server error",
-        details: error instanceof Error ? error.message : String(error),
-      }),
-      headers: {
-        "Content-Type": "application/json",
-      },
+      body: JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      headers: { "Content-Type": "application/json" },
     };
   }
 };
