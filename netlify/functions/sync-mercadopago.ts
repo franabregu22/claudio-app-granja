@@ -125,55 +125,70 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Fetch all payments (no limit, full pagination)
+    // Fetch all payments using date range (more reliable than offset pagination)
     let allPayments: Record<string, unknown>[] = [];
-    let offset = 0;
-    let totalRetries = 0;
 
-    console.log("Fetching all payments from MercadoPago...");
+    console.log("Fetching all payments from MercadoPago using date range...");
 
-    while (true) {
+    // Start from 2 years ago to get all historical data
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setFullYear(startDate.getFullYear() - 2);
+
+    let rangeStart = startDate;
+    let rangeEnd = new Date(rangeStart.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days chunks
+
+    while (rangeStart < endDate) {
       try {
-        const res = await fetch(
-          `https://api.mercadopago.com/v1/payments/search?limit=100&offset=${offset}&sort=date_created&criteria=desc`,
-          {
-            headers: { Authorization: `Bearer ${mpToken}` },
+        // Use range_begin and range_end for more reliable pagination
+        const url = `https://api.mercadopago.com/v1/payments/search?limit=100&range_begin=${Math.floor(rangeStart.getTime() / 1000)}&range_end=${Math.floor(rangeEnd.getTime() / 1000)}&sort=date_created&criteria=desc`;
+
+        console.log(`Fetching payments from ${rangeStart.toISOString().split('T')[0]} to ${rangeEnd.toISOString().split('T')[0]}`);
+
+        let offset = 0;
+        while (true) {
+          const res = await fetch(
+            `${url}&offset=${offset}`,
+            {
+              headers: { Authorization: `Bearer ${mpToken}` },
+            }
+          );
+
+          if (!res.ok) {
+            console.error(`MercadoPago fetch failed: ${res.status}`);
+            break;
           }
-        );
 
-        if (!res.ok) {
-          console.error(`MercadoPago fetch failed: ${res.status}`);
+          const data = await res.json();
+          const results = data.results as Record<string, unknown>[] || [];
+
+          if (!results || results.length === 0) {
+            break;
+          }
+
+          allPayments = allPayments.concat(results);
+          offset += 100;
+
+          // Safety: stop at 100k to avoid excessive costs
+          if (allPayments.length >= 100000) {
+            console.log("Reached safety limit of 100,000 payments");
+            break;
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        if (allPayments.length >= 100000) {
           break;
         }
 
-        const data = await res.json();
-        const results = data.results as Record<string, unknown>[] || [];
-
-        if (!results || results.length === 0) {
-          console.log("Reached end of payments list");
-          break;
-        }
-
-        allPayments = allPayments.concat(results);
-        offset += 100;
-
-        console.log(`Fetched ${allPayments.length} payments so far...`);
-
-        // Safety: stop at 50k to avoid excessive costs
-        if (allPayments.length >= 50000) {
-          console.log("Reached safety limit of 50,000 payments");
-          break;
-        }
-
-        // Avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Move to next 30-day chunk
+        rangeStart = rangeEnd;
+        rangeEnd = new Date(rangeStart.getTime() + 30 * 24 * 60 * 60 * 1000);
       } catch (error) {
-        totalRetries++;
-        if (totalRetries > 3) {
-          console.error("Max retries reached");
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000 * totalRetries));
+        console.error(`Error fetching range:`, error);
+        rangeStart = rangeEnd;
+        rangeEnd = new Date(rangeStart.getTime() + 30 * 24 * 60 * 60 * 1000);
       }
     }
 
