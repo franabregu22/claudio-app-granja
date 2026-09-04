@@ -51,19 +51,19 @@ const handler: Handler = async (event) => {
 
     console.log(`Step 2: Report created with ID ${reportId}, status: ${reportData.status}`);
 
-    // Step 2: POLL for completion
+    // Step 2: POLL for completion (limited time due to Netlify 30s timeout)
     let completed = false;
     let finalStatus = reportData;
     let pollCount = 0;
-    const maxPolls = 120; // 4 minutes max
+    const maxPolls = 12; // 12 polls x 1.5s = 18 seconds max
 
     while (!completed && pollCount < maxPolls) {
       pollCount++;
 
       console.log(`Poll ${pollCount}: Checking status...`);
 
-      // Wait before polling
-      await new Promise(r => setTimeout(r, 2000));
+      // Wait before polling (reduced for timeout)
+      await new Promise(r => setTimeout(r, 1500));
 
       const statusRes = await fetch(
         `https://api.mercadopago.com/v1/account/settlement_report/${reportId}`,
