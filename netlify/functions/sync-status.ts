@@ -9,21 +9,28 @@ const handler: Handler = async (event) => {
 
     // Get counts
     const { count: paymentCount } = await supabase.from("mercadopago_raw").select("*", { count: "exact", head: true });
-    const { count: movementCount } = await supabase.from("mercadopago_movements").select("*", { count: "exact", head: true }).catch(() => ({ count: 0 }));
+
+    let movementCount = 0;
+    try {
+      const { count } = await supabase.from("mercadopago_movements").select("*", { count: "exact", head: true });
+      movementCount = count || 0;
+    } catch (e) {
+      movementCount = 0;
+    }
 
     // Get last sync times
     const { data: syncData } = await supabase.from("sync_metadata").select("*");
 
     // Get totals
-    const { data: paymentTotals } = await supabase
-      .from("mercadopago_raw")
-      .select("transaction_amount, net_received_amount, total_paid_amount")
-      .catch(() => ({ data: [] }));
+    const { data: paymentTotals } = await supabase.from("mercadopago_raw").select("transaction_amount, net_received_amount, total_paid_amount");
 
-    const { data: movementTotals } = await supabase
-      .from("mercadopago_movements")
-      .select("amount")
-      .catch(() => ({ data: [] }));
+    let movementTotals = [];
+    try {
+      const { data } = await supabase.from("mercadopago_movements").select("amount");
+      movementTotals = data || [];
+    } catch (e) {
+      movementTotals = [];
+    }
 
     const totalPayments = (paymentTotals || []).reduce((sum, p) => sum + (p.transaction_amount || 0), 0);
     const totalNet = (paymentTotals || []).reduce((sum, p) => sum + (p.net_received_amount || 0), 0);
