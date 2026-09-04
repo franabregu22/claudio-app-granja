@@ -18,8 +18,8 @@ const handler: Handler = async (event) => {
 
     const now = new Date();
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    const beginDate = ninetyDaysAgo.toISOString();
-    const endDate = now.toISOString();
+    const beginDate = ninetyDaysAgo.toISOString().split("T")[0];
+    const endDate = now.toISOString().split("T")[0];
 
     const endpoints = [
       { url: "/v1/account/settlement_report", name: "settlement_report" },
