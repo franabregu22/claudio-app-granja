@@ -175,11 +175,8 @@ const handler: Handler = async (event) => {
     console.log(`\n=== FETCHING COMPLETE ===`);
     console.log(`Total fetched: ${allPayments.length}`);
 
-    const { data: existingIds } = await supabase.from("mercadopago_raw").select("id");
-    const existingIdSet = new Set((existingIds || []).map(r => r.id));
-
     const toInsert = allPayments
-      .filter(p => p && p.id && !existingIdSet.has(String(p.id)))
+      .filter(p => p && p.id)
       .map(p => {
         const m = mapPayment(p);
         return {
@@ -216,7 +213,7 @@ const handler: Handler = async (event) => {
 
     for (let i = 0; i < toInsert.length; i += 2000) {
       const batch = toInsert.slice(i, i + 2000);
-      const { error } = await supabase.from("mercadopago_raw").insert(batch);
+      const { error } = await supabase.from("mercadopago_raw").upsert(batch, { onConflict: "id" });
       if (!error) {
         saved += batch.length;
       } else {

@@ -26,10 +26,17 @@ const handler: Handler = async (event) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     console.log("Clearing mercadopago_raw...");
-    const { error: e1 } = await supabase.from("mercadopago_raw").delete().gte("id", "");
+    const { error: e1, data: d1 } = await supabase.rpc("exec_sql", {
+      sql: "DELETE FROM mercadopago_raw;",
+    }).catch((err: any) => {
+      // RPC might not exist, try direct delete
+      return supabase.from("mercadopago_raw").delete().gt("id", "0");
+    });
+
+    if (e1) console.error("Error deleting raw:", e1.message);
 
     console.log("Clearing sync_metadata...");
-    const { error: e2 } = await supabase.from("sync_metadata").delete().gte("sync_type", "");
+    const { error: e2 } = await supabase.from("sync_metadata").delete().gt("sync_type", "");
 
     if (e1 || e2) {
       console.error("Errors:", e1?.message, e2?.message);
