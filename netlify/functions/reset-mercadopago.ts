@@ -28,17 +28,14 @@ const handler: Handler = async (event) => {
     console.log("Clearing mercadopago_raw...");
     const { error: e1 } = await supabase.from("mercadopago_raw").delete().neq("id", "");
 
-    console.log("Clearing mercadopago_settlement...");
-    const { error: e2 } = await supabase.from("mercadopago_settlement").delete().neq("id", 0);
-
     console.log("Clearing sync_metadata...");
-    const { error: e3 } = await supabase.from("sync_metadata").delete().neq("sync_type", "");
+    const { error: e2 } = await supabase.from("sync_metadata").delete().neq("sync_type", "");
 
-    if (e1 || e2 || e3) {
-      console.error("Errors:", e1?.message, e2?.message, e3?.message);
+    if (e1 || e2) {
+      console.error("Errors:", e1?.message, e2?.message);
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Clear failed", errors: [e1, e2, e3] }),
+        body: JSON.stringify({ error: "Clear failed", errors: [e1, e2] }),
         headers,
       };
     }
