@@ -31,6 +31,8 @@ const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         type: "settlement",
+        report_type: "settlement_report",
+        access: "public",
       }),
     });
 
