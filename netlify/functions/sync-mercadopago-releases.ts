@@ -9,6 +9,7 @@ const handler: Handler = async (event) => {
   try {
     const mpToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
     const syncToken = process.env.SYNC_MERCADOPAGO_TOKEN;
+    const writeEnabled = process.env.MP_SYNC_WRITE_ENABLED === "true";
 
     if (!mpToken || !syncToken) {
       return {
@@ -19,6 +20,8 @@ const handler: Handler = async (event) => {
         headers,
       };
     }
+
+    console.log(`[RELEASES] Write mode: ${writeEnabled ? "ENABLED" : "DRY_RUN (MP_SYNC_WRITE_ENABLED not set)"}`);
 
     const now = new Date();
     const begin = new Date(now.getTime() - 72 * 60 * 60 * 1000);
@@ -100,7 +103,9 @@ const handler: Handler = async (event) => {
     }
 
     if (!taskStatus || (taskStatus.status !== "processed" && taskStatus.status !== "enabled")) {
-      console.log(`[RELEASES] Task not yet processed (status: ${taskStatus?.status}), will retry later`);
+      console.log(`[RELEASES] Task not yet processed (status: ${taskStatus?.status})`);
+      console.log(`[RELEASES] Window is 72h with daily overlap, so movements will be captured in next execution`);
+      console.log(`[RELEASES] Idempotence via payload_hash UNIQUE handles any overlapping rows`);
       return {
         statusCode: 202,
         body: JSON.stringify({
@@ -108,7 +113,7 @@ const handler: Handler = async (event) => {
           action: "create_submitted",
           task_id: taskId,
           status: taskStatus?.status || "unknown",
-          message: "Report creation submitted, will process on next check",
+          message: "Report creation submitted, will process on next daily execution (72h window with overlap)",
         }),
         headers,
       };
@@ -126,7 +131,7 @@ const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         task_id: taskId,
-        commit: false,
+        commit: writeEnabled,
       }),
     });
 
