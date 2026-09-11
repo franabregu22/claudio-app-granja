@@ -145,6 +145,31 @@ function centsToCurrency(cents: number): string {
   return dollars.toFixed(2);
 }
 
+function buildInputRowForRPC(
+  movement: ParsedMovement,
+  reportId: string
+): Record<string, string> {
+  const creditPesos = (parseInt(movement.net_credit_amount, 10) / 100).toFixed(2);
+  const debitPesos = (parseInt(movement.net_debit_amount, 10) / 100).toFixed(2);
+  const grossPesos = (parseInt(movement.gross_amount, 10) / 100).toFixed(2);
+  const feePesos = (parseInt(movement.mp_fee_amount, 10) / 100).toFixed(2);
+  const taxesPesos = (parseInt(movement.taxes_amount, 10) / 100).toFixed(2);
+
+  return {
+    DATE: movement.date,
+    SOURCE_ID: movement.source_id,
+    DESCRIPTION: movement.description,
+    NET_CREDIT_AMOUNT: creditPesos,
+    NET_DEBIT_AMOUNT: debitPesos,
+    GROSS_AMOUNT: grossPesos,
+    MP_FEE_AMOUNT: feePesos,
+    TAXES_AMOUNT: taxesPesos,
+    PAYMENT_METHOD: movement.payment_method,
+    _payload_hash: movement.payload_hash,
+    _report_id: reportId,
+  };
+}
+
 const handler: Handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -374,6 +399,12 @@ const handler: Handler = async (event) => {
       const desc = mov.description.toLowerCase();
       const isDuplicate = duplicatesInSupabase.includes(mov);
 
+      // Ignore control rows (opening/closing without SOURCE_ID)
+      if (!mov.source_id || mov.source_id.trim() === "") {
+        console.log(`[STATUS-REPORT] Ignoring control row without SOURCE_ID: ${desc}`);
+        continue;
+      }
+
       // Skip RAW_ONLY (reserves) - don't create FM for these
       if (desc === "reserve_for_payment" || desc === "reserve_for_payout") {
         rawOnlyCount++;
@@ -409,6 +440,41 @@ const handler: Handler = async (event) => {
       }
     }
 
+    // Build p_input_rows array for RPC import
+    const rpcInputRows = [];
+    for (const mov of movements) {
+      const desc = mov.description.toLowerCase();
+
+      // Skip control rows
+      if (!mov.source_id || mov.source_id.trim() === "") {
+        continue;
+      }
+
+      // Skip duplicates already in Supabase
+      if (duplicatesInSupabase.includes(mov)) {
+        continue;
+      }
+
+      // Include: classifiable movements + reserves
+      if (
+        desc === "payment" ||
+        desc === "payout" ||
+        desc === "asset_management" ||
+        desc === "reserve_for_payment" ||
+        desc === "reserve_for_payout"
+      ) {
+        rpcInputRows.push(buildInputRowForRPC(mov, reportId));
+      } else {
+        // Block unknown descriptions
+        console.warn(
+          `[STATUS-REPORT] WARNING: Unknown description '${desc}' for SOURCE_ID ${mov.source_id}. ` +
+          `Will NOT be imported. Must review and classify manually.`
+        );
+      }
+    }
+
+    console.log(`[STATUS-REPORT] RPC input rows ready: ${rpcInputRows.length} rows (classifiable + reserves)`);
+
     // Build summary
     const netCents = ingresoCents - egresoCents;
     const summary = {
@@ -431,6 +497,7 @@ const handler: Handler = async (event) => {
       egresos: centsToCurrency(egresoCents),
       neto: centsToCurrency(netCents),
       dedup_scope: "mp_financial_movement_external_reference_match",
+      rpc_input_rows_ready: rpcInputRows.length,
       read_only_dry_run: true,
       parsed_at: new Date().toISOString(),
     };
