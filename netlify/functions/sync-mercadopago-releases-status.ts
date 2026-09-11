@@ -187,19 +187,19 @@ const handler: Handler = async (event) => {
         headers,
       };
     }
-    const reportId = body.report_id;
+    const taskId = body.task_id;
 
-    if (!reportId) {
+    if (!taskId) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Missing report_id in body" }),
+        body: JSON.stringify({ error: "Missing task_id in body" }),
         headers,
       };
     }
 
     const accountId = process.env.SYNC_ACCOUNT_ID || "1054315166";
 
-    console.log(`[STATUS-REPORT] Checking report ${reportId}`);
+    console.log(`[STATUS-REPORT] Checking task ${taskId}`);
 
     // Get MP Access Token
     const mpToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
@@ -212,55 +212,54 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Check report status using official search endpoint
-    console.log(`[STATUS-REPORT] Fetching status...`);
+    // Check task status using official task endpoint
+    console.log(`[STATUS-REPORT] Fetching task status...`);
 
-    const statusRes = await fetch(
-      `https://api.mercadopago.com/v1/account/release_report/search?id=${reportId}`,
+    const taskRes = await fetch(
+      `https://api.mercadopago.com/v1/account/release_report/task/${taskId}`,
       { headers: { Authorization: `Bearer ${mpToken}` } }
     );
 
-    if (!statusRes.ok) {
+    if (!taskRes.ok) {
       return {
-        statusCode: statusRes.status,
-        body: JSON.stringify({ error: `Failed to get report status: ${statusRes.status}` }),
+        statusCode: taskRes.status,
+        body: JSON.stringify({ error: `Failed to get task status: ${taskRes.status}` }),
         headers,
       };
     }
 
-    const responseText = await statusRes.text();
-    console.log(`[STATUS-REPORT] Search response text (first 300 chars): ${responseText.substring(0, 300)}`);
+    const responseText = await taskRes.text();
+    console.log(`[STATUS-REPORT] Task response text (first 300 chars): ${responseText.substring(0, 300)}`);
 
-    let searchResponse;
+    let taskStatus;
     try {
-      searchResponse = JSON.parse(responseText);
+      taskStatus = JSON.parse(responseText);
     } catch (parseErr) {
       console.error(`[STATUS-REPORT] Failed to parse JSON: ${parseErr}`);
       console.error(`[STATUS-REPORT] Raw response: ${responseText}`);
       throw parseErr;
     }
-    const reportStatus = searchResponse.results?.[0];
 
-    if (!reportStatus) {
+    if (!taskStatus) {
       return {
         statusCode: 404,
-        body: JSON.stringify({ error: `Report ${reportId} not found` }),
+        body: JSON.stringify({ error: `Task ${taskId} not found` }),
         headers,
       };
     }
 
-    console.log(`[STATUS-REPORT] Current status: ${reportStatus.status}`);
+    console.log(`[STATUS-REPORT] Current task status: ${taskStatus.status}`);
 
-    // If not completed, return status (MP uses "enabled" for completed reports)
-    if (reportStatus.status !== "completed" && reportStatus.status !== "enabled") {
+    // If not processed, return status (MP uses "processed" or "pending")
+    if (taskStatus.status !== "processed" && taskStatus.status !== "enabled") {
       return {
         statusCode: 200,
         body: JSON.stringify(
           {
             success: true,
             action: "status_check",
-            report_id: reportId,
-            status: reportStatus.status,
+            task_id: taskId,
+            status: taskStatus.status,
             message: "Report is still being processed. Check again later.",
             checked_at: new Date().toISOString(),
           },
@@ -271,14 +270,17 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Report is ready - download and parse
-    console.log(`[STATUS-REPORT] Report completed. Downloading CSV...`);
+    // Task is ready - get report_id and file_name
+    console.log(`[STATUS-REPORT] Task completed. Retrieving report details...`);
 
-    const fileName = reportStatus.file_name;
+    const reportId = taskStatus.report_id;
+    const fileName = taskStatus.file_name;
 
-    if (!fileName) {
-      throw new Error("No file_name in completed report");
+    if (!reportId || !fileName) {
+      throw new Error(`Missing report_id or file_name in task response: ${JSON.stringify(taskStatus)}`);
     }
+
+    console.log(`[STATUS-REPORT] Report ID: ${reportId}, File: ${fileName}`);
 
     const downloadRes = await fetch(
       `https://api.mercadopago.com/v1/account/release_report/${fileName}`,

@@ -81,13 +81,13 @@ const handler: Handler = async (event) => {
     }
 
     const reportData = await createRes.json();
-    const reportId = reportData.id;
+    const taskId = reportData.id;
 
-    if (!reportId) {
-      throw new Error("No report ID in response");
+    if (!taskId) {
+      throw new Error("No task ID in response");
     }
 
-    console.log(`[CREATE-REPORT] Report created: ID=${reportId}, Status=${reportData.status}`);
+    console.log(`[CREATE-REPORT] Task created: task_id=${taskId}, Status=${reportData.status}`);
 
     return {
       statusCode: 200,
@@ -95,12 +95,12 @@ const handler: Handler = async (event) => {
         {
           success: true,
           action: "report_created",
-          report_id: reportId,
+          task_id: taskId,
           status: reportData.status,
           created_at: new Date().toISOString(),
           window_start: beginDate,
           window_end: endDate,
-          next_step: `Call sync-mercadopago-releases-status with report_id=${reportId}`,
+          next_step: `Call sync-mercadopago-releases-status with task_id=${taskId}`,
         },
         null,
         2
