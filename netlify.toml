@@ -7,3 +7,7 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[scheduled_functions]]
+  name = "sync-mercadopago-releases"
+  schedule = "0 2 * * *"
