@@ -1,0 +1,44 @@
+{
+  "report": {
+    "summary": {
+      "total_input_rows": 100,
+      "new_ledger_entries": 100,
+      "new_source_records": 100,
+      "new_financial_movements": 100,
+      "existing_raw_exact_match": 0,
+      "create_fm_from_existing_sr": 0,
+      "historical_resolutions_required": 0,
+      "multi_settlement_collapses_detected": 0
+    },
+    "account_id": 1054315166,
+    "month_period": "2026-06-01 to 2026-06-30",
+    "preview_mode": true,
+    "timestamp_utc": "2026-09-07 21:00:41.309261-03",
+    "financial_impact": {
+      "expected_delta": 2343126.56,
+      "current_ledger_net_pre_import": 12343127.31,
+      "expected_ledger_net_post_import": 14686253.87
+    }
+  },
+  "liberaciones": {
+    "summary": {
+      "total_input_rows": 100,
+      "new_ledger_entries": 92,
+      "new_source_records": 100,
+      "new_financial_movements": 92,
+      "existing_raw_exact_match": 0,
+      "create_fm_from_existing_sr": 0,
+      "historical_resolutions_required": 0,
+      "multi_settlement_collapses_detected": 0
+    },
+    "account_id": 1054315166,
+    "month_period": "2026-06-01 to 2026-06-30",
+    "preview_mode": true,
+    "timestamp_utc": "2026-09-07 21:00:44.563729-03",
+    "financial_impact": {
+      "expected_delta": 1112622.64,
+      "current_ledger_net_pre_import": 12343127.31,
+      "expected_ledger_net_post_import": 13455749.95
+    }
+  }
+}

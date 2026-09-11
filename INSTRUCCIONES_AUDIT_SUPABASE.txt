@@ -1,0 +1,79 @@
+================================================================================
+INSTRUCCIONES: Ejecutar auditoría BASECSV vs APPGRANJA en Supabase Studio
+================================================================================
+
+ARCHIVOS NECESARIOS:
+  1. AUDIT_BASECSV_SINGLE_RUN.sql (query principal)
+  2. INSERT_BASECSV_JUNE.sql (datos de junio)
+
+================================================================================
+PASO 1: Preparar el SQL final
+================================================================================
+
+1. Abre AUDIT_BASECSV_SINGLE_RUN.sql
+2. Ubica la línea: "-- [INSERT AQUÍ: reemplazar con contenido de INSERT_BASECSV_JUNE.sql]"
+3. Abre INSERT_BASECSV_JUNE.sql
+4. Copia TODA la sentencia INSERT (desde INSERT INTO... hasta el ;)
+5. Pega en AUDIT_BASECSV_SINGLE_RUN.sql reemplazando el comentario
+6. Ahora tienes UN ARCHIVO ÚNICO con:
+   - CREATE TEMP TABLE
+   - INSERT de 1373 filas
+   - Query de auditoría
+
+================================================================================
+PASO 2: Ejecutar en Supabase Studio
+================================================================================
+
+1. Abre Supabase Studio → SQL Editor
+2. Borra lo que haya en el editor
+3. Copia-pega TODO el contenido del archivo unificado
+4. Haz click en RUN
+5. Espera a que termine (puede tardar 10-30 segundos)
+
+================================================================================
+PASO 3: Interpretar resultados
+================================================================================
+
+La query devuelve UNA FILA POR CADA NÚMERO DE MOVIMIENTO DE BASECSV.
+
+Columnas importantes:
+  - basecsv_numero_movimiento: Identidad única (cada fila de BASECSV)
+  - basecsv_operacion_relacionada: Agrupa pares, pero SIN agrupar en la query
+  - basecsv_importe: Importe individual del movimiento
+  - appgranja_source_id: El SOURCE_ID encontrado en AppGranja
+  - clasificacion: MATCH_EXACTO, FALTA_EN_APPGRANJA, etc.
+  - diferencia_importe: Si no coincide exactamente
+  - candidatos_totales: Cuántos candidatos encontró
+
+Ordenamiento:
+  1. FALTA_EN_APPGRANJA (0) - Revisar primero
+  2. POSIBLE_DUPLICADO_EN_APPGRANJA (1)
+  3. IMPORTE_DIFERENTE (2)
+  4. MATCHES (3) - Último
+
+================================================================================
+VERIFICACIÓN FINAL
+================================================================================
+
+Los 4 movimientos específicos deben aparecer como FILAS SEPARADAS:
+
+  numero_movimiento 2321909739051 → +1629.44 (Operación Relacionada 1745105363064)
+  numero_movimiento 2321909739053 → +471.71  (Operación Relacionada 1745105363064)
+  numero_movimiento 2321305414170 → +1854.71 (Operación Relacionada 1745058376008)
+  numero_movimiento 2321305414172 → +463.84  (Operación Relacionada 1745058376008)
+
+Si estos 4 aparecen como 4 filas separadas → ✓ Estructura correcta
+Si aparecen agrupados → ✗ Error en la auditoría
+
+================================================================================
+IMPORTANTE: SIN WRITES PRODUCTIVOS
+================================================================================
+
+Esta auditoría es 100% READ-ONLY:
+  - Crea una TEMP TABLE (muere cuando se cierra la sesión)
+  - Solo ejecuta SELECT (no INSERT, UPDATE, DELETE)
+  - No modifica ninguna tabla persistente de AppGranja
+
+Es SEGURO ejecutarla en Supabase Studio sin riesgo de corromper datos.
+
+================================================================================

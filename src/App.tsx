@@ -9,9 +9,10 @@ import { FinanzasApp } from './features/finanzas/FinanzasApp';
 import { AdminApp } from './features/admin/AdminApp';
 import { ProductionApp } from './features/production/ProductionApp';
 import { ProductionDashboard } from './features/production/ProductionDashboard';
-import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp } from 'lucide-react';
+import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp, CreditCard } from 'lucide-react';
+import { MercadoPagoApp } from './features/mercadopago/MercadoPagoApp';
 
-type Tab = 'pedidos' | 'cobros' | 'caja' | 'finanzas' | 'admin' | 'produccion' | 'dashboard_produccion';
+type Tab = 'pedidos' | 'cobros' | 'caja' | 'finanzas' | 'admin' | 'produccion' | 'dashboard_produccion' | 'mercadopago';
 
 function App() {
   const { user, rol, loading, signOut } = useAuth();
@@ -74,6 +75,7 @@ function App() {
       { id: 'pedidos' as Tab, label: 'Pedidos', icon: ShoppingCart },
       { id: 'cobros' as Tab, label: 'Cuentas a Cobrar', icon: DollarSign },
       { id: 'caja' as Tab, label: 'Caja', icon: Wallet },
+      { id: 'mercadopago' as Tab, label: 'Mercado Pago', icon: CreditCard },
       { id: 'finanzas' as Tab, label: 'Finanzas', icon: TrendingUp },
       { id: 'admin' as Tab, label: 'Admin', icon: Settings }
     ] : [])
@@ -169,6 +171,7 @@ function App() {
           {currentTab === 'pedidos' && <PedidosApp />}
           {currentTab === 'cobros' && <CobrosApp />}
           {currentTab === 'caja' && <CajaApp />}
+          {currentTab === 'mercadopago' && <MercadoPagoApp />}
           {currentTab === 'finanzas' && <FinanzasApp />}
           {currentTab === 'admin' && <AdminApp />}
         </div>

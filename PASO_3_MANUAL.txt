@@ -1,0 +1,37 @@
+PASO 3: APLICAR SQL V8 CONTRA SUPABASE REAL
+============================================================
+
+Los 3 componentes están listos en:
+
+1. supabase/migrations/006_add_liberaciones_source_type.sql
+   - Agrega 'liberaciones' a CHECK constraint
+
+2. sql/004_calc_liberaciones_economic_hash.sql
+   - Función auxiliar para economic change detection
+
+3. sql/005_import_liberaciones_primary.sql
+   - RPC principal v8 (8 PASOS)
+
+PROCEDIMIENTO:
+1. Ir a Supabase Dashboard > SQL Editor
+2. Crear nueva query
+3. Copiar + ejecutar cada archivo en ORDEN (no mezclar)
+
+ORDEN DE EJECUCIÓN:
+  A) 006_add_liberaciones_source_type.sql
+  B) 004_calc_liberaciones_economic_hash.sql
+  C) 005_import_liberaciones_primary.sql
+
+VERIFICACIÓN POS-EJECUCIÓN:
+- Ejecutar: SELECT constraint_name FROM information_schema.table_constraints WHERE table_name='mp_source_record' AND constraint_name LIKE 'valid_source_type%'
+  Esperado: valid_source_type encontrado
+
+- Ejecutar: SELECT routine_name FROM information_schema.routines WHERE routine_name LIKE 'calc_liberaciones%'
+  Esperado: calc_liberaciones_economic_hash encontrado
+
+- Ejecutar: SELECT routine_name FROM information_schema.routines WHERE routine_name='import_liberaciones_primary'
+  Esperado: import_liberaciones_primary encontrado
+
+RESULTADO FINAL:
+- Si A/B/C compilaron sin errores → PASO 3: OK
+- Si alguno falla → PASO 3: FAIL (mostrar error exacto)

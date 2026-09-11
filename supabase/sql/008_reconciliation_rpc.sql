@@ -127,6 +127,11 @@ BEGIN
       -- SR already exists (idempotent)
       v_existing_raw_exact := v_existing_raw_exact + 1;
 
+      -- For Liberaciones: count RAW-only EVEN if SR exists
+      IF p_source_type = 'liberaciones' AND v_is_raw_only THEN
+        v_raw_only_rows := v_raw_only_rows + 1;
+      END IF;
+
       -- Check for multi-settlement collapse: existing SR with wrong FM link
       IF NOT v_is_raw_only THEN
         -- Get linked FM and its balance
@@ -159,10 +164,36 @@ BEGIN
       v_raw_only_rows := v_raw_only_rows + 1;
       -- RAW-only: no FM, no LE
     ELSE
-      -- Definitive: check Layer 2 (within-source match)
-      SELECT * INTO v_existing_fm FROM get_existing_fm_by_econ_fp(p_account_id, v_economic_row_fp);
+      -- Definitive: check Layer 2 or Layer 3 based on source
+      IF p_source_type = 'report' THEN
+        -- Report: use Layer 2 (within-source match by economic_row_fp)
+        SELECT * INTO v_existing_fm FROM get_existing_fm_by_econ_fp(p_account_id, v_economic_row_fp);
+      ELSE
+        -- Liberaciones: use Layer 3 (cross-source match by cross_source_fp with validation)
+        -- Get candidates with same cross_source_fp from any source
+        SELECT fm_id, source_count, settlement_amount
+        INTO v_existing_fm
+        FROM get_fm_candidates_by_cross_fp(p_account_id, v_cross_source_fp);
 
-      IF FOUND THEN
+        -- Validate candidate: must have exact settlement match and be unique
+        IF FOUND AND ABS(v_existing_fm.settlement_amount - v_signed_impact) > 0.01 THEN
+          -- Settlement mismatch: not a valid candidate
+          v_existing_fm := NULL;
+        END IF;
+
+        -- If multiple candidates exist, mark as ambiguous
+        IF v_existing_fm IS NOT NULL THEN
+          SELECT COUNT(*) INTO v_distinct_same_source
+          FROM get_fm_candidates_by_cross_fp(p_account_id, v_cross_source_fp);
+
+          IF v_distinct_same_source > 1 THEN
+            v_ambiguous_rows := v_ambiguous_rows + 1;
+            v_existing_fm := NULL;
+          END IF;
+        END IF;
+      END IF;
+
+      IF FOUND AND v_existing_fm IS NOT NULL THEN
         -- FM already exists for this economic movement
         -- Will link to existing FM (no new FM)
       ELSE
@@ -269,6 +300,9 @@ DECLARE
   v_new_financial_movements INT := 0;
   v_new_ledger_entries INT := 0;
   v_create_fm_from_sr INT := 0;
+  v_ambiguous_rows INT := 0;
+  v_raw_only_rows INT := 0;
+  v_distinct_same_source INT := 0;
 
   v_expected_delta NUMERIC := 0;
   v_current_ledger_net NUMERIC;
@@ -346,6 +380,11 @@ BEGIN
     IF FOUND THEN
       -- SR already exists (idempotent)
       v_existing_raw_exact := v_existing_raw_exact + 1;
+
+      -- For Liberaciones: count RAW-only EVEN if SR exists
+      IF p_source_type = 'liberaciones' AND v_is_raw_only THEN
+        v_raw_only_rows := v_raw_only_rows + 1;
+      END IF;
 
       -- Check for multi-settlement collapse: existing SR with wrong FM link
       IF NOT v_is_raw_only THEN
@@ -437,10 +476,36 @@ BEGIN
 
     -- Classify and create FM/LE if needed
     IF NOT v_is_raw_only THEN
-      -- Try to find existing FM
-      SELECT * INTO v_existing_fm FROM get_existing_fm_by_econ_fp(p_account_id, v_economic_row_fp);
+      -- Try to find existing FM based on source type
+      IF p_source_type = 'report' THEN
+        -- Report: use Layer 2 (within-source match by economic_row_fp)
+        SELECT * INTO v_existing_fm FROM get_existing_fm_by_econ_fp(p_account_id, v_economic_row_fp);
+      ELSE
+        -- Liberaciones: use Layer 3 (cross-source match by cross_source_fp with validation)
+        -- Get candidates with same cross_source_fp from any source
+        SELECT fm_id, source_count, settlement_amount
+        INTO v_existing_fm
+        FROM get_fm_candidates_by_cross_fp(p_account_id, v_cross_source_fp);
 
-      IF FOUND THEN
+        -- Validate candidate: must have exact settlement match and be unique
+        IF FOUND AND ABS(v_existing_fm.settlement_amount - v_signed_impact) > 0.01 THEN
+          -- Settlement mismatch: not a valid candidate
+          v_existing_fm := NULL;
+        END IF;
+
+        -- If multiple candidates exist, mark as ambiguous
+        IF v_existing_fm IS NOT NULL THEN
+          SELECT COUNT(*) INTO v_distinct_same_source
+          FROM get_fm_candidates_by_cross_fp(p_account_id, v_cross_source_fp);
+
+          IF v_distinct_same_source > 1 THEN
+            v_ambiguous_rows := v_ambiguous_rows + 1;
+            v_existing_fm := NULL;
+          END IF;
+        END IF;
+      END IF;
+
+      IF FOUND AND v_existing_fm IS NOT NULL THEN
         -- Link to existing FM
         INSERT INTO mp_movement_source_link (financial_movement_id, source_record_id, is_primary)
         VALUES (v_existing_fm.fm_id, v_new_sr_id, FALSE)
@@ -502,7 +567,10 @@ BEGIN
       'new_source_records', v_new_source_records,
       'new_financial_movements', v_new_financial_movements,
       'new_ledger_entries', v_new_ledger_entries,
-      'create_fm_from_existing_sr', v_create_fm_from_sr
+      'create_fm_from_existing_sr', v_create_fm_from_sr,
+      'ambiguous_rows', v_ambiguous_rows,
+      'raw_only_rows', v_raw_only_rows,
+      'multi_settlement_collapses_detected', CASE WHEN v_create_fm_from_sr > 0 THEN 1 ELSE 0 END
     ),
     'financial_impact', jsonb_build_object(
       'current_ledger_net_pre_import', v_current_ledger_net,

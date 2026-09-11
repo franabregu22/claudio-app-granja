@@ -1,0 +1,77 @@
+================================================================================
+INSTRUCCIONES: IMPORTAR DATOS EN SUPABASE (21 chunks)
+================================================================================
+
+LA MIGRACIÓN YA ESTÁ APLICADA (004_mp_new_architecture.sql)
+Ahora importarás los 716 registros del CSV de agosto.
+
+PASO A PASO:
+
+1. Abre tu Supabase (en la URL de tu proyecto)
+2. Ve a "SQL Editor" (en la sidebar izquierda)
+3. Para CADA archivo de 00 a 21 en orden:
+
+   a) Abre el archivo en tu editor de texto/VS Code
+      (están en: scripts/chunks/00_inicio.sql, 01_source.sql, etc.)
+   
+   b) Copia TODO el contenido
+   
+   c) Pégalo en el SQL Editor de Supabase
+   
+   d) Haz clic en "RUN" (botón azul)
+   
+   e) Espera a que termine y veas "success" abajo
+   
+   f) Pasa al siguiente archivo
+
+ORDEN EXACTO:
+
+Prefijo (espera este primero):
+  00_inicio.sql
+
+Luego en orden:
+  01_source.sql
+  02_source.sql
+  03_source.sql
+  04_source.sql
+  05_source.sql
+  06_financial.sql
+  07_financial.sql
+  08_financial.sql
+  09_financial.sql
+  10_financial.sql
+  11_links.sql
+  12_links.sql
+  13_links.sql
+  14_links.sql
+  15_links.sql
+  16_ledger.sql
+  17_ledger.sql
+  18_ledger.sql
+  19_ledger.sql
+  20_ledger.sql
+  21_validacion.sql (este mostrará el resumen final)
+
+TIEMPO ESTIMADO:
+- ~2 minutos por chunk
+- Total: ~42 minutos (pero puedes dejar correr sin supervisar entre chunks)
+
+QUÉ ESPERAR AL FINAL (chunk 21):
+- source_records: 716
+- movements: 716
+- links: 716
+- ledger: 716
+- yields: 20
+- total_settlement: 10780612.05
+
+Si algo falla:
+- Lee el error
+- Reporta cuál fue el chunk que falló
+- Podemos reintentar desde ese punto
+
+IMPORTANTE:
+- NO saltes chunks
+- Ejecuta en orden
+- Si uno falla, detente y reporta
+
+===============================================================================

@@ -1,0 +1,13 @@
+{
+  "total_input_rows": 1426,
+  "existing_raw_exact_match": 0,
+  "new_source_records": 1426,
+  "new_financial_movements": 1380,
+  "new_ledger_entries": 1380,
+  "create_fm_from_existing_sr": 0,
+  "raw_only_rows": 0,
+  "ambiguous_rows": 0,
+  "current_ledger_net": 12343127.31,
+  "expected_delta": 14387765.59,
+  "expected_final": 26730892.9
+}
