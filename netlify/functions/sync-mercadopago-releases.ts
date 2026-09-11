@@ -3,112 +3,159 @@ import { Handler } from "@netlify/functions";
 const handler: Handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Content-Type": "application/json",
   };
 
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers };
-  }
-
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: JSON.stringify({ error: "POST only" }), headers };
-  }
-
   try {
-    // Authenticate
-    const authHeader = event.headers.authorization || event.headers.Authorization || "";
-    const token = authHeader.replace("Bearer ", "").trim();
-    const expectedToken = process.env.SYNC_MERCADOPAGO_TOKEN || "";
-
-    if (!token || !expectedToken || token !== expectedToken) {
-      return {
-        statusCode: 401,
-        body: JSON.stringify({ error: "Unauthorized" }),
-        headers,
-      };
-    }
-
-    console.log("[CREATE-REPORT] Initiating Mercado Pago release report generation");
-
-    // Get MP Access Token
     const mpToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    const syncToken = process.env.SYNC_MERCADOPAGO_TOKEN;
 
-    if (!mpToken) {
+    if (!mpToken || !syncToken) {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "Missing MERCADOPAGO_ACCESS_TOKEN" }),
+        body: JSON.stringify({
+          error: "Missing MERCADOPAGO_ACCESS_TOKEN or SYNC_MERCADOPAGO_TOKEN",
+        }),
         headers,
       };
     }
 
-    // Create report for 24 hours (simple UTC dates for testing)
     const now = new Date();
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const begin = new Date(now.getTime() - 72 * 60 * 60 * 1000);
 
-    // Format as simple ISO strings WITHOUT milliseconds
-    const beginDate = oneDayAgo.toISOString().replace(/\.\d{3}Z$/, "Z");
-    const endDate = now.toISOString().replace(/\.\d{3}Z$/, "Z");
+    const beginISO = begin.toISOString().split("T")[0];
+    const endISO = now.toISOString().split("T")[0];
 
-    console.log(`[CREATE-REPORT] Test window (24h): ${beginDate} to ${endDate}`);
+    console.log(`[RELEASES] Creating Release Report: ${beginISO} to ${endISO}`);
 
-    const requestBody = {
-      begin_date: beginDate,
-      end_date: endDate,
-    };
-
-    console.log(`[CREATE-REPORT] Request method: POST`);
-    console.log(`[CREATE-REPORT] Request URL: https://api.mercadopago.com/v1/account/release_report`);
-    console.log(`[CREATE-REPORT] Request body: ${JSON.stringify(requestBody)}`);
-    console.log(`[CREATE-REPORT] Request headers: Authorization: Bearer [TOKEN], Content-Type: application/json`);
-
-    const createRes = await fetch("https://api.mercadopago.com/v1/account/release_report", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${mpToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    console.log(`[CREATE-REPORT] Response status: ${createRes.status}`);
+    const createRes = await fetch(
+      "https://api.mercadopago.com/v1/account/release_report",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${mpToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          begin_date: `${beginISO}T00:00:00Z`,
+          end_date: `${endISO}T23:59:59Z`,
+        }),
+      }
+    );
 
     if (!createRes.ok) {
-      const errText = await createRes.text();
-      console.log(`[CREATE-REPORT] MP Response body: ${errText}`);
-      throw new Error(`Failed to create report: ${createRes.status} ${errText}`);
+      const errorText = await createRes.text();
+      console.error(`[RELEASES] Failed to create report: ${createRes.status} ${errorText}`);
+      return {
+        statusCode: createRes.status,
+        body: JSON.stringify({ error: `Failed to create report: ${createRes.status}` }),
+        headers,
+      };
     }
 
-    const reportData = await createRes.json();
-    const taskId = reportData.id;
+    const createData = await createRes.json();
+    const taskId = createData.id || createData.task_id;
 
     if (!taskId) {
-      throw new Error("No task ID in response");
+      console.error(`[RELEASES] No task_id in response: ${JSON.stringify(createData)}`);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "No task_id returned from create report" }),
+        headers,
+      };
     }
 
-    console.log(`[CREATE-REPORT] Task created: task_id=${taskId}, Status=${reportData.status}`);
+    console.log(`[RELEASES] Report created with task_id: ${taskId}`);
+
+    let taskStatus = null;
+    let attempts = 0;
+    const maxAttempts = 5;
+    const delayMs = 2000;
+
+    while (attempts < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      attempts++;
+
+      console.log(`[RELEASES] Polling task status (attempt ${attempts}/${maxAttempts})...`);
+
+      const statusRes = await fetch(
+        `https://api.mercadopago.com/v1/account/release_report/task/${taskId}`,
+        {
+          headers: { Authorization: `Bearer ${mpToken}` },
+        }
+      );
+
+      if (!statusRes.ok) {
+        console.warn(`[RELEASES] Task status check failed: ${statusRes.status}`);
+        continue;
+      }
+
+      taskStatus = await statusRes.json();
+      console.log(`[RELEASES] Task status: ${taskStatus.status}`);
+
+      if (taskStatus.status === "processed" || taskStatus.status === "enabled") {
+        console.log(`[RELEASES] Task completed!`);
+        break;
+      }
+    }
+
+    if (!taskStatus || (taskStatus.status !== "processed" && taskStatus.status !== "enabled")) {
+      console.log(`[RELEASES] Task not yet processed (status: ${taskStatus?.status}), will retry later`);
+      return {
+        statusCode: 202,
+        body: JSON.stringify({
+          success: true,
+          action: "create_submitted",
+          task_id: taskId,
+          status: taskStatus?.status || "unknown",
+          message: "Report creation submitted, will process on next check",
+        }),
+        headers,
+      };
+    }
+
+    console.log(`[RELEASES] Calling status function to process report`);
+
+    const statusFunctionUrl = process.env.STATUS_FUNCTION_URL || `https://${process.env.NETLIFY_SITE_NAME}.netlify.app/.netlify/functions/sync-mercadopago-releases-status`;
+
+    const processingRes = await fetch(statusFunctionUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${syncToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        task_id: taskId,
+        commit: false,
+      }),
+    });
+
+    if (!processingRes.ok) {
+      console.error(`[RELEASES] Status processing failed: ${processingRes.status}`);
+      const errorBody = await processingRes.text();
+      console.error(`[RELEASES] Error: ${errorBody}`);
+      return {
+        statusCode: processingRes.status,
+        body: JSON.stringify({ error: `Status processing failed: ${processingRes.status}` }),
+        headers,
+      };
+    }
+
+    const processingData = await processingRes.json();
+    console.log(`[RELEASES] Processing complete: ${JSON.stringify(processingData)}`);
 
     return {
       statusCode: 200,
-      body: JSON.stringify(
-        {
-          success: true,
-          action: "report_created",
-          task_id: taskId,
-          status: reportData.status,
-          created_at: new Date().toISOString(),
-          window_start: beginDate,
-          window_end: endDate,
-          next_step: `Call sync-mercadopago-releases-status with task_id=${taskId}`,
-        },
-        null,
-        2
-      ),
+      body: JSON.stringify({
+        success: true,
+        action: "sync_complete",
+        task_id: taskId,
+        processing: processingData,
+      }),
       headers,
     };
   } catch (error) {
-    console.error("[CREATE-REPORT] ERROR:", error);
+    console.error("[RELEASES] ERROR:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({

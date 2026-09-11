@@ -213,6 +213,7 @@ const handler: Handler = async (event) => {
       };
     }
     const taskId = body.task_id;
+    const commit = body.commit === true;
 
     if (!taskId) {
       return {
@@ -223,6 +224,7 @@ const handler: Handler = async (event) => {
     }
 
     const accountId = process.env.SYNC_ACCOUNT_ID || "1054315166";
+    const writeEnabled = process.env.MP_SYNC_WRITE_ENABLED === "true";
 
     console.log(`[STATUS-REPORT] Checking task ${taskId}`);
 
@@ -498,11 +500,38 @@ const handler: Handler = async (event) => {
       neto: centsToCurrency(netCents),
       dedup_scope: "mp_financial_movement_external_reference_match",
       rpc_input_rows_ready: rpcInputRows.length,
-      read_only_dry_run: true,
+      read_only_dry_run: !commit || !writeEnabled,
       parsed_at: new Date().toISOString(),
     };
 
     console.log(`[STATUS-REPORT] Summary: ${JSON.stringify(summary)}`);
+
+    let importResult = null;
+
+    if (commit && writeEnabled && rpcInputRows.length > 0) {
+      console.log(`[STATUS-REPORT] WRITE MODE: Calling import_financial_movements_reconciliation_v2 with ${rpcInputRows.length} rows`);
+
+      const importRes = await supabase.rpc("import_financial_movements_reconciliation_v2", {
+        p_account_id: parseInt(accountId, 10),
+        p_input_rows: rpcInputRows,
+        p_source_type: "report",
+        p_month_start: new Date(reportId).toISOString().split("T")[0],
+        p_month_end: new Date().toISOString().split("T")[0],
+        p_import_id: `report-${reportId}-${Date.now()}`,
+      });
+
+      if (importRes.error) {
+        console.error(`[STATUS-REPORT] RPC error: ${JSON.stringify(importRes.error)}`);
+        throw importRes.error;
+      }
+
+      importResult = importRes.data;
+      console.log(`[STATUS-REPORT] Import result: ${JSON.stringify(importResult)}`);
+    } else if (commit && !writeEnabled) {
+      console.warn(`[STATUS-REPORT] COMMIT REQUESTED BUT MP_SYNC_WRITE_ENABLED NOT SET - DRY RUN MODE`);
+    } else if (!commit) {
+      console.log(`[STATUS-REPORT] DRY RUN MODE (commit=false)`);
+    }
 
     return {
       statusCode: 200,
@@ -510,7 +539,9 @@ const handler: Handler = async (event) => {
         {
           success: true,
           action: "report_processed",
+          mode: commit && writeEnabled ? "write" : "dry_run",
           summary,
+          ...(importResult && { import_result: importResult }),
           ...(newMovements.length > 0 && {
             preview: newMovements.slice(0, 3).map((m) => {
               const impact = parseInt(m.net_credit_amount, 10) - parseInt(m.net_debit_amount, 10);
