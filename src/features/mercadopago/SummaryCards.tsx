@@ -17,7 +17,7 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
 
   const cards = [
     {
-      label: 'Saldo registrado',
+      label: 'Neto del período',
       value: summary.balance,
       icon: Wallet,
       color: 'text-blue-600',
@@ -25,7 +25,7 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
       borderColor: 'border-blue-200',
     },
     {
-      label: 'Ingresos',
+      label: 'Entradas',
       value: summary.ingresos,
       icon: TrendingUp,
       color: 'text-green-600',
@@ -33,7 +33,7 @@ export function SummaryCards({ summary, loading }: SummaryCardsProps) {
       borderColor: 'border-green-200',
     },
     {
-      label: 'Egresos',
+      label: 'Salidas',
       value: summary.egresos,
       icon: TrendingDown,
       color: 'text-red-600',

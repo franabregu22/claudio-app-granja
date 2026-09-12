@@ -33,12 +33,12 @@ export function MovementsTable({ movements, loading }: MovementsTableProps) {
   };
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('es-AR');
+    return new Date(date).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
   };
 
   const getTypeLabel = (type: string) => typeLabels[type] || type;
   const getTypeColor = (type: string) => typeColors[type] || 'text-gray-600 bg-gray-50';
-  const isIncome = (amount: number) => amount >= 0;
+  const isIncome = (amount: number) => amount > 0;
 
   if (loading) {
     return (
@@ -85,8 +85,8 @@ export function MovementsTable({ movements, loading }: MovementsTableProps) {
           </thead>
           <tbody>
             {movements.map((mov, idx) => {
-              const income = isIncome(mov.amount_pesos) ? mov.amount_pesos : null;
-              const expense = !isIncome(mov.amount_pesos) ? Math.abs(mov.amount_pesos) : null;
+              const income = isIncome(mov.settlement_amount) ? mov.settlement_amount : null;
+              const expense = !isIncome(mov.settlement_amount) ? Math.abs(mov.settlement_amount) : null;
 
               return (
                 <tr
@@ -96,7 +96,7 @@ export function MovementsTable({ movements, loading }: MovementsTableProps) {
                   }`}
                 >
                   <td className="px-4 py-3 text-sm text-[#2C2419]">
-                    {formatDate(mov.movement_date)}
+                    {formatDate(mov.transaction_date)}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <span
@@ -108,7 +108,7 @@ export function MovementsTable({ movements, loading }: MovementsTableProps) {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-[#2C2419]">
-                    {mov.description || mov.source_id || '—'}
+                    {mov.source_id || '—'}
                   </td>
                   <td className="px-4 py-3 text-right text-sm font-medium">
                     {income !== null ? (

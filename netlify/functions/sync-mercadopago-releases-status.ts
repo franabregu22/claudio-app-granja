@@ -1,6 +1,8 @@
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import * as crypto from "crypto";
+import { releaseIdentityIndex, classifyReleaseIdentity } from './lib/mp-release-identity';
+import { collectPages } from '../../src/lib/mercadopago-calculations';
 
 interface ParsedMovement {
   date: string;
@@ -165,6 +167,8 @@ function buildInputRowForRPC(
     MP_FEE_AMOUNT: feePesos,
     TAXES_AMOUNT: taxesPesos,
     PAYMENT_METHOD: movement.payment_method,
+    BALANCE_AMOUNT: movement.raw_data.BALANCE_AMOUNT || '',
+    TRANSACTION_APPROVAL_DATE: movement.raw_data.TRANSACTION_APPROVAL_DATE || '',
     _payload_hash: movement.payload_hash,
     _report_id: reportId,
   };
@@ -350,38 +354,33 @@ const handler: Handler = async (event) => {
 
     // Fetch all existing financial movements for account_id
     // (external_reference contains SOURCE_ID from historical import)
-    const { data: existingFMs, error: queryError } = await supabase
+    const existingFMs = await collectPages<any>((from, to) => supabase
       .from("mp_financial_movement")
-      .select("external_reference")
-      .eq("account_id", parseInt(accountId, 10));
-
-    if (queryError) {
-      console.error(`[STATUS-REPORT] Query error: ${queryError.message}`);
-      throw queryError;
-    }
-
-    // Build set of source_ids that already have financial movements
-    const existingSourceIds = new Set<string>();
-    if (existingFMs && Array.isArray(existingFMs)) {
-      for (const fm of existingFMs) {
-        if (fm.external_reference) {
-          existingSourceIds.add(fm.external_reference);
-        }
-      }
-    }
-
-    console.log(`[STATUS-REPORT] Existing financial movements in Supabase: ${existingSourceIds.size}`);
+      .select('id,external_reference,settlement_amount,mp_movement_source_link(mp_source_record(source_external_id))', { count: 'exact' })
+      .eq("account_id", parseInt(accountId, 10))
+      .order('id').range(from, to));
+    const identityIndex = releaseIdentityIndex(existingFMs);
 
     // Compare CSV movements against Supabase reality (by source_id match)
     const duplicatesInSupabase: ParsedMovement[] = [];
     const newMovementsNotInSupabase: ParsedMovement[] = [];
 
+    const identityConflicts: string[] = [];
+    let batchId = -1;
     for (const mov of movements) {
-      if (existingSourceIds.has(mov.source_id)) {
+      const impact = parseInt(mov.net_credit_amount, 10) - parseInt(mov.net_debit_amount, 10);
+      const identity = classifyReleaseIdentity(identityIndex, mov.source_id, mov.description.toLowerCase(), impact);
+      if (identity === 'conflict') {
+        identityConflicts.push(mov.source_id);
+      } else if (identity === 'duplicate') {
         duplicatesInSupabase.push(mov);
       } else {
         newMovementsNotInSupabase.push(mov);
+        if (identity === 'new') identityIndex.set(mov.source_id, new Map([[batchId--, impact]]));
       }
+    }
+    if (identityConflicts.length) {
+      return { statusCode: 409, headers, body: JSON.stringify({ error: 'Hay operaciones repetidas o con importes distintos. Revisar antes de importar.', source_ids: [...new Set(identityConflicts)], writes_performed: false }) };
     }
 
     console.log(`[STATUS-REPORT] Duplicates in Supabase: ${duplicatesInSupabase.length}, New: ${newMovementsNotInSupabase.length}`);
@@ -498,7 +497,7 @@ const handler: Handler = async (event) => {
       ingresos: centsToCurrency(ingresoCents),
       egresos: centsToCurrency(egresoCents),
       neto: centsToCurrency(netCents),
-      dedup_scope: "mp_financial_movement_external_reference_match",
+      dedup_scope: "source_reference_and_amount_all_pages",
       rpc_input_rows_ready: rpcInputRows.length,
       read_only_dry_run: !commit || !writeEnabled,
       parsed_at: new Date().toISOString(),

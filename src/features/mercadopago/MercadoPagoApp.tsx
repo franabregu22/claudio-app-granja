@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
-import { getMPSummary, getMPMovements } from '../../api/mercadopago';
-import type { MPMovement, MPSummary } from '../../api/mercadopago';
+import { getMPPeriod, getMPClosingBalance } from '../../api/mercadopago';
+import type { MPMovement, MPSummary, MPClosingBalance } from '../../api/mercadopago';
+import { argentinaDate, shiftDate } from '../../lib/mercadopago-calculations';
 import { SummaryCards } from './SummaryCards';
 import { DateFilter } from './DateFilter';
 import { MovementsTable } from './MovementsTable';
@@ -13,40 +14,36 @@ export function MercadoPagoApp() {
   const { rol } = useAuth();
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<MPSummary | null>(null);
+  const [closing, setClosing] = useState<MPClosingBalance | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [movements, setMovements] = useState<MPMovement[]>([]);
   const [dateRange, setDateRange] = useState<DateRange>('current_month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
-  const getDateRanges = () => {
-    const today = new Date();
-    const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth();
+  const getDateRanges = useCallback(() => {
+    const today = argentinaDate();
+    const firstOfMonth = `${today.slice(0, 7)}-01`;
 
     switch (dateRange) {
       case 'current_month': {
-        const start = new Date(currentYear, currentMonth, 1);
-        const end = today;
         return {
-          start: start.toISOString().split('T')[0],
-          end: end.toISOString().split('T')[0],
+          start: firstOfMonth,
+          end: today,
         };
       }
       case 'last_month': {
-        const start = new Date(currentYear, currentMonth - 1, 1);
-        const end = new Date(currentYear, currentMonth, 0);
+        const end = shiftDate(firstOfMonth, -1);
         return {
-          start: start.toISOString().split('T')[0],
-          end: end.toISOString().split('T')[0],
+          start: `${end.slice(0, 7)}-01`,
+          end,
         };
       }
       case 'last_30': {
-        const start = new Date(today);
-        start.setDate(start.getDate() - 30);
         return {
-          start: start.toISOString().split('T')[0],
-          end: today.toISOString().split('T')[0],
+          start: shiftDate(today, -29),
+          end: today,
         };
       }
       case 'custom': {
@@ -57,32 +54,44 @@ export function MercadoPagoApp() {
       }
       default:
         return {
-          start: new Date(currentYear, currentMonth, 1).toISOString().split('T')[0],
-          end: today.toISOString().split('T')[0],
+          start: firstOfMonth,
+          end: today,
         };
     }
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const { start, end } = getDateRanges();
-      const [summaryData, movementsData] = await Promise.all([
-        getMPSummary(start, end),
-        getMPMovements(start, end, selectedTypes.length > 0 ? selectedTypes : undefined),
-      ]);
-      setSummary(summaryData);
-      setMovements(movementsData);
-    } catch (error) {
-      console.error('Error fetching MercadoPago data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [dateRange, customStart, customEnd]);
 
   useEffect(() => {
+    if (rol !== 'dueño') return;
+    let cancelled = false;
+    const fetchData = async () => {
+    setLoading(true);
+    setErrorMessage(null);
+    setSummary(null);
+    setClosing(null);
+    setMovements([]);
+    try {
+      const { start, end } = getDateRanges();
+      if (!start || !end) { setErrorMessage('Elegí las dos fechas del período.'); return; }
+      const [periodData, closingData] = await Promise.all([
+        getMPPeriod(start, end),
+        getMPClosingBalance(end),
+      ]);
+      if (cancelled) return;
+      setSummary(periodData.summary);
+      setMovements(periodData.movements);
+      setClosing(closingData);
+    } catch (error) {
+      if (!cancelled) setErrorMessage(error instanceof Error ? error.message : 'No se pudo consultar Mercado Pago.');
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
+  };
     fetchData();
-  }, [dateRange, customStart, customEnd, selectedTypes]);
+    return () => { cancelled = true; };
+  }, [getDateRanges, rol]);
+
+  const visibleMovements = selectedTypes.length ? movements.filter(m => selectedTypes.includes(m.movement_class)) : movements;
+  const currency = (amount: number | null) => amount === null ? 'Sin referencia' : new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount);
 
   if (rol !== 'dueño') {
     return (
@@ -108,8 +117,19 @@ export function MercadoPagoApp() {
 
         {/* Contenido Principal */}
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
+          {errorMessage && <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{errorMessage}</p>}
+          {closing && <div className="mb-5 rounded-lg border border-[#E4DCC8] bg-white p-4 text-sm text-[#2C2419]">
+            <p className="font-semibold">Cierre del {closing.date.split('-').reverse().join('/')} · Hora de Argentina</p>
+            <p className="mt-2">Saldo calculado: {closing.calculated === null ? 'Falta un saldo inicial respaldado' : currency(closing.calculated)}</p>
+            <p className="text-xs text-gray-600">Según los movimientos cargados hasta esa fecha.</p>
+            <p>Saldo observado: {currency(closing.observed)}</p>
+            {closing.difference !== null && <p className={closing.difference === 0 ? 'text-green-700' : 'text-red-700'}>
+              {closing.difference === 0 ? 'Los saldos coinciden.' : `Diferencia (calculado − observado): ${currency(closing.difference)}`}
+            </p>}
+          </div>}
           {/* Summary Cards */}
           {summary && <SummaryCards summary={summary} loading={loading} />}
+          {summary && <p className="mt-2 text-xs text-gray-600">Todo el período: entradas + rendimientos − salidas = neto. Entradas y salidas incluyen transferencias. El filtro de tipo se aplica a la tabla.</p>}
 
           {/* Filtros */}
           <div className="mt-8 space-y-4">
@@ -131,9 +151,9 @@ export function MercadoPagoApp() {
           {/* Movimientos */}
           <div className="mt-8">
             <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
-              Movimientos ({movements.length})
+              Movimientos ({visibleMovements.length})
             </p>
-            <MovementsTable movements={movements} loading={loading} />
+            <MovementsTable movements={visibleMovements} loading={loading} />
           </div>
         </div>
       </div>
