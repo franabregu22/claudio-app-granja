@@ -8,6 +8,48 @@ const supabase = createClient(
 
 const ACCOUNT_ID = 1054315166;
 
+async function fetchAllMovements() {
+  const allData: any[] = [];
+  let offset = 0;
+  const pageSize = 1000;
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from('mp_financial_movement')
+      .select('movement_class,settlement_amount,transaction_date')
+      .eq('account_id', ACCOUNT_ID)
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+    if (!data?.length) break;
+    allData.push(...data);
+    if (data.length < pageSize) break;
+    offset += pageSize;
+  }
+  return allData;
+}
+
+async function fetchAllLedger() {
+  const allData: any[] = [];
+  let offset = 0;
+  const pageSize = 1000;
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from('ledger_entry')
+      .select('category,balance_impact')
+      .eq('account_id', ACCOUNT_ID)
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw error;
+    if (!data?.length) break;
+    allData.push(...data);
+    if (data.length < pageSize) break;
+    offset += pageSize;
+  }
+  return allData;
+}
+
 const handler: Handler = async () => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -15,17 +57,13 @@ const handler: Handler = async () => {
   };
 
   try {
-    const { data: movements, error: movError } = await supabase
-      .from('mp_financial_movement')
-      .select('movement_class,settlement_amount,transaction_date')
-      .eq('account_id', ACCOUNT_ID);
-
-    if (movError) throw movError;
+    const movements = await fetchAllMovements();
+    const ledger = await fetchAllLedger();
 
     const summary: Record<string, any> = {};
     let grandTotal = 0;
 
-    movements?.forEach((m: any) => {
+    movements.forEach((m: any) => {
       const type = m.movement_class;
       if (!summary[type]) {
         summary[type] = { count: 0, total: 0, min_date: null, max_date: null };
@@ -43,17 +81,10 @@ const handler: Handler = async () => {
       }
     });
 
-    const { data: ledger, error: ledgerError } = await supabase
-      .from('ledger_entry')
-      .select('category,balance_impact')
-      .eq('account_id', ACCOUNT_ID);
-
-    if (ledgerError) throw ledgerError;
-
     const ledgerByCategory: Record<string, any> = {};
     let totalBalance = 0;
 
-    ledger?.forEach((e: any) => {
+    ledger.forEach((e: any) => {
       const cat = e.category;
       if (!ledgerByCategory[cat]) {
         ledgerByCategory[cat] = { count: 0, total: 0 };
@@ -91,7 +122,8 @@ const handler: Handler = async () => {
           ),
           saldo_total: parseFloat(totalBalance.toFixed(2)),
         },
-        total_movimientos: movements?.length || 0,
+        total_movimientos: movements.length,
+        total_ledger_entries: ledger.length,
         timestamp: new Date().toISOString(),
       }),
       headers,
