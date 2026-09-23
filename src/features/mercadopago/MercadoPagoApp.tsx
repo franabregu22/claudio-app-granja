@@ -8,6 +8,7 @@ import { DateFilter } from './DateFilter';
 import { MovementsTable } from './MovementsTable';
 import { TypeFilter } from './TypeFilter';
 import { MonthlyReportTable } from './MonthlyReport';
+import { UnclassifiedMovements } from './UnclassifiedMovements';
 
 type DateRange = 'current_month' | 'last_month' | 'last_30' | 'custom';
 
@@ -138,6 +139,14 @@ export function MercadoPagoApp() {
               Resumen Mensual
             </p>
             <MonthlyReportTable />
+          </div>
+
+          {/* Movimientos sin clasificar */}
+          <div className="mt-8">
+            <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
+              Clasificación Manual
+            </p>
+            <UnclassifiedMovements />
           </div>
 
           {/* Filtros */}
