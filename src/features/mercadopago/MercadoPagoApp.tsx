@@ -7,6 +7,7 @@ import { SummaryCards } from './SummaryCards';
 import { DateFilter } from './DateFilter';
 import { MovementsTable } from './MovementsTable';
 import { TypeFilter } from './TypeFilter';
+import { MonthlyReportTable } from './MonthlyReport';
 
 type DateRange = 'current_month' | 'last_month' | 'last_30' | 'custom';
 
@@ -130,6 +131,14 @@ export function MercadoPagoApp() {
           {/* Summary Cards */}
           {summary && <SummaryCards summary={summary} loading={loading} />}
           {summary && <p className="mt-2 text-xs text-gray-600">Todo el período: entradas + rendimientos − salidas = neto. Entradas y salidas incluyen transferencias. El filtro de tipo se aplica a la tabla.</p>}
+
+          {/* Reporte Mensual */}
+          <div className="mt-8">
+            <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-4">
+              Resumen Mensual
+            </p>
+            <MonthlyReportTable />
+          </div>
 
           {/* Filtros */}
           <div className="mt-8 space-y-4">
