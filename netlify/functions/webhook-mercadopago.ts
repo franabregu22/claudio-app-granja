@@ -6,11 +6,10 @@ const validateWebhookSignature = (
   signature: string,
   requestId: string,
   dataId: string,
-  bodyString: string,
   secret: string
 ): boolean => {
-  if (!signature || !requestId || !dataId || !secret) {
-    console.log("Missing signature components");
+  if (!signature || !secret) {
+    console.log("Missing signature or secret");
     return false;
   }
 
@@ -25,18 +24,34 @@ const validateWebhookSignature = (
   }
 
   if (!timestamp || !v1) {
-    console.log("Invalid signature format");
+    console.log("Invalid signature format: missing ts or v1");
     return false;
   }
 
-  const manifest = `${requestId},${dataId},${timestamp},${bodyString}`;
+  // Build manifest exactly per MercadoPago docs: id:{id};request-id:{request-id};ts:{ts};
+  // Omit id or request-id if not present
+  let manifest = "";
+  if (dataId) {
+    manifest += `id:${dataId.toLowerCase()};`;
+  }
+  if (requestId) {
+    manifest += `request-id:${requestId};`;
+  }
+  manifest += `ts:${timestamp};`;
+
+  console.log(`Manifest for HMAC: ${manifest}`);
+
   const expectedSignature = createHmac("sha256", secret)
     .update(manifest)
     .digest("hex");
 
+  console.log(`Calculated HMAC: ${expectedSignature.substring(0, 8)}...`);
+  console.log(`Provided v1: ${v1.substring(0, 8)}...`);
+
   try {
     return timingSafeEqual(Buffer.from(v1), Buffer.from(expectedSignature));
   } catch {
+    console.log("HMAC comparison failed");
     return false;
   }
 };
@@ -81,7 +96,6 @@ const handler: Handler = async (event) => {
       signature,
       requestId,
       dataId,
-      bodyString,
       webhookSecret
     );
 
