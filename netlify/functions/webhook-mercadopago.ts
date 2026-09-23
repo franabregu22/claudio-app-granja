@@ -1,6 +1,45 @@
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
+
+const validateWebhookSignature = (
+  signature: string,
+  requestId: string,
+  dataId: string,
+  bodyString: string,
+  secret: string
+): boolean => {
+  if (!signature || !requestId || !dataId || !secret) {
+    console.log("Missing signature components");
+    return false;
+  }
+
+  const parts = signature.split(",");
+  let timestamp = "";
+  let v1 = "";
+
+  for (const part of parts) {
+    const [key, value] = part.split("=");
+    if (key === "ts") timestamp = value;
+    if (key === "v1") v1 = value;
+  }
+
+  if (!timestamp || !v1) {
+    console.log("Invalid signature format");
+    return false;
+  }
+
+  const manifest = `${requestId},${dataId},${timestamp},${bodyString}`;
+  const expectedSignature = createHmac("sha256", secret)
+    .update(manifest)
+    .digest("hex");
+
+  try {
+    return timingSafeEqual(Buffer.from(v1), Buffer.from(expectedSignature));
+  } catch {
+    return false;
+  }
+};
 
 const handler: Handler = async (event) => {
   const headers = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
@@ -17,16 +56,41 @@ const handler: Handler = async (event) => {
     console.log("Webhook received. Validating...");
 
     // Parse webhook
-    const body = event.body ? JSON.parse(event.body) : {};
+    const bodyString = event.body || "";
+    const body = bodyString ? JSON.parse(bodyString) : {};
     const signature = event.headers["x-signature"] || "";
     const requestId = event.headers["x-request-id"] || "";
 
-    console.log(`Event type: ${body.type}, ID: ${body.id}, Request: ${requestId}`);
+    // Get data.id from query params or body
+    const dataId = event.queryStringParameters?.id || body.data?.id || "";
 
-    // Validate signature (MercadoPago sends it but we can skip for now if not configured)
-    // In production, validate: signature should be HMAC-SHA256 of request body with secret
+    console.log(`Event type: ${body.type}, Data ID: ${dataId}, Request: ${requestId}`);
 
-    if (!body.type || !body.id) {
+    // Validate signature
+    const webhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error("MERCADOPAGO_WEBHOOK_SECRET not configured");
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: "Webhook secret not configured" }),
+        headers,
+      };
+    }
+
+    const isValidSignature = validateWebhookSignature(
+      signature,
+      requestId,
+      dataId,
+      bodyString,
+      webhookSecret
+    );
+
+    if (!isValidSignature) {
+      console.log("Invalid webhook signature");
+      return { statusCode: 401, body: JSON.stringify({ error: "Invalid signature" }), headers };
+    }
+
+    if (!body.type || !dataId) {
       console.log("Invalid webhook structure");
       return { statusCode: 400, body: JSON.stringify({ error: "Invalid webhook" }), headers };
     }
@@ -42,15 +106,19 @@ const handler: Handler = async (event) => {
     console.log(`Processing event: ${eventType}`);
 
     // Store webhook event for audit
-    await supabase.from("webhook_events").insert({
-      event_type: eventType,
-      event_id: eventId,
-      request_id: requestId,
-      resource_type: resource,
-      data: body,
-      processed: false,
-      created_at: new Date().toISOString(),
-    }).catch(() => null); // Table might not exist yet
+    try {
+      await supabase.from("webhook_events").insert({
+        event_type: eventType,
+        event_id: eventId,
+        request_id: requestId,
+        resource_type: resource,
+        data: body,
+        processed: false,
+        created_at: new Date().toISOString(),
+      });
+    } catch (auditErr) {
+      console.warn("Could not store webhook event:", auditErr instanceof Error ? auditErr.message : String(auditErr));
+    }
 
     // Get token once for all API calls
     const clientId = process.env.MERCADOPAGO_CLIENT_ID;
@@ -124,12 +192,17 @@ const handler: Handler = async (event) => {
           await supabase.from("mercadopago_raw").upsert([record], { onConflict: "id" });
 
           // Check if financial movement already exists for this payment
-          const { data: existingFM } = await supabase
-            .from("mp_financial_movement")
-            .select("id")
-            .eq("external_reference", paymentId)
-            .single()
-            .catch(() => ({ data: null }));
+          let existingFM = null;
+          try {
+            const result = await supabase
+              .from("mp_financial_movement")
+              .select("id")
+              .eq("external_reference", paymentId)
+              .single();
+            existingFM = result.data;
+          } catch (checkErr) {
+            console.log(`No existing FM for payment ${paymentId}`);
+          }
 
           if (!existingFM && paymentStatus === "approved") {
             try {
