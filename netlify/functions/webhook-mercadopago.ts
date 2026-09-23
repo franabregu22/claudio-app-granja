@@ -74,9 +74,7 @@ const handler: Handler = async (event) => {
     if (eventType === "payment.created" || eventType === "payment.updated") {
       console.log(`Processing payment: ${data.id}`);
 
-      // Fetch full payment details from MercadoPago
       const token = await getToken();
-
       if (token) {
         const paymentRes = await fetch(`https://api.mercadopago.com/v1/payments/${data.id}`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -84,19 +82,23 @@ const handler: Handler = async (event) => {
 
         if (paymentRes.ok) {
           const payment = await paymentRes.json();
-
-          // Map payment fields (same as sync-mercadopago.ts)
           const transactionDetails = payment.transaction_details as Record<string, unknown> || {};
           const payer = payment.payer as Record<string, unknown> || {};
           const payerIdentification = payer.identification as Record<string, unknown> || {};
           const paymentMethod = payment.payment_method as Record<string, unknown> || {};
 
+          const paymentId = String(payment.id);
+          const transactionAmount = payment.transaction_amount as number || 0;
+          const netReceivedAmount = transactionDetails.net_received_amount as number || transactionAmount;
+          const paymentStatus = payment.status as string || "";
+
+          // Save to mercadopago_raw
           const record = {
-            id: String(payment.id),
+            id: paymentId,
             data: payment,
-            transaction_amount: payment.transaction_amount as number || 0,
+            transaction_amount: transactionAmount,
             currency_id: payment.currency_id as string || "ARS",
-            status: payment.status as string || "",
+            status: paymentStatus,
             status_detail: payment.status_detail as string || "",
             date_created: payment.date_created as string || new Date().toISOString(),
             date_approved: payment.date_approved as string || null,
@@ -108,7 +110,7 @@ const handler: Handler = async (event) => {
             payment_method: paymentMethod.id as string || "",
             payment_type_id: payment.payment_type_id as string || "",
             description: payment.description as string || "",
-            net_received_amount: transactionDetails.net_received_amount as number || 0,
+            net_received_amount: netReceivedAmount,
             total_paid_amount: transactionDetails.total_paid_amount as number || 0,
             operation_type: payment.operation_type as string || "",
             issuer_id: payment.issuer_id as string | null || null,
@@ -119,75 +121,84 @@ const handler: Handler = async (event) => {
             processed: false,
           };
 
-          const { error } = await supabase.from("mercadopago_raw").upsert([record], { onConflict: "id" });
+          await supabase.from("mercadopago_raw").upsert([record], { onConflict: "id" });
 
-          if (error) {
-            console.error("Insert error:", error.message);
-          } else {
-            console.log(`Saved payment ${data.id}`);
+          // Check if financial movement already exists for this payment
+          const { data: existingFM } = await supabase
+            .from("mp_financial_movement")
+            .select("id")
+            .eq("external_reference", paymentId)
+            .single()
+            .catch(() => ({ data: null }));
+
+          if (!existingFM && paymentStatus === "approved") {
+            try {
+              // Create mp_source_record
+              const { data: sourceRecord } = await supabase
+                .from("mp_source_record")
+                .insert({
+                  account_id: 1054315166,
+                  source_type: "webhook",
+                  source_external_id: paymentId,
+                  observed_at: new Date().toISOString(),
+                  raw_data: record,
+                })
+                .select("id")
+                .single();
+
+              if (sourceRecord) {
+                // Determine movement class
+                const movementClass = transactionAmount >= 0 ? "payment_in" : "payment_out";
+
+                // Create mp_financial_movement
+                const { data: fm } = await supabase
+                  .from("mp_financial_movement")
+                  .insert({
+                    account_id: 1054315166,
+                    movement_class: movementClass,
+                    transaction_amount: transactionAmount,
+                    settlement_amount: netReceivedAmount,
+                    external_reference: paymentId,
+                    transaction_date: payment.date_created as string || new Date().toISOString(),
+                    payer_name: payer.name as string || null,
+                    payer_id_number: payerIdentification.number as string || null,
+                    payment_method: paymentMethod.id as string || null,
+                    needs_review: paymentStatus !== "approved",
+                  })
+                  .select("id")
+                  .single();
+
+                if (fm) {
+                  // Link source to financial movement
+                  await supabase.from("mp_movement_source_link").insert({
+                    financial_movement_id: fm.id,
+                    source_record_id: sourceRecord.id,
+                    is_primary: true,
+                  });
+
+                  // Create ledger entry
+                  const category = movementClass === "payment_in" ? "income" : "expense";
+                  await supabase.from("ledger_entry").insert({
+                    account_id: 1054315166,
+                    financial_movement_id: fm.id,
+                    balance_impact: netReceivedAmount,
+                    category,
+                    source_reference: `payment.id=${paymentId}`,
+                    occurred_at: payment.date_created as string || new Date().toISOString(),
+                  });
+
+                  console.log(`Created financial movement for payment ${paymentId}`);
+                }
+              }
+            } catch (err) {
+              console.error(`Error creating financial movement for ${paymentId}:`, err instanceof Error ? err.message : String(err));
+            }
+          }
+
+          if (existingFM) {
+            console.log(`Payment ${paymentId} already has financial movement`);
           }
         }
-      }
-    } else if (eventType === "commission.created" || eventType === "commission.updated") {
-      console.log(`Processing commission: ${data.id}`);
-
-      const token = await getToken();
-      if (token) {
-        const commission = {
-          id: String(data.id),
-          type: "commission",
-          amount: data.amount || data.transaction_amount || 0,
-          currency_id: data.currency_id || "ARS",
-          date_created: data.date_created || new Date().toISOString(),
-          status: data.status || "pending",
-          description: `Commission - ${data.reason || "MercadoPago fee"}`,
-          raw_data: data,
-        };
-
-        const { error } = await supabase.from("mercadopago_movements").upsert([commission], { onConflict: "id" }).catch(() => ({ error: null }));
-
-        if (!error) {
-          console.log(`Saved commission ${data.id}`);
-        }
-      }
-    } else if (eventType === "investment_yield.created" || eventType === "yield.created") {
-      console.log(`Processing investment yield: ${data.id}`);
-
-      const yield_record = {
-        id: String(data.id),
-        type: "investment_yield",
-        amount: data.amount || data.net_amount || 0,
-        currency_id: data.currency_id || "ARS",
-        date_created: data.date_created || new Date().toISOString(),
-        status: "completed",
-        description: `Investment Yield - ${data.fund_name || "Interest"}`,
-        raw_data: data,
-      };
-
-      const { error } = await supabase.from("mercadopago_movements").upsert([yield_record], { onConflict: "id" }).catch(() => ({ error: null }));
-
-      if (!error) {
-        console.log(`Saved yield ${data.id}`);
-      }
-    } else if (eventType === "refund.created" || eventType === "chargeback.created") {
-      console.log(`Processing ${eventType}: ${data.id}`);
-
-      // These are negative movements
-      const refund = {
-        id: String(data.id),
-        type: eventType === "refund.created" ? "refund" : "chargeback",
-        amount: -(data.amount || data.transaction_amount || 0), // Negative
-        currency_id: data.currency_id || "ARS",
-        date_created: data.date_created || new Date().toISOString(),
-        status: data.status || "pending",
-        description: `${eventType === "refund.created" ? "Refund" : "Chargeback"} - ${data.reason || "N/A"}`,
-        raw_data: data,
-      };
-
-      const { error } = await supabase.from("mercadopago_movements").upsert([refund], { onConflict: "id" }).catch(() => ({ error: null }));
-
-      if (!error) {
-        console.log(`Saved ${eventType} ${data.id}`);
       }
     }
 
