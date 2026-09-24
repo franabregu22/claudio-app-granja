@@ -44,27 +44,27 @@ Each RPC specifies:
 
 **EXECUTION (atomic PostgreSQL transaction):**
 ```
-BEGIN
-  SELECT pedidos FOR UPDATE WHERE id=order_id  -- Lock
-  IF estado != 'PENDING' RAISE ERROR "Order not PENDING"
-  
-  SELECT management_period WHERE delivered_at::DATE BETWEEN period_date AND period_date + '1 month'::interval FOR UPDATE
-  IF status != 'OPEN' RAISE ERROR "Period closed"
-  
-  UPDATE pedidos SET estado='DELIVERED', delivered_at=delivered_at, updated_at=NOW(), updated_by=auth.uid()
-  
-  INSERT client_ledger (
-    cliente_id, movement_type='SALE_DELIVERY', signed_amount=order_total, 
-    effective_date=delivered_at::DATE, ledger_client_name, created_by
-  )
-  
-  INSERT audit_event (
-    entity_type='pedido', entity_id=order_id, action='DELIVER', 
-    after_values=jsonb_build_object('estado','DELIVERED','delivered_at',delivered_at),
-    reason, performed_by=auth.uid(), performed_at=NOW()
-  )
-COMMIT
+-- SELECT pedidos FOR UPDATE WHERE id=order_id  -- Lock
+-- IF estado != 'PENDING' RAISE ERROR "Order not PENDING"
+
+-- SELECT management_period FOR UPDATE WHERE delivered_at::DATE IN period
+-- IF status != 'OPEN' RAISE ERROR "Period closed"
+
+-- UPDATE pedidos SET estado='DELIVERED', delivered_at=delivered_at, updated_at=NOW(), updated_by=auth.uid()
+
+-- INSERT client_ledger (
+--   cliente_id, movement_type='SALE_DELIVERY', signed_amount=SUM(pedido_lineas.subtotal WHERE is_current=true),
+--   effective_date=delivered_at::DATE, ledger_client_name, created_by
+-- )
+
+-- INSERT audit_event (
+--   entity_type='pedido', entity_id=order_id, action='DELIVER',
+--   after_values=jsonb_build_object('estado','DELIVERED','delivered_at',delivered_at),
+--   reason, performed_by=auth.uid(), performed_at=NOW()
+-- )
 ```
+
+**NOTE:** Pseudocódigo PL/pgSQL; executes atomically within containing transaction.
 
 **IDEMPOTENCY:**
 - Key: `order_id + delivered_at hash`
@@ -212,10 +212,9 @@ BEGIN
   -- Reduce client CC
   INSERT client_ledger (cliente_id, movement_type='COLLECTION', signed_amount=-amount, effective_date, created_by)
   
-  -- If cheque: create instrument + event (no posting yet)
+  -- Cheque payments: use receive_cheque RPC instead (single owner)
   IF payment_method='CHEQUE':
-    INSERT financial_instrument (cheque_number, amount, estado='RECEIVED', ...)
-    INSERT financial_instrument_event (event_type='RECEIVED', ...)
+    RAISE ERROR 'Use receive_cheque RPC for cheque payments (not register_collection with CHEQUE method)'
   
   -- If cash/transfer/MP: create posting immediately
   ELSIF payment_method IN ('CASH', 'TRANSFER', 'MERCADOPAGO'):
@@ -234,43 +233,64 @@ COMMIT
 
 ### RPC 5: receive_cheque
 
-**RPC NAME:** `receive_cheque(cliente_id: UUID, cheque_number: VARCHAR, amount: NUMERIC, maturity_date: DATE, received_at: TIMESTAMPTZ, reason?: TEXT) → {...}`
+**RPC NAME:** `receive_cheque(cliente_id: UUID, cheque_number: VARCHAR, amount: NUMERIC, maturity_date: DATE, received_at: TIMESTAMPTZ, receipt_id: VARCHAR, reason?: TEXT) → {...}`
 
 **PURPOSE:** Client payment via cheque; reduce client CC; instrument enters portfolio.
 
 **ACTOR:** ADMIN
 
+**SOLE OWNER:** receive_cheque is the ONLY RPC that creates cheque instruments. register_collection rejects payment_method='CHEQUE'.
+
 **PARAMETERS:**
 - `cliente_id`: UUID | client PK | Must exist
-- `cheque_number`: VARCHAR | unique cheque identifier
+- `cheque_number`: VARCHAR | cheque number (business data; not globally unique)
 - `amount`: NUMERIC | positive cheque amount
 - `maturity_date`: DATE | cheque maturity (can be future)
-- `received_at`: TIMESTAMPTZ | receipt time | Determines period
+- `received_at`: TIMESTAMPTZ | receipt time (UTC; determines period via conversion to DATE in America/Argentina/Buenos_Aires)
+- `receipt_id`: VARCHAR | idempotency key (UNIQUE; e.g., "REC_20260924_CLI001_CHK12345")
 - `reason`: TEXT NULLABLE | Audit reason
 
 **VALIDATES (before transaction):**
-- Client exists
+- Client exists and activo=true
 - amount > 0
-- cheque_number is UNIQUE
-- received_at falls within OPEN management period
+- receipt_id is UNIQUE
+- received_at::DATE falls within OPEN management period
+- current_app_role() = 'ADMIN'
 
-**EXECUTION (atomic PostgreSQL transaction):**
+**EXECUTION:**
 ```
-BEGIN
-  SELECT management_period WHERE received_at::DATE BETWEEN period_date AND period_date + '1 month'::interval FOR UPDATE
-  IF status != 'OPEN' RAISE ERROR "Period closed"
-  
-  INSERT financial_instrument (cheque_number, amount, estado='RECEIVED', maturity_date, cliente_id, created_by=auth.uid())
-  INSERT financial_instrument_event (event_type='RECEIVED', event_date=received_at::DATE, ...)
-  INSERT client_ledger (cliente_id, movement_type='CHEQUE_RECEIVED', signed_amount=-amount, effective_date=received_at::DATE, ...)
-  INSERT audit_event (...)
-COMMIT
+-- SELECT management_period FOR UPDATE WHERE received_at::DATE IN period
+-- IF status != 'OPEN' RAISE ERROR "Period closed"
+
+-- INSERT financial_instrument (
+--   cheque_number, amount, estado='RECEIVED',
+--   maturity_date, cliente_id,
+--   receipt_id,  -- idempotency
+--   created_by=auth.uid()
+-- )
+
+-- INSERT financial_instrument_event (
+--   event_type='RECEIVED',
+--   event_date=received_at::DATE,
+--   ...
+-- )
+
+-- INSERT client_ledger (
+--   cliente_id,
+--   movement_type='CHEQUE_RECEIVED',
+--   signed_amount=-amount,
+--   effective_date=received_at::DATE,
+--   ...
+-- )
+
+-- INSERT audit_event (action='RECEIVE_CHEQUE', ...)
 ```
 
-**NOTE:** cliente_id stored in financial_instrument for later rejection reversal.
+**IDEMPOTENCY:** receipt_id UNIQUE prevents duplicate execution.
 
 **PERIOD DETERMINATION:**
 - Column: `received_at`
+- Conversion: `received_at AT TIME ZONE 'America/Argentina/Buenos_Aires'`::DATE for period lookup
 - Check: Date must fall within OPEN management period
 
 ---

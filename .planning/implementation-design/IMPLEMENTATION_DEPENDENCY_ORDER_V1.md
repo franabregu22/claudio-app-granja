@@ -238,11 +238,12 @@ For each RPC from RPC_CONTRACTS_V1.md:
 
 **Each function:**
 - Takes exact parameters from RPC_CONTRACTS_V1
-- Executes atomic transaction (BEGIN/COMMIT)
-- Validates period before INSERT
-- Locks rows with SELECT FOR UPDATE
+- Executes atomically within statement transaction
+- Validates period before INSERT/UPDATE
+- Locks rows with SELECT FOR UPDATE where needed
 - Creates audit_events
 - Returns exact result type
+- Exception = automatic rollback
 
 ### Step 5.2: Assign Function Permissions
 

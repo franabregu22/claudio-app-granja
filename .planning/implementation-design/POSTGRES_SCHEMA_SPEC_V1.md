@@ -267,16 +267,19 @@ CREATE TABLE financial_instrument (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   instrument_type financial_instrument_type NOT NULL,
   estado instrument_estado NOT NULL,
-  cheque_number VARCHAR(50) UNIQUE NOT NULL,
+  cheque_number VARCHAR(50) NOT NULL,  -- Business data, not global identity
   amount NUMERIC(15,2) NOT NULL,
   maturity_date DATE,  -- Can be future; period determinant for clearing/rejection
   cliente_id UUID REFERENCES clients(id) ON DELETE RESTRICT ON UPDATE CASCADE,  -- Origin client (for RECEIVED cheques)
   bank_account_id UUID REFERENCES financial_account(id) ON DELETE RESTRICT ON UPDATE CASCADE,  -- Account cleared into (for CLEARED cheques)
+  receipt_id VARCHAR(100) UNIQUE NOT NULL,  -- Idempotency key from receive_cheque RPC
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_by UUID REFERENCES perfiles(id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- State machine: RECEIVED → DEPOSITED → CLEARED (or ENDORSED, or REJECTED)
+-- cheque_number: business data (not globally unique; same number can exist for different suppliers/dates/sources)
+-- receipt_id: technical idempotency key (globally unique); from receive_cheque(idempotency_key) parameter
 -- cliente_id: populated when cheque received from customer (for rejection reversal)
 -- bank_account_id: populated when cheque cleared (for clearing posting + rejection compensation)
 ```

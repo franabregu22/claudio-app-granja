@@ -19,56 +19,80 @@
 
 ---
 
-## JWT ROLE CLAIM SETUP (CRITICAL)
+## APPLICATION ROLE RESOLUTION (CRITICAL)
 
-**Single canonical implementation:**
-1. `perfiles.rol_type` is the single source of truth (ENUM: 'ADMIN' or 'OPERATOR')
-2. JWT 'role' claim is derived from perfiles lookup via auth.uid()
-3. SERVICE_ROLE is a separate backend privileged role (NOT in perfiles table; granted separately to service key)
+**Single canonical source of truth:**
+`perfiles.rol_type` (ENUM: 'ADMIN' or 'OPERATOR')
 
-### Implementation in Supabase:
+**RLS policies must use a secure, non-ambiguous mechanism.**
 
-**In JWT custom claims (via Auth Hook):**
-- After sign-in, look up user's rol_type from perfiles table
-- Include as 'role' claim in JWT payload:
-  ```json
-  {
-    "role": "ADMIN",  // or "OPERATOR" (from perfiles.rol_type)
-    "user_id": "uuid"
-  }
-  ```
-- For SERVICE_ROLE (backend service key): explicitly set `"role": "SERVICE_ROLE"` in JWT
+### Recommended Implementation:
 
-**All RLS policies use the same logic:**
+**Option 1: PostgreSQL Helper Function (SECURITY DEFINER)**
+
 ```sql
-auth.jwt() ->> 'role' = 'ADMIN'     -- for ADMIN business operations
-auth.jwt() ->> 'role' = 'OPERATOR'  -- for production operators
-auth.jwt() ->> 'role' = 'SERVICE_ROLE'  -- for backend service only
+-- Helper function: derive application role from auth.uid()
+CREATE OR REPLACE FUNCTION current_app_role()
+RETURNS TEXT AS $$
+DECLARE
+  role_result TEXT;
+BEGIN
+  SELECT rol_type INTO role_result
+  FROM perfiles
+  WHERE id = auth.uid()
+  AND activo = true;
+  
+  IF role_result IS NULL THEN
+    RAISE EXCEPTION 'User not found or inactive';
+  END IF;
+  
+  RETURN role_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION current_app_role() TO anon, authenticated;
 ```
 
-### Canonical Mapping:
+**All RLS policies use the helper:**
+```sql
+CREATE POLICY "example_admin" ON some_table FOR SELECT
+  USING (current_app_role() = 'ADMIN');
 
-| User Role | Source | JWT Claim | Database Access |
-|---|---|---|---|
-| Business Admin | perfiles.rol_type='ADMIN' | ADMIN | Full access via RPC; SELECT all tables |
-| Farm Operator | perfiles.rol_type='OPERATOR' | OPERATOR | Limited to production ops; BLOCKED on commercial/financial |
-| Backend Service | Service key (not in perfiles) | SERVICE_ROLE | MP reconciliation, financial operations only |
+CREATE POLICY "example_operator" ON some_table FOR SELECT
+  USING (current_app_role() = 'OPERATOR' AND created_by = auth.uid());
+```
+
+**Benefits:**
+- No reliance on JWT claim setup (that's a deployment detail)
+- Validation at database level (activo=true check)
+- Single point of truth
+- Not vulnerable to JWT claim manipulation
+- Can add audit/logging later
+
+### SERVICE_ROLE (Backend Privileged)
+
+SERVICE_ROLE is a Supabase feature, NOT a business role:
+- Backend service key (not a user in perfiles)
+- Used for MP reconciliation, batch operations, scheduled tasks
+- RLS policies can grant access via: `current_user_id() IS NULL AND auth.role() = 'service_role'`
+- Or explicitly with separate policies for backend operations
 
 ### Verification:
 
-After setting up JWT roles, test with:
+After implementing helper:
 ```sql
--- As ADMIN (using Supabase client with admin token)
-SELECT auth.jwt() ->> 'role';  -- Should return 'ADMIN'
+-- As authenticated user (token from perfiles with rol_type='ADMIN')
+SELECT current_app_role();  -- Should return 'ADMIN'
 
--- As OPERATOR (using client with operator token)
-SELECT auth.jwt() ->> 'role';  -- Should return 'OPERATOR'
+-- As user with rol_type='OPERATOR'
+SELECT current_app_role();  -- Should return 'OPERATOR'
 
--- As SERVICE_ROLE (backend service key)
-SELECT auth.jwt() ->> 'role';  -- Should return 'SERVICE_ROLE'
+-- As inactive user (activo=false)
+SELECT current_app_role();  -- Should RAISE EXCEPTION
+
+-- As unauthenticated
+SELECT current_app_role();  -- Should RAISE EXCEPTION (auth.uid() is NULL)
 ```
-
-**If JWT 'role' claim is not set up, ALL RLS policies will fail silently (return no rows).** This is a CRITICAL prerequisite.
 
 ---
 
@@ -82,7 +106,7 @@ SELECT auth.jwt() ->> 'role';  -- Should return 'SERVICE_ROLE'
 -- ADMIN: SELECT all; manage users
 CREATE POLICY "perfiles_admin"
   ON perfiles FOR ALL
-  USING (auth.jwt() ->> 'role' = 'ADMIN');
+  USING (current_app_role() = 'ADMIN');
 
 -- OPERATOR: Cannot access user management
 CREATE POLICY "perfiles_operator_blocked"
@@ -96,17 +120,17 @@ CREATE POLICY "perfiles_operator_blocked"
 -- ADMIN: SELECT all; write
 CREATE POLICY "sheds_admin_select"
   ON sheds FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'ADMIN');
+  USING (current_app_role() = 'ADMIN');
 
 -- OPERATOR: SELECT lookups (all active sheds)
 CREATE POLICY "sheds_operator_select"
   ON sheds FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'OPERATOR' AND activo=true);
+  USING (current_app_role() = 'OPERATOR' AND activo=true);
 
--- ADMIN: write via DML
-CREATE POLICY "sheds_admin_write"
+-- ADMIN: write via RPC
+CREATE POLICY "sheds_admin_insert"
   ON sheds FOR INSERT
-  WITH CHECK (auth.jwt() ->> 'role' = 'ADMIN');
+  WITH CHECK (current_app_role() = 'ADMIN');
 ```
 
 #### products
@@ -115,12 +139,12 @@ CREATE POLICY "sheds_admin_write"
 -- ADMIN: SELECT all
 CREATE POLICY "products_admin_select"
   ON products FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'ADMIN');
+  USING (current_app_role() = 'ADMIN');
 
 -- OPERATOR: SELECT active products (for order entry, eventually)
 CREATE POLICY "products_operator_select"
   ON products FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'OPERATOR' AND activo=true);
+  USING (current_app_role() = 'OPERATOR' AND activo=true);
 ```
 
 #### financial_account
@@ -129,17 +153,17 @@ CREATE POLICY "products_operator_select"
 -- ADMIN: SELECT all
 CREATE POLICY "financial_account_admin_select"
   ON financial_account FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'ADMIN');
+  USING (current_app_role() = 'ADMIN');
 
 -- OPERATOR: BLOCKED (financial accounts hidden)
 CREATE POLICY "financial_account_operator_blocked"
   ON financial_account FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'OPERATOR' AND FALSE);
+  USING (current_app_role() = 'OPERATOR' AND FALSE);
 
--- SERVICE_ROLE: SELECT all (for MP reconciliation)
+-- SERVICE_ROLE: SELECT all (for MP reconciliation, backend only)
 CREATE POLICY "financial_account_service_role_select"
   ON financial_account FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'SERVICE_ROLE');
+  USING (auth.role() = 'service_role');
 ```
 
 ---
@@ -152,13 +176,13 @@ CREATE POLICY "financial_account_service_role_select"
 -- ADMIN: SELECT all
 CREATE POLICY "daily_production_admin_select"
   ON daily_production FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'ADMIN');
+  USING (current_app_role() = 'ADMIN');
 
--- OPERATOR: Own entries + authorized flocks
+-- OPERATOR: SELECT own + authorized flocks
 CREATE POLICY "daily_production_operator_select"
   ON daily_production FOR SELECT
   USING (
-    auth.jwt() ->> 'role' = 'OPERATOR'
+    current_app_role() = 'OPERATOR'
     AND (
       created_by = auth.uid()
       OR flock_id IN (
@@ -167,16 +191,11 @@ CREATE POLICY "daily_production_operator_select"
     )
   );
 
--- OPERATOR: INSERT own
-CREATE POLICY "daily_production_operator_insert"
+-- RPC-ONLY: All writes via register_daily_production RPC
+-- INSERT DENY
+CREATE POLICY "daily_production_no_insert"
   ON daily_production FOR INSERT
-  WITH CHECK (
-    auth.jwt() ->> 'role' = 'OPERATOR'
-    AND created_by = auth.uid()
-    AND flock_id IN (
-      SELECT flock_id FROM operator_assignments WHERE operator_id = auth.uid()
-    )
-  );
+  WITH CHECK (FALSE);
 
 -- IMMUTABLE: UPDATE DENY
 CREATE POLICY "daily_production_immutable"
@@ -189,25 +208,29 @@ CREATE POLICY "daily_production_no_delete"
   USING FALSE;
 ```
 
+**CRITICAL:** daily_production writes ONLY via `register_daily_production(flock_id, production_date, ...)` RPC. RPC validates: auth.uid(), OPERATOR role, operator_assignments, OPEN period, no duplicate (flock_id, production_date).
+
 #### population_events (mortality + count adjustments)
 
 ```sql
--- OPERATOR: INSERT own
-CREATE POLICY "population_events_operator_insert"
+-- RPC-ONLY: All writes via register_mortality / register_count_adjustment RPCs
+-- INSERT DENY
+CREATE POLICY "population_events_no_insert"
   ON population_events FOR INSERT
-  WITH CHECK (
-    auth.jwt() ->> 'role' = 'OPERATOR'
-    AND created_by = auth.uid()
-    AND flock_id IN (
-      SELECT flock_id FROM operator_assignments WHERE operator_id = auth.uid()
-    )
-  );
+  WITH CHECK (FALSE);
 
--- APPEND_ONLY: UPDATE DENY
+-- APPEND_ONLY: Business fields immutable via RLS UPDATE DENY
 CREATE POLICY "population_events_append_only"
   ON population_events FOR UPDATE
   USING FALSE;
+
+-- DELETE DENY
+CREATE POLICY "population_events_no_delete"
+  ON population_events FOR DELETE
+  USING FALSE;
 ```
+
+**CRITICAL:** population_events writes ONLY via `register_mortality(flock_id, delta, event_date, ...)` or `register_count_adjustment(...)` RPCs. RPC validates: auth.uid(), OPERATOR role, operator_assignments, OPEN period (via event_date), uniqueness constraints.
 
 #### flock_weighing
 
@@ -215,13 +238,13 @@ CREATE POLICY "population_events_append_only"
 -- ADMIN: SELECT all
 CREATE POLICY "flock_weighing_admin_select"
   ON flock_weighing FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'ADMIN');
+  USING (current_app_role() = 'ADMIN');
 
--- OPERATOR: Own entries + authorized flocks
+-- OPERATOR: SELECT own + authorized flocks
 CREATE POLICY "flock_weighing_operator_select"
   ON flock_weighing FOR SELECT
   USING (
-    auth.jwt() ->> 'role' = 'OPERATOR'
+    current_app_role() = 'OPERATOR'
     AND (
       created_by = auth.uid()
       OR flock_id IN (
@@ -230,16 +253,11 @@ CREATE POLICY "flock_weighing_operator_select"
     )
   );
 
--- OPERATOR: INSERT own
-CREATE POLICY "flock_weighing_operator_insert"
+-- RPC-ONLY: All writes via register_flock_weighing RPC
+-- INSERT DENY
+CREATE POLICY "flock_weighing_no_insert"
   ON flock_weighing FOR INSERT
-  WITH CHECK (
-    auth.jwt() ->> 'role' = 'OPERATOR'
-    AND created_by = auth.uid()
-    AND flock_id IN (
-      SELECT flock_id FROM operator_assignments WHERE operator_id = auth.uid()
-    )
-  );
+  WITH CHECK (FALSE);
 
 -- IMMUTABLE: UPDATE DENY
 CREATE POLICY "flock_weighing_immutable"
@@ -252,19 +270,21 @@ CREATE POLICY "flock_weighing_no_delete"
   USING FALSE;
 ```
 
+**CRITICAL:** flock_weighing writes ONLY via `register_flock_weighing(flock_id, weighing_date, ...)` RPC.
+
 #### temperature_record
 
 ```sql
 -- ADMIN: SELECT all
 CREATE POLICY "temperature_record_admin_select"
   ON temperature_record FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'ADMIN');
+  USING (current_app_role() = 'ADMIN');
 
--- OPERATOR: Own entries + authorized sheds
+-- OPERATOR: SELECT own + authorized sheds
 CREATE POLICY "temperature_record_operator_select"
   ON temperature_record FOR SELECT
   USING (
-    auth.jwt() ->> 'role' = 'OPERATOR'
+    current_app_role() = 'OPERATOR'
     AND (
       created_by = auth.uid()
       OR shed_id IN (
@@ -276,19 +296,11 @@ CREATE POLICY "temperature_record_operator_select"
     )
   );
 
--- OPERATOR: INSERT own
-CREATE POLICY "temperature_record_operator_insert"
+-- RPC-ONLY: All writes via register_temperature_record RPC
+-- INSERT DENY
+CREATE POLICY "temperature_record_no_insert"
   ON temperature_record FOR INSERT
-  WITH CHECK (
-    auth.jwt() ->> 'role' = 'OPERATOR'
-    AND created_by = auth.uid()
-    AND shed_id IN (
-      SELECT DISTINCT shed_id FROM flocks
-      WHERE id IN (
-        SELECT flock_id FROM operator_assignments WHERE operator_id = auth.uid()
-      )
-    )
-  );
+  WITH CHECK (FALSE);
 
 -- IMMUTABLE: UPDATE DENY
 CREATE POLICY "temperature_record_immutable"
@@ -300,6 +312,8 @@ CREATE POLICY "temperature_record_no_delete"
   ON temperature_record FOR DELETE
   USING FALSE;
 ```
+
+**CRITICAL:** temperature_record writes ONLY via `register_temperature_record(shed_id, record_date, ...)` RPC.
 
 ---
 
