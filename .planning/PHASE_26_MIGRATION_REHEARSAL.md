@@ -1,7 +1,7 @@
 # PHASE 26 — MIGRATION REHEARSAL: PRE-RUN READINESS
 
-**STATUS:** **BLOCKED** before migration execution. No realistic source copy exists, and obtaining one requires read-only production access that has not been authorized (P-4).
-**Nothing executed:** no SQL, no migration, no data load, no test run. Production was not contacted. No existing file was modified.
+**STATUS:** **BLOCKED** before migration execution. No realistic source copy exists yet. Read-only access (B), Block A and R1 are approved; scripts statically proven (§10c); Block A awaits execution by the owner (§10d).
+**Nothing executed against any database:** no SQL, no migration, no data load, no test run. Production was not contacted. Baseline commit `061130f` created (§10).
 
 **Exit criterion (MASTER_ROADMAP, verbatim):** "The migration runs end to end in the test environment against a realistic copy. Discrepancies explained, not silently reconciled. Repeatable."
 
@@ -174,9 +174,13 @@ Values are filled only from a run. Every discrepancy is EXPLAINED or BLOCKER.
 - **Pass requires R1 = R2 on:** snapshot identity (sha256); configuration hash (maps, rules, opening inputs); row count per target table; derived balances per client, supplier and account; derived population per flock; exclusion count per reason; mapping-store cardinality per entity; zero duplicate facts per idempotency key.
 - **Plus V-22** inside one run: a second pass over the loaded target writes nothing.
 
-## 10. Git baseline proposal (not committed)
+## 10. Git baseline
 
-The owner's process note requires an auditable checkpoint before existing migration tooling is changed. Proposed Phase 26 baseline commit, to be authorized by the owner:
+**COMMITTED** (owner authorization A): `061130f` — `phase-25-baseline-before-migration-rehearsal`, parent `7f085f2`. 115 files, staged by explicit path (no `git add .`). No history rewritten.
+Secret check before commit: no staged path under `.env*`, `.temp/`, `data/`, `outputs/`, no dump or key file; pattern scan found only the public local-stack credential `postgres:postgres@127.0.0.1:54322`, guard-test fixtures and `***` placeholders; zero hits for the production project ref, the service-role key or the anon key.
+Also excluded: `.planning/phase12-evidence/phase12_backup.sql` (a dump), `.claude/settings.json`, `supabase/.temp/cli-latest`, and the ad-hoc root and `scripts/*` legacy MP files. This evidence file and `phase26-evidence/` postdate the commit.
+
+The original proposal, as authorized:
 
 - `supabase/target-migrations/` (0001–0046)
 - `scripts/target-db/` (runner and 14 suites)
@@ -189,18 +193,104 @@ Excluded: `supabase/.temp/`, `.env*`, ad-hoc root and `scripts/check-*` legacy M
 
 ---
 
+## 10b. Read-only legacy access — design (owner authorization B; nothing executed)
+
+**Production contact status:** not contacted. Read access is authorized; writes are not.
+
+**Legacy source inventory (28 tables).** Derived from `MIGRATION_STRATEGY_V1` §3/§8 and confirmed against the application's `.from('…')` calls; the operational DDL is still unversioned (G-1), so the grant block aborts if any name is wrong.
+- Operational (18): `perfiles, clientes, productos, precios_historial, pedidos, pedido_lineas, pagos, pago_en_caja, movimientos_caja, cuentas_caja, arqueos_caja, categorias_finanzas, cheques, comisiones, facturas, lotes, producciones, recuentos_lote`. Legacy order-line shapes 2 and 3 live inside `pedidos.lineas`, so they are covered.
+- Mercado Pago source and coverage evidence (10): `mercadopago_raw, mercadopago_movements, mercadopago_settlement, mp_source_record, mp_financial_movement, mp_movement_source_link, mp_source_link_resolution, monthly_reconciliation, reconciliation_snapshot, import_period_coverage`.
+- Excluded: `precios_actuales` (derived, F), `ledger_entry, account_balance, mp_financial_cycle, mp_import_exception, period_flow_observation, sync_metadata` (evidence kept in the old system, not needed as source), `login_attempts, webhook_events` (security/infrastructure), every non-`public` schema (`auth`, `storage`, `realtime`, `extensions`, `supabase_*`, `vault`, …).
+- No legacy Feria or fiscal tables exist beyond the `clientes.categoria` tag and `facturas`.
+
+**SQL (split per block so each runs alone):** [`A_CREATE`](phase26-evidence/LEGACY_SNAPSHOT_READER_A_CREATE.sql) (approved), [`B_R1_POLICIES`](phase26-evidence/LEGACY_SNAPSHOT_READER_B_R1_POLICIES.sql) (R1 approved), [`C_TEARDOWN`](phase26-evidence/LEGACY_SNAPSHOT_READER_C_TEARDOWN.sql), and [`VERIFY`](phase26-evidence/LEGACY_SNAPSHOT_READER_VERIFY.sql) (fail-closed proof run as the reader). The earlier combined `LEGACY_SNAPSHOT_READER_ROLE.sql` is superseded and removed.
+
+**Privilege model (Block A):** `LOGIN`, `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`, no memberships, `CONNECTION LIMIT 2`, `VALID UNTIL 2026-10-31`; `CONNECT` on `postgres`; `USAGE` on `public` only; `SELECT` on the 28 tables and on their owned sequences only. No password in SQL: set with psql `\password` and kept only in git-ignored `.env.test`. `default_transaction_read_only = on`, statement and idle timeouts, as defence in depth.
+
+**Limits that cannot be removed per role without a production-wide change (disclosed, not hidden):**
+- `TEMP` on the database and `EXECUTE` on functions are granted to `PUBLIC` by PostgreSQL default; a per-role REVOKE cannot cancel a PUBLIC grant. TEMP objects are session-local and never persist. The EXECUTE exposure is checked by VERIFY 1.7: if any SECURITY DEFINER business write function (e.g. `marcar_pedido_entregado`) is executable, the process STOPS.
+
+**BLOCKER — RLS versus a restricted reader.** Legacy tables have RLS enabled (`sql/*.sql`: perfiles, clientes, pedidos, pagos, movimientos_caja, cheques, lotes, recuentos_lote). For a role without `BYPASSRLS`, `pg_dump` either **fails** (default `row_security = off`) or dumps **only policy-visible rows** (`--enable-row-security`), which would be a silently partial copy. Per the instruction, privileges are not broadened silently. Owner options:
+- **R1** — Block B: add one `FOR SELECT TO legacy_snapshot_reader USING (true)` policy on each RLS table, dump with `--enable-row-security`, remove it in Block C. A reversible administrative change to table security metadata; no data or column change.
+- **R2** — give the reader `BYPASSRLS`. Currently forbidden by the owner's instruction.
+- **R3** — the owner produces the full dump with the owner's own credential (or a managed Supabase backup) and hands over the file. No reader role; the snapshot identity is the file hash.
+
+**Snapshot procedure (R1; revised after the rehearsal in §10c).** Client: `pg_dump` 17.6 inside a container of the cached image `supabase/postgres:17.6.1.155`, which matches the production server version (`supabase/.temp/postgres-version` = 17.6.1.155). The URL comes from `.env.test` into the environment, never onto a command line.
+1. **Holder session** (reader): `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();` then the per-table `count(*)` of the 28 tables — these are the SOURCE_VISIBLE counts, taken **inside the same snapshot** the dump uses. The session stays open until step 3 ends.
+2. **Data dump** (reader, second connection — connection limit 2):
+   `pg_dump "$URL" --snapshot=<id> --format=custom --compress=6 --no-owner --no-privileges --no-publications --no-subscriptions --enable-row-security --table=public.<each of the 28> -f legacy-data.dump`
+3. **Schema dump:** `pg_dump "$URL" --snapshot=<id> --schema-only --no-owner --no-privileges --table=public.<each of the 28> -f legacy-schema.sql`; then `COMMIT` the holder.
+4. **Restore** into a separate local database `legacy_copy`, as the local `postgres`, never as the reader: `pg_restore -l` → drop only the `POLICY … legacy_snapshot_reader_select` TOC entries (that role will not exist locally) → `pg_restore --no-owner --no-privileges --exit-on-error -L <list>`.
+5. **Reconcile:** RESTORED count per table must equal the step-1 count for all 28; any difference invalidates the snapshot.
+
+Why `--snapshot` and not "count immediately before the dump": production keeps receiving writes, so a count taken outside the dump's snapshot can differ from the dump without the dump being wrong. Counting inside the exported snapshot makes equality exact. `--serializable-deferrable` is dropped in favour of `--snapshot`.
+
+**COPY FROM and RLS:** PostgreSQL's warning that restoring with `COPY FROM` under row security can fail or be partial applies to the **restoring** role on the **target** database. The restore runs locally as `postgres`, the table owner, so it is not restricted. That warning is no reason to give the production reader `BYPASSRLS`.
+
+Connection: the Supabase **session** pooler URI copied from the project's Connect dialog (not built by hand), user `legacy_snapshot_reader.<PROJECT_REF>`, port 5432; never the transaction pooler (exported snapshots need a stable session). Recorded command: identical with the URL shown as `postgresql://legacy_snapshot_reader.<REDACTED>@<REDACTED>:5432/postgres`.
+
+**Output location:** outside the repository, `C:\Users\Franabregu\GranjaSnapshots\phase26\<UTC-timestamp>\` holding `legacy-data.dump`, `legacy-schema.sql`, `SHA256SUMS`, `manifest.json` (no credentials). Files set read-only after hashing.
+
+**Hash / identity plan:** SHA-256 of `legacy-data.dump` and of `legacy-schema.sql` recorded in `SHA256SUMS`, in `manifest.json` and in this file. Manifest also holds: UTC timestamp, project ref (redacted in git), `server_version`, the 28 included tables, the excluded list, the redacted command, and the row count per table measured **on the local restore of the dump** (so counts belong to the same snapshot, not to a later live read). Before every profiling or migration run the hashes are re-checked; a mismatch stops the run.
+
+## 10c. Pre-execution static check (owner step C) — executed on a throwaway container
+
+**Environment:** a standalone container of `supabase/postgres:17.6.1.155` (the production server image), `--network none`, no ports, removed afterwards. As in production, `postgres` there is **not** a superuser and has CREATEROLE. The stub schema had the 28 tables with 5 rows each, RLS plus an existing app policy on the 8 legacy RLS tables, serial sequences on the 4 integer-PK tables, and a `SECURITY DEFINER` stand-in `marcar_pedido_entregado`. Production was not involved.
+
+| # | Requirement | Test | Result |
+|---|---|---|---|
+| 1 | every policy B creates is removed by C | B → C: 8 created, 0 left | PASS |
+| 2 | a name collision fails, never merges | same-name policy pre-created → B raises, 0 reader policies created; C raises and rolls back instead of dropping a foreign policy | PASS (B's guard added in this pass) |
+| 3 | A fails atomically if a table is absent | `facturas` hidden → ERROR, 0 roles | PASS |
+| 4 | B fails atomically | collision → whole block rolled back | PASS |
+| 5 | C removes every reader policy, then the role | 0 roles, 0 policies, 0 grants, 0 `pg_shdepend` rows; the 8 app policies are intact | PASS **after fix** |
+| 6 | no statement can mutate business rows | A/B/C hold only role, GRANT/REVOKE and POLICY statements; the VERIFY write probes use `WHERE false` or are rolled back, and each ended in `permission denied` / `must be owner` | PASS |
+| 7 | no object other than role, grants and temporary SELECT policies | inspected: `CREATE ROLE`, `ALTER ROLE … SET`, `GRANT`, `CREATE POLICY` only | PASS |
+
+**Fixes made before any production contact:**
+- **C** used `DROP OWNED BY`, which fails on PostgreSQL 16+ for a non-superuser creator (`permission denied to drop objects`); the block rolled back cleanly. It now revokes explicitly from the real ACLs and then runs `DROP ROLE`, which itself fails if anything remains. Re-run: PASS.
+- **B** now refuses to run if a policy named `legacy_snapshot_reader_select` exists anywhere. **C** drops only policies with that name **and** exactly the reader as role, and raises if another remains.
+- **A**: `\set ON_ERROR_STOP on`; the `\password` text was reworded (owner correction A): no password in any file; it is set interactively and kept only in `.env.test`.
+- **Restore:** the dump carries the reader's policies, and that role will not exist in the local cluster. The restore now filters those TOC entries (proven: filtered restore OK, counts identical).
+
+**Behaviour proven on the rehearsal:**
+- VERIFY as the reader: no privileged attribute, no membership, SELECT only on the 28 tables, no write privilege anywhere, no CREATE, TEMP inherited from PUBLIC. **1.7 lists the PUBLIC-executable SECURITY DEFINER stand-in**, so VERIFY does detect the exposure.
+- `row_security = off` → `query would be affected by row-level security policy`. `pg_dump` without `--enable-row-security` fails the same way (fail-closed).
+- With R1: counts seen by the reader equal the owner's counts for all 28 tables.
+- 50 rows inserted concurrently during the dump: the counts taken in the exported snapshot equal the restored counts for all 28 tables, and the concurrent rows are excluded from both.
+
+**STATIC SECURITY CHECK: PASS** (after the fixes above).
+
+## 10d. Execution status and owner runbook
+
+**Not executed against production in this pass.** Block A needs (1) the administrative `postgres` database credential and (2) an **interactive** psql session for `\password`. Neither is available in this non-interactive session. `.env.local` holds only API keys, which are not database credentials and are excluded by the owner's rule. Production was therefore not contacted.
+
+**Anticipated stop at VERIFY 1.7.** PostgreSQL grants `EXECUTE` on every new function to `PUBLIC` by default. If `marcar_pedido_entregado` (the one legacy RPC the app calls) or any other business-write function is `SECURITY DEFINER` and still executable by `PUBLIC`, the reader inherits it and the instruction is to STOP before R1. Resolving it (for example `REVOKE EXECUTE … FROM PUBLIC` after confirming the app role keeps its explicit grant) is a production change that needs its own owner decision. It is not pre-authorized.
+
+**Runbook (owner = O, Claude = C):**
+1. **O** — opens an interactive psql to production as `postgres`, using the session-pooler URI from the Connect dialog: `docker run --rm -it public.ecr.aws/supabase/postgres:17.6.1.155 psql "<URI>"`. Runs `\i` of the A file (or pastes it), then `\password legacy_snapshot_reader` with a generated password.
+2. **O** — writes `LEGACY_READONLY_DATABASE_URL=<session-pooler URI with user legacy_snapshot_reader.<ref> and that password>` into `.env.test` (git-ignored), and prints it nowhere.
+3. **C** — runs VERIFY parts 1–2 as the reader. It stops at any failure, including 1.7.
+4. **O** — runs B (clean case only).
+5. **C** — runs VERIFY part 3 and the R1 completeness check, then the snapshot procedure of §10b, hashes, manifest, read-only files, local restore, and reconciliation of all 28 counts.
+6. **O** — runs C only after C reports all 28 counts reconciled. **C** then confirms 0 roles, 0 policies and 0 grants through the post-check output O pastes back.
+7. **C** — profiles `legacy_copy` only. No further production contact.
+
 ## 11. Blockers
 
 1. **No realistic source copy** of the legacy operational data (A, B, C all absent except MP exports).
-2. **P-4 open:** no read-only production role or `LEGACY_READONLY_DATABASE_URL`; owner authorization to read production not given.
+2. **P-4 open:** Block A and R1 are approved and statically proven (§10c), but Block A was not executed: it needs the owner's administrative credential and an interactive `\password` session (§10d, runbook step 1).
 3. OD-1, OD-2, OD-3 evidence not profiled (consequence of 1–2).
 4. No data-migration tool or mapping store exists.
 5. Opening balances have no owner evidence yet.
 
 ## 12. Owner decisions required now
 
-1. **Authorize** a read-only production snapshot, and create a dedicated read-only database role + `LEGACY_READONLY_DATABASE_URL` (not the service-role key) — or supply a full legacy dump obtained by the owner.
-2. **Authorize** the git baseline commit in §10.
+1. ~~Authorize a read-only production snapshot~~ — authorized (B).
+2. ~~Authorize the git baseline commit~~ — authorized (A), committed `061130f`.
+3. ~~Approve Block A~~ — approved. ~~Choose R1/R2/R3~~ — R1 approved, R2 rejected, R3 fallback only.
+4. **Execute runbook steps 1–2** (§10d): create the reader and store its URL in `.env.test`.
+5. **Possibly required:** a decision on any PUBLIC-executable SECURITY DEFINER business function that VERIFY 1.7 finds.
 
 OD-1, OD-2 and OD-3 are **not** asked now: they are decided only after their evidence is profiled.
 
