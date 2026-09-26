@@ -1,360 +1,546 @@
 # DATABASE INVARIANTS V1
 
-**STATUS:** Implementation-ready; consolidated from Agents A, D (Schema/Temporal)  
+**STATUS:** **FROZEN** — Fase 9 (Implementation Design) closed 2026-09-24. Implementation-ready invariant registry.  
+**AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
+**AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
+Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
-**PURPOSE:** Central registry of invariants that the database must guarantee at all times
+**AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
+**COMPANIONS:** `POSTGRES_SCHEMA_SPEC_V1.md` (54 tables) · `RPC_CONTRACTS_V1.md` (42 RPCs — RPC 42 by ADR-001) · `RLS_IMPLEMENTATION_SPEC_V1.md`
+
+Every invariant below names its enforcement mechanism and the exact identifiers involved. Where a
+mechanism is "absent privilege", that is deliberate and explained in invariant 9.
+
+**COUNT: 28 invariants.**
 
 ---
 
-## CRITICAL INVARIANTS (20 TOTAL)
+## 1. One ACTIVE flock per shed
 
-### 1. One ACTIVE Flock Per Shed
-
-**Invariant:** At most one flock per shed has estado='ACTIVE'
-
-**Enforced by:** `UNIQUE(shed_id) WHERE estado='ACTIVE'` on flocks table
-
-**Verification:** Before inserting/updating flock to ACTIVE, check no other ACTIVE exists for shed_id
-
-**Consequence of violation:** Data corruption; production records ambiguous
+**Rule:** at most one `flocks` row per `shed_id` has `estado='ACTIVE'`.  
+**Enforced by:** `CREATE UNIQUE INDEX idx_flocks_shed_active ON flocks(shed_id) WHERE estado='ACTIVE'`.  
+**Why an index:** PostgreSQL has no partial UNIQUE *constraint*; `ALTER TABLE ADD CONSTRAINT UNIQUE … WHERE` does not exist.  
+**Violation:** production records become ambiguous between two concurrent flocks.
 
 ---
 
-### 2. Max ONE MORTALITY Per (Flock, Date)
+## 2. One current MORTALITY per (flock, date)
 
-**Invariant:** Only one MORTALITY event per (flock_id, event_date) has is_current=true
-
-**Enforced by:** `CREATE UNIQUE INDEX idx_population_events_mortality ON population_events(flock_id, event_date) WHERE event_type='MORTALITY' AND is_current=true` (partial unique index)
-
-**Multiple COUNT_ADJUSTMENT events allowed:** UNIQUE constraint applies to MORTALITY type only
-
-**Rectification:** Insert new event with is_current=true; update original superseded_by via SECURITY DEFINER function (APPEND_ONLY at RLS; metadata-only UPDATE via privileged function)
-
-**Verification:** Queries use `WHERE event_type='MORTALITY' AND is_current=true`
+**Rule:** at most one `population_events` row with `event_type='MORTALITY'` and `is_current=true` per `(flock_id, event_date)`. `COUNT_ADJUSTMENT` is intentionally unconstrained — multiple adjustments per date are legitimate.  
+**Enforced by:** `CREATE UNIQUE INDEX idx_population_events_mortality_current ON population_events(flock_id, event_date) WHERE event_type='MORTALITY' AND is_current=true`.  
+**Rectification:** `rectify_mortality` (RPC 21) sets `is_current=false` on the old row *before* inserting the replacement, so the index never sees two current rows inside the transaction.  
+**Duplicate attempt:** `register_mortality` raises `MORTALITY_ALREADY_RECORDED` and reports the existing value. No `MORTALITY_CONFLICT` type, no `conflict_flag` (frozen Part 26).
 
 ---
 
-### 3. Order Subtotal = Quantity × Unit Price
+## 3. Order subtotal = cantidad × precio_unitario
 
-**Invariant:** pedido_lineas.subtotal = cantidad * precio_unitario (always)
-
-**Enforced by:** `GENERATED ALWAYS AS (cantidad * precio_unitario) STORED`
-
-**Immutability:** Once generated, subtotal cannot be changed (DB-computed)
-
-**Consequence of violation:** Order total would be wrong; ledger amounts incorrect
+**Rule:** `pedido_lineas.subtotal` always equals `cantidad * precio_unitario`.  
+**Enforced by:** `subtotal NUMERIC(15,2) GENERATED ALWAYS AS (cantidad * precio_unitario) STORED`.  
+The column cannot be written by anyone, including RPCs.  
+Same mechanism on `purchase_line.subtotal`.
 
 ---
 
-### 4. Delivered Order Is Immutable
+## 4. A DELIVERED order is immutable
 
-**Invariant:** Once pedidos.estado='DELIVERED', no field in that order row can be modified
-
-**Enforced by:** RLS policy `UPDATE ... WHERE estado != 'DELIVERED'` (allows UPDATE only while PENDING)
-
-**Rectification:** Via rectify_delivered_order RPC (creates reversal + new entries, never modifies original)
-
-**Consequence of violation:** Delivery ledger would be out of sync; audit trail broken
+**Rule:** once `pedidos.estado='DELIVERED'`, no column of that row and no business column of its lines may change.  
+**Enforced by:** the single UPDATE policy `pedidos_admin_update_pending` has `USING (… estado='PENDING')`, so a delivered row matches no UPDATE policy; `pedido_lineas` has no UPDATE policy and no UPDATE privilege at all.  
+**Correction path:** `rectify_delivered_order` (RPC 2) only — reversal + new version + audit.  
+**Note:** exactly one UPDATE policy exists on `pedidos`; a second broad policy would be OR-ed and would silently defeat this.
 
 ---
 
-### 5. Client Balance = SUM(client_ledger)
+## 5. Client balance = SUM(client_ledger)
 
-**Invariant:** Client debt = sum of all client_ledger entries for that cliente_id (no stored balance)
-
-**Enforced by:** NO balance column in clients table; computed in queries
-
-**Consequence of violation:** Stored balance and actual sum diverge; invisible corruption
+**Rule:** client debt is `SUM(client_ledger.signed_amount)` for that `cliente_id`. No stored balance exists.  
+**Enforced by:** `clients` has no balance column. Frozen Part 26 rejects editable running balances.  
+**Sign convention:** `+` increases debt, `-` reduces it. A negative total is a credit in favour of the client and is valid.
 
 ---
 
-### 6. Account Balance = SUM(financial_posting)
+## 6. Account balance = SUM(financial_posting)
 
-**Invariant:** Financial account balance = sum of all financial_posting entries for that account (no stored balance)
-
-**Enforced by:** NO balance column in financial_account table; computed in queries
-
-**Consequence of violation:** Hidden discrepancy between stored and actual balance
+**Rule:** account balance is `SUM(financial_posting.signed_amount)` for that `financial_account_id`. No stored balance exists.  
+**Enforced by:** `financial_account` has no balance column.
 
 ---
 
-### 7. Financial Posting Belongs to Operation
+## 7. Supplier balance = SUM(supplier_ledger)
 
-**Invariant:** Every financial_posting.financial_operation_id references an existing financial_operation row
-
-**Enforced by:** FK constraint on financial_operation_id (NOT NULL + REFERENCES)
-
-**Consequence of violation:** Orphaned posting; GL trace broken
+**Rule:** supplier debt is `SUM(supplier_ledger.signed_amount)` for that `supplier_id`. No stored balance exists, and payments are never allocated to specific invoices (frozen Part 8).  
+**Enforced by:** `suppliers` has no balance column; `supplier_ledger` has no invoice-allocation column.
 
 ---
 
-### 8. Transfer Posts Exactly 2x (Opposite Signs)
+## 8. Every posting belongs to an operation
 
-**Invariant:** Every TRANSFER operation has exactly 2 postings (one debit, one credit) with opposite signs
-
-**Enforced by:** RPC atomicity (both postings inserted together) + operation_id shared + RPC validation
-
-**Consequence of violation:** Account balances diverge permanently; money vanishes or appears
+**Rule:** `financial_posting.financial_operation_id` always references an existing `financial_operation`.  
+**Enforced by:** `NOT NULL` + FK `ON DELETE RESTRICT`.  
+**Type note:** the FK column is `BIGINT` referencing a `BIGSERIAL` PK. `BIGSERIAL` is a PK-only declaration, never a FK column type.
 
 ---
 
-### 9. Ledger Entry Is APPEND_ONLY
+## 9. Append-only tables are protected by absent privileges
 
-**Invariant:** No UPDATE or DELETE on: client_ledger, financial_posting, population_events, supplier_ledger, audit_events, feed_inventory_count
+**Rule:** no application role may `UPDATE` or `DELETE` these tables:
+`client_ledger`, `collections`, `financial_operation`, `financial_posting`,
+`financial_instrument_event`, `supplier_ledger`, `purchases`, `purchase_line`,
+`freight`, `freight_allocation`, `population_events`, `daily_production`,
+`flock_weighing`, `temperature_record`, `classification`, `classification_line`,
+`feed_manufacturing`, `feed_movement`, `feed_inventory_count`,
+`sales_session_movement`, `sales_session_cash_event`,
+`fiscal_document`, `fiscal_document_component`, `fiscal_obligation_installment`,
+`fiscal_payment`, `audit_events`, `mp_financial_movement`, `mp_reconciliation`.
 
-**Enforced by:** RLS policies `UPDATE USING FALSE; DELETE USING FALSE` on each table (business-level immutability)
+**Enforced by:** `REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM anon, authenticated`, with narrow re-grants that exclude every table above.
 
-**Exceptions:** 
-- population_events: metadata fields (is_current, superseded_by) updatable ONLY via SECURITY DEFINER function with strict internal authorization (business fields delta/event_date/flock_id remain immutable)
-- Rectification: creates new record (INSERT), never updates business fields
+**Why not `UPDATE USING FALSE`:** PostgreSQL RLS is permissive — policies for one command are OR-ed. A `USING FALSE` policy grants nothing and **denies nothing**; it is a no-op that only looks protective, and it becomes actively misleading next to a broad `FOR ALL` policy, whose branch would win. Absent privilege is the real guarantee.
 
-**Consequence of violation:** Audit trail destroyed; financial records rewriteable
-
----
-
-### 10. Period OPEN Determines Editability
-
-**Invariant:** No INSERT/UPDATE with effective_date in a CLOSED period (unless period reopened by ADMIN)
-
-**Enforced by:** RPC validation before INSERT/UPDATE (SELECT period FOR UPDATE; IF status='CLOSED' RAISE ERROR)
-
-**Consequence of violation:** Facts post silently to closed periods; period integrity broken
-
----
-
-### 11. Fact's Period = effective_date, NOT created_at
-
-**Invariant:** Period determination is ALWAYS via effective_date (or delivered_at, event_date, economic_date per entity), NEVER created_at
-
-**Enforced by:** RPC uses effective_date for period lookup; schema design ensures effective_date exists; created_at is metadata only
-
-**Consequence of violation:** Period closure could be bypassed; facts post to wrong periods
+**Controlled exceptions (metadata only, via SECURITY DEFINER RPCs owned by `postgres`):**
+- `pedido_lineas.is_current` — flipped by RPC 2.
+- `population_events.is_current`, `.superseded_by` — RPC 21. Business fields `delta`, `event_date`, `flock_id` never change.
+- `daily_production.is_current`, `.superseded_by` — RPC 19.
+- `purchases.is_current` — RPC 14.
+- `freight_allocation.purchase_id` — RPC 14, when a rectified purchase carries its allocations forward.
+- `mp_source_record.processing_status`, `.processed_at`, `.processing_note` — RPCs 40/41 (see invariant 21).
+- `fiscal_obligation.status` — RPC 36.
 
 ---
 
-### 12. Cheque State Transitions Valid
+## 10. No period-sensitive write into a CLOSED period
 
-**Invariant:** financial_instrument.estado transitions only via allowed paths:
-- RECEIVED → DEPOSITED, ENDORSED, or REJECTED
-- DEPOSITED → CLEARED or REJECTED
-- CLEARED → REJECTED (if bounced post-clearing)
-- ENDORSED → (terminal state)
+**Rule:** no fact may be created, rectified or economically altered when its business date falls in a `management_period` whose `status='CLOSED'`.  
+**Enforced by:** two cooperating mechanisms —
+1. application roles hold no write privilege on any period-sensitive table, so the only path is an RPC;
+2. all 38 period-sensitive RPCs begin with `ASSERT_PERIOD_OPEN(business_date)`, which does
+   `SELECT … FROM management_period WHERE periodo_fecha = date_trunc('month', business_date)::DATE FOR UPDATE`
+   and raises `PERIOD_CLOSED` unless `status='OPEN'`.
 
-**Enforced by:** RPC validation (SELECT FOR UPDATE; IF estado NOT IN allowed RAISE ERROR)
-
-**Consequence of violation:** Cheque lifecycle corrupted; payment status ambiguous
-
----
-
-### 13. Order Price Snapshot IMMUTABLE
-
-**Invariant:** pedido_lineas.precio_unitario and producto_nombre are snapshots captured at order creation; never change
-
-**Enforced by:** RLS policy on pedido_lineas parent (UPDATE forbidden); GENERATED ALWAYS on subtotal depends on immutable price
-
-**Consequence of violation:** Historical pricing lost; order totals become meaningless
+The `FOR UPDATE` lock also serialises against `close_management_period`, so a fact cannot slip in while a period is being closed.  
+**Late data:** if the period is OPEN the fact belongs to its real date; if CLOSED it must be reopened first (frozen Part 20). Nothing is silently re-dated.
 
 ---
 
-### 14. No Fictitious Classification Traceability
+## 11. created_at NEVER determines a period
 
-**Invariant:** classification table has NO flock_id field (eggs are mixed before classification; no fictitious assignment)
-
-**Enforced by:** Schema design (no flock_id column)
-
-**Consequence of violation:** Invented data; cost allocation to wrong flocks
+**Rule:** period assignment always uses the entity's explicit business `DATE` column, never `created_at`.  
+**Enforced by:** every period-sensitive table carries a dedicated `DATE` column (invariant 12); `created_at` is metadata.  
+**Single documented exception, non-determinant:** `close_management_period` counts PENDING orders by `created_at` purely as an informational warning. It assigns no period and blocks nothing.
 
 ---
 
-### 15. No Stored Daily Feed Consumption Per Flock
+## 12. Period determinant matrix (canonical)
 
-**Invariant:** No daily_feed_consumption_per_flock table exists; feed consumption is CALCULATED via stock equation only
-
-**Enforced by:** Schema design (table does not exist)
-
-**Consequence of violation:** Fictitious precision; unmeasured consumption claimed as fact
-
----
-
-### 16. Formula Version & Composition IMMUTABLE
-
-**Invariant:** Once feed_manufacturing references a formula_version_id, that reference never changes. Once a formula_version_id has composition (feed_formula_line rows), that composition is immutable (no UPDATE/DELETE on feed_formula_line).
-
-**Enforced by:** 
-- RLS policy `UPDATE ... formula_version_id` forbidden on feed_manufacturing
-- RLS policy `UPDATE/DELETE DENY` on feed_formula_line (APPEND_ONLY)
-- formula_version itself immutable via VERSION column
-
-**Consequence of violation:** Manufacturing recipe could change retroactively; cost basis unknown; historical composition lost
-
----
-
-### 17. Population Flow = Events-Only
-
-**Invariant:** No current_population column; population at any date = SUM(population_events.delta) from creation to that date
-
-**Enforced by:** Schema design (no current_population column); computed in queries
-
-**Consequence of violation:** Stored population could diverge from actual; hidden inconsistency
-
----
-
-### 18. No Hard-Delete of Posted Facts
-
-**Invariant:** Once a fact is committed (ledger entry inserted, order delivered, etc.), only soft-delete (activo=false) or reversal (INSERT opposite entry) allowed
-
-**Enforced by:** RLS `DELETE USING FALSE` on all ledger/audit tables; only UPDATE available for masters (soft-delete via activo flag)
-
-**Consequence of violation:** Forensic evidence destroyed; audit trail incomplete
-
----
-
-### 19. MP Source Record IMMUTABLE
-
-**Invariant:** mp_source_record is APPEND_ONLY; processing_status tracks reconciliation state; raw event_data never modified
-
-**Enforced by:** RLS `UPDATE USING FALSE; DELETE USING FALSE`; processing_status is only mutable field
-
-**Consequence of violation:** Raw source data rewriteable; audit of MP movements lost
-
----
-
-### 20. Client Name Change Doesn't Alter History
-
-**Invariant:** client_ledger.ledger_client_name is snapshot of client.nombre at posting time; if client renamed later, ledger reflects original name
-
-**Enforced by:** Snapshot field captured at INSERT; immutable thereafter
-
-**Consequence of violation:** Historical ledger misattributed; audit confusion
-
----
-
-## PERIOD DETERMINATION RULES
-
-**Frozen rule:** created_at NEVER determines period.
-
-**Determinant columns per entity:**
-- **pedidos:** delivered_at (TIMESTAMPTZ, required after delivery; cast to DATE for period check)
-- **client_ledger:** effective_date (DATE)
-- **financial_posting:** effective_date (DATE)
-- **financial_operation:** effective_date (DATE)
-- **financial_instrument_event:** event_date (DATE; cheque operations use this for period)
-- **population_events:** event_date (DATE)
-- **daily_production:** production_date (DATE)
-- **classification:** session_date (DATE)
-- **feed_manufacturing:** manufacturing_date (DATE)
-- **purchases:** economic_date (DATE)
-- **collections:** effective_date (DATE)
-- **management_period:** periodo_fecha (DATE, first of month)
-
-**Validation:** RPC checks that period status='OPEN' BEFORE INSERT/UPDATE with effective_date in that period.
-
----
-
-## SNAPSHOT FIELDS (IMMUTABLE)
-
-| Field | Table | Captured At | Reason |
+| Fact | Table | Determinant column | Frozen Part 20 reference |
 |---|---|---|---|
-| precio_unitario | pedido_lineas | order creation | Historical accuracy (price was this at order time) |
-| producto_nombre | pedido_lineas | order creation | Name was this at order time |
-| ledger_client_name | client_ledger | ledger posting | Client name was this when debt recorded |
-| formula_version_id | feed_manufacturing | manufacturing creation | Formula was this version during batch |
+| Sale delivery | pedidos | `delivered_date` | delivered_at → delivery month |
+| Order cancellation | pedidos | `cancelled_date` (no ledger effect) | n/a |
+| Collection | collections | `effective_date` | receipt month |
+| Client ledger movement | client_ledger | `effective_date` | — |
+| Cheque received | financial_instrument | `received_date` | CC impact month |
+| Cheque deposited | financial_instrument | `deposited_date` | custody only |
+| Cheque cleared | financial_instrument | `cleared_date` | bank impact month |
+| Cheque endorsed | financial_instrument | `endorsed_date` | supplier CC month |
+| Instrument rejected | financial_instrument | `rejected_date` | reversal month |
+| Instrument issued | financial_instrument | `issued_date` | CC impact month |
+| Instrument debited | financial_instrument | `debited_date` | bank impact month |
+| Instrument cancelled **[ADR-001]** | financial_instrument | `cancelled_date` | supplier CC month |
+| Instrument event | financial_instrument_event | `event_date` | — |
+| Purchase | purchases | `economic_date` | economic month |
+| Supplier payment | supplier_ledger | `effective_date` | payment month |
+| Freight | freight | `economic_date` | event month |
+| Freight allocation | freight_allocation | parent `freight.economic_date` | cost attribution |
+| Transfer / any posting | financial_posting | `effective_date` | impact month |
+| Production | daily_production | `production_date` | event month |
+| Mortality / adjustment | population_events | `event_date` | event month |
+| Weighing | flock_weighing | `weighing_date` | event month |
+| Temperature | temperature_record | `record_date` | event month |
+| Classification | classification | `classification_date` | session month |
+| Feed manufacturing | feed_manufacturing | `manufacturing_date` | event month |
+| Feed movement | feed_movement | `movement_date` | event month |
+| Feed count | feed_inventory_count | `count_date` | event month |
+| Sales session | sales_session | `session_date` | event month |
+| Session cash event | sales_session_cash_event | `event_date` | event month |
+| Fiscal document | fiscal_document | `document_date` + `fiscal_period` | tax period |
+| Fiscal obligation | fiscal_obligation | `fiscal_period` | tax period |
+| Fiscal payment | fiscal_payment | `effective_date` | payment month |
+| MP external movement | mp_source_record / mp_financial_movement | `occurred_date` (MP's own date) | event month |
+| MP reconciliation | mp_reconciliation | none — does not change the source fact's period | frozen Part 20 |
 
 ---
 
-## APPEND-ONLY TABLES (RLS ENFORCES)
+## 13. Period boundary semantics
 
-- client_ledger
-- financial_posting
-- population_events
-- supplier_ledger
-- audit_events
-- feed_inventory_count (new count record for corrections, not UPDATE)
-- mp_source_record
-
-**Enforcement:** RLS policy `UPDATE USING FALSE; DELETE USING FALSE`
-
-**Rectification:** INSERT new record (with prior = old reference or supersession tracking), never UPDATE
+**Rule:** a business date `d` belongs to exactly one period: the row with
+`periodo_fecha = date_trunc('month', d)::DATE`. Equivalently the half-open interval
+`[periodo_fecha, periodo_fecha + INTERVAL '1 month')`. Granularity is monthly only.  
+**Enforced by:** `management_period.periodo_fecha` is `UNIQUE` with
+`CHECK (periodo_fecha = date_trunc('month', periodo_fecha)::DATE)`; every RPC resolves the period with the same `date_trunc` expression.  
+No `BETWEEN` form appears anywhere, since `BETWEEN` would include the next month's first day.
 
 ---
 
-## DERIVED/COMPUTED DATA (NO STORAGE)
+## 14. Business dates are timezone-explicit
 
-| Metric | Derived From | Formula | Never Stored |
+**Rule:** when a business `DATE` derives from a `TIMESTAMPTZ`, the conversion is always
+`(instant AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE`. A bare `timestamptz::DATE` is never used for period logic, because it silently depends on the session timezone.  
+**Enforced by:** derived dates are stored in their own columns (`pedidos.delivered_date`, `pedidos.cancelled_date`, `financial_instrument.received_date`) and written only by RPCs that apply the fixed zone.  
+**Applies to:** RPC 1, 2, 3, 5 — the only RPCs accepting a `TIMESTAMPTZ` for a period-bearing fact. All other RPCs take a `DATE` directly, so no conversion exists to get wrong.
+
+---
+
+## 15. Order total is derived
+
+**Rule:** an order's total is `SUM(pedido_lineas.subtotal) WHERE pedido_id = … AND is_current = true`. No `monto_total` column exists.  
+**Enforced by:** absent column (frozen Part 1 and Part 26).  
+Only the current version participates, which is what makes invariant 16 correct across repeated rectifications.
+
+---
+
+## 16. Rectification is set-versioned and correct for N passes
+
+**Rule:** rectifying a delivered order replaces the *current set* of lines with a *new set*, and the compensating reversal always cancels the **current** total — never the first historical total.
+
+**Mechanism (`pedido_lineas`):**
+- `version_seq` — 0 for the original set, N for the Nth rectification.
+- `is_current` — marks the rows of the one version in force.
+- `pedidos.rectification_seq` — the highest existing `version_seq`.
+- there is deliberately **no per-line `superseded_by`**: replacement is N:M (3 lines may become 2, or 1 may become 5) and a per-line pointer cannot express that.
+
+**Enforced by:** `excl_pedido_lineas_single_current_version`, an EXCLUDE constraint
+`EXCLUDE USING gist (pedido_id WITH =, version_seq WITH <>) WHERE (is_current)` (requires the
+`btree_gist` extension). It rejects any two current rows of the same order that carry different
+`version_seq` values, while permitting any number of current rows that share one `version_seq`.
+
+`idx_pedido_lineas_current` is a plain **non-unique** index and guarantees nothing — it only
+accelerates the lookup. Neither could a unique index do this job: `UNIQUE (pedido_id) WHERE
+is_current` would cap each order at one line, and `UNIQUE (pedido_id, version_seq) WHERE is_current`
+would cap each version at one line. The exclusion constraint is the only formulation that constrains
+the *version* without constraining the *number of lines per version*.
+
+**Mandatory mutation order (RPC 2):** read and validate everything, then (a) flip the previous
+version's rows to `is_current = false`, then (b) insert the new version's rows. The constraint is
+`IMMEDIATE`, so the reverse order — inserting the new version while the old one is still current —
+raises on the spot. Retiring first passes through a transient zero-current-rows state, which the
+constraint permits and which is invisible outside the transaction. If any later step of the RPC
+fails, the whole call rolls back and the previous version remains current, so an order is never
+persisted without a current version.
+
+**Ledger effect of the Nth rectification:** `-total(version N-1)` REVERSAL then `+total(version N)` SALE_DELIVERY, both dated at the original `delivered_date`. Telescoping across N passes leaves exactly `+total(version N)`, which is the correct economic outcome.
+
+**Preserved:** every historical version keeps `cantidad`, `precio_unitario`, `producto_nombre` unchanged forever. Old rows are never duplicated to mark them obsolete — only `is_current` flips.
+
+`purchases` uses the same discipline through `is_current` + `version_seq` (RPC 14). **[ADR-002]** Each rectified purchase version gets the bounded, deterministic key `'RECTIFY:' || <predecessor purchase id> || ':v' || version_seq` (≤ 56 characters), so correctness holds for N passes without approaching `VARCHAR(100)`; `daily_production` and `population_events` use `is_current` + `superseded_by`, which is valid there because their replacement is strictly 1:1.
+
+**The retire-then-insert order applies to all four rectification RPCs** (2, 14, 19, 21), and in three
+of them an existing unique index enforces it rather than merely documenting it:
+
+| RPC | Table | What rejects the reverse order |
+|---|---|---|
+| 2 `rectify_delivered_order` | pedido_lineas | `excl_pedido_lineas_single_current_version` |
+| 14 `rectify_purchase` | purchases | `idx_purchases_supplier_invoice` (when an invoice number is present) |
+| 19 `rectify_daily_production` | daily_production | `idx_daily_production_current` |
+| 21 `rectify_mortality` | population_events | `idx_population_events_mortality_current` |
+
+Each of these RPCs also captures the values it needs from the current version *before* retiring it, so
+the insert never depends on reading a row it has already altered.
+
+---
+
+## 17. Snapshot fields are immutable
+
+| Column | Table | Captured at | Reason |
 |---|---|---|---|
-| client_balance | client_ledger | SUM(signed_amount) per cliente_id | ✓ |
-| account_balance | financial_posting | SUM(signed_amount) per account_id | ✓ |
-| order_total | pedido_lineas | SUM(subtotal) per pedido_id | ✓ (monto_total removed) |
-| population | population_events | SUM(delta) per flock (cumulative) | ✓ |
-| classificados | classification_line | SUM(quantity) per session | ✓ |
-| consumo_económico | feed_inventory_count | inflows - outflows per period | ✓ Calculated |
+| `precio_unitario` | pedido_lineas | line creation | the price actually charged; master price must never restate history |
+| `producto_nombre` | pedido_lineas | line creation | historical display name |
+| `ledger_client_name` | client_ledger | posting | client renames must not re-attribute history |
+| `formula_version_id` | feed_manufacturing | manufacturing | the exact recipe applied |
+| `unit_cost_snapshot` | feed_formula_line | version creation | historical ingredient cost for that version |
+| `rate_applied` | fiscal_document_component | document registration | the tax rate actually used; rates change and are never hardcoded |
+| `precio_unitario` | purchase_line | line creation | historical input cost |
+
+**Enforced by:** no UPDATE privilege on any of these tables for any application role, plus invariant 4 for order lines.  
+Snapshots are applied only where a future master change would alter historical meaning (frozen Part 24), not by default.
 
 ---
 
-## CONSTRAINT SPECIFICATIONS
+## 18. Cheque state machine
 
-**Type-level constraints (CHECK, UNIQUE, FK):**
-- financial_posting: CHECK(signed_amount <> 0) — prevent zero amounts
-- population_events: UNIQUE(flock_id, event_date) WHERE event_type='MORTALITY' AND is_current=true — partial; allow adjustments
-- flocks: UNIQUE(shed_id) WHERE estado='ACTIVE' — one active per shed
-- financial_operation + financial_posting: FK ensures posting belongs to operation
-
-**RLS-level constraints (UPDATE/DELETE policies):**
-- daily_production: UPDATE USING FALSE — immutable
-- client_ledger: UPDATE USING FALSE, DELETE USING FALSE — append-only
-- financial_posting: UPDATE USING FALSE, DELETE USING FALSE — append-only
-- population_events: UPDATE USING FALSE, DELETE USING FALSE — append-only
-- audit_events: UPDATE USING FALSE, DELETE USING FALSE — forensic
-
-**RPC-level constraints (business logic):**
-- Period open check: SELECT period FOR UPDATE; IF status != 'OPEN' RAISE ERROR
-- Cheque state machine: RPC validates transitions only
-- Delivery immutability: RPC checks estado before allowing rectification
-- Duplicate mortality: RPC queries UNIQUE constraint result; rejects on duplicate
+**Received direction** (`direction='RECEIVED'`):
+```
+RECEIVED → DEPOSITED → CLEARED
+RECEIVED → ENDORSED
+RECEIVED | DEPOSITED | CLEARED | ENDORSED → REJECTED
+```
+**Issued direction** (`direction='ISSUED'`):
+```
+ISSUED → DEBITED
+ISSUED | DEBITED → REJECTED
+ISSUED → CANCELLED              (RPC 42 cancel_supplier_instrument — ADR-001)
+```
+**Enforced by:** each RPC locks the row `FOR UPDATE` and validates the current `estado` before transitioning; `chk_instrument_estado_direction` prevents any state belonging to the wrong direction; `idx_instrument_event_unique(financial_instrument_id, event_type)` prevents duplicate lifecycle events on one instrument. **[ADR-001]** `chk_instrument_cancelled_coherent` binds `estado = 'CANCELLED'` ⇔ `cancelled_date IS NOT NULL`; CANCELLED is terminal.
 
 ---
 
-## TESTING INVARIANTS
+## 19. Instrument economic semantics
 
-**Before deployment, verify each invariant:**
+| Event | client_ledger | supplier_ledger | financial_posting |
+|---|---|---|---|
+| Received (RPC 5) | `-amount` | — | **none** |
+| Deposited (RPC 6) | — | — | **none** |
+| Cleared (RPC 7) | — | — | `+amount` on `bank_account_id` |
+| Endorsed (RPC 8) | **untouched** | `-amount` | none |
+| Rejected after RECEIVED/DEPOSITED (RPC 9) | `+amount` | — | none |
+| Rejected after CLEARED (RPC 9) | `+amount` | — | `-amount` on the same `bank_account_id` |
+| Rejected after ENDORSED (RPC 9) | **untouched** | `+amount` | none |
+| Issued (RPC 10) | — | `-amount` | **none** |
+| Debited (RPC 11) | — | — | `-amount` on `bank_account_id` |
+| Rejected after ISSUED (RPC 12) | — | `+amount` | none |
+| Rejected after DEBITED (RPC 12) | — | `+amount` | `+amount` reversal |
+| Cancelled before debit (RPC 42) **[ADR-001]** | — | `+amount` REVERSAL (`reversal_of_id` → the single INSTRUMENT_ISSUED entry) | none |
 
-1. One flock per shed: `SELECT shed_id, COUNT(*) FROM flocks WHERE estado='ACTIVE' GROUP BY shed_id HAVING COUNT(*) > 1` → expect 0 rows
-2. One mortality per date: `SELECT flock_id, event_date, COUNT(*) FROM population_events WHERE event_type='MORTALITY' AND is_current=true GROUP BY flock_id, event_date HAVING COUNT(*) > 1` → expect 0 rows
-3. Subtotal correctness: `SELECT COUNT(*) FROM pedido_lineas WHERE subtotal != cantidad * precio_unitario` → expect 0 rows (or confirm GENERATED ALWAYS)
-4. No stored balances: `SELECT * FROM clients WHERE balance IS NOT NULL LIMIT 1` → expect 0 rows
-5. Order price immutability: Attempt UPDATE on delivered order → RLS blocks
-6. Ledger append-only: Attempt UPDATE on client_ledger → RLS blocks
-7. Period closure enforced: Attempt insert with closed period → RPC error
+**Why reversal is deterministic:** `cliente_id` is persisted at reception, `bank_account_id` at clearing (received) or at issuance (issued), and `endorsed_to_supplier_id` at endorsement. `reject_cheque` branches on the prior `estado` and always has the counterparty it needs.  
+**Frozen rule preserved:** endorsement does not reopen client debt — the client's payment is final and the endorsement settles the supplier obligation independently.
+
+---
+
+## 20. cheque_number is business data, not identity
+
+**Rule:** `financial_instrument.cheque_number` is **not** unique. The same printed number legitimately recurs across banks, suppliers and years.  
+**Identity:** `financial_instrument.id` (UUID).  
+**Idempotency:** `receipt_id` UNIQUE for received instruments, `external_ref` UNIQUE for issued ones; `chk_instrument_received_provenance` / `chk_instrument_issued_provenance` make the right key mandatory per direction.  
+A global UNIQUE on `cheque_number` would reject valid data.
+
+---
+
+## 21. MP raw source is immutable; processing metadata is controlled
+
+**Rule, stated as a split rather than a contradiction:**
+
+| Columns | Status |
+|---|---|
+| `source_type, external_id, event_data, occurred_at, occurred_date, ingested_at` | immutable forever |
+| `processing_status, processed_at, processing_note` | controlled mutable metadata |
+
+**Enforced by:**
+- no application or service role holds `UPDATE` on `mp_source_record`;
+- the only writers of metadata are `mp_normalize_source` / `mp_reconcile_movement` (SECURITY DEFINER, owner `postgres`);
+- `trg_mp_source_raw_guard` (BEFORE UPDATE) raises if any raw column changes — it protects the raw data even against the privileged path;
+- no `UPDATE USING FALSE` policy exists, because it would be a no-op and would also contradict the fact that `processing_status` must legitimately advance.
+
+**Period:** `occurred_date` (MP's own date) determines the period. The reconciliation timestamp never changes the original fact's period. There is no artificial MP deadline.
+
+---
+
+## 22. Freight is recognised once and never double-counted
+
+**Rule:** the freight expense is recognised exactly once, in `register_freight` (RPC 16), which creates one `supplier_ledger` FREIGHT row when a freight supplier exists. Allocating freight to a purchase creates **no** second economic effect.  
+**Enforced by:** `assign_freight_to_purchase` (RPC 17) writes only a `freight_allocation` row — no `supplier_ledger`, no `financial_operation`, no `financial_posting`, no `fiscal_document_component`.  
+**Cap:** the RPC raises `OVER_ALLOCATION` unless `SUM(allocated_amount) <= freight.amount`; `UNIQUE(freight_id, purchase_id)` blocks duplicate allocation of the same freight to the same purchase.  
+**Landed cost (derived, never stored):**
+`purchases.amount_total + COALESCE(SUM(freight_allocation.allocated_amount), 0)`.  
+**Reporting rule:** P&L reads freight either as an unallocated expense or through allocation as part of landed cost — never both. Duplication is thereby prevented across P&L, input cost, IVA, supplier account and treasury (frozen Part 9).  
+**Historical cost correction:** allowed only while the freight's own period is OPEN, which RPC 17 checks against `freight.economic_date`.
+
+---
+
+## 23. A purchase always has an attachment
+
+**Rule:** no `purchases` row can exist without at least one `purchase_attachment` row.  
+**Enforced by:** `authenticated` holds no INSERT privilege on `purchases`, so the only creation path is `register_purchase` (RPC 13), which raises `ATTACHMENT_REQUIRED` when `p_attachments` is empty and inserts the purchase plus its attachments in one transaction. `purchase_attachment` has no DELETE policy, so the attachment cannot be removed afterwards. `rectify_purchase` copies attachments to the new version.  
+This is a frozen requirement (frozen Part 8 / owner rule), not a soft convention.
+
+---
+
+## 24. Purchase classification is mandatory
+
+**Rule:** every purchase carries `expense_category_id` (NOT NULL) and `nature ∈ {OPERATING, REINVESTMENT, INVESTMENT}` (NOT NULL). `subcategory` and `project_id` are optional.  
+**Enforced by:** `NOT NULL` columns + FK to `expense_category`; RPC 13 raises `CATEGORY_REQUIRED` / `NATURE_REQUIRED`.  
+`expense_category` is in active scope — it is referenced by `purchases`, `freight` and `sales_session_cash_event`, and is not "future use".
+
+---
+
+## 25. Invoice numbers are unique per supplier, never globally
+
+**Rule:** `supplier_invoice_number` may repeat across suppliers; two different suppliers can legitimately issue invoice `0001`.  
+**Enforced by:** `CREATE UNIQUE INDEX idx_purchases_supplier_invoice ON purchases(supplier_id, supplier_invoice_number) WHERE supplier_invoice_number IS NOT NULL AND is_current = true`.  
+The same scoping applies to `fiscal_document(supplier_id, external_number)`. No global uniqueness exists on either.  
+Technical idempotency is carried separately by `purchases.idempotency_key`.
+
+---
+
+## 26. Structural prohibitions (frozen Part 26)
+
+| Prohibited | Enforced by |
+|---|---|
+| `ventas` table | absent — all sales are `pedidos` with `estado='DELIVERED'` |
+| stored running balances | no balance column on clients / suppliers / financial_account |
+| `MORTALITY_CONFLICT`, `conflict_flag`, `conflicting_event_id` | absent — invariant 2 covers it |
+| `classification.flock_id` | absent — eggs mix before classification |
+| `classification_inputs` | absent |
+| `daily_production.classification_session_id` | absent |
+| `daily_feed_consumption` as real per-flock consumption | absent; consumo económico is derived (invariant 27), consumo teórico uses `genetics_consumption_curve` |
+| `pedido_audit_events` / per-entity audit tables | absent — single transversal `audit_events` |
+| hard-delete of committed facts | no DELETE privilege on fact tables; all FKs `ON DELETE RESTRICT` |
+| silent modification of closed periods | invariant 10 |
+| full double-entry debit/credit | absent — signed amounts only |
+| individual anonymous retail sale rows | absent — one aggregated Pedido per session (invariant 28) |
+| manual P&L results table | absent — P&L is derived |
+
+---
+
+## 27. Derived values are never stored
+
+| Value | Derivation |
+|---|---|
+| client balance | `SUM(client_ledger.signed_amount)` per cliente_id |
+| supplier balance | `SUM(supplier_ledger.signed_amount)` per supplier_id |
+| account balance | `SUM(financial_posting.signed_amount)` per account |
+| order total | `SUM(pedido_lineas.subtotal) WHERE is_current` |
+| flock population | `flocks.initial_population + SUM(population_events.delta WHERE is_current)` |
+| classified total | `SUM(classification_line.quantity)` per session |
+| consumo interno | `opening_count + manufacturing − external_output ± adjustments − closing_count` |
+| consumo teórico | population × age × `genetics_consumption_curve` × assigned formula |
+| landed cost | `purchases.amount_total + SUM(freight_allocation.allocated_amount)` |
+| P&L | derived from ledgers and postings |
+
+**Enforced by:** the corresponding columns and tables do not exist.  
+**Consumo interno vs teórico:** the first is an inventory equation over a period; the second is a productive control metric. Neither claims to be measured daily per flock, because Santo Tomás does not measure that (frozen Part 15).
+
+---
+
+## 28. Feria aggregation
+
+**Rule:** anonymous retail sales are never individual rows. One `sales_session` produces at most one aggregated Pedido (`pedidos.is_aggregated_retail = true`) whose `pedido_lineas` itemise the retail total. Several lines for the same product are allowed when different prices were charged. Identified wholesale clients get normal Pedidos carrying `pedidos.sales_session_id`.  
+**Enforced by:** `close_sales_session` (RPC 33) creates the aggregated Pedido and routes it through `deliver_order`, so the retail sale becomes economic through the normal path; `sales_session.aggregated_pedido_id` records the link.  
+**Separation:** `sales_session_movement` holds physical movements only (DISPATCH / RETURN / LOSS / ADJUSTMENT) with no economic effect; `sales_session_cash_event` holds cash management. The session is the operational event; the Pedido is the economic fact.  
+**Reconciliation:** cash `COUNT` observations are compared against session postings, MP through `mp_reconcile_movement`, CC through the identified clients' Pedidos. Variances become explicit adjustments; no correspondence is invented.
 
 ---
 
 ## COMPLIANCE MATRIX
 
-| # | Invariant | Schema | RLS | RPC | Test |
+| # | Invariant | Schema | Privileges | RPC | Trigger |
 |---|---|---|---|---|---|
-| 1 | One flock/shed | UNIQUE | — | — | Query |
-| 2 | One mortality/date | UNIQUE partial | — | RPC check | Query |
-| 3 | Subtotal derived | GENERATED | — | — | Query |
-| 4 | Order immutable | — | UPDATE DENY | — | RLS |
-| 5 | Balance = SUM | No column | — | — | Query |
-| 6 | Account = SUM | No column | — | — | Query |
-| 7 | Posting FK | FK constraint | — | — | Insert |
-| 8 | Transfer 2x | — | — | RPC atomic | RPC |
-| 9 | Append-only | — | UPDATE/DELETE DENY | — | RLS |
-| 10 | Period OPEN | — | — | RPC check | RPC |
-| 11 | Period=effective_date | Column design | — | RPC use | RPC |
-| 12 | Cheque state machine | — | — | RPC validate | RPC |
-| 13 | Price snapshot | — | — | At insert | Update |
-| 14 | No classification flock | No column | — | — | Schema |
-| 15 | No daily consumption | No table | — | — | Schema |
-| 16 | Formula immutable | FK | — | RPC prevent | RPC |
-| 17 | Population = events | No column | — | — | Query |
-| 18 | No hard-delete | — | RLS restrict | — | RLS |
-| 19 | MP immutable | — | UPDATE DENY | — | RLS |
-| 20 | Name snapshot | Snapshot | — | At insert | Query |
+| 1 | one ACTIVE flock/shed | partial unique index | — | — | — |
+| 2 | one current MORTALITY/date | partial unique index | — | RPC 20/21 | — |
+| 3 | subtotal derived | GENERATED ALWAYS | — | — | — |
+| 4 | delivered order immutable | — | no UPDATE on lines | RPC 2 | — |
+| 5 | client balance derived | no column | — | — | — |
+| 6 | account balance derived | no column | — | — | — |
+| 7 | supplier balance derived | no column | — | — | — |
+| 8 | posting belongs to operation | NOT NULL + FK | — | — | — |
+| 9 | append-only | — | REVOKE | metadata only | — |
+| 10 | no write to CLOSED period | — | REVOKE | ASSERT_PERIOD_OPEN ×37 | — |
+| 11 | created_at never determines period | explicit DATE columns | — | all | — |
+| 12 | determinant matrix | DATE columns | — | all | — |
+| 13 | boundary semantics | CHECK + UNIQUE | — | date_trunc | — |
+| 14 | timezone-explicit dates | derived DATE columns | — | RPC 1,2,3,5 | — |
+| 15 | order total derived | no column | — | — | — |
+| 16 | set-versioned rectification | version_seq + is_current + EXCLUDE constraint | no UPDATE | RPC 2,14,19,21 | — |
+| 17 | snapshots immutable | snapshot columns | no UPDATE | at insert | — |
+| 18 | cheque state machine | CHECK + unique event index | — | RPC 5–12, 42 **[ADR-001]** | — |
+| 19 | instrument semantics | provenance columns | — | RPC 5–12, 42 **[ADR-001]** | — |
+| 20 | cheque_number not identity | no UNIQUE + CHECKs | — | — | — |
+| 21 | MP raw immutable | column split | no UPDATE | RPC 40/41 | raw guard |
+| 22 | freight no double count | allocation table | no UPDATE | RPC 16/17 | — |
+| 23 | attachment required | — | no INSERT | RPC 13 | — |
+| 24 | purchase classification | NOT NULL + FK | — | RPC 13 | — |
+| 25 | invoice unique per supplier | scoped partial index | — | RPC 13 | — |
+| 26 | structural prohibitions | absent tables/columns | no DELETE | — | — |
+| 27 | derived never stored | absent columns | — | — | — |
+| 28 | feria aggregation | is_aggregated_retail | — | RPC 33 | — |
 
 ---
 
-**STATUS: ALL 20 INVARIANTS IMPLEMENTABLE**
+## VERIFICATION QUERIES
 
-No contradictions between schema, RLS, and RPC logic. Database can guarantee all invariants.
+```sql
+-- 1 one ACTIVE flock per shed (expect 0)
+SELECT shed_id FROM flocks WHERE estado='ACTIVE' GROUP BY shed_id HAVING COUNT(*) > 1;
+
+-- 2 one current mortality per (flock, date) (expect 0)
+SELECT flock_id, event_date FROM population_events
+ WHERE event_type='MORTALITY' AND is_current=true
+ GROUP BY flock_id, event_date HAVING COUNT(*) > 1;
+
+-- 3 generated subtotal (expect 0)
+SELECT id FROM pedido_lineas WHERE subtotal <> cantidad * precio_unitario;
+
+-- 5/6/7 no stored balance columns (expect 0)
+SELECT table_name, column_name FROM information_schema.columns
+ WHERE table_schema='public' AND column_name IN
+   ('balance','saldo','running_balance','client_balance','supplier_balance','account_balance');
+
+-- 8 no orphaned postings (expect 0)
+SELECT p.id FROM financial_posting p
+  LEFT JOIN financial_operation o ON o.id = p.financial_operation_id
+ WHERE o.id IS NULL;
+
+-- 15 no monto_total (expect 0)
+SELECT column_name FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='pedidos' AND column_name='monto_total';
+
+-- 16 exactly one current line version per order (expect 0; the EXCLUDE constraint makes this
+--    unreachable, so a non-empty result means the constraint is missing)
+SELECT pedido_id FROM pedido_lineas WHERE is_current=true
+ GROUP BY pedido_id HAVING COUNT(DISTINCT version_seq) > 1;
+
+-- 16 the constraint that guarantees the above actually exists (expect 1)
+SELECT conname FROM pg_constraint
+ WHERE conname = 'excl_pedido_lineas_single_current_version' AND contype = 'x';
+
+-- 16 rectified orders net to the current version's total (expect 0)
+SELECT p.id FROM pedidos p
+ WHERE p.estado='DELIVERED'
+   AND (SELECT COALESCE(SUM(signed_amount),0) FROM client_ledger
+         WHERE source_entity_type='pedido' AND source_entity_id = p.id::TEXT
+           AND movement_type IN ('SALE_DELIVERY','REVERSAL'))
+     <> (SELECT COALESCE(SUM(subtotal),0) FROM pedido_lineas
+          WHERE pedido_id = p.id AND is_current = true);
+
+-- 18 no state belonging to the wrong direction (expect 0)
+SELECT id FROM financial_instrument
+ WHERE (direction='RECEIVED' AND estado IN ('ISSUED','DEBITED','CANCELLED'))
+    OR (direction='ISSUED'   AND estado IN ('RECEIVED','DEPOSITED','CLEARED','ENDORSED'));
+
+-- 19 every CLEARED received instrument knows its bank account (expect 0)
+SELECT id FROM financial_instrument
+ WHERE direction='RECEIVED' AND estado IN ('CLEARED') AND bank_account_id IS NULL;
+
+-- 20 cheque_number carries no global unique index (expect 0)
+SELECT indexname FROM pg_indexes
+ WHERE tablename='financial_instrument' AND indexdef ILIKE '%UNIQUE%'
+   AND indexdef ILIKE '%cheque_number%';
+
+-- 22 freight never over-allocated (expect 0)
+SELECT f.id FROM freight f
+ WHERE (SELECT COALESCE(SUM(allocated_amount),0) FROM freight_allocation
+         WHERE freight_id = f.id) > f.amount;
+
+-- 23 every purchase has an attachment (expect 0)
+SELECT p.id FROM purchases p
+ WHERE NOT EXISTS (SELECT 1 FROM purchase_attachment a WHERE a.purchase_id = p.id);
+
+-- 25 invoice numbers unique per supplier only (expect 0)
+SELECT supplier_id, supplier_invoice_number FROM purchases
+ WHERE supplier_invoice_number IS NOT NULL AND is_current=true
+ GROUP BY supplier_id, supplier_invoice_number HAVING COUNT(*) > 1;
+
+-- 26 prohibited tables absent (expect 0)
+SELECT table_name FROM information_schema.tables
+ WHERE table_schema='public' AND table_name IN
+   ('ventas','classification_inputs','daily_feed_consumption','pedido_audit_events');
+
+-- 28 at most one aggregated Pedido per session (expect 0)
+SELECT sales_session_id FROM pedidos
+ WHERE is_aggregated_retail=true AND sales_session_id IS NOT NULL
+ GROUP BY sales_session_id HAVING COUNT(*) > 1;
+```
+
+---
+
+**STATUS: FROZEN — 28 INVARIANTS SPECIFIED, EACH WITH A NAMED ENFORCEMENT MECHANISM**
+
+No invariant contradicts the schema, the RPC contracts or the security model.

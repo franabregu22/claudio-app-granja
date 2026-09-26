@@ -1,0 +1,40 @@
+-- ============================================================================
+-- TARGET V1 — 0009 SERVICE_ROLE TABLE PRIVILEGE
+-- Authority: RLS_IMPLEMENTATION_SPEC_V1.md sections 3, 9 and the coverage matrix
+--            in section 10, which state that SERVICE_ROLE reads financial_account
+--            ("SELECT all — for MP reconciliation, backend only").
+--
+-- Why a separate migration instead of editing 0007:
+--   0007 was already applied and recorded in migration_ledger.applied with its
+--   sha256. The runner refuses to re-run a file whose checksum changed, which is
+--   the intended discipline: applied history is never rewritten, corrections are
+--   appended.
+--
+-- What this fixes:
+--   Section 4's privilege perimeter grants SELECT to `authenticated` and revokes
+--   from `anon`, but says nothing about service_role. In Supabase the default
+--   privileges for tables created by `postgres` in `public` grant anon /
+--   authenticated / service_role only `Dxtm` (TRUNCATE, REFERENCES, TRIGGER,
+--   MAINTAIN) — no SELECT. Verified on this instance:
+--       service_role : REFERENCES,TRIGGER,TRUNCATE
+--   So the policy `financial_account_service_select` created in 0007 could never
+--   fire: service_role was refused at the privilege layer before RLS was reached.
+--   service_role does hold rolbypassrls, but bypassing RLS does not grant a
+--   table privilege.
+--
+--   This grants exactly the read the frozen spec already assigns to service_role,
+--   and nothing more. It is not an escalation: the access was specified, only the
+--   GRANT that makes it reachable was missing.
+--
+-- Scope: financial_account only. The MP tables that section 9 also assigns to
+-- service_role do not exist yet and belong to the Mercado Pago phase.
+-- ============================================================================
+
+GRANT SELECT ON financial_account TO service_role;
+
+-- Deliberately NOT granted to service_role: clients, products, price_history,
+-- suppliers, expense_category, projects, sheds, feed_type, feed_ingredient,
+-- genetics_consumption_curve, classification_grade, perfiles, management_period,
+-- audit_events, operator_assignments, flocks.
+-- Frozen section 9 gives service_role no access to commercial, production or
+-- identity data, so it keeps none here.
