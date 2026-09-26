@@ -2,7 +2,7 @@
 -- PHASE 26 — BLOCK C: remove all temporary production access
 --
 -- Run by the owner in psql as `postgres`, ONLY after: dump succeeded, hashes
--- recorded, local restore succeeded, all 28 counts reconciled.
+-- recorded, local restore succeeded, all 26 counts reconciled.
 -- One transaction; it ends by asserting that nothing of the reader remains.
 -- The role is cluster-wide: no other database of the production cluster may hold
 -- objects or grants for it (the snapshot is restored in a different, local cluster).

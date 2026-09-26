@@ -18,8 +18,8 @@ DECLARE
   src text[] := ARRAY[
     'perfiles','clientes','productos','precios_historial','pedidos','pedido_lineas',
     'pagos','pago_en_caja','movimientos_caja','cuentas_caja','arqueos_caja',
-    'categorias_finanzas','cheques','comisiones','facturas','lotes','producciones',
-    'recuentos_lote','mercadopago_raw','mercadopago_movements','mercadopago_settlement',
+    'categorias_finanzas','cheques','comisiones','lotes','producciones',
+    'recuentos_lote','mercadopago_raw','mercadopago_movements',
     'mp_source_record','mp_financial_movement','mp_movement_source_link',
     'mp_source_link_resolution','monthly_reconciliation','reconciliation_snapshot',
     'import_period_coverage'];
@@ -46,7 +46,7 @@ END $$;
 
 COMMIT;
 
--- Record exactly which tables received the policy, and the RLS state of all 28.
+-- Record exactly which tables received the policy, and the RLS state of all 26.
 SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS rls_forced,
        EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid
                  AND p.polname = 'legacy_snapshot_reader_select') AS reader_policy
@@ -55,8 +55,8 @@ SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS rls_forced,
    AND c.relname = ANY (ARRAY[
     'perfiles','clientes','productos','precios_historial','pedidos','pedido_lineas',
     'pagos','pago_en_caja','movimientos_caja','cuentas_caja','arqueos_caja',
-    'categorias_finanzas','cheques','comisiones','facturas','lotes','producciones',
-    'recuentos_lote','mercadopago_raw','mercadopago_movements','mercadopago_settlement',
+    'categorias_finanzas','cheques','comisiones','lotes','producciones',
+    'recuentos_lote','mercadopago_raw','mercadopago_movements',
     'mp_source_record','mp_financial_movement','mp_movement_source_link',
     'mp_source_link_resolution','monthly_reconciliation','reconciliation_snapshot',
     'import_period_coverage'])

@@ -1,7 +1,7 @@
 # PHASE 26 — MIGRATION REHEARSAL: PRE-RUN READINESS
 
-**STATUS:** **BLOCKED** before migration execution. No realistic source copy exists yet. Read-only access (B), Block A and R1 are approved; scripts statically proven (§10c); Block A awaits execution by the owner (§10d).
-**Nothing executed against any database:** no SQL, no migration, no data load, no test run. Production was not contacted. Baseline commit `061130f` created (§10).
+**STATUS:** **BLOCKED** before migration execution. No realistic source copy exists yet. Read-only access (B), Block A and R1 are approved. Block A's first attempt failed safely on two absent tables (§10e). The inventory has been corrected to 26 tables and re-proven statically (§10c); the Block A retry awaits the owner (§10d).
+**PRODUCTION CONTACTED:** yes — schema inventory / read-only administrative discovery only (by the owner, §10e). **PRODUCTION BUSINESS DATA WRITTEN:** no. No migration, data load or snapshot. Commits: baseline `061130f`, runbook `bf023ca`.
 
 **Exit criterion (MASTER_ROADMAP, verbatim):** "The migration runs end to end in the test environment against a realistic copy. Discrepancies explained, not silently reconciled. Repeatable."
 
@@ -22,10 +22,10 @@ The handoff path `.planning/MIGRATION_RISK_REGISTER_V1.md` does not exist; the r
 |---|---|---|
 | A. Local copy / dump of legacy data | **None.** `.netlify/db/pg_snapshots/` is empty. `.planning/phase12-evidence/phase12_backup.sql` is a dump of the **local test instance** (canary rows), not legacy data. `.planning/legacy-schema/` was never created. | No |
 | B. Read-only production snapshot | **None.** `legacy-schema-snapshot.mjs` requires `LEGACY_READONLY_DATABASE_URL` and refuses loopback; it was never run. No read-only role exists (P-4 OPEN). `.env.local` holds only `SUPABASE_URL` and a **service-role API key**, which SAFE_TEST_ENVIRONMENT_V1 §10 excludes for this purpose. | Not without owner authorization and a new read-only credential |
-| C. Exported files | **MP only.** `data/mercadopago/` holds the MP exports (`Liberaciones1–3`, monthly variants, `BASECSV`, `arch1–5`, `data11sept-23-sept`, `Reporte_movimientos…2026-09-04`). `outputs/mp-reconciliation/database-snapshot.json` (2026-09-12) is a partial JSON of the **legacy MP tables** only (4 348 movements, 441 sources, 159 links). `data/clientes.csv` (10 names) and `data/precios.csv` (5 rows) are seeds. **No operational table** (`clientes`, `pedidos`, `pedido_lineas`, `pagos`, `movimientos_caja`, `cuentas_caja`, `cheques`, `lotes`, `producciones`, `recuentos_lote`, `facturas`, `perfiles`, `productos`) has any export. | Partial — MP external evidence only |
+| C. Exported files | **MP only.** `data/mercadopago/` holds the MP exports (`Liberaciones1–3`, monthly variants, `BASECSV`, `arch1–5`, `data11sept-23-sept`, `Reporte_movimientos…2026-09-04`). `outputs/mp-reconciliation/database-snapshot.json` (2026-09-12) is a partial JSON of the **legacy MP tables** only (4 348 movements, 441 sources, 159 links). `data/clientes.csv` (10 names) and `data/precios.csv` (5 rows) are seeds. **No operational table** (`clientes`, `pedidos`, `pedido_lineas`, `pagos`, `movimientos_caja`, `cuentas_caja`, `cheques`, `lotes`, `producciones`, `recuentos_lote`, `perfiles`, `productos`) has any export. | Partial — MP external evidence only |
 | D. Synthetic approximation | Test fixtures in `scripts/target-db/*.test.mjs` | **No.** Not a realistic copy; not treated as one |
 
-**What is missing:** the legacy operational schema (G-1) and all operational rows (G-2), plus `facturas` (G-3).
+**What is missing:** the legacy operational schema (G-1) and all operational rows (G-2). (`facturas`, once listed here as G-3, does not exist in production — §10e.)
 
 **Production read required:** **yes.** The only authoritative source of the operational legacy data is the live project.
 
@@ -84,7 +84,7 @@ Rehearsal note: in Phase 26 the opening figures may be the owner's figures at th
 |---|---|---|---|---|---|---|
 | G-1 legacy DDL | — | — | P-4 | **absent** | — | blocked |
 | G-2 row quality | — | — | P-4 | **absent** | — | blocked |
-| G-3 `facturas` | no (structure unknown) | — | — | absent | yes: fiscal starts empty | not blocking |
+| G-3 `facturas` | n/a — **the table does not exist in production** (§10e); there is no legacy fiscal source table | — | — | none exists | n/a — nothing to exclude | closed as a gap: the fiscal domain has no legacy source (NEW) |
 | G-4 expenses → purchases | criterion yes; value maps no | expense categories, suppliers | supplier master | absent | yes: evidence-only + cash kept | needs profile |
 | G-5 `eggs_dirty` | yes (0, "sin dato") | — | — | n/a | — | ready |
 | G-6 null `lote_id` production | yes (excluded) | — | — | absent | yes | needs profile |
@@ -98,7 +98,7 @@ Rehearsal note: in Phase 26 the opening figures may be the owner's figures at th
 | G-14 planned flocks | yes (excluded) | — | — | absent | yes | ready as rule |
 | G-15 management periods | yes (create OPEN for window, close after validation) | — | — | n/a | — | ready as rule |
 | Open instruments | OD-3 | — | OD-3 | absent | EXCLUDE_CANDIDATE class | blocked |
-| Mercado Pago | yes (§8) | MP account | — | **exports present locally**; legacy MP tables need P-4 or the 2026-09-12 JSON (partial, stale) | unreconciled is valid | partial |
+| Mercado Pago | §8 rule yes; the normalized-layer source is re-scoped: `mercadopago_settlement` **does not exist in production**, so the legacy normalized inputs are `mp_financial_movement` and `mercadopago_movements` only; gross/fee/tax/net remain available as separate columns in the `Liberaciones*` exports | MP account | — | **exports present locally**; the 9 legacy MP tables need the snapshot | unreconciled is valid | partial |
 | perfiles 3→2 roles | no | — | per-user confirmation | absent | — | blocked |
 | products VENDIBLE/INPUT/BOTH | rule not written | — | possibly | absent | — | needs profile |
 
@@ -163,7 +163,7 @@ Values are filled only from a run. Every discrepancy is EXPLAINED or BLOCKER.
 | financial accounts | owner real balances ×4 | Σ postings ×4 | unresolved account text (G-8) | opening/history per account | V-1, V-2 |
 | cheques / eCheqs | open legacy cheques | `financial_instrument` | EXCLUDE_CANDIDATE, OD-3 B | direction/counterparty per OD-3 | V-5, V-6 |
 | Feria | none | 0 rows | — | NEW | — |
-| fiscal | `facturas` (unprofiled) | 0 rows | all (G-3) | — | — |
+| fiscal | no legacy fiscal source table exists in production | 0 rows | — | NEW | — |
 | Mercado Pago | export rows per month; `SOURCE_ID` set | `mp_source_record` per month | pre-2026 | normalization gross/fee/tax/net | V-13, V-14, V-15 |
 | all | — | invariants, RLS, periods | — | — | V-18, V-19, V-20 |
 
@@ -197,15 +197,16 @@ Excluded: `supabase/.temp/`, `.env*`, ad-hoc root and `scripts/check-*` legacy M
 
 **Production contact status:** not contacted. Read access is authorized; writes are not.
 
-**Legacy source inventory (28 tables).** Derived from `MIGRATION_STRATEGY_V1` §3/§8 and confirmed against the application's `.from('…')` calls; the operational DDL is still unversioned (G-1), so the grant block aborts if any name is wrong.
-- Operational (18): `perfiles, clientes, productos, precios_historial, pedidos, pedido_lineas, pagos, pago_en_caja, movimientos_caja, cuentas_caja, arqueos_caja, categorias_finanzas, cheques, comisiones, facturas, lotes, producciones, recuentos_lote`. Legacy order-line shapes 2 and 3 live inside `pedidos.lineas`, so they are covered.
-- Mercado Pago source and coverage evidence (10): `mercadopago_raw, mercadopago_movements, mercadopago_settlement, mp_source_record, mp_financial_movement, mp_movement_source_link, mp_source_link_resolution, monthly_reconciliation, reconciliation_snapshot, import_period_coverage`.
+**Legacy source inventory — 26 confirmed public tables** (corrected by production discovery, §10e). First derived from `MIGRATION_STRATEGY_V1` §3/§8 and the application's `.from('…')` calls; two of those assumptions were refuted by the real schema.
+- Operational (17): `perfiles, clientes, productos, precios_historial, pedidos, pedido_lineas, pagos, pago_en_caja, movimientos_caja, cuentas_caja, arqueos_caja, categorias_finanzas, cheques, comisiones, lotes, producciones, recuentos_lote`. Legacy order-line shapes 2 and 3 live inside `pedidos.lineas`, so they are covered.
+- Mercado Pago source and coverage evidence (9): `mercadopago_raw, mercadopago_movements, mp_source_record, mp_financial_movement, mp_movement_source_link, mp_source_link_resolution, monthly_reconciliation, reconciliation_snapshot, import_period_coverage`.
+- **Not source tables because they do not exist in production:** `facturas`, `mercadopago_settlement`. No table replaces them.
 - Excluded: `precios_actuales` (derived, F), `ledger_entry, account_balance, mp_financial_cycle, mp_import_exception, period_flow_observation, sync_metadata` (evidence kept in the old system, not needed as source), `login_attempts, webhook_events` (security/infrastructure), every non-`public` schema (`auth`, `storage`, `realtime`, `extensions`, `supabase_*`, `vault`, …).
-- No legacy Feria or fiscal tables exist beyond the `clientes.categoria` tag and `facturas`.
+- There is no legacy Feria source table (only the `clientes.categoria` tag) and **no legacy fiscal source table** in production.
 
 **SQL (split per block so each runs alone):** [`A_CREATE`](phase26-evidence/LEGACY_SNAPSHOT_READER_A_CREATE.sql) (approved), [`B_R1_POLICIES`](phase26-evidence/LEGACY_SNAPSHOT_READER_B_R1_POLICIES.sql) (R1 approved), [`C_TEARDOWN`](phase26-evidence/LEGACY_SNAPSHOT_READER_C_TEARDOWN.sql), and [`VERIFY`](phase26-evidence/LEGACY_SNAPSHOT_READER_VERIFY.sql) (fail-closed proof run as the reader). The earlier combined `LEGACY_SNAPSHOT_READER_ROLE.sql` is superseded and removed.
 
-**Privilege model (Block A):** `LOGIN`, `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`, no memberships, `CONNECTION LIMIT 2`, `VALID UNTIL 2026-10-31`; `CONNECT` on `postgres`; `USAGE` on `public` only; `SELECT` on the 28 tables and on their owned sequences only. No password in SQL: set with psql `\password` and kept only in git-ignored `.env.test`. `default_transaction_read_only = on`, statement and idle timeouts, as defence in depth.
+**Privilege model (Block A):** `LOGIN`, `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`, no memberships, `CONNECTION LIMIT 2`, `VALID UNTIL 2026-10-31`; `CONNECT` on `postgres`; `USAGE` on `public` only; `SELECT` on the 26 tables and on their owned sequences only. No password in SQL: set with psql `\password` and kept only in git-ignored `.env.test`. `default_transaction_read_only = on`, statement and idle timeouts, as defence in depth.
 
 **Limits that cannot be removed per role without a production-wide change (disclosed, not hidden):**
 - `TEMP` on the database and `EXECUTE` on functions are granted to `PUBLIC` by PostgreSQL default; a per-role REVOKE cannot cancel a PUBLIC grant. TEMP objects are session-local and never persist. The EXECUTE exposure is checked by VERIFY 1.7: if any SECURITY DEFINER business write function (e.g. `marcar_pedido_entregado`) is executable, the process STOPS.
@@ -216,12 +217,12 @@ Excluded: `supabase/.temp/`, `.env*`, ad-hoc root and `scripts/check-*` legacy M
 - **R3** — the owner produces the full dump with the owner's own credential (or a managed Supabase backup) and hands over the file. No reader role; the snapshot identity is the file hash.
 
 **Snapshot procedure (R1; revised after the rehearsal in §10c).** Client: `pg_dump` 17.6 inside a container of the cached image `supabase/postgres:17.6.1.155`, which matches the production server version (`supabase/.temp/postgres-version` = 17.6.1.155). The URL comes from `.env.test` into the environment, never onto a command line.
-1. **Holder session** (reader): `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();` then the per-table `count(*)` of the 28 tables — these are the SOURCE_VISIBLE counts, taken **inside the same snapshot** the dump uses. The session stays open until step 3 ends.
+1. **Holder session** (reader): `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();` then the per-table `count(*)` of the 26 tables — these are the SOURCE_VISIBLE counts, taken **inside the same snapshot** the dump uses. The session stays open until step 3 ends.
 2. **Data dump** (reader, second connection — connection limit 2):
-   `pg_dump "$URL" --snapshot=<id> --format=custom --compress=6 --no-owner --no-privileges --no-publications --no-subscriptions --enable-row-security --table=public.<each of the 28> -f legacy-data.dump`
-3. **Schema dump:** `pg_dump "$URL" --snapshot=<id> --schema-only --no-owner --no-privileges --table=public.<each of the 28> -f legacy-schema.sql`; then `COMMIT` the holder.
+   `pg_dump "$URL" --snapshot=<id> --format=custom --compress=6 --no-owner --no-privileges --no-publications --no-subscriptions --enable-row-security --table=public.<each of the 26> -f legacy-data.dump`
+3. **Schema dump:** `pg_dump "$URL" --snapshot=<id> --schema-only --no-owner --no-privileges --table=public.<each of the 26> -f legacy-schema.sql`; then `COMMIT` the holder.
 4. **Restore** into a separate local database `legacy_copy`, as the local `postgres`, never as the reader: `pg_restore -l` → drop only the `POLICY … legacy_snapshot_reader_select` TOC entries (that role will not exist locally) → `pg_restore --no-owner --no-privileges --exit-on-error -L <list>`.
-5. **Reconcile:** RESTORED count per table must equal the step-1 count for all 28; any difference invalidates the snapshot.
+5. **Reconcile:** RESTORED count per table must equal the step-1 count for all 26; any difference invalidates the snapshot.
 
 Why `--snapshot` and not "count immediately before the dump": production keeps receiving writes, so a count taken outside the dump's snapshot can differ from the dump without the dump being wrong. Counting inside the exported snapshot makes equality exact. `--serializable-deferrable` is dropped in favour of `--snapshot`.
 
@@ -231,17 +232,17 @@ Connection: the Supabase **session** pooler URI copied from the project's Connec
 
 **Output location:** outside the repository, `C:\Users\Franabregu\GranjaSnapshots\phase26\<UTC-timestamp>\` holding `legacy-data.dump`, `legacy-schema.sql`, `SHA256SUMS`, `manifest.json` (no credentials). Files set read-only after hashing.
 
-**Hash / identity plan:** SHA-256 of `legacy-data.dump` and of `legacy-schema.sql` recorded in `SHA256SUMS`, in `manifest.json` and in this file. Manifest also holds: UTC timestamp, project ref (redacted in git), `server_version`, the 28 included tables, the excluded list, the redacted command, and the row count per table measured **on the local restore of the dump** (so counts belong to the same snapshot, not to a later live read). Before every profiling or migration run the hashes are re-checked; a mismatch stops the run.
+**Hash / identity plan:** SHA-256 of `legacy-data.dump` and of `legacy-schema.sql` recorded in `SHA256SUMS`, in `manifest.json` and in this file. Manifest also holds: UTC timestamp, project ref (redacted in git), `server_version`, the 26 included tables, the excluded list, the redacted command, and the row count per table measured **on the local restore of the dump** (so counts belong to the same snapshot, not to a later live read). Before every profiling or migration run the hashes are re-checked; a mismatch stops the run.
 
 ## 10c. Pre-execution static check (owner step C) — executed on a throwaway container
 
-**Environment:** a standalone container of `supabase/postgres:17.6.1.155` (the production server image), `--network none`, no ports, removed afterwards. As in production, `postgres` there is **not** a superuser and has CREATEROLE. The stub schema had the 28 tables with 5 rows each, RLS plus an existing app policy on the 8 legacy RLS tables, serial sequences on the 4 integer-PK tables, and a `SECURITY DEFINER` stand-in `marcar_pedido_entregado`. Production was not involved.
+**Environment:** a standalone container of `supabase/postgres:17.6.1.155` (the production server image), `--network none`, no ports, removed afterwards. As in production, `postgres` there is **not** a superuser and has CREATEROLE. The stub schema had the 26 tables with 5 rows each, RLS plus an existing app policy on the 8 legacy RLS tables, serial sequences on the 4 integer-PK tables, and a `SECURITY DEFINER` stand-in `marcar_pedido_entregado`. Production was not involved. **Re-run in full after the inventory correction (§10e)** on a fresh container whose stub has exactly the 26 confirmed tables, with `facturas` and `mercadopago_settlement` absent as in production. The results below are from that re-run. Mechanical inventory count: A's GRANT list 26, A's sequence array 26, both B arrays 26, VERIFY 1.4 26; C has no allowlist (it revokes from the actual ACLs).
 
 | # | Requirement | Test | Result |
 |---|---|---|---|
 | 1 | every policy B creates is removed by C | B → C: 8 created, 0 left | PASS |
 | 2 | a name collision fails, never merges | same-name policy pre-created → B raises, 0 reader policies created; C raises and rolls back instead of dropping a foreign policy | PASS (B's guard added in this pass) |
-| 3 | A fails atomically if a table is absent | `facturas` hidden → ERROR, 0 roles | PASS |
+| 3 | A fails atomically if a table is absent | re-run on the 26-table inventory: `mp_source_record` hidden → ERROR, 0 roles; the same path then happened for real in production (§10e) | PASS |
 | 4 | B fails atomically | collision → whole block rolled back | PASS |
 | 5 | C removes every reader policy, then the role | 0 roles, 0 policies, 0 grants, 0 `pg_shdepend` rows; the 8 app policies are intact | PASS **after fix** |
 | 6 | no statement can mutate business rows | A/B/C hold only role, GRANT/REVOKE and POLICY statements; the VERIFY write probes use `WHERE false` or are rolled back, and each ended in `permission denied` / `must be owner` | PASS |
@@ -254,16 +255,16 @@ Connection: the Supabase **session** pooler URI copied from the project's Connec
 - **Restore:** the dump carries the reader's policies, and that role will not exist in the local cluster. The restore now filters those TOC entries (proven: filtered restore OK, counts identical).
 
 **Behaviour proven on the rehearsal:**
-- VERIFY as the reader: no privileged attribute, no membership, SELECT only on the 28 tables, no write privilege anywhere, no CREATE, TEMP inherited from PUBLIC. **1.7 lists the PUBLIC-executable SECURITY DEFINER stand-in**, so VERIFY does detect the exposure.
+- VERIFY as the reader: no privileged attribute, no membership, SELECT only on the 26 tables, no write privilege anywhere, no CREATE, TEMP inherited from PUBLIC. **1.7 lists the PUBLIC-executable SECURITY DEFINER stand-in**, so VERIFY does detect the exposure.
 - `row_security = off` → `query would be affected by row-level security policy`. `pg_dump` without `--enable-row-security` fails the same way (fail-closed).
-- With R1: counts seen by the reader equal the owner's counts for all 28 tables.
-- 50 rows inserted concurrently during the dump: the counts taken in the exported snapshot equal the restored counts for all 28 tables, and the concurrent rows are excluded from both.
+- With R1: counts seen by the reader equal the owner's counts for all 26 tables.
+- 50 rows inserted concurrently during the dump: the counts taken in the exported snapshot equal the restored counts for all 26 tables, and the concurrent rows are excluded from both.
 
 **STATIC SECURITY CHECK: PASS** (after the fixes above).
 
 ## 10d. Execution status and owner runbook
 
-**Not executed against production in this pass.** Block A needs (1) the administrative `postgres` database credential and (2) an **interactive** psql session for `\password`. Neither is available in this non-interactive session. `.env.local` holds only API keys, which are not database credentials and are excluded by the owner's rule. Production was therefore not contacted.
+**Executed by the owner, not by Claude.** Block A needs (1) the administrative `postgres` database credential and (2) an **interactive** psql session for `\password`. Neither is available in Claude's non-interactive session, and `.env.local` holds only API keys, which the owner's rule excludes. The owner's first attempt failed safely (§10e). The corrected 26-table Block A is ready to retry.
 
 **Anticipated stop at VERIFY 1.7.** PostgreSQL grants `EXECUTE` on every new function to `PUBLIC` by default. If `marcar_pedido_entregado` (the one legacy RPC the app calls) or any other business-write function is `SECURITY DEFINER` and still executable by `PUBLIC`, the reader inherits it and the instruction is to STOP before R1. Resolving it (for example `REVOKE EXECUTE … FROM PUBLIC` after confirming the app role keeps its explicit grant) is a production change that needs its own owner decision. It is not pre-authorized.
 
@@ -272,14 +273,31 @@ Connection: the Supabase **session** pooler URI copied from the project's Connec
 2. **O** — writes `LEGACY_READONLY_DATABASE_URL=<session-pooler URI with user legacy_snapshot_reader.<ref> and that password>` into `.env.test` (git-ignored), and prints it nowhere.
 3. **C** — runs VERIFY parts 1–2 as the reader. It stops at any failure, including 1.7.
 4. **O** — runs B (clean case only).
-5. **C** — runs VERIFY part 3 and the R1 completeness check, then the snapshot procedure of §10b, hashes, manifest, read-only files, local restore, and reconciliation of all 28 counts.
-6. **O** — runs C only after C reports all 28 counts reconciled. **C** then confirms 0 roles, 0 policies and 0 grants through the post-check output O pastes back.
+5. **C** — runs VERIFY part 3 and the R1 completeness check, then the snapshot procedure of §10b, hashes, manifest, read-only files, local restore, and reconciliation of all 26 counts.
+6. **O** — runs C only after C reports all 26 counts reconciled. **C** then confirms 0 roles, 0 policies and 0 grants through the post-check output O pastes back.
 7. **C** — profiles `legacy_copy` only. No further production contact.
+
+## 10e. Production discovery — Block A first attempt (reported by the owner)
+
+| | |
+|---|---|
+| **PRODUCTION CONTACTED** | yes — schema inventory / read-only administrative discovery only |
+| **PRODUCTION BUSINESS DATA WRITTEN** | no |
+| **BLOCK A RESULT** | failed safely because two assumed source relations were absent; the transaction rolled back completely; `legacy_snapshot_reader` does not exist |
+| **MISSING SOURCE RELATIONS** | `facturas`, `mercadopago_settlement` |
+| **LEGACY SOURCE INVENTORY** | 26 confirmed public tables (§10b); every other expected table exists |
+
+This is the fail-closed path proven as static check #3 (§10c): a missing table aborts Block A with nothing committed.
+
+**Consequences:**
+- **Fiscal.** There is **no legacy fiscal source table in production**. MIGRATION_STRATEGY_V1 assumed a `facturas` table from application code (`src/` calls `.from('facturas')`); the real schema refutes that assumption. The fiscal domain therefore has no legacy source and is new-system only. That follows from the source not existing; it is not the result of excluding a table. G-3 is closed as "no source" rather than "pending profiling".
+- **Mercado Pago.** `mercadopago_settlement` is not part of the real legacy MP schema. Strategy §8 listed it both as a normalized-layer input and as evidence only. Neither role can be filled, and nothing replaces it. The normalized layer draws on `mp_financial_movement` and `mercadopago_movements`, plus the `Liberaciones*` exports for the gross/fee/tax/net split.
+- **Frozen documents, target migrations and business rules:** unchanged. `MIGRATION_STRATEGY_V1` is left as written; this file records the correction as Phase 26 evidence.
 
 ## 11. Blockers
 
 1. **No realistic source copy** of the legacy operational data (A, B, C all absent except MP exports).
-2. **P-4 open:** Block A and R1 are approved and statically proven (§10c), but Block A was not executed: it needs the owner's administrative credential and an interactive `\password` session (§10d, runbook step 1).
+2. **P-4 open:** Block A and R1 are approved. Block A's first attempt failed safely on two absent tables (§10e). The corrected 26-table scripts are re-proven (§10c), and the retry awaits the owner (§10d, runbook step 1).
 3. OD-1, OD-2, OD-3 evidence not profiled (consequence of 1–2).
 4. No data-migration tool or mapping store exists.
 5. Opening balances have no owner evidence yet.
@@ -289,7 +307,7 @@ Connection: the Supabase **session** pooler URI copied from the project's Connec
 1. ~~Authorize a read-only production snapshot~~ — authorized (B).
 2. ~~Authorize the git baseline commit~~ — authorized (A), committed `061130f`.
 3. ~~Approve Block A~~ — approved. ~~Choose R1/R2/R3~~ — R1 approved, R2 rejected, R3 fallback only.
-4. **Execute runbook steps 1–2** (§10d): create the reader and store its URL in `.env.test`.
+4. **Retry runbook steps 1–2** (§10d) with the corrected 26-table Block A: create the reader and store its URL in `.env.test`.
 5. **Possibly required:** a decision on any PUBLIC-executable SECURITY DEFINER business function that VERIFY 1.7 finds.
 
 OD-1, OD-2 and OD-3 are **not** asked now: they are decided only after their evidence is profiled.

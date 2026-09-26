@@ -32,14 +32,14 @@ ALTER ROLE legacy_snapshot_reader SET idle_in_transaction_session_timeout = '5mi
 GRANT CONNECT ON DATABASE postgres TO legacy_snapshot_reader;
 GRANT USAGE   ON SCHEMA public    TO legacy_snapshot_reader;
 
--- Exactly the 28 legacy source tables. A missing table raises and aborts the block.
+-- Exactly the 26 legacy source tables. A missing table raises and aborts the block.
 GRANT SELECT ON TABLE
   public.perfiles, public.clientes, public.productos, public.precios_historial,
   public.pedidos, public.pedido_lineas, public.pagos, public.pago_en_caja,
   public.movimientos_caja, public.cuentas_caja, public.arqueos_caja, public.categorias_finanzas,
-  public.cheques, public.comisiones, public.facturas,
+  public.cheques, public.comisiones,
   public.lotes, public.producciones, public.recuentos_lote,
-  public.mercadopago_raw, public.mercadopago_movements, public.mercadopago_settlement,
+  public.mercadopago_raw, public.mercadopago_movements,
   public.mp_source_record, public.mp_financial_movement,
   public.mp_movement_source_link, public.mp_source_link_resolution,
   public.monthly_reconciliation, public.reconciliation_snapshot, public.import_period_coverage
@@ -59,8 +59,8 @@ BEGIN
        AND t.relname = ANY (ARRAY[
          'perfiles','clientes','productos','precios_historial','pedidos','pedido_lineas',
          'pagos','pago_en_caja','movimientos_caja','cuentas_caja','arqueos_caja',
-         'categorias_finanzas','cheques','comisiones','facturas','lotes','producciones',
-         'recuentos_lote','mercadopago_raw','mercadopago_movements','mercadopago_settlement',
+         'categorias_finanzas','cheques','comisiones','lotes','producciones',
+         'recuentos_lote','mercadopago_raw','mercadopago_movements',
          'mp_source_record','mp_financial_movement','mp_movement_source_link',
          'mp_source_link_resolution','monthly_reconciliation','reconciliation_snapshot',
          'import_period_coverage'])

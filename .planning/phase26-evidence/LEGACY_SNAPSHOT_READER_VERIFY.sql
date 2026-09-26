@@ -26,12 +26,12 @@ SELECT rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls, rolin
 SELECT r.rolname AS member_of FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
  WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = current_user);
 
--- 1.4 the 28 source tables: exist, SELECT = true, every write privilege = false, RLS state
+-- 1.4 the 26 source tables: exist, SELECT = true, every write privilege = false, RLS state
 WITH t(name) AS (VALUES
   ('perfiles'),('clientes'),('productos'),('precios_historial'),('pedidos'),('pedido_lineas'),
   ('pagos'),('pago_en_caja'),('movimientos_caja'),('cuentas_caja'),('arqueos_caja'),
-  ('categorias_finanzas'),('cheques'),('comisiones'),('facturas'),('lotes'),('producciones'),
-  ('recuentos_lote'),('mercadopago_raw'),('mercadopago_movements'),('mercadopago_settlement'),
+  ('categorias_finanzas'),('cheques'),('comisiones'),('lotes'),('producciones'),
+  ('recuentos_lote'),('mercadopago_raw'),('mercadopago_movements'),
   ('mp_source_record'),('mp_financial_movement'),('mp_movement_source_link'),
   ('mp_source_link_resolution'),('monthly_reconciliation'),('reconciliation_snapshot'),
   ('import_period_coverage'))
