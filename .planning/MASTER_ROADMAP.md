@@ -15,8 +15,8 @@ authority wins; this document only says *in what order* work happens and *where 
 
 | | |
 |---|---|
-| **Current phase** | **26 — Migration Rehearsal** |
-| **Last completed phase** | 25 — Dashboard / Reports |
+| **Current phase** | **27 — Frontend V1 Integration** (PENDING start; its Mercado Pago screens are gated by ADR-006 implementation) |
+| **Last completed phase** | 26 — Migration Rehearsal |
 | **Architecture** | FROZEN |
 | **Physical design** | FROZEN |
 | **Implementation design** | FROZEN |
@@ -39,6 +39,7 @@ existing system remains the operating system of record and is untouched.
 | `implementation-design/RLS_IMPLEMENTATION_SPEC_V1.md` | **Security model.** Role resolution, privilege perimeter, policies, safe views. | FROZEN |
 | `implementation-design/DATABASE_INVARIANTS_V1.md` | **Invariants.** 28 guarantees with named enforcement mechanisms. | FROZEN |
 | `implementation-design/IMPLEMENTATION_DEPENDENCY_ORDER_V1.md` | **Build order inside the schema.** Creation sequence of enums, tables, constraints, security, RPCs. | FROZEN |
+| `ADR-006-MP-REALTIME-INGESTION-RECONCILIATION.md` | **Mercado Pago real-time ingestion and report reconciliation.** Amends ADR-003 (D1, D2, D3, D7, D8), RPC 41 (one guard), and the `client_ledger` COLLECTION provenance (RPC_CONTRACTS_V1 §4, schema Domain D). Frozen files are not rewritten; the ADR prevails where they differ. | ACCEPTED 2026-09-27 — not yet implemented |
 | `MASTER_ROADMAP.md` (this file) | **Phase sequence and project state.** | LIVE — updated as phases close |
 
 ### Not authoritative
@@ -145,8 +146,8 @@ No phase in this block may start before 10, 11 and 12 are closed.
 
 | # | Phase | Status | Exit criteria |
 |---|---|---|---|
-| 26 | **Migration Rehearsal** | **CURRENT** | The migration runs end to end in the test environment against a realistic copy. Discrepancies explained, not silently reconciled. Repeatable. |
-| 27 | Frontend V1 Integration | PENDING | Frontend operates against the target schema for the V1 business flows and reporting surfaces, respects ADMIN/OPERATOR permissions, and contains no duplicated business/accounting authority. *(Inserted by ADR-005.)* |
+| 26 | Migration Rehearsal | **COMPLETE** | The migration runs end to end in the test environment against a realistic copy. Discrepancies explained, not silently reconciled. Repeatable. |
+| 27 | Frontend V1 Integration | PENDING | Frontend operates against the target schema for the V1 business flows and reporting surfaces, respects ADMIN/OPERATOR permissions, and contains no duplicated business/accounting authority. *(Inserted by ADR-005.)* Mercado Pago screens wait until the ADR-006 backend contract is implemented and frozen; they consume its two status axes (MP reconciliation; optional client attribution). |
 | 28 | Integral QA | PENDING | All slices exercised together. Invariant queries return their expected results. No cross-domain contradiction. |
 | 29 | UAT | PENDING | The owner validates real operation against real expectations, on migrated data, in the test environment. |
 | 30 | Cutover Rehearsal | PENDING | The full cutover sequence rehearsed, including rollback. Rollback proven, not assumed. |
@@ -166,7 +167,7 @@ Cutover does not proceed until every item is validated. This is a minimum, not a
 - [ ] **Cheques / eCheqs, issued and received** — every instrument in a state consistent with its real situation; portfolio and pending debits reconcile.
 - [ ] **Flock population** — derived population matches the real count per flock.
 - [ ] **Productive data** — production, mortality, weighings and temperature records complete for the migrated window.
-- [ ] **Mercado Pago** — raw source complete, normalized, and reconciled to internal operations without invented correspondence.
+- [ ] **Mercado Pago** — raw source complete, normalized, and reconciled to internal operations without invented correspondence. ADR-006 §11 cutover gates pass (webhook URL switched with the legacy writer disabled in the same step; end-to-end real payment POSTED; MP opening balance validated against the Account Money report; no open FAILED_PERMANENT, DISCREPANCY or ERROR after the boundary; Account Money parser accepted or interim Liberaciones completeness accepted by the owner).
 - [ ] **Pending orders** — every open Pedido carried over correctly, with its lines and prices.
 - [ ] **RLS / permissions** — ADMIN, OPERATOR and SERVICE_ROLE behave as specified against real data; no period-sensitive table writable outside an RPC.
 - [ ] **Backup and restore** — a backup taken and restored successfully, verified by reading real data back.
@@ -199,4 +200,4 @@ to again. No dual-write period, no partial operation across both systems.
 
 ---
 
-**PHASE SEQUENCE AUTHORITY — 34 PHASES (0–33) · CURRENT: 26 — MIGRATION REHEARSAL**
+**PHASE SEQUENCE AUTHORITY — 34 PHASES (0–33) · CURRENT: 27 — FRONTEND V1 INTEGRATION (PENDING START)**
