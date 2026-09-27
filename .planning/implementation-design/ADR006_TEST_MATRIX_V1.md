@@ -246,6 +246,58 @@ ADR-006 adds legitimate schema objects. Historical suites that assert **exact gl
 
 ---
 
+## HRN — Remaining test-harness adaptations (authorized 2026-09-27 after the Step-1 blocker report)
+
+These are **test-harness maintenance only**. They do **not** change:
+- ADR-006 `DEFERRED_V4` behaviour, or RPC 40 business semantics;
+- P&L or reporting semantics, or Phase-18 production semantics;
+- amount arithmetic, RLS intent, period guards, idempotency or concurrency;
+- append-only production behaviour or the stored-balance rules.
+
+Any other functional assertion failure remains **BLOCKED**.
+
+**HRN-1 — `production.test.mjs` A11: named exception.**
+- The column name `mp_webhook_delivery.key_conflict_of` (ADR006_SCHEMA_DELTA_V1 §2) is accepted and **not renamed**.
+- A11's column query is over-broad: it matches every public column containing "conflict", while the Frozen Part 26 rule it protects is specifically the rejection of **mortality-conflict tracking**.
+- A11 stays an exact negative assertion, with the regex kept, and adds exactly one exclusion: `AND NOT (table_name = 'mp_webhook_delivery' AND column_name = 'key_conflict_of')`. The result must still be 0.
+- Preserved unchanged:
+  - no mortality-conflict table;
+  - no conflict flag on population or daily-production facts;
+  - no `conflicting_event_id` mechanism;
+  - `population_event_type` exactly `MORTALITY, COUNT_ADJUSTMENT`, with no `MORTALITY_CONFLICT`.
+- Applies from 0047.
+
+**HRN-2 — `pnl.test.mjs`: payment fixture retarget.**
+- The suite is not the authority for the Liberaciones payment parser. After 0048, a `payment` Liberaciones row correctly parks as `DEFERRED_V4`.
+- **Only the payment fixture construction changes.** The same economic movement is created as **OWNER**, with the minimum internal rows the current schema requires:
+  - a `mp_source_record` row (`csv_import`, the same row data, **no** `api_payment`, no V-2 field);
+  - the `mp_financial_movement` row (`payment`, gross 1000, fee −12, tax −8, net 980, the same `occurred_date`);
+  - where the schema requires it, the `mp_transition_identity` linkage (`report` resource, the source's external_id, `APPROVAL`);
+  - the source status `NORMALIZED`, which is what RPC 40 wrote before 0048.
+- The yield and payout fixtures stay on the real `csv_import` → RPC 40 path.
+- M1–M4 expectations, and the P&L views under test, are unchanged.
+- Applies from 0048.
+
+**HRN-3 — `reporting.test.mjs`: payment fixture retarget.**
+- The same approach as HRN-2 for the single MP payment fixture: gross 1000, fee −12, tax −8, net 980, 2026-06-12, created as OWNER, with no `api_payment`, no V-2 field and no webhook.
+- The later RPC 41 reconciliation calls, and every report view assertion, are unchanged. No stored reporting result is introduced.
+- Applies from 0048.
+
+**HRN-4 — FK-safe teardown** in exactly `mp.test.mjs`, `pnl.test.mjs` and `reporting.test.mjs`.
+- 0047 adds RESTRICT references to `mp_source_record` and `mp_financial_movement`, so each suite's owner-only cleanup first deletes its rows in the dependent ADR-006 tables, in actual FK order (derived from 0047):
+  1. `mp_client_allocation` (reversal rows before their originals: `reversal_of_id` self-reference);
+  2. `mp_attribution_flag`;
+  3. `mp_report_match`;
+  4. `mp_webhook_delivery` (conflict and refresh rows before their referenced rows: `key_conflict_of` / `triggered_by_delivery_id` self-references; `report_source_id` / `source_record_id` → `mp_source_record`);
+  5. `mp_transition_identity`;
+  6. then the existing deletes of `mp_reconciliation`, `mp_financial_movement` and `mp_source_record`.
+- `mp_payer_client_map` references only `clients` / `perfiles`, so it needs no teardown in these suites.
+- Each suite deletes only the minimum subset it can create. The teardown is owner-only and re-runnable. It uses no TRUNCATE … CASCADE, no disabled FKs, no dropped constraints and no privilege change.
+- Every raw-immutability and append-only assertion keeps testing application roles, exactly as before.
+- Applies from 0048 (and 0047, where harmless).
+
+---
+
 ## CT — Current-target clean-cutover compatibility regression (replaces "rerun the Phase 26 rehearsal unchanged")
 
 Phase 26 is COMPLETE. Its artefacts are historical evidence, and **none is modified or re-run as if it had known migrations 0047+**. That includes the runner, the config (`expected_migrations = 46`), `validate-clean-cutover.sql` (C01 = 46), the rehearsal digests and the PASS summary.
