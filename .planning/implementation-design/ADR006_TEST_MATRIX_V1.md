@@ -1,0 +1,232 @@
+# ADR-006 TEST MATRIX V1
+
+**Status:** implementation design. The tests are specified, not written.
+
+**Harnesses:**
+- **DB:** `scripts/target-db/mp_realtime.test.mjs`, following the existing target-db suite pattern (guarded local stack at 127.0.0.1:54322; fixtures inserted as owner; RPC calls as `service_role` or as an ADMIN / OPERATOR JWT via `SET LOCAL ROLE` + `request.jwt.claims`). It runs after `mp.test.mjs`, which is **amended** as described in §P23. It is not claimed to be unchanged.
+- **Worker and webhook:** `mpWorkerCore.test` and `verifySignature.test`, pure-module tests with injected mocks: MP API, clock, DB adapter against the local stack.
+- **Never used:** real MP credentials or production.
+
+**Common fixture:**
+- MP account = the seeded "Mercado Pago" account;
+- period 2026-10 OPEN;
+- clients X and Y active; client Z inactive;
+- ADMIN uid A; OPERATOR uid O;
+- payment P1: gross 100.00, `fee_details` [5.00], tax 2.00, net 93.00 (expressed in the V-2-confirmed MP fields; tests that consume payment payloads — W-3, F, N, T, R — are written after V-2 from sanitized real-shaped fixtures. Before V-2, the C block and R-9 run on owner-inserted movements with no API payload), approval date 2026-10-05T12:00:00-03:00, collector = the fixture collector.
+
+The "Assert" column lists exact row deltas. `Δ` means the change in row count.
+
+---
+
+## W — Webhook and delivery
+
+| ID | Case | Setup / action | Assert |
+|---|---|---|---|
+| W-1 | Valid payment notification | signed request, notification id n1 (if V-1 documents one), `x-request-id` r1, `data.id` P1 | 200; Δ delivery = 1 (RECEIVED, `topic_class` payment, `delivery_key 'n:payment:n1'`, or `'h:<sha>'` when no documented id; `x_request_id = r1` stored, **not** the key; reduced payload keys ⊆ allowed); no other table changed |
+| W-2 | Same notification retried with a **different** `x-request-id` | the W-1 body byte-identical, r2 | 200; Δ delivery = 0 (same key, same `notification_sha256`); proves `x-request-id` is not the identity |
+| W-2b | Same notification retried with the **same** `x-request-id` | repeat W-1 exactly | 200; Δ delivery = 0 |
+| W-2c | Same key, **different content** | forge a second notification with the same documented notification id but a different `action` / `resource_id` (valid signature in the test harness) | 200; Δ delivery = 1: a conflict row with `delivery_key` = `'conflict:' ‖ sha256(W-1 key ‖ ':' ‖ new hash)` (`length = 73`), `key_conflict_of` = the W-1 row; processed normally; the original row is unchanged; `report_mp_delivery_health.key_conflicts` = 1; never merged |
+| W-2d | Conflicting notification replayed | repeat the W-2c notification | 200; Δ delivery = 0; S1 returns `{created: false, key_conflict: true}` with the W-2c row id; no unique violation |
+| W-2e | Second, different conflicting content | a third notification with the W-1 key and yet another `action` | Δ delivery = 1 (a distinct conflict key); `key_conflict_of` = the **W-1** row (not the W-2c row); `key_conflicts` = 2 |
+| W-2f | N-SHA determinism | the same fields submitted with the JSON payload keys in a different order / whitespace; `action` NULL vs `''` | same hash for the reordered payload; **different** hashes for NULL vs `''`; the hash equals an independent SQL evaluation of the N-SHA formula |
+| W-2g | Key bound | an over-long / invalid documented notification id (> 120 chars) | falls back to the `'h:'` key; every stored `delivery_key` length ≤ 200 (a CHECK-style assertion over all rows) |
+| W-3 | New notification for the same payment | a new notification id n2 (for example `payment.updated`), `data.id` P1 | 200; Δ delivery = 1; after the worker runs: Δ source = 0 (same hash) or 1 (changed version), Δ movement = 0, Δ operation = 0 |
+| W-9 | Chargeback notification (topic per V-1) | a signed chargeback notification, chargeback id c1 | 200; Δ delivery = 1 with `topic_class` chargeback, status RECEIVED, **not** UNSUPPORTED; Δ source / movement / operation / posting / allocation = 0 |
+| W-10 | Chargeback retried | repeat W-9 | Δ delivery = 0 |
+| W-4 | Signature failure | tampered signature / missing header / stale ts | 401; Δ every table = 0; the log line holds no body or signature |
+| W-5 | Foreign collector / `live_mode` false | valid signature, `user_id` ≠ config | 200; Δ = 0 |
+| W-6 | Unsupported topic | `type = 'merchant_order'` | 200; Δ delivery = 1 with status UNSUPPORTED; the worker ignores it |
+| W-7 | DB unavailable at insert | fault-inject the S1 failure | 500 (MP will retry); Δ = 0 |
+| W-8 | Oversize / non-POST / non-JSON | — | 413 / 405 / 400; Δ = 0 |
+
+## F — Fetch, retry and worker
+
+| ID | Case | Setup / action | Assert |
+|---|---|---|---|
+| F-1 | API timeout | mock timeout | delivery FAILED_RETRYABLE, `attempts` 1, `next_attempt_at` = +1 min, code MP_UNAVAILABLE, `first_failed_at` set |
+| F-2 | API 429 with Retry-After 120 | — | `next_attempt_at` = +120 s; code MP_RATE_LIMIT |
+| F-3a | API 401 | mock 401 for P1 | delivery CONFIG_BLOCKED, `last_error_code` AUTH_CONFIGURATION_ERROR; Δ source / movement / operation / allocation / audit = 0; error log `MP_AUTH_CONFIGURATION_ERROR` without token or payload; `report_mp_delivery_health.auth_configuration_error = true`; axis A REVIEW_REQUIRED for P1 |
+| F-3b | API 403 (forbidden / scope) | mock 403 | same as F-3a (detail `http 403`) |
+| F-3c | Circuit breaker | 5 claimed deliveries; the 1st gets 401 | the 1st is CONFIG_BLOCKED; the other 4 are RELEASE → back to RECEIVED with `attempts` unchanged versus before the claim; the invocation stops; the MP mock received exactly 1 request |
+| F-3d | No hot retry | after F-3a, run the worker 60 times (simulated 60 min) with the credential still broken | `mp_claim_deliveries` never returns the CONFIG_BLOCKED row; MP mock requests for P1 = 0 beyond the initial one (the hourly probe excepted: ≤ 1 per simulated hour); the row is still CONFIG_BLOCKED after a simulated 72 h (never FAILED_PERMANENT); Δ audit = 0 |
+| F-3e | Configuration correction + safe requeue | fix the mock credential; ADMIN `mp_requeue_config_blocked('token rotated')` | the row becomes RECEIVED; the next worker pass gives FETCHED; exactly 1 source, 1 movement, 3 operations (T-1 totals); audit `MP_DELIVERY_REQUEUE` × 1; a second requeue call gives `{requeued: 0}` and Δ audit = 0 |
+| F-3f | Automatic probe recovery | the credential fixed without an explicit requeue; advance 1 h | exactly 1 probe request; 200 → requeue (audit actor NULL, reason `auto: credential probe succeeded`); then as F-3e |
+| F-3g | Repeated identical 401 after requeue | requeue while the credential is still broken | the row goes back to CONFIG_BLOCKED; `attempts` +1; Δ source / financial / audit (except the one requeue audit) = 0 |
+| F-4 | 404 then 200 | first 404, then success | first RETRY; second pass FETCHED; exactly one source |
+| F-5 | 48 h exhaustion | clock +49 h with repeated 5xx | FAILED_PERMANENT; the payment is REVIEW_REQUIRED (if known) |
+| F-6 | 400 | — | FAILED_PERMANENT immediately, MP_BAD_REQUEST |
+| F-7 | Collector mismatch in payload | — | FAILED_PERMANENT COLLECTOR_MISMATCH; Δ source = 0 |
+| F-8 | Worker crash after the delivery claim | kill after S2 | the lease expires; a second worker re-claims; exactly one source, one movement, 3 operations |
+| F-9 | Crash after the source insert | kill after S4 | the next pass runs RPC 40; totals as F-8 |
+| F-10 | Crash after the financial posting | kill after A1 commits, before S3 | the next pass: A1 → ALREADY_APPLIED; Δ operation / posting / reconciliation / audit = 0; delivery FETCHED |
+| F-11 | Concurrent worker claims | two workers call `mp_claim_deliveries(10, 120)` simultaneously on 10 due rows | disjoint claim sets; union = 10; no row is processed twice; each returned row has exactly the columns `delivery_id, claim_token, origin, topic_class, topic, resource_id, attempts` in that order, and `topic_class` equals the stored value |
+| F-14 | Invalid link payment id | `mp_delivery_transition(d, t, 'SIGNAL_RECORDED', NULL, NULL, NULL, NULL, 'abc')` on a claimed chargeback delivery | INVALID_PAYMENT_ID; the row is still PROCESSING with its token; `signal_resolution` NULL; Δ `chargeback_refresh` deliveries = 0 |
+| F-15 | Link id on an unrelated outcome | `mp_delivery_transition(d, t, 'FETCHED', src, NULL, NULL, NULL, '123')` | INVALID_ARGUMENT; no state change |
+| F-12 | Stale worker after lease loss | worker 1 is slowed past the lease; worker 2 completes | worker 1's S3 → CLAIM_LOST; totals unchanged |
+| F-13 | Out-of-order webhook | a `payment.updated` (refunded) delivery processed before `payment.created` | final state: APPROVAL movement + refund movement, each exactly once; the later "created" delivery → the same hash or an older state → Δ movement = 0 |
+
+## N — Normalization and versions
+
+| ID | Case | Assert |
+|---|---|---|
+| N-1 | Valid payment P1 | source api_payment NORMALIZED; 1 movement (payment, 100 / −5 / −2 / 93, occurred_date 2026-10-05); 1 identity ('payment', P1, 'APPROVAL', '') |
+| N-2 | Duplicate same resource | identical payload → same `external_id`; Δ source = 0 |
+| N-3 | Changed payment version | payload with a new `date_last_updated` / status → new source version; RPC 40 → IGNORED NO_NEW_TRANSITION; Δ movement = 0; the old version is byte-identical |
+| N-4 | Pending / rejected payment | IGNORED NO_FINANCIAL_TRANSITION; Δ movement = 0 |
+| N-5 | Arithmetic mismatch | net 92.99 → ERROR ARITHMETIC_MISMATCH; Δ movement = 0; view REVIEW_REQUIRED |
+| N-6 | Unknown operation_type / currency USD | ERROR UNKNOWN_OPERATION_TYPE / UNSUPPORTED_CURRENCY |
+| N-7 | Refund discovery | a snapshot with 2 approved refunds → 2 `api_refund` children created (PENDING); after normalization, 2 refund movements, 2 identities with the refund ids |
+| N-8 | Refund exceeding the payment | ERROR REFUND_EXCEEDS_PAYMENT |
+| N-9 | Direct forged api_payment insert | service role `INSERT mp_source_record (source_type 'api_payment', …)` → RLS violation (R4) |
+| N-10 | Liberaciones regression | the amended `mp.test.mjs` (§P23) passes; unaffected ADR-003 assertions unchanged; payment rows → PENDING `DEFERRED_V4` with zero movement, identity, match, operation, posting, allocation and client-ledger rows |
+
+## T — `mp_apply_transition` (critical path)
+
+| ID | Case | Assert |
+|---|---|---|
+| T-1 | Gross / fee / tax atomicity | 3 operations (MP_SETTLEMENT +100, FEE −5, ADJUSTMENT −2), each with exactly 1 posting on the MP account; external_refs `MP:MPA:{t}:SETTLE/FEE/TAX`; Σ assigned 93; source RECONCILED; MP balance Δ +93; client_ledger Δ 0; collections Δ 0 |
+| T-2 | No intermediate cap violation | the same data through sequential RPC 41 calls (+100 first) → OVER_ASSIGNMENT (documents the reason for A1); A1 succeeds |
+| T-3 | Exact replay | a second A1 call → ALREADY_APPLIED; Δ every table = 0, audit included |
+| T-4 | Mismatched replay | after T-1, the ADMIN makes an RPC 41 counter-assignment (FEE +1 / ADJUSTMENT −1 pair) → A1 → TRANSITION_ALREADY_ASSIGNED; Δ = 0; view REVIEW_REQUIRED only if the source is no longer RECONCILED |
+| T-5 | Orphan external_ref | pre-insert an operation with `external_ref 'MP:MPA:{t}:FEE'` and no reconciliation → EXTERNAL_REF_CONFLICT; Δ = 0 |
+| T-6 | Fault injection mid-apply | force a failure on the 3rd posting (test-only trigger) → Δ every table = 0 |
+| T-7 | Closed management period | close 2026-10 → A1 → PERIOD_CLOSED; Δ = 0; RPC 41 on the movement → AUTO_APPLICATION_PENDING; reopen → the sweep applies; T-1 totals |
+| T-8 | Zero components | fee 0, tax 0 → exactly 1 operation (SETTLE = net) |
+| T-9 | Payout never auto-applied | a Liberaciones payout movement → A1 NOT_AUTO_APPLICABLE; RPC 41 Mode 2 to a transfer still works |
+| T-10 | Yield | a Liberaciones yield row → claimed, REPORT_ONLY match, A1 → 1 MP_SETTLEMENT = net; P&L Otros ingresos financieros once |
+| T-11 | RPC 41 guard | before A1, the ADMIN tries Mode 1 on the P1 movement → AUTO_APPLICATION_PENDING |
+| T-12 | P&L fee exactly once | after T-1 plus a Liberaciones row for P1 (with V-4 enabled in a test-only branch) → `pnl_line_item` has exactly one MP fee line of −5 |
+
+## C — Client attribution
+
+| ID | Case | Assert |
+|---|---|---|
+| C-1 | Anonymous Feria receipt | after T-1, no allocation; axis A POSTED; axis B CLIENT_UNASSIGNED; not listed in any work view |
+| C-2 | Manual allocation | ADMIN allocates 100 to X → client_ledger Δ 1 (COLLECTION −100, source `mp_client_allocation`/id); allocation Δ 1; operation / posting / collections Δ 0; audit Δ 1; axis B CLIENT_ASSIGNED |
+| C-3 | Auto deterministic (payer map) | a map exists for the payer → the worker's C2 → AUTO allocation 100 to X, key `MPAUTO:{t}` |
+| C-4 | Auto deterministic (external_reference) | `external_reference 'GST:C:<X>'` → AUTO to X |
+| C-5 | No-evidence auto | no reference, no map → `{allocated: false, NO_EVIDENCE}`; Δ = 0 |
+| C-6 | Ambiguous evidence | reference → X, map → Y → AMBIGUOUS_EVIDENCE; Δ = 0 |
+| C-7 | Partial allocation | 40 to X → CLIENT_PARTIAL; active 40 |
+| C-8 | Split across clients | 40 to X, 60 to Y → CLIENT_ASSIGNED; two ledger rows |
+| C-9 | Concurrent allocations | two sessions each allocate 60 at once → exactly one succeeds; the other ALLOCATION_EXCEEDS_RECEIPT; active 60 |
+| C-10 | Over-allocation | allocate 101 → ALLOCATION_EXCEEDS_RECEIPT; Δ = 0 |
+| C-11 | Wrong allocation reversal | allocate 100 to X by mistake → reverse 100 → allocate 100 to Y; X's balance returns to its prior value; Y −100; 4 allocation rows, 3 ledger rows; nothing updated or deleted |
+| C-12 | Reversal beyond the allocation | reverse 120 of 100 → REVERSAL_EXCEEDS_ALLOCATION |
+| C-13 | Inactive client / date before the receipt / closed period | Z → CLIENT_NOT_FOUND_OR_INACTIVE; `effective_date` 2026-10-04 → EFFECTIVE_DATE_BEFORE_RECEIPT; a closed period → PERIOD_CLOSED |
+| C-14 | Allocation before posting | allocate on a NORMALIZED (unapplied) movement → RECEIPT_NOT_POSTED |
+| C-15 | Service role cannot pick a client | service role calls `mp_allocate_to_client` → FORBIDDEN; it has no parameterised path |
+| C-16 | Flag lifecycle | flag → CLIENT_RESOLUTION_REQUESTED (the only work item); full allocation auto-clears it; `clear_reason` FULLY_ASSIGNED |
+| C-17 | Duplicate MANUAL key | the same key again → DUPLICATE_ALLOCATION; Δ = 0 |
+
+## R — Refunds, chargebacks, OD-1
+
+| ID | Case | Assert |
+|---|---|---|
+| R-1 | Partial refund with an allocation | P1 allocated 60 to X; refund 30 → MP_SETTLEMENT −30; X REVERSAL +30 (MP_REVERSAL row −30, key `MPREV:…`); active 30; effective receipt 70 |
+| R-2 | Full refund | P1 allocated 40 X + 60 Y (Y newer); refund 100 → Y +60, then X +40 (newest first); active 0; MP −100 |
+| R-3 | Refund beyond the attribution | allocated 20; refund 50 → restore 20 only; MP −50 |
+| R-4 | Refund without an allocation | refund 30 → MP −30; client_ledger Δ 0 |
+| R-5 | Single-allocation evidence | one active allocation → it is chosen regardless of age |
+| R-6 | Refund replay | A1 again → ALREADY_APPLIED; client_ledger Δ 0 |
+| R-7 | Chargeback via API | status `charged_back` → no movement; view REVIEW_REQUIRED with CHARGEBACK_ALERT; the MP balance is unchanged until the report (V-3) |
+| R-8 | Chargeback via report | **V-3 + V-4 blocked**; specified now, enabled when the parser is frozen: movement −amount, OD-1 as R-1 |
+| R-9 | Allocation after a refund | after R-1 (effective applied receipt 70, active 30), allocate 41 → ALLOCATION_EXCEEDS_RECEIPT; 40 → ok |
+| R-10 | Unapplied reversal keeps the invariant | P1 gross 100 posted, attributed 100 to X; refund 30 normalized; period of the refund date CLOSED → A1 → PERIOD_CLOSED | after the failure: MP balance +93 (payment only; no −30); active attribution 100; effective applied receipt 100; `0 ≤ 100 ≤ 100` holds; axis A REVIEW_REQUIRED (unapplied reversal); X ledger unchanged. Reopen the period → A1 commits in one transaction: MP_SETTLEMENT −30, X REVERSAL +30, allocation −30 → effective applied receipt 70, active 70; the invariant holds after every commit |
+| R-11 | Allocation while a reversal is unapplied | P1 attributed 50; refund 30 normalized but unapplied (closed period) | allocate 50 more → allowed (bound = applied receipt 100) → active 100; after A1: unwind min(30, 100) = 30 → active 70 ≤ 70 |
+| R-12 | Chargeback signal linked automatically | W-9 with a V-1/V-2-documented payment reference P1; the worker calls `mp_delivery_transition(d, t, 'SIGNAL_RECORDED', NULL, NULL, NULL, NULL, '<P1>')` | the signal delivery SIGNAL_RECORDED, `signal_resolution` LINKED (actor NULL); Δ delivery +1 `chargeback_refresh` for P1 (key `cbrefresh:…`); after the refresh FETCHED with a chargeback status → REVIEW_REQUIRED (derived alert); Δ operation / posting / allocation / client_ledger = 0 |
+| R-13 | Chargeback signal without a payment reference | W-9 where no documented reference exists | SIGNAL_RECORDED, unresolved; health view `unresolved_chargeback_signals` = 1 (REVIEW_REQUIRED); ADMIN `mp_resolve_chargeback_signal(LINKED, P1)` → refresh enqueued; a second resolve → ALREADY_RESOLVED; ADMIN DISMISSED on another signal → resolved with no financial effect |
+| R-14 | Chargeback signal idempotency | W-9 twice, and the worker run twice | 1 signal delivery, ≤ 1 refresh delivery; Δ financial = 0 |
+
+## M — Report reconciliation
+
+| ID | Case | Assert |
+|---|---|---|
+| M-1 | Report MATCHED | (V-4 enabled in a test-only branch) a Liberaciones row equal to P1 → IGNORED MATCHED_TO_TRANSITION; match MATCHED; Δ movement / operation = 0 |
+| M-2 | Report DISCREPANCY | a row with fee −6 → match DISCREPANCY `detail.fee {report −6, recorded −5}`; no financial write; view REVIEW_REQUIRED; resolve CORRECTED requires a later RPC 41 correction (NO_CORRECTION_FOUND otherwise) |
+| M-3 | Report-only movement | a yield row → claim, movement, REPORT_ONLY, applied once |
+| M-4 | Missing in report | an API transition dated in the window with no report row → `mp_check_report_coverage` → MISSING_IN_REPORT; a rerun gives Δ = 0. Report-only kinds only while V-4 is open |
+| M-5 | Report before API (back-fill) | (V-4 enabled) a report payment row for unseen P2 → PENDING DEFERRED_BACKFILL + back-fill delivery; the worker fetches P2 → the APPROVAL claim by the API → the report row re-evaluated → MATCHED; exactly one movement |
+| M-6b | Fallback path isolation | (V-4 test branch) normal RPC 40 on a DEFERRED_BACKFILL row → stays DEFERRED_BACKFILL (never claims); service_role / authenticated EXECUTE on `mp_claim_report_payment_fallback` → permission denied; `mp_normalize_report_fallback` with V-4 false → V4_NOT_VERIFIED; before the back-fill is exhausted → BACKFILL_NOT_EXHAUSTED; an API snapshot arriving between exhaustion and the fallback → the fallback returns ALREADY_CLAIMED, and the row becomes MATCHED / DISCREPANCY with 1 movement total |
+| M-6 | API permanently unavailable | M-5 with the back-fill FAILED_PERMANENT → ADMIN `mp_normalize_report_fallback` → movement from the report; a later API snapshot → IGNORED NO_NEW_TRANSITION |
+| M-7 | Balance check | a day-closing Liberaciones row with BALANCE_AMOUNT equal to Σ postings → BALANCE_CHECK `is_exception` false; different → true; `NOT_DAY_CLOSING_ROW` for others |
+| M-8 | V-4 guard | with `mp_v4_verified()` = false, a Liberaciones payment row → PENDING DEFERRED_V4; no claim, no match, no movement |
+
+## S — RLS and privilege abuse
+
+| ID | Case | Assert |
+|---|---|---|
+| S-1 | anon | SELECT on each new table / view → permission denied; EXECUTE on every new function → permission denied |
+| S-2 | OPERATOR | SELECT on each new table → 0 rows / denied; every ADMIN RPC → FORBIDDEN; views → 0 rows |
+| S-3 | ADMIN | cannot call the service-only RPCs (FORBIDDEN); can call `mp_requeue_config_blocked`; OPERATOR and anon cannot (FORBIDDEN / permission denied); cannot INSERT / UPDATE / DELETE any new table directly |
+| S-4 | service_role | no SELECT on allocation / map / flag; no INSERT on client_ledger; no UPDATE on any MP table; cannot insert api_* sources (N-9) |
+| S-5 | Guards | UPDATE of an immutable delivery column / match column as owner through a test path → the trigger raises |
+| S-6 | Evidence-only AUTO | a forged `external_reference` naming a client id that does not exist / an inactive client → no allocation |
+| S-7 | Inventory | RLS spec checks 6 (0 rows), 7 (0 rows), 8 (1 row); 6b replaced by an **exact-set** assertion: `array_agg(proname ORDER BY proname) WHERE prosecdef AND pronamespace = 'public'` equals the 60-name literal (the 41 verified baseline names + the 19 ADR-006 names, ADR006_RLS_AND_SECURITY_V1 §4); the internal helpers `mp_parse_report_row` and `mp_claim_report_payment_fallback` are absent from the set (INVOKER) and not executable by authenticated / service_role / anon |
+| S-8 | Worker invoke | a POST to `mp-worker` without / with the wrong invoke secret → 401; Δ = 0 |
+
+## A — Audit completeness
+
+| ID | Case | Assert |
+|---|---|---|
+| A-1 | One audit per fact | across T-1, C-2, C-11, R-1, C-16, M-2 resolution, M-6: audit rows = the number of facts, each with the expected `action` and `performed_by` (uid or NULL) |
+| A-2 | No audit on no-ops | W-2, T-3, C-5, R-6 → Δ audit = 0 |
+| A-3 | No sensitive data | a regex scan of `after_values` / `before_values` for tokens, emails, `x-signature`, or payer fields → 0 matches |
+
+---
+
+## P23 — ADR-authorized amendment of `scripts/target-db/mp.test.mjs` (Phase 23 suite)
+
+ADR-006 intentionally changes two Phase 23 behaviours:
+- (a) while V-4 is open, a Liberaciones **payment** row is validated and then parked **PENDING `DEFERRED_V4`, with no movement** (ADR-003 made it NORMALIZED);
+- (b) the service-role INSERT policy on `mp_source_record` is narrowed to report source types (R4).
+
+The suite is therefore **amended, not kept unchanged**. This is an ADR-authorized regression update, not a regression failure. **Only** the assertions below change:
+
+| mp.test.mjs check | Old (ADR-003) expectation | Amended (ADR-006) expectation |
+|---|---|---|
+| D1 | real payment row 144502568133 → NORMALIZED, 1 movement 1.00 / 0.00 / −0.01 / 0.99 | same row → full D1 validation passes → **PENDING**, note `DEFERRED_V4…`, `movements_created = 0`, no movement; raw byte-identical |
+| D3 | outgoing payment 145781917504 → movement −20000.94 / 0.00 / −120.01 / −20120.95 | → PENDING `DEFERRED_V4`, no movement. The external_id direction-D assertion (ingestion) is **kept unchanged** |
+| D8 | re-normalizing the processed payment source → ALREADY_PROCESSED | re-targeted to the processed **D4 yield source** (the same intent: ALREADY_PROCESSED, no duplicate movement). A second call on the deferred payment row stays PENDING `DEFERRED_V4`, Δ movement = 0, Δ audit = 0 |
+| D11 | the NORMALIZE audit for the payment source reads `NORMALIZE|PENDING|NORMALIZED|1|NULL` | `NORMALIZE|PENDING|PENDING|0|NULL`, with note `DEFERRED_V4`, written once on the first deferral. The reserve half of D11 is **unchanged** |
+| B4 | service-role INSERT of `source_type 'webhook'` succeeds | the same INSERT is **denied by RLS** (the narrowed `mp_source_service_insert`, R4) |
+| D7 cases "unsupported source_type webhook" / "api" | service-role INSERT, then RPC 40 → ERROR `UNSUPPORTED_SOURCE_TYPE` | the service-role INSERT is denied (RLS). The RPC 40 `UNSUPPORTED_SOURCE_TYPE` branch is still covered by inserting the row **as owner**, then RPC 40 → ERROR `UNSUPPORTED_SOURCE_TYPE` (branch coverage preserved) |
+| `movement()` fixture helper, used by E, F, G, H, J, K, L | builds a synthetic Liberaciones **payment** row → movement | the default DESCRIPTION becomes **`payout`** (movement kind `transfer`). It is still normalized by the unchanged ADR-003 parser, is not auto-applicable, and so remains owned by RPC 41 (ADR-003 D7). **Every E–L assertion is unchanged**: amounts, signs, caps, idempotency, N:N, capacity, RLS, periods, atomicity, concurrency |
+| P1 | real row 145187899970 → NORMALIZED, movement 20.00 / 0.00 / −0.12 / 19.88 | → PENDING `DEFERRED_V4`, no movement, raw unchanged |
+| P2–P4 | RPC 41 partial / final reconciliation of the P1 payment movement | re-targeted to the D5 **real payout** movement (non-auto-applicable), with amounts adjusted to that movement's net. The intent (partial → RECONCILED, postings only, raw byte-identical) is unchanged |
+
+**Preserved unchanged** (explicit list):
+- A (structure);
+- B1–B3, B5 (ingestion, duplicates, visibility);
+- C (raw immutability);
+- D2, D4, D5, D6, D7b, D7c, D9, D10, D12, and every other D7 ERROR case (validation order and codes of the ADR-003 D1 parser);
+- E–L content (RPC 41 Mode 1 / Mode 2, sign, caps, idempotency, N:N, RLS, periods, atomicity, concurrency);
+- M (security definer checks of the two MP RPCs);
+- N (no parallel ledger).
+
+**Added ADR-006 assertions** (in `mp_realtime.test.mjs`, N-10 / M-8): a `DEFERRED_V4` payment row produces **zero** movement, identity, match, operation, posting, allocation and client-ledger rows. Re-running RPC 40 on it adds nothing.
+
+---
+
+## CT — Current-target clean-cutover compatibility regression (replaces "rerun the Phase 26 rehearsal unchanged")
+
+Phase 26 is COMPLETE. Its artefacts are historical evidence, and **none is modified or re-run as if it had known migrations 0047+**. That includes the runner, the config (`expected_migrations = 46`), `validate-clean-cutover.sql` (C01 = 46), the rehearsal digests and the PASS summary.
+
+The new harness `scripts/regression/clean-cutover-current-target.mjs` (a new file; it imports nothing mutable from `scripts/phase26/`):
+
+| ID | Case | Assert |
+|---|---|---|
+| CT-1 | Fresh current target | a guarded reset + `apply.mjs` with **all current migrations** (0001–0051); the ledger count equals the number of migration files present (derived at run time, not hard-coded) |
+| CT-2 | Load the historical clean-cutover plan | re-extract from the local `granja-legacy-copy` with the historical Phase 26 config (read-only; manifest and fingerprint checks as in Phase 26), or read the historical Run 1 `plan.json` read-only; its SHA-256 must equal the recorded plan hash. The load is performed by invoking the historical runner's `load` command unchanged (its `load` step does not check the migration count), **never** its `rebuild` or `validate` commands |
+| CT-3 | Current-schema business validation | the new `validate-current-target.sql` (read-only) carries every historical check **except** C01. C01 is replaced by "ledger = migration files present". C16 is extended with the ADR-006 tables (`mp_webhook_delivery`, `mp_transition_identity`, `mp_report_match`, `mp_client_allocation`, `mp_payer_client_map`, `mp_attribution_flag` = 0 rows, because the clean cutover loads no MP history) |
+| CT-4 | Business-state equality with historical evidence | the DIGEST lines produced by CT-3 (same canonical digest query as Phase 26) equal the historical Run 1 `state-digest.txt` **per table**, read-only from the Phase 26 run directory. Any difference fails. The historical file is never rewritten |
+| CT-5 | Idempotent rerun on the current target | the Phase 26 zero-write fingerprint procedure, re-implemented in the new harness: pre = post |
+
+**Optional separate proposal (not part of this change):** a reusable validation helper that parameterises the expected migration count could be generalised for future schema growth, as its own reviewed task. Historical Phase 26 files stay as they are.
+
+
+**Exit criterion:**
+- every row above passes, except R-8, which stays pending on V-3 + V-4;
+- the rows marked "V-4 enabled in a test-only branch" pass with `mp_v4_verified()` redefined to `true` only inside a test transaction that is rolled back (DDL is transactional in PostgreSQL);
+- the 13 other existing target-db suites pass unchanged, and `mp.test.mjs` passes **as amended in §P23** (only the listed assertions change);
+- CT-1…CT-5 pass (the current-target clean-cutover compatibility regression), with no historical Phase 26 artefact modified.
