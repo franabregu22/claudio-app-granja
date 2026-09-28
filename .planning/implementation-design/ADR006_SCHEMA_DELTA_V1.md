@@ -16,9 +16,10 @@
 |---|---|
 | `0047_mp_realtime_tables.sql` | 2 enums, 6 tables, 2 guard triggers |
 | `0048_mp_realtime_core_rpcs.sql` | pre-V-2 functions: helpers, queue S1–S3 / S5, attribution C1–C7, report R1 / R3 / R4, RPC 40 `csv_import`-branch redefinition |
-| `0049_mp_realtime_payment_rpcs.sql` | post-V-2: S4, RPC 40 `api_payment` / `api_refund` parsers, A1, RPC 41 guard, R2 |
-| `0050_mp_realtime_privileges_rls.sql` | grants and policies |
-| `0051_mp_realtime_views.sql` | the Phase 27 read views |
+| `0049_mp_delivery_chargeback_payload_keys.sql` | Step 4: `chk_delivery_payload_keys` gains the V-1-documented chargeback keys `actions` and `data_payment_id` (chargeback deliveries only; owner decision 2026-09-28, which renumbered the later files) |
+| `0050_mp_realtime_payment_rpcs.sql` | post-V-2: S4, RPC 40 `api_payment` / `api_refund` parsers, A1, RPC 41 guard, R2 |
+| `0051_mp_realtime_privileges_rls.sql` | grants and policies |
+| `0052_mp_realtime_views.sql` | the Phase 27 read views |
 
 ---
 
@@ -88,7 +89,7 @@ mp_match_outcome    = ('MATCHED','DISCREPANCY','REPORT_ONLY','MISSING_IN_REPORT'
 - `chk_delivery_payment_resource`: `topic_class <> 'payment' OR resource_id ~ '^[0-9]{1,20}$'`.
 - `chk_delivery_backfill_ref`: `(origin = 'report_backfill') = (report_source_id IS NOT NULL)`.
 - `chk_delivery_trigger_ref`: `(origin = 'chargeback_refresh') = (triggered_by_delivery_id IS NOT NULL)`.
-- `chk_delivery_payload_keys`: `(notification_payload - ARRAY['type','topic','action','data_id','live_mode','user_id','api_version','date_created','notification_id']) = '{}'::jsonb`. The reduced body only, with no payer data. Chargeback-specific keys are added only if V-1 documents them.
+- `chk_delivery_payload_keys`: `(notification_payload - ARRAY['type','topic','action','data_id','live_mode','user_id','api_version','date_created','notification_id']) = '{}'::jsonb`. The reduced body only, with no payer data. Chargeback-specific keys are added only if V-1 documents them. V-1 documents them (ADR006_V1_WEBHOOK_EVIDENCE §6), so 0049 adds `actions` (a JSON array) and `data_payment_id` (a digit string, `^[0-9]{1,20}$`), allowed only when `topic_class = 'chargeback'`; they are envelope evidence, never financial truth.
 - `chk_delivery_fetched`: `status <> 'FETCHED' OR source_record_id IS NOT NULL`.
 - `chk_delivery_signal_status`: `status <> 'SIGNAL_RECORDED' OR topic_class = 'chargeback'`, and `topic_class <> 'chargeback' OR status <> 'FETCHED'`. A chargeback notification never produces a financial source; its successful end state is `SIGNAL_RECORDED`.
 - `chk_delivery_signal_resolution`: the four signal-resolution columns are all NULL or all set (`signal_resolved_by` may be NULL for an automatic link); `signal_resolution IS NULL OR (topic_class = 'chargeback' AND signal_resolution IN ('LINKED','DISMISSED'))`.
@@ -323,7 +324,7 @@ mp_match_outcome    = ('MATCHED','DISCREPANCY','REPORT_ONLY','MISSING_IN_REPORT'
 
 ---
 
-## 9. Views (0051), all `security_invoker = true`, ADMIN-filtered, granted SELECT to `authenticated` only
+## 9. Views (0052), all `security_invoker = true`, ADMIN-filtered, granted SELECT to `authenticated` only
 
 **`report_mp_receipt_status`:** one row per `payment` APPROVAL movement. All values are derived:
 - movement fields;

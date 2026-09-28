@@ -12,8 +12,8 @@
  * No api_payment payload and no V-2 field is used anywhere. Receipts for attribution tests
  * are OWNER-created fixture movements (a csv_import source, a payment movement, a payment
  * APPROVAL identity and the three applied treasury components), exactly the state that
- * mp_apply_transition (0049) will produce; they never exercise webhook or API code.
- * Final RLS (0050) is NOT tested here.
+ * mp_apply_transition (0050) will produce; they never exercise webhook or API code.
+ * Final RLS (0051) is NOT tested here.
  *
  * Usage:
  *   TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
@@ -214,7 +214,7 @@ const money = () => owner(`SELECT concat_ws('|', (SELECT count(*) FROM financial
   (SELECT count(*) FROM mp_reconciliation), (SELECT count(*) FROM mp_financial_movement), (SELECT count(*) FROM collections),
   (SELECT count(*) FROM client_ledger), (SELECT count(*) FROM mp_client_allocation));`);
 
-// ── OWNER receipt fixture: the state mp_apply_transition (0049) will produce (no API payload) ──
+// ── OWNER receipt fixture: the state mp_apply_transition (0050) will produce (no API payload) ──
 let pidSeq = 0;
 function receipt({ gross = 100, fee = -5, tax = -2, date = '2026-10-05', applied = true } = {}) {
   const pid = `9${String(Date.now() % 1e9).padStart(9, '0')}${String(++pidSeq).padStart(3, '0')}`;
@@ -295,7 +295,7 @@ check('S6 no speculative API / V-2 column on the ADR-006 tables or on existing M
           AND table_name IN (${[...NEW_TABLES, 'mp_source_record', 'mp_financial_movement', 'mp_reconciliation'].map(q).join(',')})
           AND column_name ~* '(transaction_amount|net_received|fee_details|date_approved|date_last_updated|external_reference|payer|collector|currency|operation_type|refund)'
           AND NOT (table_name = 'mp_payer_client_map' AND column_name = 'mp_payer_id');`) === '0');
-check('S7 no application-role privilege on the six tables before 0050 (fail-closed)',
+check('S7 no application-role privilege on the six tables before 0051 (fail-closed)',
   owner(`SELECT count(*) FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
           WHERE c.relname IN (${NEW_TABLES.map(q).join(',')}) AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role'));`) === '0'
   && [ADMIN, OPER, SVC, ANON].every((fn) => denied(fn(`SELECT count(*) FROM mp_webhook_delivery;`))));
@@ -680,7 +680,7 @@ check('R4 ADMIN resolves EXPLAINED once (audited); a second resolve → ALREADY_
 check('R5 report evidence functions wrote no financial row', money() === m1);
 
 // ═══════════════════════════════════════════════════════════════════════════
-section('Z', 'Security perimeter at Step 2 (final RLS is 0050)');
+section('Z', 'Security perimeter at Step 2 (final RLS is 0051)');
 
 const definers = owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`);
 const expected = [...BASELINE_DEFINERS, ...Object.keys(STEP2_DEFINERS)].sort().join(',');

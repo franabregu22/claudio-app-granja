@@ -17,7 +17,7 @@
 
 ---
 
-## 2. Table privileges and policies (0050)
+## 2. Table privileges and policies (0051)
 
 The pattern is the same as 0041: `REVOKE ALL … FROM PUBLIC, anon, authenticated, service_role`, then narrow grants. RLS is enabled on every table. There are no INSERT, UPDATE or DELETE grants for application roles on any new table: all writes go through SECURITY DEFINER RPCs.
 
