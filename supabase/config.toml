@@ -397,6 +397,10 @@ deno_version = 2
 [functions.mp-webhook]
 verify_jwt = false
 
+# ADR-006 Step 8: authenticated by WORKER_INVOKE_SECRET (x-worker-invoke-secret), not a Supabase JWT.
+[functions.mp-worker]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
