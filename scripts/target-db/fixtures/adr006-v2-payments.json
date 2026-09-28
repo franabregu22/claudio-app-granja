@@ -1,0 +1,544 @@
+{
+  "_fixture": "sanitized_real_shape",
+  "_source": "ADR006 V-2 read-only verification",
+  "_date": "2026-09-28",
+  "_evidence": ".planning/implementation-design/ADR006_V2_PAYMENT_FIELD_EVIDENCE.md",
+  "_sanitization": "ids, collector_id, payer.id, external_reference and timestamps are synthetic (timestamps keep the observed format and the intra-payment offsets); enums, amounts, signs and charges_details structure are as returned by GET /v1/payments/{id}. Personal, card, device, description and metadata fields are not included.",
+  "samples": [
+    {
+      "_label": "A1",
+      "id": 900000000001,
+      "operation_type": "money_transfer",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "account_money",
+      "payment_method_id": "account_money",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000001"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-15T10:00:00.000-04:00",
+      "date_approved": "2026-01-15T10:00:00.000-04:00",
+      "date_last_updated": "2026-01-15T10:00:02.000-04:00",
+      "money_release_date": "2026-01-15T10:00:00.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 15000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 14910,
+        "total_paid_amount": 15000,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 90,
+            "refunded": 0
+          },
+          "base_amount": 15000,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "A2",
+      "id": 900000000002,
+      "operation_type": "money_transfer",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "account_money",
+      "payment_method_id": "account_money",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000002"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-16T10:00:00.000-04:00",
+      "date_approved": "2026-01-16T10:00:00.000-04:00",
+      "date_last_updated": "2026-01-16T10:00:01.000-04:00",
+      "money_release_date": "2026-01-16T10:00:00.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 224000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 222656,
+        "total_paid_amount": 224000,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 1344,
+            "refunded": 0
+          },
+          "base_amount": 224000,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "B1",
+      "id": 900000000003,
+      "operation_type": "money_transfer",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "bank_transfer",
+      "payment_method_id": "debin_transfer",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000003"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-17T10:00:00.000-04:00",
+      "date_approved": "2026-01-17T10:00:02.000-04:00",
+      "date_last_updated": "2026-01-17T10:00:04.000-04:00",
+      "money_release_date": "2026-01-17T10:00:02.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 14000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 13916,
+        "total_paid_amount": 14000,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 84,
+            "refunded": 0
+          },
+          "base_amount": 14000,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "C1",
+      "id": 900000000004,
+      "operation_type": "money_transfer",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "credit_card",
+      "payment_method_id": "master",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000004"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-18T10:00:00.000-04:00",
+      "date_approved": "2026-01-18T10:00:02.000-04:00",
+      "date_last_updated": "2026-01-18T10:00:04.000-04:00",
+      "money_release_date": "2026-01-18T10:00:02.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 10,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 9.94,
+        "total_paid_amount": 10.7,
+        "overpaid_amount": 0,
+        "installment_amount": 10.7
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "fee",
+          "name": "processing_fee",
+          "accounts": {
+            "from": "payer",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 0.7,
+            "refunded": 0
+          },
+          "refund_charges": []
+        },
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 0.06,
+            "refunded": 0
+          },
+          "base_amount": 10,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "C2",
+      "id": 900000000005,
+      "operation_type": "money_transfer",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "credit_card",
+      "payment_method_id": "naranja",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000005"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-19T10:00:00.000-04:00",
+      "date_approved": "2026-01-19T10:00:02.000-04:00",
+      "date_last_updated": "2026-01-19T10:00:03.000-04:00",
+      "money_release_date": "2026-01-19T10:00:02.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 36000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 35784,
+        "total_paid_amount": 38516.4,
+        "overpaid_amount": 0,
+        "installment_amount": 38516.4
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "fee",
+          "name": "processing_fee",
+          "accounts": {
+            "from": "payer",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 2516.4,
+            "refunded": 0
+          },
+          "refund_charges": []
+        },
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 216,
+            "refunded": 0
+          },
+          "base_amount": 36000,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "D1",
+      "id": 900000000006,
+      "operation_type": "money_transfer",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "account_money",
+      "payment_method_id": "account_money",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000006"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-20T10:00:00.000-04:00",
+      "date_approved": "2026-01-20T10:00:00.000-04:00",
+      "date_last_updated": "2026-01-20T10:00:03.000-04:00",
+      "money_release_date": "2026-01-20T10:00:00.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 468000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 465192,
+        "total_paid_amount": 470808,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "tax",
+          "name": "tax_withholding_payer-debitos_creditos",
+          "accounts": {
+            "from": "payer",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 2808,
+            "refunded": 0
+          },
+          "base_amount": 468000,
+          "rate": 0.6,
+          "refund_charges": []
+        },
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 2808,
+            "refunded": 0
+          },
+          "base_amount": 468000,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "E1",
+      "id": 900000000007,
+      "operation_type": "account_fund",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "bank_transfer",
+      "payment_method_id": "cvu",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000007"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-21T10:00:00.000-04:00",
+      "date_approved": "2026-01-21T10:00:00.000-04:00",
+      "date_last_updated": "2026-01-21T10:00:01.000-04:00",
+      "money_release_date": "2026-01-21T10:00:00.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 15000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 14910,
+        "total_paid_amount": 15000,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 90,
+            "refunded": 0
+          },
+          "base_amount": 15000,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "F1",
+      "id": 900000000008,
+      "operation_type": "money_transfer",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "digital_currency",
+      "payment_method_id": "consumer_credits",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000008"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-22T10:00:00.000-04:00",
+      "date_approved": "2026-01-22T10:00:01.000-04:00",
+      "date_last_updated": "2026-01-22T10:00:07.000-04:00",
+      "money_release_date": "2026-01-22T10:00:01.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 6500,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 6461,
+        "total_paid_amount": 6500,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 39,
+            "refunded": 0
+          },
+          "base_amount": 6500,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "G1",
+      "id": 900000000009,
+      "operation_type": "money_transfer",
+      "status": "rejected",
+      "status_detail": "expired",
+      "payment_type_id": "bank_transfer",
+      "payment_method_id": "debin_transfer",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000009"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-23T10:00:00.000-04:00",
+      "date_approved": null,
+      "date_last_updated": "2026-01-23T10:13:12.000-04:00",
+      "money_release_date": null,
+      "money_release_status": "released",
+      "transaction_amount": 14000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 0,
+        "total_paid_amount": 14000,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": [
+        {
+          "type": "tax",
+          "name": "tax_withholding_collector-debitos_creditos",
+          "accounts": {
+            "from": "collector",
+            "to": "mp"
+          },
+          "amounts": {
+            "original": 84,
+            "refunded": 0
+          },
+          "base_amount": 14000,
+          "rate": 0.6,
+          "refund_charges": []
+        }
+      ]
+    },
+    {
+      "_label": "H1",
+      "id": 900000000010,
+      "operation_type": "account_fund",
+      "status": "approved",
+      "status_detail": "accredited",
+      "payment_type_id": "bank_transfer",
+      "payment_method_id": "cvu",
+      "currency_id": "ARS",
+      "live_mode": true,
+      "collector_id": 100000001,
+      "payer": {
+        "id": "800000010"
+      },
+      "external_reference": null,
+      "date_created": "2026-01-24T10:00:00.000-04:00",
+      "date_approved": "2026-01-24T10:00:00.000-04:00",
+      "date_last_updated": "2026-01-24T10:00:02.000-04:00",
+      "money_release_date": "2026-01-24T10:00:00.000-04:00",
+      "money_release_status": "released",
+      "transaction_amount": 200000,
+      "transaction_amount_refunded": 0,
+      "taxes_amount": 0,
+      "coupon_amount": 0,
+      "shipping_amount": 0,
+      "transaction_details": {
+        "net_received_amount": 200000,
+        "total_paid_amount": 200000,
+        "overpaid_amount": 0,
+        "installment_amount": 0
+      },
+      "fee_details": [],
+      "refunds": [],
+      "charges_details": []
+    }
+  ]
+}
