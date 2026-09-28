@@ -55,7 +55,7 @@ const TABLES = ['sales_session', 'sales_session_cash_event', 'sales_session_move
 const FERIA_RPCS = ['close_sales_session', 'open_sales_session', 'register_session_cash_event', 'register_session_movement'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
   + 'close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_normalize_source,mp_reconcile_movement,open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
   + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
@@ -815,7 +815,8 @@ check('K4 the retail sale stays an open CONSUMIDOR FINAL debit (+1000): no inven
 // the only reconciliation objects allowed are the frozen Domain L MP tables (Phase 23); no cash variance / arqueo object exists
 check('K5 no stored variance / cash-reconciliation object exists (only the frozen MP pipeline tables, built in Phase 23)',
   owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(reconcil|variance|arqueo|mp_)'
-    AND table_name NOT IN ('mp_source_record', 'mp_financial_movement', 'mp_reconciliation', ${ADR005_VIEWS});`) === '0'
+    AND table_name NOT IN ('mp_source_record', 'mp_financial_movement', 'mp_reconciliation',
+      'mp_attribution_flag', 'mp_client_allocation', 'mp_payer_client_map', 'mp_report_match', 'mp_transition_identity', 'mp_webhook_delivery', ${ADR005_VIEWS});`) === '0'
   && snapshot() === snap);
 
 // ═══════════════════════════════════════════════════════════════════════════

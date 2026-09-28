@@ -43,7 +43,7 @@ const K = `${TAG}:`;
 const PERIOD = '2026-08-01';
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
   + 'close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_normalize_source,mp_reconcile_movement,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
   + 'open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
   + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
@@ -179,6 +179,8 @@ CREATE TEMP TABLE _op AS
   UNION SELECT financial_operation_id FROM management_event WHERE id IN (SELECT id FROM _me) AND financial_operation_id IS NOT NULL;
 -- MP (written only by the MP-related suites; each removes every MP row)
 DELETE FROM audit_events WHERE entity_type IN ('mp_reconciliation', 'mp_source_record');
+DELETE FROM mp_report_match;          -- ADR-006 HRN-4: dependents of movement / source, in FK order
+DELETE FROM mp_transition_identity;
 DELETE FROM mp_reconciliation;
 DELETE FROM mp_financial_movement;
 DELETE FROM mp_source_record;
@@ -344,7 +346,19 @@ const mpIngest = (row) => {
   rpcAs(SVC, `mp_normalize_source('${src}')`);
   return owner(`SELECT id FROM mp_financial_movement WHERE mp_source_record_id = '${src}';`);
 };
-const MPPAY = mpIngest(mpRow('2026-08-12T10:00:00.000-03:00', '8800000001', 'payment', '980.00', '0.00', '1000.00', '-12.00', '-8.00'));
+// ADR-006 HRN-2: a Liberaciones payment row now parks DEFERRED_V4 (no movement), so the same economic movement is
+// created as OWNER with the minimum internal rows (csv_import source, payment movement, report APPROVAL identity).
+const mpOwnerPayment = (row) => {
+  const ext = `${row.SOURCE_ID}:payment:C`;
+  const src = owner(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date, processing_status, processed_at)
+    VALUES ('csv_import', '${ext}', ${j(row)}, '${row.DATE}', (TIMESTAMPTZ '${row.DATE}' AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE, 'NORMALIZED', NOW()) RETURNING id;`);
+  const mv = owner(`INSERT INTO mp_financial_movement (mp_source_record_id, movement_kind, gross_amount, fee_amount, tax_amount, net_amount, occurred_date)
+    VALUES ('${src}', 'payment', ${row.GROSS_AMOUNT}, ${row.MP_FEE_AMOUNT}, ${row.TAXES_AMOUNT}, ${row.NET_CREDIT_AMOUNT}, (TIMESTAMPTZ '${row.DATE}' AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE) RETURNING id;`);
+  owner(`INSERT INTO mp_transition_identity (resource_type, resource_id, transition, claimed_by_source_id, mp_financial_movement_id)
+    VALUES ('report', '${ext}', 'APPROVAL', '${src}', ${mv});`);
+  return mv;
+};
+const MPPAY = mpOwnerPayment(mpRow('2026-08-12T10:00:00.000-03:00', '8800000001', 'payment', '980.00', '0.00', '1000.00', '-12.00', '-8.00'));
 const MPYLD = mpIngest(mpRow('2026-08-12T04:00:00.000-03:00', '8800000002', 'asset_management', '45.50', '0.00', '45.50', '0.00', '0.00'));
 const MPOUT = mpIngest(mpRow('2026-08-13T10:00:00.000-03:00', '8800000003', 'payout', '0.00', '5000.00', '-4970.00', '0.00', '-30.00'));
 rpc(`mp_reconcile_movement(${MPPAY}, 980, '${key()}', '${MPACC}', 'MP_SETTLEMENT')`);

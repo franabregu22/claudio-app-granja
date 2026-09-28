@@ -47,7 +47,7 @@ const TABLES = ['mp_financial_movement', 'mp_reconciliation', 'mp_source_record'
 const MP_RPCS = ['mp_normalize_source', 'mp_reconcile_movement'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
   + 'close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_normalize_source,mp_reconcile_movement,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
   + 'open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
   + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
@@ -176,6 +176,8 @@ CREATE TEMP TABLE _o AS
   UNION SELECT id FROM financial_operation WHERE external_ref LIKE '${TAG}%' OR external_ref LIKE 'MP:${TAG}%';
 DELETE FROM audit_events WHERE entity_type = 'mp_reconciliation';
 DELETE FROM audit_events WHERE entity_type = 'mp_source_record';
+DELETE FROM mp_report_match;          -- ADR-006 HRN-4: dependents of movement / source, in FK order
+DELETE FROM mp_transition_identity;
 DELETE FROM mp_reconciliation;
 DELETE FROM mp_financial_movement;
 DELETE FROM mp_source_record;   -- the raw guard is BEFORE UPDATE only; no role but the owner holds DELETE
@@ -241,7 +243,9 @@ const reconcile = (fn, mv, amount, acct, o = {}) => {
   return { key, ...rpcAs(fn, recCall(mv, amount, key, acct, o.opType, o.existing, o.reason)) };
 };
 // a normalized synthetic movement
-const movement = (o = {}) => { const src = ingest(synth(o)); normalize(src); return { src, mv: movId(src) }; };
+// ADR-006 §P23: the fixture movement is a Liberaciones payout (kind transfer, still normalized by the unchanged
+// ADR-003 parser, not auto-applicable, RPC 41-owned); payment rows are parked DEFERRED_V4 while V-4 is open.
+const movement = (o = {}) => { const src = ingest(synth({ desc: 'payout', ...o })); normalize(src); return { src, mv: movId(src) }; };
 const statusOf = (src) => owner(`SELECT processing_status FROM mp_source_record WHERE id = '${src}';`);
 const assignedOf = (mv) => owner(`SELECT coalesce(SUM(assigned_amount), 0) FROM mp_reconciliation WHERE mp_financial_movement_id = ${mv};`);
 const balance = (acc) => owner(`SELECT coalesce(SUM(signed_amount), 0) FROM financial_posting WHERE financial_account_id = '${acc}';`);
@@ -357,13 +361,13 @@ section('D', 'Normalization (RPC 40) — ratified Liberaciones contract');
 
 let econ0 = owner(`SELECT count(*) || '|' || (SELECT count(*) FROM financial_posting) FROM financial_operation;`);
 const d1 = normalize(bSrc);
-check('D1 real payment row (Liberaciones1.csv 144502568133) → NORMALIZED, 1 movement payment: gross 1.00, fee 0.00, tax −0.01, net 0.99, occurred_date inherited',
-  d1.processing_status === 'NORMALIZED' && d1.movements_created === 1 && Object.keys(d1).length === 3
-  && movOf(bSrc) === 'payment:1.00:0.00:-0.01:0.99:2026-02-06' && srcRow(bSrc) === 'NORMALIZED|true|-', `${JSON.stringify(d1)} ${movOf(bSrc)}`);
+check('D1 real payment row (Liberaciones1.csv 144502568133) passes D1 validation, then is parked PENDING DEFERRED_V4 (ADR-006, V-4 open): 0 movements',
+  d1.processing_status === 'PENDING' && d1.movements_created === 0 && Object.keys(d1).length === 3
+  && movOf(bSrc) === '' && srcRow(bSrc) === 'PENDING|false|DEFERRED_V4: payment/API equivalence unverified', `${JSON.stringify(d1)} ${srcRow(bSrc)}`);
 check('D2 raw columns untouched by normalization (byte-identical)', rawOf(bSrc) === cRaw);
 const sOut = ingest(REAL.paymentOut); normalize(sOut);
-check('D3 real outgoing payment (145781917504, debit) → net −20120.95 = gross −20000.94 + fee 0.00 + tax −120.01; external_id direction D',
-  movOf(sOut) === 'payment:-20000.94:0.00:-120.01:-20120.95:2026-02-11'
+check('D3 real outgoing payment (145781917504, debit) → PENDING DEFERRED_V4, no movement (ADR-006); external_id direction D',
+  movOf(sOut) === '' && statusOf(sOut) === 'PENDING'
   && owner(`SELECT external_id FROM mp_source_record WHERE id = '${sOut}';`) === '145781917504:payment:D');
 const sAsset = ingest(REAL.asset); normalize(sAsset);
 check('D4 real asset_management row (Liberaciones2.csv 1743973531011) → movement_kind yield, net +2337.10', movOf(sAsset) === 'yield:2337.10:0.00:0.00:2337.10:2026-05-19');
@@ -425,18 +429,21 @@ for (const [what, row, o, code] of [
     out.processing_status === 'ERROR' && out.movements_created === 0 && movOf(src) === ''
     && srcRow(src).startsWith(`ERROR|true|${code}`) && rawOf(src) === before, `${JSON.stringify(out)} ${srcRow(src)}`);
 }
-r = SVC(`SELECT mp_normalize_source('${bSrc}');`);
-check('D8 normalizing a processed source again → ALREADY_PROCESSED; no duplicate movement', raised(r, 'ALREADY_PROCESSED')
-  && owner(`SELECT count(*) FROM mp_financial_movement WHERE mp_source_record_id = '${bSrc}';`) === '1', firstErr(r));
+r = SVC(`SELECT mp_normalize_source('${sAsset}');`);
+const d8b = normalize(bSrc);
+check('D8 normalizing a processed source again → ALREADY_PROCESSED; no duplicate movement. A deferred payment rerun stays PENDING DEFERRED_V4 with no movement and no new audit',
+  raised(r, 'ALREADY_PROCESSED') && owner(`SELECT count(*) FROM mp_financial_movement WHERE mp_source_record_id = '${sAsset}';`) === '1'
+  && d8b.processing_status === 'PENDING' && d8b.movements_created === 0 && movOf(bSrc) === ''
+  && owner(`SELECT count(*) FROM audit_events WHERE entity_type = 'mp_source_record' AND entity_id = '${bSrc}';`) === '1', firstErr(r));
 r = SVC(`SELECT mp_normalize_source('${MISSING_UUID}');`);
 check('D9 missing source → SOURCE_NOT_FOUND', raised(r, 'SOURCE_NOT_FOUND'), firstErr(r));
 const pendingSrc = ingest(synth());
 const dAuth = [ADMIN(`SELECT mp_normalize_source('${pendingSrc}');`), OPER(`SELECT mp_normalize_source('${pendingSrc}');`), ANON(`SELECT mp_normalize_source('${pendingSrc}');`)];
 check('D10 ADMIN, OPERATOR and anon cannot normalize (EXECUTE granted to service_role only); source stays PENDING',
   dAuth.every(denied) && statusOf(pendingSrc) === 'PENDING', dAuth.map(firstErr).join(' | '));
-check('D11 audit NORMALIZE: before PENDING, after status + movement count, performed_by NULL (backend)',
+check('D11 audit NORMALIZE: before PENDING, after status + movement count, performed_by NULL (backend); the DEFERRED_V4 payment row is audited once as PENDING / 0',
   owner(`SELECT action || '|' || (before_values->>'processing_status') || '|' || (after_values->>'processing_status') || '|' || (after_values->>'movements') || '|' || coalesce(performed_by::TEXT, 'NULL')
-     FROM audit_events WHERE entity_type = 'mp_source_record' AND entity_id = '${bSrc}';`) === 'NORMALIZE|PENDING|NORMALIZED|1|NULL'
+     FROM audit_events WHERE entity_type = 'mp_source_record' AND entity_id = '${bSrc}';`) === 'NORMALIZE|PENDING|PENDING|0|NULL'
   && owner(`SELECT (after_values->>'processing_status') || '|' || reason FROM audit_events WHERE entity_type = 'mp_source_record' AND entity_id = '${sRes1}';`).startsWith('IGNORED|RESERVE_ROW'));
 check('D12 ingestion and normalization create no financial operation or posting (MP is not a ledger)',
   owner(`SELECT count(*) || '|' || (SELECT count(*) FROM financial_posting) FROM financial_operation;`) === econ0);
@@ -653,9 +660,10 @@ snap = snapshot();
 r = ADMIN(`SELECT ${recCall(JM.mv, 10, newKey(), MPACC)};`);
 const rJ2 = ADMIN(`SELECT ${recCall(JM.mv, 10, newKey(), MPACC, null, op2)};`);
 check('J1 movement dated in a CLOSED month → PERIOD_CLOSED (Mode 1 and Mode 2); nothing written', raised(r, 'PERIOD_CLOSED') && raised(rJ2, 'PERIOD_CLOSED') && snapshot() === snap, firstErr(r));
-const jSrc = ingest(synth({ date: '2026-03-20T10:00:00.000-03:00' }));
+// ADR-006 §P23 (J/K/L amendment): a valid payout row, the same fixture shape as movement(); payment rows park DEFERRED_V4
+const jSrc = ingest(synth({ desc: 'payout', date: '2026-03-20T10:00:00.000-03:00' }));
 const jn = normalize(jSrc);
-check('J2 normalization has no period guard (frozen RPC 40): a March source normalizes while March is CLOSED; the movement carries 2026-03-20',
+check('J2 normalization has no period guard (frozen RPC 40): a valid payout source dated in March normalizes while March is CLOSED; the movement carries 2026-03-20',
   jn.processing_status === 'NORMALIZED' && movOf(jSrc).endsWith(':2026-03-20'));
 openPeriod('2026-03-01');
 const JX = movement({ date: '2027-02-10T10:00:00.000-03:00' });
@@ -675,9 +683,10 @@ section('K', 'Atomicity (injected failures)');
 const KM = movement({ credit: '1000.00' });
 const KN = movement({ credit: '100.00', gross: '101.00', fee: '-0.60', tax: '-0.40' });
 const opK = existingOp([[MPACC, 500]]);
-const kPending = ingest(synth());
-const kPending2 = ingest(synth());
-const kPending3 = ingest(synth());
+// ADR-006 §P23 (J/K/L amendment): valid payout rows, so RPC 40 reaches the movement insert under injected failure
+const kPending = ingest(synth({ desc: 'payout' }));
+const kPending2 = ingest(synth({ desc: 'payout' }));
+const kPending3 = ingest(synth({ desc: 'payout' }));
 owner(`
 CREATE SCHEMA p23_harness;
 CREATE TABLE p23_harness.fail_on (target TEXT, marker TEXT);
@@ -739,7 +748,7 @@ check('K3 harness triggers removed', owner(`SELECT count(*) FROM pg_trigger WHER
 // ═══════════════════════════════════════════════════════════════════════════
 section('L', 'Concurrency (independent PostgreSQL sessions)');
 
-const lSrc = ingest(synth());
+const lSrc = ingest(synth({ desc: 'payout' }));   // ADR-006 §P23 (J/K/L amendment): valid payout row
 x = await race('svc', `SELECT mp_normalize_source('${lSrc}');`, 'svc', `SELECT mp_normalize_source('${lSrc}');`, 'p23-norm');
 check('L1 normalize the same source twice concurrently: B waited, then ALREADY_PROCESSED; exactly one movement',
   x.aIn && x.bWait && x.ra.ok && raised(x.rb, 'ALREADY_PROCESSED') && owner(`SELECT count(*) FROM mp_financial_movement WHERE mp_source_record_id = '${lSrc}';`) === '1', firstErr(x.rb));
@@ -813,16 +822,18 @@ const pSrc = ingest(pRow);
 const pRaw = rawOf(pSrc);
 const pMp0 = cents(balance(MPACC));
 const pn = normalize(pSrc);
-check('P1 service ingests the real row 145187899970 and normalizes it: PENDING → NORMALIZED, movement payment 20.00 / 0.00 / −0.12 / 19.88 on 2026-02-06',
-  pn.processing_status === 'NORMALIZED' && movOf(pSrc) === 'payment:20.00:0.00:-0.12:19.88:2026-02-06');
-const pMv = movId(pSrc);
-const pp1 = reconcile(SVC, pMv, 10, MPACC);
-check('P2 partial reconciliation to the Mercado Pago account: posting +10.00 dated 2026-02-06; remaining 9.88 derived; source still NORMALIZED',
-  cents(pp1.remaining_unassigned) === 988 && statusOf(pSrc) === 'NORMALIZED' && cents(balance(MPACC)) === pMp0 + 1000);
-const pp2 = reconcile(SVC, pMv, 9.88, MPACC);
-check('P3 final reconciliation → remaining 0, RECONCILED; the account moved exactly +19.88, only through postings',
-  cents(pp2.remaining_unassigned) === 0 && statusOf(pSrc) === 'RECONCILED' && cents(balance(MPACC)) === pMp0 + 1988);
-check('P4 raw source byte-identical after the whole pipeline', rawOf(pSrc) === pRaw);
+check('P1 service ingests the real payment row 145187899970: validated, then parked PENDING DEFERRED_V4 (ADR-006); no movement; raw unchanged',
+  pn.processing_status === 'PENDING' && movOf(pSrc) === '' && rawOf(pSrc) === pRaw);
+// P2–P4 (ADR-006 §P23): the end-to-end RPC 41 pipeline on the D5 real payout movement (146231746361, net −532415.53)
+const pRawOut = rawOf(sPayout);
+const pMv = movId(sPayout);
+const pp1 = reconcile(SVC, pMv, -10000, MPACC);
+check('P2 partial reconciliation to the Mercado Pago account: posting −10000.00 dated 2026-02-19; remaining −522415.53 derived; source still NORMALIZED',
+  cents(pp1.remaining_unassigned) === -52241553 && statusOf(sPayout) === 'NORMALIZED' && cents(balance(MPACC)) === pMp0 - 1000000);
+const pp2 = reconcile(SVC, pMv, -522415.53, MPACC);
+check('P3 final reconciliation → remaining 0, RECONCILED; the account moved exactly −532415.53, only through postings',
+  cents(pp2.remaining_unassigned) === 0 && statusOf(sPayout) === 'RECONCILED' && cents(balance(MPACC)) === pMp0 - 53241553);
+check('P4 raw source byte-identical after the whole pipeline', rawOf(sPayout) === pRawOut);
 } finally {
   cleanup();
 }

@@ -45,7 +45,7 @@ const TAG = 'P15-TEST';
 const RPC = 'transfer_between_accounts';
 // Exact inventory: Foundation 2 + Commercial 4 + Treasury 1 + built later phases (Phase 16: RPCs 5–12 + 42; Phase 17: RPCs 13–17; Phase 18: RPCs 18–22; Phase 19: RPC 25).
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_normalize_source,mp_reconcile_movement,open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
   + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,register_fiscal_document,register_fiscal_obligation,register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
   + 'reject_supplier_instrument,transfer_between_accounts';
@@ -58,7 +58,8 @@ const LATER_PHASE_TABLES = ['financial_instrument', 'financial_instrument_event'
   'sales_session', 'sales_session_cash_event', 'sales_session_movement',                           // Phase 21
   'fiscal_document', 'fiscal_document_component', 'fiscal_obligation', 'fiscal_obligation_installment', 'fiscal_payment', // Phase 22
   'mp_financial_movement', 'mp_reconciliation', 'mp_source_record',                               // Phase 23
-  'management_event'];                                                                              // Phase 24
+  'management_event',                                                                               // Phase 24
+  'mp_attribution_flag', 'mp_client_allocation', 'mp_payer_client_map', 'mp_report_match', 'mp_transition_identity', 'mp_webhook_delivery'];  // ADR-006 (0047)
 
 let container;
 let pass = 0;

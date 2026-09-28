@@ -42,7 +42,7 @@ const VIEWS = ['report_balance_period', 'report_classification_day', 'report_fee
 const ADMIN_ONLY = ['report_sales_line', 'report_balance_period', 'report_mp_movement_status', 'report_feria_session_cash', 'report_feed_consumption_interval'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
   + 'close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_normalize_source,mp_reconcile_movement,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
   + 'open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
   + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
@@ -146,6 +146,8 @@ DELETE FROM audit_events WHERE entity_type = 'feed_movement' AND entity_id IN (S
 DELETE FROM feed_movement WHERE feed_type_id IN ${FT};
 -- MP (written only by the MP-related suites; each removes every MP row)
 DELETE FROM audit_events WHERE entity_type IN ('mp_reconciliation', 'mp_source_record');
+DELETE FROM mp_report_match;          -- ADR-006 HRN-4: dependents of movement / source, in FK order
+DELETE FROM mp_transition_identity;
 DELETE FROM mp_reconciliation;
 DELETE FROM mp_financial_movement;
 DELETE FROM mp_source_record;
@@ -314,10 +316,14 @@ const HDR = ['DATE', 'SOURCE_ID', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT
   'PAYMENT_METHOD', 'TRANSACTION_APPROVAL_DATE', 'BUSINESS_UNIT', 'SUB_UNIT', 'BALANCE_AMOUNT', 'PAYMENT_METHOD_TYPE', 'PURCHASE_ID'];
 const mpRow = Object.fromEntries(HDR.map((h, i) => [h, ['2026-06-12T10:00:00.000-03:00', '8800000251', 'payment', '980.00', '0.00', '1000.00', '-12.00', '-8.00',
   'available_money', '2026-06-12T10:00:00.000-03:00', '', '', '0.00', '', TAG][i]]));
-const SRC = okAs(SVC, `INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date)
-  VALUES ('csv_import', '8800000251:payment:C', ${j(mpRow)}, '2026-06-12T10:00:00-03:00', '2026-06-12') RETURNING id;`);
-rpcAs(SVC, `mp_normalize_source('${SRC}')`);
-const MV = owner(`SELECT id FROM mp_financial_movement WHERE mp_source_record_id = '${SRC}';`);
+// ADR-006 HRN-3: a Liberaciones payment row now parks DEFERRED_V4 (no movement); the same internal MP facts are
+// created as OWNER (csv_import source, payment movement 1000 / −12 / −8 / 980, report APPROVAL identity).
+const SRC = owner(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date, processing_status, processed_at)
+  VALUES ('csv_import', '8800000251:payment:C', ${j(mpRow)}, '2026-06-12T10:00:00-03:00', '2026-06-12', 'NORMALIZED', NOW()) RETURNING id;`);
+const MV = owner(`INSERT INTO mp_financial_movement (mp_source_record_id, movement_kind, gross_amount, fee_amount, tax_amount, net_amount, occurred_date)
+  VALUES ('${SRC}', 'payment', 1000.00, -12.00, -8.00, 980.00, '2026-06-12') RETURNING id;`);
+owner(`INSERT INTO mp_transition_identity (resource_type, resource_id, transition, claimed_by_source_id, mp_financial_movement_id)
+  VALUES ('report', '8800000251:payment:C', 'APPROVAL', '${SRC}', ${MV});`);
 rpc(`mp_reconcile_movement(${MV}, 500, '${key()}', '${MPACC}', 'MP_SETTLEMENT')`);
 check('B1 scenario built through the real RPCs (production, feed, classification, commercial, purchases, Feria, MP)', true);
 
@@ -333,10 +339,10 @@ check('A2 every report view is security_invoker = true and owned by postgres',
 check('A3 exact grants: SELECT for authenticated only (no anon, no service_role, no PUBLIC)',
   owner(`SELECT count(DISTINCT relacl::TEXT) || ':' || min(relacl::TEXT) FROM pg_class WHERE relname IN (${VIEWS.map(q).join(',')});`)
   === '1:{postgres=arwdDxtm/postgres,authenticated=r/postgres}');
-check('A4 no materialized view; public base tables unchanged (53)',
+check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) = 59',
   owner(`SELECT count(*) FROM pg_matviews WHERE schemaname = 'public';`) === '0'
-  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '53');
-check('A5 no SECURITY DEFINER reporting function: the definer inventory is unchanged (41) and no report_* function exists',
+  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '59');
+check('A5 no SECURITY DEFINER reporting function: the definer inventory is the 41 baseline + the 16 ADR-006 Step-2 definers (0048), and no report_* function exists',
   owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === ALL_DEFINERS
   && owner(`SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'report%';`) === '0');
 check('A6 the only non-invoker view is still the frozen feed_formula_line_safe',
@@ -352,7 +358,8 @@ check('N1 no base-table column stores a laying %, theoretical consumption, varia
        AND c.column_name ~* '^(laying_pct|theoretical_feed_kg|theoretical_kg|internal_consumption_kg|variance|variance_kg|closing_balance|balance|saldo|kpi|remaining_unassigned|expected_cash|share_pct|day_total)$';`) === '0');
 check('N2 no base table named for reports, KPIs, dashboards, snapshots or balances',
   owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-     AND table_name ~* '(report|kpi|dashboard|snapshot|balance|saldo|laying)';`) === '0');
+     AND table_name ~* '(report|kpi|dashboard|snapshot|balance|saldo|laying)'
+     AND table_name <> 'mp_report_match';`) === '0');   // ADR-006: reconciliation evidence, not a stored report (§INV C)
 const snap = () => owner(`SELECT concat_ws('|', (SELECT count(*) FROM daily_production), (SELECT count(*) FROM population_events), (SELECT count(*) FROM classification),
   (SELECT count(*) FROM feed_inventory_count), (SELECT count(*) FROM client_ledger), (SELECT count(*) FROM financial_posting), (SELECT count(*) FROM audit_events));`);
 const before = snap();
