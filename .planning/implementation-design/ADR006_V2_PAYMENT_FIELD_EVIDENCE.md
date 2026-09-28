@@ -2,7 +2,9 @@
 
 ## 1. STATUS
 
-**PARTIAL — V-2 does NOT unblock Step 6.**
+**FINAL GATE (2026-09-28): V-2 VERIFIED for Step 6 (`api_payment` inbound approvals), with refunds and disputes fail-closed.** See §15. §15 supersedes the historical status below and the §13 contract.
+
+*Historical status (first evidence pass, 74caa01):* **PARTIAL — V-2 does NOT unblock Step 6.**
 
 Established, both documented and observed:
 - gross amount;
@@ -286,3 +288,76 @@ The only payment-resource fields 0050 may read on the strength of V-2:
 Everything else is also not authorized.
 
 **Sanitized fixtures:** [`scripts/target-db/fixtures/adr006-v2-payments.json`](../../scripts/target-db/fixtures/adr006-v2-payments.json) (samples A1–H1).
+
+## 15. FINAL GATE REVIEW (2026-09-28)
+
+**Inputs:**
+- this note (74caa01);
+- V-3 (89858eb, c11c6d8): Account Money documents fee and tax separately. `FEE_AMOUNT` = 0 and `TAXES_AMOUNT` = the 0.6 % withholding in 294/294 rows; gross + fee + tax = net;
+- V-4 (6720286, 89858eb): report `SOURCE_ID` = API `payment.id`; for receipts, API gross / net = report gross / net cent-exact (11/11) and the same approval instant;
+- the direction correction (c0e19dc).
+
+No API contact was made for this review.
+
+**Principle:** Step 6 implements only evidenced semantics. A rare, unevidenced feature is **fail-closed** (ERROR = REVIEW_REQUIRED, no movement) instead of blocking normal inbound approvals.
+
+| # | Item | Current evidence | Class | Why | What Step 6 may do |
+|---|---|---|---|---|---|
+| 1 | Gross | `transaction_amount`: documented, observed; = report gross 11/11 (V-4) | **A** (satisfied) | the approval amount | read `transaction_amount` (> 0, ≤ 2 decimals) |
+| 2 | Seller fee | `fee_details[]` documented; observed `[]` (960/960). The report `FEE_AMOUNT` (seller fees incl. VAT, documented) = 0 in 294/294. `processing_fee` in `charges_details` is payer-borne and does not reduce net | **A** (satisfied; **C** for the zero observation) | the fee component of the movement (D10 P&L) | fee = −Σ `fee_details[].amount` where `fee_payer = 'collector'` (documented enum); payer-borne entries are ignored; the result must be ≤ 0 |
+| 3 | Taxes / withholdings | `taxes_amount` contradicts the observation (0 while 0.6 % is withheld). The report documents that `TAXES_AMOUNT` contains the credits / debits withholding, and V-4 proves API net = report net | **C** | the component split is authoritative in the report (ADR-006 §8: the release-level fee / tax split is report-owned); the API only needs a consistent split | tax = `net_received_amount − transaction_amount − fee` (the documented residual), required ≤ 0. **Never read `taxes_amount` or `charges_details`.** A wrong split surfaces as report DISCREPANCY (§8), never as wrong money: the net is exact |
+| 4 | Net | `transaction_details.net_received_amount`: documented, observed; = report net 11/11 | **A** (satisfied) | the treasury effect | net = `net_received_amount`; gross + fee + tax = net holds by construction; approved rows only |
+| 5 | `payer.id` | documented number, observed string of digits | **B** | used only by optional AUTO attribution (C2 (b)), never by normalization | store / compare as **opaque text** (`payload->'payer'->>'id'`, which is type-independent); AUTO evidence only on an exact match with an active `mp_payer_client_map` row; anything else → `NO_EVIDENCE` (CLIENT_UNASSIGNED) |
+| 6 | `external_reference` | documented; null on every observed receipt | **B** | optional AUTO evidence only | optional; null or no match → `NO_EVIDENCE` (CLIENT_UNASSIGNED); never a normalization input |
+| 7 | Approval date | `date_approved`: documented, observed; the same instant as the report `SETTLEMENT_DATE` / `TRANSACTION_APPROVAL_DATE` (V-4) | **A** (satisfied) | `occurred_at` of APPROVAL | `occurred_at = date_approved` (approved snapshots); `date_created` (documented) for non-approved snapshots, which create no movement |
+| 8 | Refund id | the refund resource `id` is documented; not observed | **B** | no refund was ever observed (API or report) | `api_refund` **UNSUPPORTED** (§15.1) |
+| 9 | Refund amount | documented, not observed | **B** | as 8 | as 8 |
+| 10 | Refund status | documented, not observed | **B** | as 8 | as 8 |
+| 11 | Refund transition date | only `date_created` is documented; BLOCKED | **B** | as 8 | as 8; no refund date is frozen |
+| 12 | Chargeback / mediation | `status` `charged_back` / `in_mediation` documented, not observed; the amount source is the report (unobserved there too) | **B** | a signal / alert only; never an amount from the API | no movement; an existing APPROVAL keeps the derived alert (R-7); without an APPROVAL → ERROR (§15.1) |
+| 13 | `operation_type` | inbound observed: `money_transfer`, `account_fund` (collector = account); `regular_payment` observed only outbound | **A** (satisfied for the observed set) | an unknown type must not be normalized | accept `money_transfer`, `account_fund` for inbound; any other value → ERROR `UNKNOWN_OPERATION_TYPE` (REVIEW), extendable only by an evidenced amendment |
+| 14 | `status` / `status_detail` | observed `approved/accredited`, `rejected/*`; enums documented | **A** (satisfied) | the APPROVAL trigger | APPROVAL only for `approved` + `accredited`; `pending` / `in_process` / `authorized` / `rejected` / `cancelled` → IGNORED `NO_FINANCIAL_TRANSITION`; refund / dispute states → §15.1; unknown → ERROR `UNKNOWN_STATUS` |
+| 15 | `account_fund` business classification | V-4: an inbound receipt (cvu, collector = account); not client evidence | **D** | treasury direction (collector) and client attribution are separate; no normalization rule depends on it | normalize as an inbound receipt; attribution CLIENT_UNASSIGNED unless deterministic evidence exists |
+| 16 | `charges_details` | observed, undocumented | **B** / non-authoritative | not needed: documented gross / net plus the residual cover the movement | never read for amounts or classification; its values do not change the outcome |
+
+### 15.1 Fail-closed rules for Step 6 (smallest coherent change to ADR006_RPC_CONTRACTS_V1 §40.2)
+
+- **A snapshot with refund evidence** (`refunds[]` non-empty, or `transaction_amount_refunded ≠ 0`, or `status = 'refunded'`, or `status_detail` in the documented refund values, e.g. `partially_refunded`):
+  - **ERROR `REFUND_UNSUPPORTED`** (REVIEW_REQUIRED);
+  - no claim, no movement, no children;
+  - refund discovery (`api_refund` sources) is **disabled**;
+  - an APPROVAL claimed earlier stays untouched.
+- **A snapshot in `charged_back` / `in_mediation`** (or a mediation `status_detail`):
+  - no claim and no movement;
+  - if the APPROVAL identity already exists → IGNORED `NO_NEW_TRANSITION`, with the derived CHARGEBACK alert (unchanged, R-7);
+  - if it does not exist → ERROR `DISPUTE_WITHOUT_APPROVAL` (REVIEW_REQUIRED), because the approval amounts cannot be trusted from a disputed snapshot.
+- **Re-enabling** `api_refund` and refund discovery requires a real refund example and an amendment that freezes the refund transition date.
+
+### 15.2 Conclusion
+
+**V-2 VERIFIED** for its Step-6 gate scope: inbound `api_payment` approvals.
+- Every field that normalization reads is documented and observed.
+- Every unevidenced feature is fail-closed with no financial effect.
+
+**No remaining blocker makes Step 6 unsafe or impossible.**
+
+**The §13 contract is superseded.** Step 6 may read only:
+
+| Field | Condition |
+|---|---|
+| `id` | |
+| `currency_id` | |
+| `live_mode` | |
+| `collector_id` | for direction only (worker / RPC 40) |
+| `operation_type` | |
+| `status` | |
+| `status_detail` | |
+| `transaction_amount` | |
+| `transaction_details.net_received_amount` | |
+| `fee_details[].amount` / `fee_details[].fee_payer` | |
+| `date_approved` | |
+| `date_created` | |
+| `refunds[]` / `transaction_amount_refunded` | only to **detect** refund evidence (§15.1) |
+| `payer.id` / `external_reference` | opaque, only for optional AUTO attribution |
+
+Everything else stays forbidden, including `taxes_amount`, `charges_details`, `money_release_*` and refund element fields.

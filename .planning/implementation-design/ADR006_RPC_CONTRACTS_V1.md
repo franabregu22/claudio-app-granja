@@ -192,7 +192,7 @@ notification_sha256 = encode(sha256(convert_to((
 - **Raw columns:**
   - `source_type = 'api_payment'`;
   - `event_data = p_payload`, verbatim;
-  - `occurred_at` = the **V-2-confirmed authoritative approval date** of the payload, or for a not-yet-approved snapshot the V-2-confirmed creation date (R2; expected candidates `date_approved` / `date_created`, which V-2 must prove before code). A missing or malformed value → `PAYLOAD_DATE_INVALID`;
+  - `occurred_at` = `date_approved` when present (V-2 §8 / §15: documented, observed, and the same instant as the report approval date); otherwise `date_created`. A missing or malformed value → `PAYLOAD_DATE_INVALID`;
   - `occurred_date = (occurred_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE`.
 - **Write:** `INSERT … ON CONFLICT (source_type, external_id) DO NOTHING`, returning the new or existing id.
 - **Result:** `{source_record_id, created: bool, processing_status}`.
@@ -271,23 +271,28 @@ This parser is **implemented only after V-2** (implementation order step 6), dir
 2. `currency_id = 'ARS'` → `UNSUPPORTED_CURRENCY`.
 3. `collector_id` present → `MISSING_COLLECTOR`. Equality with the configured account is enforced by the worker (the database stores no account identity).
 4. `live_mode = true` → `NOT_LIVE_MODE`.
-5. The MP payment field `operation_type` (an **external MP value**, not the internal `financial_operation_type`) is in the V-2-established set → `UNKNOWN_OPERATION_TYPE`. **V-2.**
-6. `status` is one of the known values → `UNKNOWN_STATUS`.
-7. If the V-2-confirmed approval date is present (expected candidate `date_approved`):
-   - `transaction_amount`, `transaction_details.net_received_amount`, `fee_details[].amount` and the tax field (**V-2**) are numeric with ≤ 2 decimals → `MALFORMED_AMOUNT`;
+5. The MP payment field `operation_type` (an **external MP value**, not the internal `financial_operation_type`) is in the V-2-established inbound set **{`money_transfer`, `account_fund`}** → `UNKNOWN_OPERATION_TYPE` (V-2 §15; extendable only by an evidenced amendment).
+6. `status` is one of the documented values → `UNKNOWN_STATUS`.
+6b. **Refund evidence** → ERROR `REFUND_UNSUPPORTED`, with no claim, movement or children (V-2 §15.1). Refund evidence means any of: `refunds[]` non-empty, `transaction_amount_refunded ≠ 0`, `status = 'refunded'`, or a documented refund `status_detail`.
+7. If `status = 'approved'` **and** `status_detail = 'accredited'` (V-2 §15):
+   - `transaction_amount`, `transaction_details.net_received_amount` and `fee_details[].amount` are numeric with ≤ 2 decimals → `MALFORMED_AMOUNT`;
    - gross = `transaction_amount` > 0 → `SIGN_INVALID`;
-   - fee = −Σ `fee_details[].amount` (≤ 0);
-   - tax = −Σ tax charges (**V-2**, ≤ 0);
+   - fee = −Σ `fee_details[].amount` over the entries with `fee_payer = 'collector'`, ≤ 0 → `SIGN_INVALID`. Payer-borne entries are ignored;
    - net = `net_received_amount`;
-   - gross + fee + tax = net exactly → `ARITHMETIC_MISMATCH`.
+   - tax = net − gross − fee, the documented residual, ≤ 0 → `SIGN_INVALID`. **`taxes_amount` and `charges_details` are never read** (V-2 §15). The report is the authority for the fee / tax split: a different split surfaces as report DISCREPANCY;
+   - gross + fee + tax = net then holds by construction. `ARITHMETIC_MISMATCH` still guards malformed numerics.
 8. `occurred_at` / `occurred_date` equal the R2 derivation → `DATE_MISMATCH`.
 
 Classification:
-- no V-2-confirmed approval date (expected statuses: pending, in_process, rejected, cancelled — values per V-2) → **IGNORED** `NO_FINANCIAL_TRANSITION: status <s>`.
+- `pending` / `in_process` / `authorized` / `rejected` / `cancelled` → **IGNORED** `NO_FINANCIAL_TRANSITION: status <s>`.
+- `charged_back` / `in_mediation`, or a mediation `status_detail`:
+  - no claim, no movement;
+  - if `('payment', id, 'APPROVAL', '')` exists → **IGNORED** `NO_NEW_TRANSITION`, and the derived CHARGEBACK alert applies (R-7);
+  - otherwise → **ERROR** `DISPUTE_WITHOUT_APPROVAL` (REVIEW_REQUIRED) (V-2 §15.1).
 - Otherwise claim `('payment', id, 'APPROVAL', '')`:
   - **new** → movement `payment` (gross, fee, tax, net, occurred_date) → **NORMALIZED**;
   - **exists** → no movement → **IGNORED** `NO_NEW_TRANSITION`.
-- In both approved cases, **refund discovery** (R1) follows: for each `refunds[]` element with `status = 'approved'` (field names **V-2**) whose identity `('payment', id, 'REFUND', refund_id)` is not claimed:
+- **Refund discovery is DISABLED** until a real refund is evidenced and its transition date is frozen (V-2 §15.1). An `api_payment` snapshot with refund evidence stops at 6b. The contract below is **retained for that later amendment**, and is not implemented in Step 6: for each `refunds[]` element with `status = 'approved'` (field names **V-2**) whose identity `('payment', id, 'REFUND', refund_id)` is not claimed:
   - `INSERT mp_source_record` (`source_type = 'api_refund'`, `external_id = 'MPREF:' ‖ payment_id ‖ ':' ‖ refund_id`);
   - `event_data = {"payment_id", "refund": <element verbatim>, "parent_source_id"}`;
   - `occurred_at` = the **V-2-confirmed authoritative refund transition date** (expected candidate: the refund element's `date_created`; V-2 must prove it before code);
@@ -298,6 +303,8 @@ Classification:
 Result JSON: `{source_record_id, processing_status, movements_created, transition_id, children_created}`.
 
 ### 40.3 `api_refund` parser
+
+**UNSUPPORTED in Step 6** (V-2 §15.1): no `api_refund` source is created, because refund discovery is disabled. The contract below is retained for the amendment that follows real refund evidence.
 
 1. `event_data` has exactly the keys `payment_id`, `refund`, `parent_source_id`, and the parent source exists with `source_type = 'api_payment'` → `MALFORMED_EVENT_DATA`.
 2. The parent APPROVAL identity exists for `payment_id` → `REFUND_WITHOUT_APPROVAL`, an ERROR that is REVIEW_REQUIRED.
@@ -458,7 +465,10 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
 
 **Evidence derivation** from the claiming `api_payment` snapshot of the APPROVAL:
 - (a) `external_reference ~ '^GST:C:<uuid>$'` → that client; `'^GST:P:<uuid>$'` → `pedidos.cliente_id` of that pedido.
-- (b) payer id (field **V-2**) → the active `mp_payer_client_map` row.
+- (b) payer id → the active `mp_payer_client_map` row.
+  - The id is read as **opaque text**, `payload->'payer'->>'id'`, which is type-independent: V-2 §15 documents a number but a string is observed.
+  - Only an exact text match counts. Absent or malformed → no evidence (CLIENT_UNASSIGNED).
+  - `external_reference` is optional; null → no evidence.
 
 **Decision:**
 - The candidate set is the distinct client ids from (a) and (b).

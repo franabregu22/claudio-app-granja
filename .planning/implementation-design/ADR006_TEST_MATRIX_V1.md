@@ -75,8 +75,12 @@ The "Assert" column lists exact row deltas. `Δ` means the change in row count.
 | N-4 | Pending / rejected payment | IGNORED NO_FINANCIAL_TRANSITION; Δ movement = 0 |
 | N-5 | Arithmetic mismatch | net 92.99 → ERROR ARITHMETIC_MISMATCH; Δ movement = 0; view REVIEW_REQUIRED |
 | N-6 | Unknown operation_type / currency USD | ERROR UNKNOWN_OPERATION_TYPE / UNSUPPORTED_CURRENCY |
-| N-7 | Refund discovery | a snapshot with 2 approved refunds → 2 `api_refund` children created (PENDING); after normalization, 2 refund movements, 2 identities with the refund ids |
-| N-8 | Refund exceeding the payment | ERROR REFUND_EXCEEDS_PAYMENT |
+| N-7 | Refund discovery | **DEFERRED** (V-2 §15.1: refund discovery disabled until real refund evidence). Retained: a snapshot with 2 approved refunds → 2 `api_refund` children created (PENDING); after normalization, 2 refund movements, 2 identities with the refund ids |
+| N-8 | Refund exceeding the payment | **DEFERRED** (as N-7). Retained: ERROR REFUND_EXCEEDS_PAYMENT |
+| N-11 | Refund evidence fails closed (V-2 §15.1) | each of: `refunds[]` non-empty; `transaction_amount_refunded ≠ 0`; `status = 'refunded'`; `approved` + `partially_refunded` → ERROR `REFUND_UNSUPPORTED`; Δ claim / movement / `api_refund` source = 0; an earlier APPROVAL movement is untouched |
+| N-12 | Documented-only components (V-2 §15) | real-shaped V-2 fixtures (`adr006-v2-payments.json` A1–H1): fee = −Σ collector `fee_details` (0), tax = net − gross − fee, net = `net_received_amount`; changing `taxes_amount` or `charges_details` values in the payload changes **nothing** in the movement; payer-borne `processing_fee` (C1 / C2) does not affect fee |
+| N-13 | Dispute without an approval | first snapshot `charged_back` (or `in_mediation`) with no APPROVAL identity → ERROR `DISPUTE_WITHOUT_APPROVAL`; Δ movement = 0; with an existing APPROVAL → IGNORED `NO_NEW_TRANSITION` plus the R-7 alert |
+| N-14 | Operation type and status gates | inbound `money_transfer` / `account_fund` + `approved` / `accredited` → APPROVAL; `regular_payment` / `pos_payment` inbound → ERROR `UNKNOWN_OPERATION_TYPE`; `approved` with any `status_detail` other than `accredited` and no refund evidence → no APPROVAL, ERROR `UNKNOWN_STATUS` |
 | N-9 | Direct forged api_payment insert | service role `INSERT mp_source_record (source_type 'api_payment', …)` → RLS violation (R4) |
 | N-10 | Liberaciones regression | the amended `mp.test.mjs` (§P23) passes; unaffected ADR-003 assertions unchanged; payment rows → PENDING `DEFERRED_V4` with zero movement, identity, match, operation, posting, allocation and client-ledger rows |
 
@@ -120,6 +124,8 @@ The "Assert" column lists exact row deltas. `Δ` means the change in row count.
 | C-17 | Duplicate MANUAL key | the same key again → DUPLICATE_ALLOCATION; Δ = 0 |
 
 ## R — Refunds, chargebacks, OD-1
+
+**V-2 gate note (2026-09-28):** the API-refund cases (R-1…R-6, R-9…R-11) are **DEFERRED**. Refund discovery is disabled until a real refund is evidenced (V-2 §15.1). They are retained unchanged for that amendment. Chargeback cases R-7, R-12…R-14 stay active; R-8 stays blocked on a real report CHARGEBACK row.
 
 | ID | Case | Assert |
 |---|---|---|
