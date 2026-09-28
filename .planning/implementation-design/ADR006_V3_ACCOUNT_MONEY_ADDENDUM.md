@@ -19,7 +19,7 @@ The first status (PARTIAL) listed three classes without a proven meaning. §15 r
 - **no coverage metadata:** the §10 INTERNAL_POLICY applies;
 - **unobserved types** `REFUND`, `CHARGEBACK`, `DISPUTE`, `WITHDRAWAL`, … are ERROR until observed. R-8 (chargeback via report) stays blocked;
 - **a non-zero fee's sign** is unobserved;
-- **cross-report identity of report-only kinds** (§15.4).
+- ~~cross-report identity of report-only kinds (§15.4)~~ **resolved by real overlap evidence (§16)** for yield and payout. Unobserved report-only kinds stay fail-closed.
 
 ## 2. SOURCE
 
@@ -242,8 +242,8 @@ direction   = 'C' if SETTLEMENT_NET_AMOUNT > 0, 'D' if < 0   (a net of 0 is an E
 |---|---|---|---|---|---|---|
 | K1 `SETTLEMENT` +, with a payment method | parsed and validated; **REPORT_ONLY / DEFERRED** evidence | `payment` (money received) | APPROVAL evidence for an API payment | only after V-4 proves report ↔ API equivalence, or through the R2 report fallback | no, for parsing | **yes** |
 | K2 `SETTLEMENT` −, `tax_withholding_payer` | parsed; claim `('payment', SOURCE_ID, 'OUTBOUND_PAYMENT', '')` + movement + REPORT_ONLY; **REVIEW_REQUIRED** | `payment` (outbound) | `OUTBOUND_PAYMENT` (V-4 direction correction; owner-confirmed 7/7, §15) | **never** | **yes**: the owning domain RPC + RPC 41 Mode 2; payer-side tax through Mode 1 `ADJUSTMENT`. No automatic supplier classification | V-4 proven: the id is a payment resource made by the account |
-| K3 `SETTLEMENT` +, no payment method, zero tax, 13-digit id | parsed; claim `('report', external_id, 'YIELD', '')` + movement + REPORT_ONLY | **`yield`** (owner-confirmed 9/9, §15) | `YIELD` | **yes**: A1, a single `MP_SETTLEMENT` = net; P&L Otros ingresos financieros; no attribution | no | n/a (not a payment id) |
-| K4 / K5 `PAYOUTS` − | parsed; claim `('report', external_id, 'OUTBOUND_PAYMENT', '')` + movement + REPORT_ONLY; **REVIEW_REQUIRED** | `outflow` (heterogeneous outbound treasury movement, §15) | `OUTBOUND_PAYMENT` | **never** | **yes**: `pay_supplier` / `transfer_between_accounts` / `pay_fiscal_obligation` / another supported flow, then RPC 41 Mode 2; the payout withholding through Mode 1 `ADJUSTMENT`. **Not** the Liberaciones `payout` mapping | n/a (not a payment id) |
+| K3 `SETTLEMENT` +, no payment method, zero tax, 13-digit id | parsed; claim `('report', SOURCE_ID, 'YIELD', '')`, **shared with Liberaciones `asset_management`** (§16), + movement + REPORT_ONLY | **`yield`** (owner-confirmed 9/9, §15) | `YIELD` | **yes**: A1, a single `MP_SETTLEMENT` = net; P&L Otros ingresos financieros; no attribution | no | n/a (not a payment id) |
+| K4 / K5 `PAYOUTS` − | parsed; claim `('report', SOURCE_ID, 'PAYOUT', '')`, **shared with the Liberaciones `payout`** (§16), + movement + REPORT_ONLY; **REVIEW_REQUIRED** | `transfer` (the ADR-003 label of the same economic movement; its business meaning is heterogeneous, §15.2 / §16) | `PAYOUT` | **never** | **yes**: `pay_supplier` / `transfer_between_accounts` / `pay_fiscal_obligation` / another supported flow, then RPC 41 Mode 2; the payout withholding through Mode 1 `ADJUSTMENT`. **Not** the Liberaciones `payout` mapping | n/a (not a payment id) |
 | Any other `TRANSACTION_TYPE` | **ERROR (unsupported)** | — | — | — | — | — |
 
 - ADR-006's report-only kinds CHARGEBACK and ACCOUNT_TAX are **not observed**.
@@ -298,7 +298,7 @@ direction   = 'C' if SETTLEMENT_NET_AMOUNT > 0, 'D' if < 0   (a net of 0 is an E
 - K1: inbound candidate (APPROVAL only through the API / R2).
 - K2: `OUTBOUND_PAYMENT`.
 - K3: `YIELD`.
-- K4 / K5: `OUTBOUND_PAYMENT` (`outflow`).
+- K4 / K5: `PAYOUT` (`transfer`, shared with the Liberaciones `payout`, §16).
 - Anything else: ERROR.
 
 **The K3 structural contract** (all of these must hold; otherwise the row is not K3):
@@ -359,7 +359,7 @@ They were cross-checked locally against the export:
 
 ### 15.1 K3: VERIFIED yield
 
-- The K3 structural class (§13) is **yield**: `movement_kind = 'yield'`, transition `YIELD`, identity `('report', external_id, 'YIELD', '')`.
+- The K3 structural class (§13) is **yield**: `movement_kind = 'yield'`, transition `YIELD`, identity `('report', SOURCE_ID, 'YIELD', '')` (report-independent, §16).
 - Treatment (existing ADR-006):
   - report-only;
   - A1 applies a single `MP_SETTLEMENT` equal to net;
@@ -377,10 +377,9 @@ They were cross-checked locally against the export:
 - Account Money `PAYOUTS` is **not one business type**. The same `TRANSACTION_TYPE` covers supplier payments and own-account withdrawals.
 - **Freeze:**
   - a confirmed outbound treasury movement;
-  - `movement_kind = 'outflow'`;
-  - identity `('report', external_id, 'OUTBOUND_PAYMENT', '')`, REPORT_ONLY;
+  - `movement_kind = 'transfer'` and identity `('report', SOURCE_ID, 'PAYOUT', '')`, REPORT_ONLY. **Revised by §16:** the first version said `outflow` / `OUTBOUND_PAYMENT`, but this is the same economic movement as the Liberaciones `payout`, so it must share that identity and kind;
   - **REVIEW_REQUIRED**;
-  - never auto-applied (`OUTBOUND_PAYMENT` is not in `mp_is_auto_applicable`);
+  - never auto-applied (`PAYOUT` is not in `mp_is_auto_applicable`);
   - never client-attributed (not APPROVAL → `NOT_A_RECEIPT`).
 - **ADMIN resolution** (existing domain ownership):
   - supplier → `pay_supplier(…, p_financial_account_id = MP account)`;
@@ -404,10 +403,78 @@ They were cross-checked locally against the export:
   - not client-attributable.
 - An outbound payment is **not** automatically a supplier payment. The ADMIN chooses the flow.
 
-### 15.4 Open: cross-report identity of report-only kinds
+### 15.4 Cross-report identity of report-only kinds (was open; RESOLVED by §16)
 
 - Liberaciones report-only identities use the ADR-003 composite `SOURCE_ID:DESCRIPTION:C/D`. Account Money uses `AM:TRANSACTION_TYPE:SOURCE_ID:C/D` (§9).
 - If the same yield or outflow appears in **both** reports, the two keys differ, so the transition identity would **not** de-duplicate it.
 - The available exports do not overlap in time (Liberaciones ≤ 2026-09-04; Account Money ≥ 2026-09-11), so whether both reports carry the same `SOURCE_ID` for these kinds is **unproven**.
 - Until an overlapping Liberaciones + Account Money pair proves a shared `SOURCE_ID`, and the report-only identity is keyed on it, the two report types must **not** both be ingested for report-only kinds over the same period.
 - This is a precondition for enabling the Account Money report-only claims (Step 16). Payment rows are not affected: their identity is keyed on the payment id (V-4).
+
+## 16. CROSS-REPORT IDENTITY EVIDENCE (2026-09-28)
+
+**Source.**
+- A new owner-provided Liberaciones export, `reserve-release-<account-id>-manual-2026-09-28-162005.csv`, read locally and read-only; not committed.
+  - 319 rows, 15 columns (the ADR-003 D1 layout); every row is 15 wide; no quoting.
+  - 317 rows have a `SOURCE_ID`; 2 blank rows (no SOURCE_ID) are not ingested (ADR-003 D1).
+  - `DATE` range 2026-09-11T02:18:29 → 2026-09-23T15:55:29 (-03:00).
+  - DESCRIPTION counts: `payment` 282, `reserve_for_payment` 14, `asset_management` 9, `reserve_for_payout` 8, `payout` 4.
+- **Overlap with the Account Money export:** 2026-09-11T02:18:29 → 2026-09-23T13:03:39 (-03:00). All 294 Account Money rows fall inside it.
+
+**Results.** Matched on the exact `SOURCE_ID` text; values compared cent-exact and instant-exact; no real ids reproduced.
+
+| Account Money class | Rows | Liberaciones rows for the same SOURCE_ID | Final row: gross / fee / tax / net / sign | Final row: `DATE` and `TRANSACTION_APPROVAL_DATE` − `SETTLEMENT_DATE` |
+|---|---|---|---|---|
+| K3 (yield) | 9 | `asset_management` × 1 (9/9) | 9/9 equal | 0 s (9/9) |
+| K4 / K5 `PAYOUTS` | 4 | `payout` × 1 + `reserve_for_payout` × 2 (4/4) | 4/4 equal (including the payout withholding) | 0 s (4/4) |
+| K2 (outbound payment) | 7 | `payment` × 1 + `reserve_for_payment` × 2 (7/7) | 7/7 equal | 0 s (6), −1 s (1) |
+| K1 (inbound candidate) | 274 | `payment` × 1 (274/274) | 274/274 equal | 0 s (274/274) |
+
+- **Reverse direction:** every Liberaciones row inside the overlap has an Account Money row with the same `SOURCE_ID`:
+  - `asset_management` 9/9, `payment` 281/281, `payout` 4/4;
+  - `reserve_for_payment` 14/14, `reserve_for_payout` 8/8 (their parent's id).
+  - The one remaining Liberaciones `payment` is dated after the Account Money export's last row.
+
+**Reserves.** For each payout:
+- the two `reserve_for_payout` rows share the payout's `SOURCE_ID`;
+- their nets are exactly `−X` and `+X`, with X = the payout net, and they sum to 0 (4/4);
+- fee and tax are 0;
+- they are dated 1–2 s before, and at, the payout instant.
+
+They are a lifecycle hold and release, **not** a final economic movement. ADR-003 is unchanged: reserves are IGNORED, create no financial effect and do not take part in cross-report identity. The same holds for the `reserve_for_payment` pairs of K2.
+
+**Stability across all local Liberaciones exports:** Liberaciones1/2/3 plus this file; 4 650 non-reserve rows.
+- Every `(DESCRIPTION, SOURCE_ID)` pair always carries identical content. The 157 repeats are identical re-exports of overlapping periods.
+- No `SOURCE_ID` carries two different non-reserve DESCRIPTIONs.
+- `asset_management` is always a credit and `payout` always a debit.
+
+**Conclusion (VERIFIED):**
+- Account Money K3 and Liberaciones `asset_management` are the **same economic yield**.
+- Account Money `PAYOUTS` and the Liberaciones final `payout` are the **same final economic outflow**.
+- The shared `SOURCE_ID` is the stable external identity of the movement across report products.
+
+**New fact about the Liberaciones `payout`:**
+- The same four `SOURCE_ID`s are the owner-verified PAYOUTS: 2 supplier payments by transfer and 2 own-account withdrawals (§15.2).
+- So the Liberaciones `payout` is **also heterogeneous**. Its ADR-003 label `transfer` is kept, and it is still never auto-applied.
+- Its ADMIN resolution is widened from "`transfer_between_accounts` only" to the owning domain RPC. See ADR006_V4_DIRECTION_CORRECTION §6.
+
+**Cross-report identity rule (FROZEN; the Step-16 contract, not implemented):**
+- **Source records stay per report and immutable.** `mp_source_record` `UNIQUE(source_type, external_id)` keeps:
+  - the ADR-003 composite for `csv_import`;
+  - the §9 `AM:…` key for `account_money_csv`.
+  Provenance is never collapsed or deleted; many evidence rows are allowed.
+- **The economic transition identity is report-independent:** one per (semantic kind, stable external `SOURCE_ID`):
+  - yield → `('report', SOURCE_ID, 'YIELD', '')`: Liberaciones `asset_management` and Account Money K3;
+  - payout / outflow → `('report', SOURCE_ID, 'PAYOUT', '')`: Liberaciones `payout` and Account Money `PAYOUTS`;
+  - payment rows are already keyed on the payment id: `('payment', SOURCE_ID, 'APPROVAL' | 'OUTBOUND_PAYMENT', '')`.
+- `(source_type, SOURCE_ID)` is **never** the financial transition identity.
+- **The first claimant creates the single movement.** Every later report row for the same identity is IGNORED plus an `mp_report_match`: MATCHED when gross / fee / tax / net / occurred_date are equal, DISCREPANCY (REVIEW_REQUIRED) otherwise. There is never a second movement and never a silent merge. This is the mechanism already in 0048 (§40.4); only the report-only key changes.
+- **Upload order does not matter.** Both parsers produce the same `movement_kind` for the same identity: yield → `yield`; payout → `transfer`.
+- **Unobserved report-only kinds** (`ACCOUNT_TAX`, `CHARGEBACK` via report, `WITHDRAWAL`, …) stay fail-closed (ERROR) until their cross-report identity is evidenced.
+
+**DB / idempotency implications for Step 16** (to be implemented then, not now):
+1. The RPC 40 `csv_import` branch (0048) and the new `account_money_csv` branch claim report-only identities with `resource_id = SOURCE_ID`, not `external_id`. The 0048 claim (`resource_id = v_src.external_id`) is redefined by the Step-16 migration.
+2. `uq_mp_transition` and `mp_transition_identity.mp_financial_movement_id UNIQUE` are unchanged; they already give one movement per identity.
+3. `mp_report_match` `uq_match_report_outcome (report_source_id, outcome)` is unchanged. Each report row records its own MATCHED / DISCREPANCY against the shared transition.
+4. The `mp_realtime.test.mjs` assertions on the report-only claim key are amended at Step 16, from `external_id` to `SOURCE_ID`, as an authorized contract change. No other Step 1–4 behaviour changes.
+5. No production data exists under the old key: ADR-006 is not deployed.

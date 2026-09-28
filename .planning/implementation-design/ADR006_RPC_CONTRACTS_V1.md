@@ -256,8 +256,12 @@ Transition resolution:
   - As a result, **no report row can create a payment movement while V-4 is open**, and double counting against API payments is impossible.
   - When V-4 is verified, a migration redefines the helper to return `true`. The worker then re-runs RPC 40 on those PENDING rows, and they follow §40.4. The helper may be redefined **only after** the direction-aware claim above is implemented (V-4 direction correction §9).
   - `mp_normalize_report_fallback` also requires V-4 (§R2).
-- `csv_import` yield row → `('report', external_id, 'YIELD', '')`.
-- `csv_import` payout row → `('report', external_id, 'PAYOUT', '')`.
+- `csv_import` yield row, and Account Money K3 → `('report', SOURCE_ID, 'YIELD', '')`.
+- `csv_import` payout row, and Account Money `PAYOUTS` → `('report', SOURCE_ID, 'PAYOUT', '')`.
+- **Report-independent identity** (V-3 §16, real overlap evidence): the same economic movement in both report products claims one transition. The later report row is IGNORED + MATCHED / DISCREPANCY (§40.4).
+  - **Step-16 contract change:** the 0048 claim key `resource_id = external_id` becomes `resource_id = SOURCE_ID`.
+  - Source records keep their per-report `external_id`.
+  - Unobserved report-only kinds stay ERROR.
 
 ### 40.2 `api_payment` parser
 

@@ -236,4 +236,4 @@ Owner manual verification in the Mercado Pago application (ADR006_V3_ACCOUNT_MON
 - the `payer.id` type;
 - the undocumented `charges_details`;
 - the Account Money balance column, coverage metadata and unobserved types;
-- the cross-report identity of report-only kinds (V-3 §15.4).
+- ~~the cross-report identity of report-only kinds (V-3 §15.4)~~: resolved for yield and payout (V-3 §16).

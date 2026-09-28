@@ -314,8 +314,7 @@ The service role performs this unwinding without choosing anything: both the amo
 | Refund (full or partial) | same (`refunds[]` of the payment) | `refund` (gross = −refund amount, fee 0, tax 0, net = gross) | `mp_apply_transition`: `MP_SETTLEMENT` −R, key `MPA:{refund transition_id}:SETTLE`. The client ledger is touched **only** if the refunded payment carries allocations (OD-1) |
 | Fee returned by MP on a refund | **report only** (not in the refund object) | from the report | report discrepancy → ADMIN Mode 1 `FEE` counter-assignment (+) |
 | Chargeback / dispute | a **chargeback webhook signal** (topic per V-1) and / or the payment's chargeback status (status values per V-2) | **no movement** from the signal or the API: a derived REVIEW_REQUIRED alert. A signal with a documented payment relation triggers a payment refresh; otherwise it waits for ADMIN link / dismiss | the amount comes from the Account Money report row, applied by `mp_apply_transition` as `MP_SETTLEMENT` −amount once the parser exists (V-3); client side per OD-1 (§5d) |
-| Payout / withdrawal to a bank | **report only** (F4) | `transfer` (ADR-003) | Mode 2 link to `transfer_between_accounts`. ADMIN, because the bank side is owned by that RPC (ADR-003 D7) |
-| Account Money `PAYOUTS` (owner-verified heterogeneous outflow: supplier payments and own-account withdrawals; V-3 §15.2) | **report only** | `outflow`, identity `OUTBOUND_PAYMENT` (**not** the Liberaciones `payout` mapping) | never auto-applied or attributed; REVIEW_REQUIRED until the ADMIN resolves it through the owning domain RPC plus RPC 41 Mode 2 |
+| Payout / withdrawal / transfer out (Liberaciones `payout` = Account Money `PAYOUTS`: the same movement by `SOURCE_ID`; owner-verified heterogeneous: supplier payments and own-account withdrawals, V-3 §15.2 / §16) | **report only** (F4) | `transfer` (ADR-003); identity `('report', SOURCE_ID, 'PAYOUT', '')` shared by both reports | never auto-applied or attributed; REVIEW_REQUIRED until the ADMIN resolves it through the owning domain RPC (`transfer_between_accounts`, `pay_supplier`, `pay_fiscal_obligation`, …) plus RPC 41 Mode 2 (ADR-003 D7) |
 | Yield (Liberaciones `asset_management`; Account Money K3, owner-verified, V-3 §15.1) | **report only** | `yield` (ADR-003) | `mp_apply_transition`: `MP_SETTLEMENT`; P&L Otros ingresos financieros (D10) |
 | Account-level tax / withholding not tied to one payment | **report only** | per the Account Money parser (V-3) | `mp_apply_transition`: single component (V-3 fixes whether it is `ADJUSTMENT`) |
 | Reserves | **report only** | IGNORED (ADR-003) | none |
@@ -469,7 +468,12 @@ The dashboard may show POSTED activity immediately, before report confirmation.
    - payment row, **inbound** direction (Liberaciones C / Account Money net > 0) → inbound candidate for `('payment', SOURCE_ID, 'APPROVAL', '')`;
    - payment row, **outbound** direction (Liberaciones D / Account Money net < 0) → `('payment', SOURCE_ID, 'OUTBOUND_PAYMENT', '')`: movement plus REPORT_ONLY; never auto-applied or attributed; no back-fill (V-4 direction correction);
    - refund row → `REFUND` with its refund id when the layout carries one (V-3);
-   - payout / yield / tax rows → `('report', external_id, kind, '')`.
+   - payout / yield rows → `('report', SOURCE_ID, kind, '')`. The identity is **report-independent** (V-3 §16):
+     - Liberaciones `asset_management` and Account Money K3 share the YIELD identity;
+     - Liberaciones `payout` and Account Money `PAYOUTS` share the PAYOUT identity;
+     - the second report is IGNORED + MATCHED / DISCREPANCY;
+     - source records stay per report.
+     Account-tax rows stay fail-closed until evidenced.
 3. **Transition already claimed** (the API arrived first) → no movement. The source is IGNORED with the note `MATCHED`, and an `mp_report_match` row is written with outcome **MATCHED** when gross, fee, tax, net and date are equal, or **DISCREPANCY** with the field-by-field difference otherwise. **No financial effect is ever created here.**
 4. **Inbound payment transition not claimed** → no movement yet. The source stays PENDING, and a back-fill request for `GET /v1/payments/{SOURCE_ID}` is enqueued in the inbox (`origin = 'report_backfill'`). Only inbound candidates are back-filled. A back-fill that returns a foreign collector is a direction conflict: FAILED_PERMANENT, the fallback is refused, and the row stays REVIEW_REQUIRED.
    - When the API snapshot claims the transition, the report row is re-evaluated and matched (step 3).

@@ -73,20 +73,27 @@ The report direction is a **precondition**, not a substitute for the API.
   3. The payer-side withholding carried by the report (for example `tax_withholding_payer`; report net = −API `total_paid_amount`, V-4 §8) is assigned with **Mode 1 `ADJUSTMENT`**, an ADR-003 D7 allowed type.
 - Result: no duplicate MP posting, and no generic type absorbing unknown outflows.
 
-## 6. PAYOUT (unchanged)
+## 6. PAYOUT (revised 2026-09-28 by cross-report evidence, V-3 §16)
 
-- Liberaciones `payout` → `movement_kind = 'transfer'` (ADR-003 D1), identity `('report', external_id, 'PAYOUT', '')`, REPORT_ONLY. It is **not** auto-applicable.
-- The ADMIN links it with Mode 2 to `transfer_between_accounts`.
-- V-4: its `SOURCE_ID` is not a payment id (404).
-- **Account Money `PAYOUTS` (K4 / K5): owner-verified 2026-09-28 as a heterogeneous outbound treasury class.** Of 4 rows, 2 are supplier payments by transfer and 2 are withdrawals to an own account (V-3 §15.2).
-  - It is **not** the Liberaciones `payout` mapping.
-  - Freeze:
-    - `movement_kind = 'outflow'`;
-    - identity `('report', external_id, 'OUTBOUND_PAYMENT', '')`, REPORT_ONLY;
-    - **REVIEW_REQUIRED**;
-    - never auto-applied;
-    - never attributed.
-  - ADMIN resolution as in §5:
+**Shared identity.** Liberaciones `payout` and Account Money `PAYOUTS` are the **same final economic outflow**:
+- same `SOURCE_ID`, net, tax and instant, 4/4 in the real overlap;
+- the Liberaciones `reserve_for_payout` pairs offset to 0 and stay IGNORED (ADR-003).
+
+**Both sources claim one identity**, `('report', SOURCE_ID, 'PAYOUT', '')`:
+- `movement_kind = 'transfer'` (the ADR-003 D1 label, kept);
+- REPORT_ONLY;
+- **REVIEW_REQUIRED**;
+- never auto-applied (`PAYOUT` is not in `mp_is_auto_applicable`);
+- never attributed.
+
+Whichever report arrives second is IGNORED plus MATCHED / DISCREPANCY.
+
+**The business meaning is heterogeneous in both sources.** The same 4 ids are owner-verified: 2 supplier payments by transfer and 2 withdrawals to an own account (V-3 §15.2).
+- The earlier "Liberaciones `payout` → Mode 2 `transfer_between_accounts` only" is widened.
+- The earlier Account Money `outflow` / `OUTBOUND_PAYMENT` choice for `PAYOUTS` is replaced: it would have created a second movement for the same outflow.
+- `OUTBOUND_PAYMENT` remains only for payment-resource rows made by the account (§5).
+- V-4: the `SOURCE_ID` of a payout is not a payment id (404).
+- ADMIN resolution, for both sources, as in §5:
     - `pay_supplier` / `transfer_between_accounts` / `pay_fiscal_obligation` / another supported flow;
     - then RPC 41 Mode 2;
     - payout withholding through Mode 1 `ADJUSTMENT`.
@@ -104,10 +111,10 @@ Frozen from V-4 only:
 
 - Account Money K3 is **NOT_A_PAYMENT_ID** (V-4: 404).
 - **Updated 2026-09-28:** owner-verified as **investment yield**. That is 9/9, all K3 rows (V-3 §15.1).
-  - For the exact V-3 §13 K3 structural shape only: `movement_kind = 'yield'`, `('report', external_id, 'YIELD', '')`, REPORT_ONLY.
+  - For the exact V-3 §13 K3 structural shape only: `movement_kind = 'yield'`, `('report', SOURCE_ID, 'YIELD', '')` (shared with Liberaciones `asset_management`, V-3 §16), REPORT_ONLY.
   - A1 applies it: a single `MP_SETTLEMENT` = net; P&L Otros ingresos financieros; no attribution.
   - A row outside that shape is not yield (ERROR).
-- Cross-report de-duplication with Liberaciones `asset_management` is **unproven** (V-3 §15.4). Both report types must not be ingested for yield over the same period.
+- Cross-report de-duplication with Liberaciones `asset_management` is **proven** (V-3 §16: 9/9 same `SOURCE_ID`, amounts and instant). Both reports claim the one YIELD identity; the second is IGNORED + MATCHED.
 - Liberaciones `asset_management` → `yield` is unchanged (ADR-003 D1). V-4 confirms that its id is not a payment id either, which is consistent with a report-only kind.
 - K3 ↔ `asset_management` equivalence is not asserted.
 
