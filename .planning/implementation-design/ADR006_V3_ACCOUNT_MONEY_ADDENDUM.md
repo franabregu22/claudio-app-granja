@@ -2,15 +2,24 @@
 
 ## 1. STATUS
 
-**PARTIAL.** The layout, amounts, signs, arithmetic, fee / tax fields, row identity and occurrence date are proven for the observed classes.
+**VERIFIED for the five observed row classes (updated 2026-09-28 with owner evidence, §15).** Scope: the parser contract (§13) for K1–K5. Every unobserved `TRANSACTION_TYPE` is rejected fail-closed (ERROR).
 
-**Not proven:**
-- the business meaning of three observed row classes: negative `SETTLEMENT`, `PAYOUTS` and zero-tax `SETTLEMENT` without a payment method;
-- a balance column: none exists;
-- the report coverage period: the file carries none;
-- every documented transaction type other than `SETTLEMENT`.
+Proven:
+- the layout, amounts, signs, arithmetic, fee / tax fields, row identity and occurrence date;
+- the business meaning of every observed class:
+  - K1: inbound candidate;
+  - K2: outbound payment made by the account;
+  - K3: yield;
+  - K4 / K5 `PAYOUTS`: heterogeneous outbound treasury movements that require ADMIN classification.
 
-Step 16 cannot yet map those classes to transitions (§11, §12).
+The first status (PARTIAL) listed three classes without a proven meaning. §15 resolves them.
+
+**Remaining V-3 feature gaps** (they do not affect the observed-class parser contract):
+- **no balance column:** R4 does not apply to this layout;
+- **no coverage metadata:** the §10 INTERNAL_POLICY applies;
+- **unobserved types** `REFUND`, `CHARGEBACK`, `DISPUTE`, `WITHDRAWAL`, … are ERROR until observed. R-8 (chargeback via report) stays blocked;
+- **a non-zero fee's sign** is unobserved;
+- **cross-report identity of report-only kinds** (§15.4).
 
 ## 2. SOURCE
 
@@ -232,9 +241,9 @@ direction   = 'C' if SETTLEMENT_NET_AMOUNT > 0, 'D' if < 0   (a net of 0 is an E
 | Class | Parser result (Step 16) | movement_kind candidate | Transition candidate | A1 applies eventually? | ADMIN action required? | V-4 blocks payment interpretation? |
 |---|---|---|---|---|---|---|
 | K1 `SETTLEMENT` +, with a payment method | parsed and validated; **REPORT_ONLY / DEFERRED** evidence | `payment` (money received) | APPROVAL evidence for an API payment | only after V-4 proves report ↔ API equivalence, or through the R2 report fallback | no, for parsing | **yes** |
-| K2 `SETTLEMENT` −, `tax_withholding_payer` | parsed; **REVIEW (unmapped)** | not frozen: money out, with the account as payer, under a D3 "approved payment" type | none frozen | no | **yes**: the business meaning (for example a supplier payment) is not stated by the docs | n/a (not a receipt) |
-| K3 `SETTLEMENT` +, no payment method, zero tax, 13-digit id | parsed; **REVIEW (unmapped)** | not frozen: structurally consistent with a yield / interest credit, but **undocumented** | none frozen | no | **yes** | n/a |
-| K4 / K5 `PAYOUTS` − | **REVIEW (undocumented type)** | not frozen: money out; `PAYOUTS` is not the documented `PAYOUT` / `WITHDRAWAL` | none frozen | no | **yes** | n/a |
+| K2 `SETTLEMENT` −, `tax_withholding_payer` | parsed; claim `('payment', SOURCE_ID, 'OUTBOUND_PAYMENT', '')` + movement + REPORT_ONLY; **REVIEW_REQUIRED** | `payment` (outbound) | `OUTBOUND_PAYMENT` (V-4 direction correction; owner-confirmed 7/7, §15) | **never** | **yes**: the owning domain RPC + RPC 41 Mode 2; payer-side tax through Mode 1 `ADJUSTMENT`. No automatic supplier classification | V-4 proven: the id is a payment resource made by the account |
+| K3 `SETTLEMENT` +, no payment method, zero tax, 13-digit id | parsed; claim `('report', external_id, 'YIELD', '')` + movement + REPORT_ONLY | **`yield`** (owner-confirmed 9/9, §15) | `YIELD` | **yes**: A1, a single `MP_SETTLEMENT` = net; P&L Otros ingresos financieros; no attribution | no | n/a (not a payment id) |
+| K4 / K5 `PAYOUTS` − | parsed; claim `('report', external_id, 'OUTBOUND_PAYMENT', '')` + movement + REPORT_ONLY; **REVIEW_REQUIRED** | `outflow` (heterogeneous outbound treasury movement, §15) | `OUTBOUND_PAYMENT` | **never** | **yes**: `pay_supplier` / `transfer_between_accounts` / `pay_fiscal_obligation` / another supported flow, then RPC 41 Mode 2; the payout withholding through Mode 1 `ADJUSTMENT`. **Not** the Liberaciones `payout` mapping | n/a (not a payment id) |
 | Any other `TRANSACTION_TYPE` | **ERROR (unsupported)** | — | — | — | — | — |
 
 - ADR-006's report-only kinds CHARGEBACK and ACCOUNT_TAX are **not observed**.
@@ -245,8 +254,8 @@ direction   = 'C' if SETTLEMENT_NET_AMOUNT > 0, 'D' if < 0   (a net of 0 is an E
 - **Not observed:** `REFUND`, `CHARGEBACK`, `DISPUTE`, `WITHDRAWAL`, `WITHDRAWAL_CANCEL`, `PAYOUT`, `CASHBACK`, and all `*_SHIPPING` types.
 - **No standalone account-tax row. No fee refund.** Every fee column is 0.
 - **No balance column.** The layout has no running balance (no `BALANCE_AMOUNT` equivalent), so **R4 `mp_record_balance_check` has no Account Money field**, and this export cannot check the balance.
-- **`PAYOUTS`** is an undocumented type value.
-- **The business meaning of K2 / K3 / K4 / K5 is unproven.**
+- **`PAYOUTS`** is an undocumented type value. Its meaning is now owner-verified as heterogeneous (§15.2).
+- ~~The business meaning of K2 / K3 / K4 / K5 is unproven.~~ **Resolved by owner evidence (§15):** K2 outbound payment, K3 yield, K4 / K5 heterogeneous outflow.
 - **`TAXES_DISAGGREGATED`** is documented as JSON but is not JSON, and its keys are undocumented.
 - **`TAX_DETAIL`** values conflict with D3.
 - **`TRANSACTION_DATE`** is documented as numeric but observed as a datetime.
@@ -285,7 +294,24 @@ direction   = 'C' if SETTLEMENT_NET_AMOUNT > 0, 'D' if < 0   (a net of 0 is an E
 - `SETTLEMENT_DATE` parses;
 - `external_id` (§9) derivable.
 
-**Outputs per class:** as in §11. Only K1 becomes report evidence; K2–K5 are REVIEW; anything else is ERROR.
+**Outputs per class:** as in §11.
+- K1: inbound candidate (APPROVAL only through the API / R2).
+- K2: `OUTBOUND_PAYMENT`.
+- K3: `YIELD`.
+- K4 / K5: `OUTBOUND_PAYMENT` (`outflow`).
+- Anything else: ERROR.
+
+**The K3 structural contract** (all of these must hold; otherwise the row is not K3):
+- `TRANSACTION_TYPE = SETTLEMENT`;
+- `PAYMENT_METHOD_TYPE` and `PAYMENT_METHOD` blank;
+- `TRANSACTION_AMOUNT > 0`;
+- `TAXES_AMOUNT = 0.00` and `TAXES_DISAGGREGATED = []`;
+- `FEE_AMOUNT = 0.00`;
+- a 13-digit `SOURCE_ID`;
+- `IS_RELEASED = false`;
+- `MONEY_RELEASE_DATE` blank.
+
+A row that fails any part of this shape is not yield. It becomes ERROR (unclassified).
 
 **Forbidden as business / accounting authority:**
 
@@ -317,3 +343,71 @@ Personal columns (payer, card) must not be stored beyond what ADR-003 already st
 - the refund transition date;
 - the business classification of `account_fund`;
 - the API-side component source for Step 6: until V-4, the per-component split has an authoritative documented source only in the report.
+
+## 15. OWNER EVIDENCE ADDENDUM (2026-09-28)
+
+**Source.** The owner inspected each movement manually in the Mercado Pago application and supplied its business meaning. This is owner-observed business evidence, not an inference from field names. The owner supplied 22 real `SOURCE_ID`s. They are **not** reproduced here (no real ids in the repository).
+
+They were cross-checked locally against the export:
+
+| Owner classification | Ids given | Found in export | V-3 class | Class coverage |
+|---|---|---|---|---|
+| Investment return / rendimiento | 9 | 9 | K3: 9/9 | **all** 9 K3 rows |
+| Outbound payment made by the account (QR purchases / payments, a transfer payment for an input) | 7 | 7 | K2: 7/7 | **all** 7 K2 rows |
+| `PAYOUTS`: payment to a supplier by transfer | 2 | 2 | K4: 2/2 | 4 PAYOUTS rows in total, **all** classified |
+| `PAYOUTS`: withdrawal / transfer to the owner's own account | 2 | 2 | K5: 2/2 | (same) |
+
+### 15.1 K3: VERIFIED yield
+
+- The K3 structural class (§13) is **yield**: `movement_kind = 'yield'`, transition `YIELD`, identity `('report', external_id, 'YIELD', '')`.
+- Treatment (existing ADR-006):
+  - report-only;
+  - A1 applies a single `MP_SETTLEMENT` equal to net;
+  - no client attribution;
+  - P&L Otros ingresos financieros (ADR-004 D10).
+- Evidence:
+  - the structural pattern;
+  - 9 independent rows;
+  - owner verification;
+  - V-4: not a payment id.
+- Not generalized beyond the §13 K3 shape.
+
+### 15.2 PAYOUTS: VERIFIED heterogeneous outbound treasury class
+
+- Account Money `PAYOUTS` is **not one business type**. The same `TRANSACTION_TYPE` covers supplier payments and own-account withdrawals.
+- **Freeze:**
+  - a confirmed outbound treasury movement;
+  - `movement_kind = 'outflow'`;
+  - identity `('report', external_id, 'OUTBOUND_PAYMENT', '')`, REPORT_ONLY;
+  - **REVIEW_REQUIRED**;
+  - never auto-applied (`OUTBOUND_PAYMENT` is not in `mp_is_auto_applicable`);
+  - never client-attributed (not APPROVAL → `NOT_A_RECEIPT`).
+- **ADMIN resolution** (existing domain ownership):
+  - supplier → `pay_supplier(…, p_financial_account_id = MP account)`;
+  - own account → `transfer_between_accounts(…)`;
+  - fiscal → `pay_fiscal_obligation(…)`;
+  - otherwise, another supported domain flow, or the row stays in review.
+
+  Then RPC 41 **Mode 2** links the movement to the domain operation's MP posting (no duplicate posting). The `tax_withholding_payout` component, if any, goes through Mode 1 `ADJUSTMENT`.
+- **Observation, not a rule:**
+  - both supplier payments carried `tax_withholding_payout` (K4);
+  - both own-account withdrawals carried no tax (K5).
+  - With 2 + 2 rows this is **not** a classification rule. Neither K4 nor K5 is auto-mapped to a business flow.
+- **Not** reinterpreted as the Liberaciones `payout` (`transfer`, ADR-003 D1). That mapping is unchanged.
+
+### 15.3 K2: VERIFIED outbound payment
+
+- All 7 K2 rows are payments made by the account. This confirms the V-4 direction correction:
+  - `OUTBOUND_PAYMENT`, REPORT_ONLY / REVIEW_REQUIRED;
+  - not auto-applicable;
+  - not a receipt;
+  - not client-attributable.
+- An outbound payment is **not** automatically a supplier payment. The ADMIN chooses the flow.
+
+### 15.4 Open: cross-report identity of report-only kinds
+
+- Liberaciones report-only identities use the ADR-003 composite `SOURCE_ID:DESCRIPTION:C/D`. Account Money uses `AM:TRANSACTION_TYPE:SOURCE_ID:C/D` (§9).
+- If the same yield or outflow appears in **both** reports, the two keys differ, so the transition identity would **not** de-duplicate it.
+- The available exports do not overlap in time (Liberaciones ≤ 2026-09-04; Account Money ≥ 2026-09-11), so whether both reports carry the same `SOURCE_ID` for these kinds is **unproven**.
+- Until an overlapping Liberaciones + Account Money pair proves a shared `SOURCE_ID`, and the report-only identity is keyed on it, the two report types must **not** both be ingested for report-only kinds over the same period.
+- This is a precondition for enabling the Account Money report-only claims (Step 16). Payment rows are not affected: their identity is keyed on the payment id (V-4).

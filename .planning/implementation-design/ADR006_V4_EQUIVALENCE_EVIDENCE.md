@@ -2,7 +2,14 @@
 
 ## 1. STATUS
 
-**PARTIAL.** The identity is proven. The gate cannot flip yet.
+**V-4 EQUIVALENCE GATE: VERIFIED** (updated 2026-09-28 after the V-4 direction correction `c0e19dc` and the owner evidence, §15).
+
+- The first status (PARTIAL) was held only because the §8 mapping would have treated outbound payment rows as receipts. The direction correction resolved that at design level.
+- The remaining items are **not** part of the V-4 gate: `account_fund` attribution, refunds, chargebacks and `payer.id` are V-2 / V-3 feature gaps.
+- The gate's evidence is complete.
+- **Enabling** it (`mp_v4_verified()` → true, Step 19) still waits for the direction-aware parser to be **implemented**. That is an implementation precondition, not missing evidence (§13).
+
+Original findings:
 
 - **`SOURCE_ID == payment.id` is PROVEN for `payment` rows in both reports.**
   - Liberaciones `payment` rows: 7/7.
@@ -179,6 +186,13 @@ The gate can become YES once the design decides how `payment` debit rows (accoun
 
 That is an owner / architecture decision. The id equivalence itself does not need more evidence.
 
+**Update 2026-09-28: decision taken.** `ADR006_V4_DIRECTION_CORRECTION.md` (commit `c0e19dc`) freezes this:
+- inbound rows only → APPROVAL candidates;
+- outbound rows → `OUTBOUND_PAYMENT`;
+- back-fill and fallback only for inbound rows.
+
+**Revised answer:** `mp_v4_verified()` **may eventually become true: YES**. It becomes true in Step 19, and only after that direction-aware parser / normalizer is implemented and DIRECTION-1…8 pass. No further V-4 evidence is required.
+
 ## 14. IMPACT ON V-2 / V-3
 
 **V-2 resolved:**
@@ -199,3 +213,27 @@ That is an owner / architecture decision. The id equivalence itself does not nee
 - **The design of debit `payment` rows before Step 19** (§13).
 
 **Sanitized fixture:** [`scripts/target-db/fixtures/adr006-v4-equivalence.json`](../../scripts/target-db/fixtures/adr006-v4-equivalence.json). It has 20 comparison rows with no ids, no personal data and no raw payloads.
+
+## 15. OWNER EVIDENCE AND FINAL SEPARATION (2026-09-28)
+
+Owner manual verification in the Mercado Pago application (ADR006_V3_ACCOUNT_MONEY_ADDENDUM §15; ids cross-checked locally, not reproduced):
+- **K2:** all 7 rows are payments made by the account. This confirms the V-4 direction finding (API: collector ≠ account, 2/2) on the full class.
+- **K3:** all 9 rows are investment yield. This is consistent with V-4 NOT_A_PAYMENT_ID (404), and K3 is now independently confirmed as yield.
+- **Account Money PAYOUTS:** all 4 rows. Two are supplier payments by transfer and two are withdrawals to an own account: heterogeneous, not payment ids (404).
+
+**V-4 equivalence gate: VERIFIED.**
+- Payment `SOURCE_ID == API payment.id` is proven:
+  - Liberaciones `payment` 7/7;
+  - Account Money K1 / K2 8/8.
+- Inbound versus outbound direction is proven, and the design is corrected (`c0e19dc`).
+- The K2 business direction is confirmed manually.
+- Non-payment classes are proven not to be payment ids.
+
+**Not V-4 (remaining V-2 / V-3 feature evidence gaps):**
+- the business classification of `account_fund` (no owner decision; CLIENT_UNASSIGNED by default);
+- refunds, chargebacks and disputes (not observed);
+- the refund transition date;
+- the `payer.id` type;
+- the undocumented `charges_details`;
+- the Account Money balance column, coverage metadata and unobserved types;
+- the cross-report identity of report-only kinds (V-3 §15.4).

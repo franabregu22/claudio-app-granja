@@ -50,6 +50,7 @@ The report direction is a **precondition**, not a substitute for the API.
 ## 5. OUTBOUND payment (made by the account)
 
 - **Never** `APPROVAL`, **never** auto-applied, **never** attributed. It creates no `MP_SETTLEMENT` receipt and no supplier / fiscal / transfer effect automatically.
+- **Owner-confirmed 2026-09-28:** all 7 Account Money K2 rows are payments made by the account: QR purchases / payments, and a transfer for an input (V-3 §15.3). Being outbound does **not** make it a supplier payment. The ADMIN chooses the flow.
 - **Report parser outcome, after V-4 enablement:**
   - The row is validated (ADR-003 D1 / V-3) and claims the identity `('payment', SOURCE_ID, 'OUTBOUND_PAYMENT', '')`.
   - A movement is created with `movement_kind = 'payment'`, per the ADR-003 D1 `payment → payment` mapping, which is unchanged, with the negative gross / tax / net as exported.
@@ -77,7 +78,19 @@ The report direction is a **precondition**, not a substitute for the API.
 - Liberaciones `payout` → `movement_kind = 'transfer'` (ADR-003 D1), identity `('report', external_id, 'PAYOUT', '')`, REPORT_ONLY. It is **not** auto-applicable.
 - The ADMIN links it with Mode 2 to `transfer_between_accounts`.
 - V-4: its `SOURCE_ID` is not a payment id (404).
-- Account Money `PAYOUTS` (K4 / K5) stays **unmapped** per V-3 (an undocumented type value) until evidence maps it.
+- **Account Money `PAYOUTS` (K4 / K5): owner-verified 2026-09-28 as a heterogeneous outbound treasury class.** Of 4 rows, 2 are supplier payments by transfer and 2 are withdrawals to an own account (V-3 §15.2).
+  - It is **not** the Liberaciones `payout` mapping.
+  - Freeze:
+    - `movement_kind = 'outflow'`;
+    - identity `('report', external_id, 'OUTBOUND_PAYMENT', '')`, REPORT_ONLY;
+    - **REVIEW_REQUIRED**;
+    - never auto-applied;
+    - never attributed.
+  - ADMIN resolution as in §5:
+    - `pay_supplier` / `transfer_between_accounts` / `pay_fiscal_obligation` / another supported flow;
+    - then RPC 41 Mode 2;
+    - payout withholding through Mode 1 `ADJUSTMENT`.
+  - No automatic business mapping from K4 / K5 (the tax / no-tax observation is 2 + 2 rows, not a rule).
 
 ## 7. ACCOUNT_FUND
 
@@ -90,7 +103,11 @@ Frozen from V-4 only:
 ## 8. K3
 
 - Account Money K3 is **NOT_A_PAYMENT_ID** (V-4: 404).
-- Its yield-like shape is **unproven**. It stays unclassified / REVIEW, with **no** `YIELD` mapping, until evidence proves it.
+- **Updated 2026-09-28:** owner-verified as **investment yield**. That is 9/9, all K3 rows (V-3 §15.1).
+  - For the exact V-3 §13 K3 structural shape only: `movement_kind = 'yield'`, `('report', external_id, 'YIELD', '')`, REPORT_ONLY.
+  - A1 applies it: a single `MP_SETTLEMENT` = net; P&L Otros ingresos financieros; no attribution.
+  - A row outside that shape is not yield (ERROR).
+- Cross-report de-duplication with Liberaciones `asset_management` is **unproven** (V-3 §15.4). Both report types must not be ingested for yield over the same period.
 - Liberaciones `asset_management` → `yield` is unchanged (ADR-003 D1). V-4 confirms that its id is not a payment id either, which is consistent with a report-only kind.
 - K3 ↔ `asset_management` equivalence is not asserted.
 
@@ -109,6 +126,6 @@ Frozen from V-4 only:
 - ADR006_RPC_CONTRACTS_V1: §40 transition resolution, §40.4 back-fill, R2 fallback preconditions.
 - ADR006_IMPLEMENTATION_ORDER_V1: steps 16 and 19, and the V-4 gate row.
 - ADR006_WEBHOOK_WORKER_DESIGN_V1: §6 report flow.
-- ADR006_TEST_MATRIX_V1: the new DIRECTION block (DIRECTION-1 … DIRECTION-7).
+- ADR006_TEST_MATRIX_V1: the new DIRECTION block (DIRECTION-1 … DIRECTION-8; DIRECTION-5 revised and DIRECTION-8 added on 2026-09-28 after the owner evidence).
 
 ADR006_IDEMPOTENCY_AND_STATE_V1 needs no change. `OUTBOUND_PAYMENT` is one more transition identity under the existing uniqueness rule.
