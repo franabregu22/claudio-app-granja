@@ -350,10 +350,10 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
      | Class | kind / transition | A1 behaviour |
      |---|---|---|
      | **CURRENTLY AUTO-APPLICABLE** | payment / APPROVAL; yield / YIELD | applied (steps 3–14) |
-     | **DEFERRED UNTIL EVIDENCE + EXPLICIT AMENDMENT** | refund / REFUND; chargeback / CHARGEBACK; account_tax / ACCOUNT_TAX | `TRANSITION_KIND_NOT_SUPPORTED`: zero financial effect, no client-ledger reversal, **no OD-1 execution** |
+     | **DEFERRED UNTIL EVIDENCE + EXPLICIT AMENDMENT** | refund / REFUND; chargeback / CHARGEBACK; account_tax / ACCOUNT_TAX | `NOT_AUTO_APPLICABLE` (0052 helper; the `TRANSITION_KIND_NOT_SUPPORTED` check in 0051 remains as an unreachable second guard): zero financial effect, no client-ledger reversal, **no OD-1 execution** |
      | **NEVER AUTO** | transfer / PAYOUT (its bank side belongs to `transfer_between_accounts`, ADR-003 D7); outbound-payment classifications (`OUTBOUND_PAYMENT`, V-4 direction correction) | `NOT_AUTO_APPLICABLE`; ADMIN resolution through the owning domain RPC plus RPC 41 Mode 2 |
 
-   - **Helper note:** `mp_is_auto_applicable` (0048, unchanged) still recognizes the three deferred pairs. For such a movement the RPC 41 guard therefore also refuses manual consumption (`AUTO_APPLICATION_PENDING`). Neither an automatic nor a manual treasury effect is possible: fail-closed, REVIEW_REQUIRED. No pipeline can create these movements today (`api_refund` / refund discovery disabled, V-2 §15.1; chargeback / account-tax report rows unobserved, V-3).
+   - **Helper (aligned by 0052):** `mp_is_auto_applicable` returns true **only** for payment / APPROVAL and yield / YIELD. The deferred pairs, transfer / PAYOUT and outbound-payment classifications return false. So the RPC 41 `AUTO_APPLICATION_PENDING` guard no longer fires for a deferred kind; such a movement stays in review under the existing manual RPC 41 path (no new flow). No pipeline can create these movements today (`api_refund` / refund discovery disabled, V-2 §15.1; chargeback / account-tax report rows unobserved, V-3).
    - Otherwise → `NOT_AUTO_APPLICABLE`.
 3. **L4:** lock the movement's source `FOR UPDATE`. A source in `ERROR` or `IGNORED` → `SOURCE_NOT_APPLICABLE`.
 4. Resolve the MP account → `MP_ACCOUNT_MISSING`.
@@ -414,7 +414,7 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
 
 ### A1 refund example: partial refund 30 of that payment (refund transition t = 57), with active allocation 60 to client X
 
-**FUTURE CONTRACT ONLY** — inactive: today A1 returns `TRANSITION_KIND_NOT_SUPPORTED` for refund / REFUND.
+**FUTURE CONTRACT ONLY** — inactive: today A1 returns `NOT_AUTO_APPLICABLE` for refund / REFUND (0052 helper).
 
 - Treasury: MP_SETTLEMENT −30.00 (key `MPA:57:SETTLE`); MP balance −30.
 - OD-1: restore = min(30, 60) = 30. X's ledger gets REVERSAL +30; an allocation row −30 is written (MP_REVERSAL); active attribution goes from 60 to 30.
@@ -422,7 +422,7 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
 
 ### A1 chargeback
 
-**FUTURE CONTRACT ONLY for the monetary part** — inactive: today A1 returns `TRANSITION_KIND_NOT_SUPPORTED` for chargeback / CHARGEBACK. The API signal / alert part below is active.
+**FUTURE CONTRACT ONLY for the monetary part** — inactive: today A1 returns `NOT_AUTO_APPLICABLE` for chargeback / CHARGEBACK (0052 helper). The API signal / alert part below is active.
 
 - **API:** no movement. It is a derived alert only (R3).
 - **Report row (V-3):**

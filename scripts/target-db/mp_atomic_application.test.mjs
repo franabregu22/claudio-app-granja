@@ -316,7 +316,7 @@ section('T+', 'eligibility, malformed rows, concurrency, security');
     VALUES ('payment', '777000000900', 'APPROVAL', '${om}', ${mvBad});`);
   const sb = snap();
   check('T+4 malformed arithmetic (100 − 5 − 2 ≠ 90) → MOVEMENT_INVALID; Δ = 0', raised(SVC(`SELECT mp_apply_transition(${mvBad});`), 'MOVEMENT_INVALID') && snap() === sb);
-  // refund kind: auto-applicable pair, deferred in Step 7
+  // refund kind: deferred (0052: the helper no longer treats it as auto-applicable)
   const orf = owner(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date, processing_status)
     VALUES ('csv_import', '${TAG}-rf', '{}'::jsonb, '2026-11-10T10:00:00-03:00', '2026-11-10', 'NORMALIZED') RETURNING id;`);
   const mvRf = owner(`INSERT INTO mp_financial_movement (mp_source_record_id, movement_kind, gross_amount, fee_amount, tax_amount, net_amount, occurred_date)
@@ -324,8 +324,8 @@ section('T+', 'eligibility, malformed rows, concurrency, security');
   owner(`INSERT INTO mp_transition_identity (resource_type, resource_id, transition, transition_ref, claimed_by_source_id, mp_financial_movement_id)
     VALUES ('payment', '777000000901', 'REFUND', 'r1', '${orf}', ${mvRf});`);
   const sr = snap();
-  check('T+5 refund/REFUND movement → TRANSITION_KIND_NOT_SUPPORTED (refunds fail closed); Δ = 0',
-    raised(SVC(`SELECT mp_apply_transition(${mvRf});`), 'TRANSITION_KIND_NOT_SUPPORTED') && snap() === sr);
+  check('T+5 refund/REFUND movement → NOT_AUTO_APPLICABLE (deferred kind, 0052 helper); zero financial effect; no OD-1',
+    raised(SVC(`SELECT mp_apply_transition(${mvRf});`), 'NOT_AUTO_APPLICABLE') && snap() === sr);
   // source not applicable
   const PX = apiPayment({ gross: 100, net: 100 });
   owner(`UPDATE mp_source_record SET processing_status = 'ERROR', processing_note = '${TAG} forced' WHERE id = (SELECT mp_source_record_id FROM mp_financial_movement WHERE id = ${PX});`);
@@ -338,6 +338,36 @@ section('T+', 'eligibility, malformed rows, concurrency, security');
   // security
   check('T+8 authenticated / anon cannot execute mp_apply_transition', denied(AUTH(`SELECT mp_apply_transition(${PM});`))
     && denied(raw(`BEGIN; SET LOCAL ROLE anon; SELECT mp_apply_transition(${PM}); COMMIT;`)));
+  // 0052 helper scope: true only for payment/APPROVAL and yield/YIELD
+  const ownerMv = (kind, gross, trans, ref = '', rtype = 'payment', rid = null) => {
+    const os = owner(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date, processing_status)
+      VALUES ('csv_import', '${TAG}-h-${kind}-${Date.now()}', '{}'::jsonb, '2026-11-10T10:00:00-03:00', '2026-11-10', 'NORMALIZED') RETURNING id;`);
+    const m = owner(`INSERT INTO mp_financial_movement (mp_source_record_id, movement_kind, gross_amount, fee_amount, tax_amount, net_amount, occurred_date)
+      VALUES ('${os}', '${kind}', ${gross}, 0, 0, ${gross}, '2026-11-10') RETURNING id;`);
+    owner(`INSERT INTO mp_transition_identity (resource_type, resource_id, transition, transition_ref, claimed_by_source_id, mp_financial_movement_id)
+      VALUES ('${rtype}', '${rid ?? '7770009' + String(Date.now()).slice(-5)}', '${trans}', '${ref}', '${os}', ${m});`);
+    return m;
+  };
+  const auto = (m) => owner(`SELECT mp_is_auto_applicable(${m});`);
+  const hPay = apiPayment({ gross: 50, net: 50 });
+  const hYield = libIngest(libRow('2026-11-10T04:00:00.000-03:00', libSid(), 'asset_management', '12.00', '0.00', '12.00', '0.00', '0.00')).mv;
+  const hPayout = libIngest(libRow('2026-11-10T11:00:00.000-03:00', libSid(), 'payout', '0.00', '100.00', '-100.00', '0.00', '0.00')).mv;
+  const hCb = ownerMv('chargeback', -10, 'CHARGEBACK');
+  const hTax = ownerMv('account_tax', -3, 'ACCOUNT_TAX', '', 'report', `${TAG}-tax-${Date.now()}`);
+  check('H-1 payment/APPROVAL → true', auto(hPay) === 't');
+  check('H-2 yield/YIELD → true', auto(hYield) === 't');
+  check('H-3 refund/REFUND → false', auto(mvRf) === 'f');
+  check('H-4 chargeback/CHARGEBACK → false', auto(hCb) === 'f');
+  check('H-5 account_tax/ACCOUNT_TAX → false', auto(hTax) === 'f');
+  check('H-6 transfer/PAYOUT → false', auto(hPayout) === 'f');
+  check('H-7 A1 on chargeback / account_tax → NOT_AUTO_APPLICABLE; zero financial effect',
+    (() => { const s0 = snap(); const a = SVC(`SELECT mp_apply_transition(${hCb});`); const b = SVC(`SELECT mp_apply_transition(${hTax});`);
+      return raised(a, 'NOT_AUTO_APPLICABLE') && raised(b, 'NOT_AUTO_APPLICABLE') && snap() === s0; })());
+  const rq = ADMIN(`SELECT mp_reconcile_movement(${mvRf}, -10, '${TAG}-h8-${mvRf}', '${MPACC}', 'MP_SETTLEMENT', NULL, '${TAG} manual review resolution');`);
+  check('H-8 RPC 41 on a deferred-kind movement no longer returns AUTO_APPLICATION_PENDING (existing manual Mode 1 path applies)',
+    rq.ok && !/AUTO_APPLICATION_PENDING/.test(rq.err), rq.ok ? '' : errOf(rq));
+  const rp = ADMIN(`SELECT mp_reconcile_movement(${hPay}, 50, '${TAG}-h9-${hPay}', '${MPACC}', 'MP_SETTLEMENT', NULL, 'x');`);
+  check('H-9 RPC 41 on an unapplied payment/APPROVAL still → AUTO_APPLICATION_PENDING', raised(rp, 'AUTO_APPLICATION_PENDING'), errOf(rp));
   // concurrency: two sessions apply the same transition
   const PC = apiPayment({ gross: 100, fee: 5, net: 93 });
   const sa = session(SVCSQL(`SELECT mp_apply_transition(${PC})->>'status';\nSELECT pg_sleep(2);`));
