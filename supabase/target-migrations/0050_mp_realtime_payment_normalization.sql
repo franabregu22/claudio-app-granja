@@ -74,16 +74,31 @@ BEGIN
     RAISE EXCEPTION 'PAYLOAD_ID_MISMATCH';
   END IF;
 
-  -- occurred_at: date_approved when present, otherwise date_created (V-2 §8 / §15)
-  v_at_txt := coalesce(nullif(p_payload->>'date_approved', ''), p_payload->>'date_created');
-  IF v_at_txt IS NULL OR v_at_txt !~ c_ts THEN
+  -- occurred_at: a VALID date_approved when present, otherwise a valid date_created (V-2 §8 / §15).
+  -- A snapshot with a missing / malformed date_approved is still ingested on date_created; RPC 40
+  -- then refuses an approved + accredited APPROVAL without a valid date_approved (DATE_MISMATCH).
+  v_at := NULL;
+  v_at_txt := p_payload->>'date_approved';
+  IF v_at_txt ~ c_ts THEN
+    BEGIN
+      v_at := v_at_txt::TIMESTAMPTZ;
+    EXCEPTION WHEN OTHERS THEN
+      v_at := NULL;
+    END;
+  END IF;
+  IF v_at IS NULL THEN
+    v_at_txt := p_payload->>'date_created';
+    IF v_at_txt ~ c_ts THEN
+      BEGIN
+        v_at := v_at_txt::TIMESTAMPTZ;
+      EXCEPTION WHEN OTHERS THEN
+        v_at := NULL;
+      END;
+    END IF;
+  END IF;
+  IF v_at IS NULL THEN
     RAISE EXCEPTION 'PAYLOAD_DATE_INVALID';
   END IF;
-  BEGIN
-    v_at := v_at_txt::TIMESTAMPTZ;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE EXCEPTION 'PAYLOAD_DATE_INVALID';
-  END;
 
   -- identity computed in the database: canonical jsonb text → version hash
   v_ext := 'MPPAY:' || p_payment_id || ':' || left(encode(sha256(convert_to(p_payload::TEXT, 'UTF8')), 'hex'), 32);
@@ -140,8 +155,9 @@ DECLARE
   v_pid      TEXT;
   v_st       TEXT;
   v_sd       TEXT;
-  v_at_txt   TEXT;
   v_at       TIMESTAMPTZ;
+  v_appr     TIMESTAMPTZ;
+  v_crt      TIMESTAMPTZ;
   v_fd       JSONB;
   v_bad      BOOLEAN;
   c_amount   CONSTANT TEXT := '^-?[0-9]{1,13}(\.[0-9]{1,2})?$';
@@ -250,12 +266,35 @@ BEGIN
         END IF;
       END IF;
 
-      -- 8. dates equal the S4 derivation
-      v_at_txt := coalesce(nullif(v_ev->>'date_approved', ''), v_ev->>'date_created');
-      IF v_at_txt IS NULL OR v_at_txt !~ c_ts THEN
-        v_status := 'ERROR'; v_note := 'DATE_MISMATCH: no valid date_approved / date_created'; EXIT api;
+      -- 8. dates. approved + accredited: occurred_at MUST be a valid date_approved (never date_created).
+      --    Other states: the S4 derivation (valid date_approved, else valid date_created).
+      v_appr := NULL;
+      v_crt := NULL;
+      IF (v_ev->>'date_approved') ~ c_ts THEN
+        BEGIN
+          v_appr := (v_ev->>'date_approved')::TIMESTAMPTZ;
+        EXCEPTION WHEN OTHERS THEN
+          v_appr := NULL;
+        END;
       END IF;
-      v_at := v_at_txt::TIMESTAMPTZ;
+      IF (v_ev->>'date_created') ~ c_ts THEN
+        BEGIN
+          v_crt := (v_ev->>'date_created')::TIMESTAMPTZ;
+        EXCEPTION WHEN OTHERS THEN
+          v_crt := NULL;
+        END;
+      END IF;
+      IF v_st = 'approved' AND v_sd IS NOT DISTINCT FROM 'accredited' THEN
+        IF v_appr IS NULL THEN
+          v_status := 'ERROR'; v_note := 'DATE_MISMATCH: approved + accredited requires a valid date_approved'; EXIT api;
+        END IF;
+        v_at := v_appr;
+      ELSE
+        v_at := coalesce(v_appr, v_crt);
+        IF v_at IS NULL THEN
+          v_status := 'ERROR'; v_note := 'DATE_MISMATCH: no valid date_approved / date_created'; EXIT api;
+        END IF;
+      END IF;
       IF v_src.occurred_at IS DISTINCT FROM v_at
          OR v_src.occurred_date IS DISTINCT FROM (v_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE THEN
         v_status := 'ERROR'; v_note := 'DATE_MISMATCH'; EXIT api;

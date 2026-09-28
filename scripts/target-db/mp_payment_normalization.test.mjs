@@ -227,6 +227,27 @@ section('N', 'api_payment classification and amounts');
       && owner(`SELECT occurred_at = ${q(sample('G1').date_created)}::timestamptz FROM mp_source_record WHERE id = ${q(rej.ing.source_record_id)};`) === 't',
     `${note(pend.ing.source_record_id)} / ${note(rej.ing.source_record_id)}`);
 
+  // APPROVAL-DATE: approved + accredited requires a valid date_approved; never date_created
+  const ad1 = run({ ...payload('A1'), date_approved: null });
+  check('APPROVAL-DATE-1 approved + accredited + date_approved NULL + valid date_created → ERROR DATE_MISMATCH; zero movement; zero APPROVAL identity',
+    note(ad1.ing.source_record_id).startsWith('ERROR|DATE_MISMATCH: approved + accredited requires a valid date_approved')
+      && mv(ad1.ing.source_record_id) === '-' && ident(ad1.pid) === '-'
+      && owner(`SELECT occurred_at = ${q(sample('A1').date_created)}::timestamptz FROM mp_source_record WHERE id = ${q(ad1.ing.source_record_id)};`) === 't',
+    note(ad1.ing.source_record_id));
+  const ad2 = run({ ...payload('A1'), date_approved: 'not-a-timestamp' });
+  const ad2b = run({ ...payload('A1'), date_approved: '2026-13-45T99:99:99.000-04:00' });
+  check('APPROVAL-DATE-2 approved + accredited + malformed date_approved (bad format / impossible value) + valid date_created → ERROR DATE_MISMATCH; zero movement',
+    [ad2, ad2b].every((x) => note(x.ing.source_record_id).startsWith('ERROR|DATE_MISMATCH: approved + accredited requires a valid date_approved')
+      && mv(x.ing.source_record_id) === '-' && ident(x.pid) === '-'),
+    `${note(ad2.ing.source_record_id)} / ${note(ad2b.ing.source_record_id)}`);
+  const ad3p = run({ ...payload('A1'), status: 'pending', status_detail: 'pending_waiting_transfer', date_approved: null });
+  const ad3r = run({ ...payload('G1'), date_approved: null });
+  check('APPROVAL-DATE-3 pending / rejected + date_approved NULL + valid date_created → IGNORED NO_FINANCIAL_TRANSITION (unchanged); occurred_at = date_created',
+    note(ad3p.ing.source_record_id) === 'IGNORED|NO_FINANCIAL_TRANSITION: status pending' && note(ad3r.ing.source_record_id) === 'IGNORED|NO_FINANCIAL_TRANSITION: status rejected'
+      && mv(ad3p.ing.source_record_id) === '-' && mv(ad3r.ing.source_record_id) === '-'
+      && owner(`SELECT bool_and(s.occurred_at = (s.event_data->>'date_created')::timestamptz) FROM mp_source_record s WHERE id IN (${q(ad3p.ing.source_record_id)}, ${q(ad3r.ing.source_record_id)});`) === 't',
+    `${note(ad3p.ing.source_record_id)} / ${note(ad3r.ing.source_record_id)}`);
+
   // A: approved + status_detail ≠ accredited (no refund evidence)
   const pc = run({ ...payload('A1'), status_detail: 'pending_capture' });
   check('A / N-14 approved + pending_capture → no APPROVAL; ERROR UNKNOWN_STATUS; Δ movement = 0',
