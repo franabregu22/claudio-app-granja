@@ -192,12 +192,16 @@ console.log('\n  I — notification identity / resource id');
   check('I9 chargeback: resource id is the query string, not the lossy JSON number', same(r2, { ok: true, resourceId: '233000061680860000', notificationId: null }), JSON.stringify(r2));
   check('I10 chargeback: missing query data.id → MISSING_RESOURCE_ID',
     extractNotificationIdentity({ topicClass: 'chargeback', query: {}, body: cbBody }).reason === 'MISSING_RESOURCE_ID');
-  check('I11 chargeback: invalid characters → INVALID_CHARGEBACK_RESOURCE_ID',
-    extractNotificationIdentity({ topicClass: 'chargeback', query: { 'data.id': 'a b' }, body: {} }).reason === 'INVALID_CHARGEBACK_RESOURCE_ID');
+  for (const id of ['a b', 'abc', 'ORD01ABC', 'ord01abc', '123a', '12.34', '12_34', '12:34', '12-34', '-123', '1'.repeat(101)]) {
+    check(`I11 chargeback: non-numeric or over-bound id '${id.length > 20 ? id.slice(0, 8) + '…' : id}' → INVALID_CHARGEBACK_RESOURCE_ID`,
+      extractNotificationIdentity({ topicClass: 'chargeback', query: { 'data.id': id }, body: {} }).reason === 'INVALID_CHARGEBACK_RESOURCE_ID');
+  }
+  check('I11b chargeback: 100-digit id (internal storage bound) → ok',
+    extractNotificationIdentity({ topicClass: 'chargeback', query: { 'data.id': '9'.repeat(100) }, body: {} }).ok === true);
   check('I12 unsupported: ok with null ids',
     same(extractNotificationIdentity({ topicClass: 'unsupported', query: {}, body: null }), { ok: true, resourceId: null, notificationId: null }));
-  check('I13 uppercase alphanumeric query id is lowercased as signed',
-    extractNotificationIdentity({ topicClass: 'chargeback', query: { 'data.id': 'ORD01ABC' }, body: {} }).resourceId === 'ord01abc');
+  check('I13 chargeback: numeric query id is returned verbatim',
+    extractNotificationIdentity({ topicClass: 'chargeback', query: { 'data.id': '114411153595' }, body: {} }).resourceId === '114411153595');
 }
 
 console.log(`\n  ══ VERIFY SIGNATURE RESULT: ${pass} passed, ${fail} failed ══\n`);

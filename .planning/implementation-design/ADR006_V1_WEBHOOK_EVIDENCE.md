@@ -95,7 +95,8 @@ then freshness (§4)                              // STALE_TIMESTAMP / FUTURE_TI
   - The chargeback body `data.id` in S3 (`233000061680860000`) exceeds `Number.MAX_SAFE_INTEGER`, so a JSON-number id is never taken from the parsed body.
   - A missing query `data.id` → `MISSING_RESOURCE_ID`.
   - Payment ids must match `^[0-9]{1,20}$`. This matches the 0047 `chk_delivery_payment_resource` constraint.
-  - Chargeback ids must match `^[0-9a-z._:-]{1,120}$`.
+  - Chargeback ids must be **digits only**. The currently documented chargeback contract and its examples (S3: `233000061680860000`) are numeric. There is no official evidence of letters or `.`, `_`, `:`, `-` in a chargeback id, so none is accepted. The alphanumeric lowercase example in S1 belongs to another topic (orders) and is not evidence for chargebacks.
+  - MP documents no maximum digit count for chargeback ids. The module caps them at 100 digits (`^[0-9]{1,100}$`). That is the internal `VARCHAR(100)` storage bound of `mp_webhook_delivery.resource_id` (0047), not a vendor guarantee.
 - **Stable notification id: NONE.**
   - The body `id` is documented only as "Notification ID". Uniqueness and stability across retries are not documented.
   - So `notificationId = null`, and the DB derives the delivery key `h:<N-SHA>` (ADR006_SCHEMA_DELTA_V1 §2.1).

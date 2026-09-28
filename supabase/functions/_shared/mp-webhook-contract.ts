@@ -190,7 +190,9 @@ export function extractNotificationIdentity(input: {
   }
 
   if (topicClass === 'payment' && !/^[0-9]{1,20}$/.test(resourceId)) return fail('INVALID_PAYMENT_RESOURCE_ID');
-  if (topicClass === 'chargeback' && !/^[0-9a-z._:-]{1,120}$/.test(resourceId)) return fail('INVALID_CHARGEBACK_RESOURCE_ID');
+  // Chargeback ids are numeric in the official contract and examples. No MP maximum is documented;
+  // 100 is the internal VARCHAR(100) storage bound of mp_webhook_delivery.resource_id, not a vendor guarantee.
+  if (topicClass === 'chargeback' && !/^[0-9]{1,100}$/.test(resourceId)) return fail('INVALID_CHARGEBACK_RESOURCE_ID');
 
   return { ok: true, resourceId, notificationId: null };
 }
