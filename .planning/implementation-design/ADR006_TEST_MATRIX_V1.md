@@ -73,7 +73,7 @@ The "Assert" column lists exact row deltas. `Δ` means the change in row count.
 | N-2 | Duplicate same resource | identical payload → same `external_id`; Δ source = 0 |
 | N-3 | Changed payment version | payload with a new `date_last_updated` / status → new source version; RPC 40 → IGNORED NO_NEW_TRANSITION; Δ movement = 0; the old version is byte-identical |
 | N-4 | Pending / rejected payment | IGNORED NO_FINANCIAL_TRANSITION; Δ movement = 0 |
-| N-5 | Arithmetic mismatch | net 92.99 → ERROR ARITHMETIC_MISMATCH; Δ movement = 0; view REVIEW_REQUIRED |
+| N-5 | Arithmetic mismatch | **amended by the V-2 gate (tax is the documented residual, so "net 92.99" is now a valid payment with tax −2.01):** net exceeding gross + fee (positive residual tax, e.g. gross 100 / net 100.01) → ERROR `SIGN_INVALID`; > 2 decimals → `MALFORMED_AMOUNT`; malformed `fee_details` → `MALFORMED_FEE_DETAILS`; Δ movement = 0; view REVIEW_REQUIRED |
 | N-6 | Unknown operation_type / currency USD | ERROR UNKNOWN_OPERATION_TYPE / UNSUPPORTED_CURRENCY |
 | N-7 | Refund discovery | **DEFERRED** (V-2 §15.1: refund discovery disabled until real refund evidence). Retained: a snapshot with 2 approved refunds → 2 `api_refund` children created (PENDING); after normalization, 2 refund movements, 2 identities with the refund ids |
 | N-8 | Refund exceeding the payment | **DEFERRED** (as N-7). Retained: ERROR REFUND_EXCEEDS_PAYMENT |
@@ -81,7 +81,7 @@ The "Assert" column lists exact row deltas. `Δ` means the change in row count.
 | N-12 | Documented-only components (V-2 §15) | real-shaped V-2 fixtures (`adr006-v2-payments.json` A1–H1): fee = −Σ collector `fee_details` (0), tax = net − gross − fee, net = `net_received_amount`; changing `taxes_amount` or `charges_details` values in the payload changes **nothing** in the movement; payer-borne `processing_fee` (C1 / C2) does not affect fee |
 | N-13 | Dispute without an approval | first snapshot `charged_back` (or `in_mediation`) with no APPROVAL identity → ERROR `DISPUTE_WITHOUT_APPROVAL`; Δ movement = 0; with an existing APPROVAL → IGNORED `NO_NEW_TRANSITION` plus the R-7 alert |
 | N-14 | Operation type and status gates | inbound `money_transfer` / `account_fund` + `approved` / `accredited` → APPROVAL; `regular_payment` / `pos_payment` inbound → ERROR `UNKNOWN_OPERATION_TYPE`; `approved` with any `status_detail` other than `accredited` and no refund evidence → no APPROVAL, ERROR `UNKNOWN_STATUS` |
-| N-9 | Direct forged api_payment insert | service role `INSERT mp_source_record (source_type 'api_payment', …)` → RLS violation (R4) |
+| N-9 | Direct forged api_payment insert | **Step 6:** a direct insert whose `external_id` / `occurred_at` do not equal the S4 derivation → RPC 40 ERROR `IDENTITY_MISMATCH` / `DATE_MISMATCH`, Δ movement = 0. **Step 9 (the RLS migration):** the service-role `INSERT` itself → RLS violation (R4), as B4 / D7 (§P23-T) |
 | N-10 | Liberaciones regression | the amended `mp.test.mjs` (§P23) passes; unaffected ADR-003 assertions unchanged; payment rows → PENDING `DEFERRED_V4` with zero movement, identity, match, operation, posting, allocation and client-ledger rows |
 
 ## T — `mp_apply_transition` (critical path)
@@ -271,7 +271,8 @@ ADR-006 adds legitimate schema objects. Historical suites that assert **exact gl
 **Definer checkpoints (by enumeration, not arithmetic):**
 - **Before ADR-006:** the 41 names enumerated in ADR006_RLS_AND_SECURITY_V1 §4.
 - **After 0048:** the baseline ∪ exactly the Step-2 definers created by 0048. By design these are S1 `mp_register_delivery`, S2 `mp_claim_deliveries`, S3 `mp_delivery_transition`, S5 `mp_requeue_config_blocked`, S6 `mp_request_refetch`, S7 `mp_resolve_chargeback_signal`, C1 `mp_allocate_to_client`, C2 `mp_auto_allocate`, C3 `mp_reverse_client_allocation`, C4 `mp_flag_for_attribution`, C5 `mp_clear_attribution_flag`, C6 `mp_map_payer_to_client`, C7 `mp_unmap_payer`, R1 `mp_resolve_match`, R3 `mp_check_report_coverage`, R4 `mp_record_balance_check`. After 0048 applies, the **actual** set is enumerated from `pg_proc` and must equal this list exactly. The literal in the suites is written from that enumeration.
-- **After 0050:** the final accepted set of ADR006_RLS_AND_SECURITY_V1 §4 (adds S4 `mp_ingest_api_snapshot`, A1 `mp_apply_transition`, R2 `mp_normalize_report_fallback`). It is again enumerated and compared by exact set.
+- **After 0050 (Step 6, implemented):** the Step-2 set ∪ exactly S4 `mp_ingest_api_snapshot` (58 definers), enumerated by name in every historical inventory and in `mp_realtime.test.mjs` Z1. `mp_realtime.test.mjs` N6 is re-targeted: its api_payment half now asserts the Step-6 parser's fail-closed `IDENTITY_MISMATCH` on the malformed owner fixture; its api_refund half is unchanged (`UNSUPPORTED_SOURCE_TYPE`).
+- **After the Step-7 migration:** the final accepted set of ADR006_RLS_AND_SECURITY_V1 §4 (adds S4 `mp_ingest_api_snapshot`, A1 `mp_apply_transition`, R2 `mp_normalize_report_fallback`). It is again enumerated and compared by exact set.
 - No count (such as 57 or 60) is hard-coded unless the enumeration at that checkpoint proves it.
 - SECURITY INVOKER helpers and trigger functions (`mp_is_auto_applicable`, `mp_v4_verified`, `mp_parse_report_row`, `mp_claim_report_payment_fallback`, `mp_delivery_immutable_guard`, `mp_report_match_guard`) are **not** definers and never enter these lists.
 

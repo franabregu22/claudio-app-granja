@@ -42,7 +42,7 @@ const VIEWS = ['report_balance_period', 'report_classification_day', 'report_fee
 const ADMIN_ONLY = ['report_sales_line', 'report_balance_period', 'report_mp_movement_status', 'report_feria_session_cash', 'report_feed_consumption_interval'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
   + 'close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
   + 'open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
   + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
@@ -342,7 +342,7 @@ check('A3 exact grants: SELECT for authenticated only (no anon, no service_role,
 check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) = 59',
   owner(`SELECT count(*) FROM pg_matviews WHERE schemaname = 'public';`) === '0'
   && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '59');
-check('A5 no SECURITY DEFINER reporting function: the definer inventory is the 41 baseline + the 16 ADR-006 Step-2 definers (0048), and no report_* function exists',
+check('A5 no SECURITY DEFINER reporting function: the definer inventory is the 41 baseline + the 16 ADR-006 Step-2 definers (0048) + the Step-6 definer mp_ingest_api_snapshot (0050), and no report_* function exists',
   owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === ALL_DEFINERS
   && owner(`SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'report%';`) === '0');
 check('A6 the only non-invoker view is still the frozen feed_formula_line_safe',

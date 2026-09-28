@@ -644,10 +644,14 @@ const apiSrc = owner(`INSERT INTO mp_source_record (source_type, external_id, ev
   VALUES ('api_payment', '${TAG}-MPPAY:1', '{}'::jsonb, NOW(), CURRENT_DATE) RETURNING id;`);
 const refSrc = owner(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date)
   VALUES ('api_refund', '${TAG}-MPREF:1', '{}'::jsonb, NOW(), CURRENT_DATE) RETURNING id;`);
-check('N6 api_payment / api_refund stay UNSUPPORTED_SOURCE_TYPE before V-2 (owner fixtures; no parser exists)',
-  rpcAs(SVC, `mp_normalize_source('${apiSrc}')`).processing_status === 'ERROR'
+// Step 6 (0050): the api_payment parser now exists; a malformed owner fixture fails closed on identity.
+// api_refund stays UNSUPPORTED_SOURCE_TYPE (refunds fail closed, V-2 §15.1).
+const n6api = rpcAs(SVC, `mp_normalize_source('${apiSrc}')`).processing_status;
+const n6ref = rpcAs(SVC, `mp_normalize_source('${refSrc}')`).processing_status;
+check('N6 api_payment \'{}\' fixture → ERROR IDENTITY_MISMATCH (Step-6 parser, fail-closed); api_refund stays ERROR UNSUPPORTED_SOURCE_TYPE',
+  n6api === 'ERROR' && n6ref === 'ERROR'
   && owner(`SELECT string_agg(split_part(processing_note, ':', 1), ',' ORDER BY source_type) FROM mp_source_record WHERE id IN ('${apiSrc}', '${refSrc}');`)
-  .startsWith('UNSUPPORTED_SOURCE_TYPE') && rpcAs(SVC, `mp_normalize_source('${refSrc}')`).processing_status === 'ERROR');
+    === 'IDENTITY_MISMATCH,UNSUPPORTED_SOURCE_TYPE');
 check('N7 mp_v4_verified() is false', owner(`SELECT mp_v4_verified();`) === 'f');
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -683,8 +687,10 @@ check('R5 report evidence functions wrote no financial row', money() === m1);
 section('Z', 'Security perimeter at Step 2 (final RLS is 0051)');
 
 const definers = owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`);
-const expected = [...BASELINE_DEFINERS, ...Object.keys(STEP2_DEFINERS)].sort().join(',');
-check(`Z1 exact SECURITY DEFINER set = baseline (41) ∪ the ${Object.keys(STEP2_DEFINERS).length} Step-2 definers, by name`, definers === expected,
+// Step 6 (0050) adds exactly one definer, S4 (INV class D, by name)
+const STEP6_DEFINERS = ['mp_ingest_api_snapshot'];
+const expected = [...BASELINE_DEFINERS, ...Object.keys(STEP2_DEFINERS), ...STEP6_DEFINERS].sort().join(',');
+check(`Z1 exact SECURITY DEFINER set = baseline (41) ∪ the ${Object.keys(STEP2_DEFINERS).length} Step-2 definers ∪ the Step-6 definer mp_ingest_api_snapshot, by name`, definers === expected,
   definers.split(',').filter((d) => !expected.split(',').includes(d)).join(',') || 'missing:' + expected.split(',').filter((d) => !definers.split(',').includes(d)).join(','));
 const hard = owner(`SELECT string_agg(proname || '=' || prosecdef || ':' || (coalesce(proconfig, '{}') @> ARRAY['search_path=public']) || ':' || pg_get_userbyid(proowner)
   || ':' || has_function_privilege('anon', oid, 'EXECUTE') || ':' || has_function_privilege('authenticated', oid, 'EXECUTE') || ':' || has_function_privilege('service_role', oid, 'EXECUTE'), ',' ORDER BY proname)

@@ -401,7 +401,7 @@ const LATER_PHASE_DEFINERS = [
   'register_fiscal_document', 'register_fiscal_obligation', 'pay_fiscal_obligation',                     // Phase 22
   'mp_normalize_source', 'mp_reconcile_movement',                                                        // Phase 23
   'register_management_event',                                                                           // Phase 24 (ADR-004)
-  'mp_allocate_to_client', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_clear_attribution_flag', 'mp_delivery_transition', 'mp_flag_for_attribution', 'mp_map_payer_to_client', 'mp_record_balance_check', 'mp_register_delivery', 'mp_request_refetch', 'mp_requeue_config_blocked', 'mp_resolve_chargeback_signal', 'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', // ADR-006 Step 2 (0048)
+  'mp_allocate_to_client', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_clear_attribution_flag', 'mp_delivery_transition', 'mp_flag_for_attribution', 'mp_ingest_api_snapshot', 'mp_map_payer_to_client', 'mp_record_balance_check', 'mp_register_delivery', 'mp_request_refetch', 'mp_requeue_config_blocked', 'mp_resolve_chargeback_signal', 'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', // ADR-006 Step 2 (0048)
 ];
 const expectedDefiners = ['assert_period_open', 'current_app_role', ...LATER_PHASE_DEFINERS].sort().join(',');
 check('SECURITY DEFINER inventory is exactly Foundation (2) + built later-phase RPCs',
