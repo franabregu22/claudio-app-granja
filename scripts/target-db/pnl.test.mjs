@@ -43,7 +43,7 @@ const K = `${TAG}:`;
 const PERIOD = '2026-08-01';
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
   + 'close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
   + 'open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
   + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
@@ -354,8 +354,8 @@ const mpOwnerPayment = (row) => {
     VALUES ('csv_import', '${ext}', ${j(row)}, '${row.DATE}', (TIMESTAMPTZ '${row.DATE}' AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE, 'NORMALIZED', NOW()) RETURNING id;`);
   const mv = owner(`INSERT INTO mp_financial_movement (mp_source_record_id, movement_kind, gross_amount, fee_amount, tax_amount, net_amount, occurred_date)
     VALUES ('${src}', 'payment', ${row.GROSS_AMOUNT}, ${row.MP_FEE_AMOUNT}, ${row.TAXES_AMOUNT}, ${row.NET_CREDIT_AMOUNT}, (TIMESTAMPTZ '${row.DATE}' AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE) RETURNING id;`);
-  owner(`INSERT INTO mp_transition_identity (resource_type, resource_id, transition, claimed_by_source_id, mp_financial_movement_id)
-    VALUES ('report', '${ext}', 'APPROVAL', '${src}', ${mv});`);
+  // HRN-5 (ADR-006 Step 7): no transition identity — the schema does not require one, and a payment/APPROVAL
+  // identity would make this owner fixture auto-applicable (RPC 41 AUTO_APPLICATION_PENDING guard).
   return mv;
 };
 const MPPAY = mpOwnerPayment(mpRow('2026-08-12T10:00:00.000-03:00', '8800000001', 'payment', '980.00', '0.00', '1000.00', '-12.00', '-8.00'));

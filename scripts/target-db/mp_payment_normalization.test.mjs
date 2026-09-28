@@ -329,7 +329,10 @@ section('Z', 'No Step-7 effect');
     op1 === op0 && po1 === po0 && rec1 === rec0 && al1 === al0, `${op1 - op0}/${po1 - po0}/${rec1 - rec0}/${al1 - al0}`);
   check('Z-2 no api_refund source was created by normalization (only the one test insert)', rf1 === rf0 + 1, `${rf1 - rf0}`);
   check('Z-3 movements were created only by approved payments', mv1 > mv0);
-  check('Z-4 mp_apply_transition does not exist (Step 7 not implemented)', owner(`SELECT count(*) FROM pg_proc WHERE proname = 'mp_apply_transition';`) === '0');
+  // Step 7 (0051) adds A1; normalization itself must still never apply: every normalized test source stays NORMALIZED
+  check('Z-4 normalization never applies: no reconciliation for any test movement, and every normalized test source is still NORMALIZED (not RECONCILED)',
+    owner(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:777%';`) === '0'
+      && owner(`SELECT count(*) FROM mp_source_record WHERE external_id LIKE 'MPPAY:777%' AND processing_status = 'RECONCILED';`) === '0');
 }
 
 cleanup();

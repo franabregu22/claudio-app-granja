@@ -347,6 +347,7 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
    - an identity row exists with `mp_financial_movement_id = p_movement_id`;
    - the kind/transition pair is one of: payment/APPROVAL, refund/REFUND, chargeback/CHARGEBACK (V-3), yield/YIELD, account_tax/ACCOUNT_TAX (V-3);
    - `transfer`/PAYOUT is **never** applicable, because its bank side belongs to `transfer_between_accounts` (ADR-003 D7).
+   - **Step-7 implementation scope (0051):** A1 applies payment/APPROVAL and yield/YIELD. refund/REFUND, chargeback/CHARGEBACK and account_tax/ACCOUNT_TAX remain auto-applicable pairs in the helper but A1 raises `TRANSITION_KIND_NOT_SUPPORTED` (no write) until their movements are evidenced (V-2 §15.1; V-3). Steps 8 and 12 below apply when that amendment lands.
    - Otherwise → `NOT_AUTO_APPLICABLE`.
 3. **L4:** lock the movement's source `FOR UPDATE`. A source in `ERROR` or `IGNORED` → `SOURCE_NOT_APPLICABLE`.
 4. Resolve the MP account → `MP_ACCOUNT_MISSING`.

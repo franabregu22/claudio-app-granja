@@ -272,7 +272,8 @@ ADR-006 adds legitimate schema objects. Historical suites that assert **exact gl
 - **Before ADR-006:** the 41 names enumerated in ADR006_RLS_AND_SECURITY_V1 §4.
 - **After 0048:** the baseline ∪ exactly the Step-2 definers created by 0048. By design these are S1 `mp_register_delivery`, S2 `mp_claim_deliveries`, S3 `mp_delivery_transition`, S5 `mp_requeue_config_blocked`, S6 `mp_request_refetch`, S7 `mp_resolve_chargeback_signal`, C1 `mp_allocate_to_client`, C2 `mp_auto_allocate`, C3 `mp_reverse_client_allocation`, C4 `mp_flag_for_attribution`, C5 `mp_clear_attribution_flag`, C6 `mp_map_payer_to_client`, C7 `mp_unmap_payer`, R1 `mp_resolve_match`, R3 `mp_check_report_coverage`, R4 `mp_record_balance_check`. After 0048 applies, the **actual** set is enumerated from `pg_proc` and must equal this list exactly. The literal in the suites is written from that enumeration.
 - **After 0050 (Step 6, implemented):** the Step-2 set ∪ exactly S4 `mp_ingest_api_snapshot` (58 definers), enumerated by name in every historical inventory and in `mp_realtime.test.mjs` Z1. `mp_realtime.test.mjs` N6 is re-targeted: its api_payment half now asserts the Step-6 parser's fail-closed `IDENTITY_MISMATCH` on the malformed owner fixture; its api_refund half is unchanged (`UNSUPPORTED_SOURCE_TYPE`).
-- **After the Step-7 migration:** the final accepted set of ADR006_RLS_AND_SECURITY_V1 §4 (adds S4 `mp_ingest_api_snapshot`, A1 `mp_apply_transition`, R2 `mp_normalize_report_fallback`). It is again enumerated and compared by exact set.
+- **After 0051 (Step 7, implemented):** the set after 0050 ∪ exactly A1 `mp_apply_transition` and R2 `mp_normalize_report_fallback` (60 definers); the helper `mp_claim_report_payment_fallback` is SECURITY INVOKER and not in the inventory. Enumerated by name in every historical inventory and in `mp_realtime.test.mjs` Z1.
+- **Final accepted set (was "after the Step-7 migration"):** the final accepted set of ADR006_RLS_AND_SECURITY_V1 §4 (adds S4 `mp_ingest_api_snapshot`, A1 `mp_apply_transition`, R2 `mp_normalize_report_fallback`). It is again enumerated and compared by exact set.
 - No count (such as 57 or 60) is hard-coded unless the enumeration at that checkpoint proves it.
 - SECURITY INVOKER helpers and trigger functions (`mp_is_auto_applicable`, `mp_v4_verified`, `mp_parse_report_row`, `mp_claim_report_payment_fallback`, `mp_delivery_immutable_guard`, `mp_report_match_guard`) are **not** definers and never enter these lists.
 
@@ -320,6 +321,13 @@ Any other functional assertion failure remains **BLOCKED**.
 - The same approach as HRN-2 for the single MP payment fixture: gross 1000, fee −12, tax −8, net 980, 2026-06-12, created as OWNER, with no `api_payment`, no V-2 field and no webhook.
 - The later RPC 41 reconciliation calls, and every report view assertion, are unchanged. No stored reporting result is introduced.
 - Applies from 0048.
+
+**HRN-5 — `pnl.test.mjs` / `reporting.test.mjs`: no transition identity on the owner payment fixtures (Step 7).**
+- The HRN-2 / HRN-3 fixtures added a `('report', external_id, 'APPROVAL')` identity only "where the schema requires it"; the schema never requires one.
+- With the RPC 41 `AUTO_APPLICATION_PENDING` guard (0051) a payment/APPROVAL identity makes the fixture auto-applicable, so the suites' manual RPC 41 reconciliations would be refused.
+- The identity row is therefore not created. The movement, amounts, source status and every assertion are unchanged. Applies from 0051.
+
+**Step-7 deferrals (explicit):** T-12 (the Liberaciones-row half), M-1, M-2 (payment form), M-5 need the report ↔ API matching path of RPC 40 (currently `V4_PATH_NOT_IMPLEMENTED` under V-4) and run at Step 19. M-6 / M-6b run now: M-6 in the V-4 test branch (`mp_v4_verified()` redefined inside a rolled-back transaction; the `DEFERRED_BACKFILL` state is built as OWNER). R-1…R-6, R-9…R-11 stay deferred (refunds, V-2 §15.1).
 
 **HRN-4 — FK-safe teardown** in exactly `mp.test.mjs`, `pnl.test.mjs` and `reporting.test.mjs`.
 - 0047 adds RESTRICT references to `mp_source_record` and `mp_financial_movement`, so each suite's owner-only cleanup first deletes its rows in the dependent ADR-006 tables, in actual FK order (derived from 0047):
