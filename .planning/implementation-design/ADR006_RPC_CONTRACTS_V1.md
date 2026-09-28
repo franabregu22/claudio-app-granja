@@ -345,9 +345,15 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
 1. **L3:** `SELECT … FROM mp_financial_movement WHERE id = p_movement_id FOR UPDATE` → `MOVEMENT_NOT_FOUND`.
 2. **Auto-applicable check** (`mp_is_auto_applicable(movement)`, a SECURITY INVOKER helper also used by RPC 41):
    - an identity row exists with `mp_financial_movement_id = p_movement_id`;
-   - the kind/transition pair is one of: payment/APPROVAL, refund/REFUND, chargeback/CHARGEBACK (V-3), yield/YIELD, account_tax/ACCOUNT_TAX (V-3);
-   - `transfer`/PAYOUT is **never** applicable, because its bank side belongs to `transfer_between_accounts` (ADR-003 D7).
-   - **Step-7 implementation scope (0051):** A1 applies payment/APPROVAL and yield/YIELD. refund/REFUND, chargeback/CHARGEBACK and account_tax/ACCOUNT_TAX remain auto-applicable pairs in the helper but A1 raises `TRANSITION_KIND_NOT_SUPPORTED` (no write) until their movements are evidenced (V-2 §15.1; V-3). Steps 8 and 12 below apply when that amendment lands.
+   - **Supported kinds (aligned 2026-09-28 with the implemented 0051 scope):**
+
+     | Class | kind / transition | A1 behaviour |
+     |---|---|---|
+     | **CURRENTLY AUTO-APPLICABLE** | payment / APPROVAL; yield / YIELD | applied (steps 3–14) |
+     | **DEFERRED UNTIL EVIDENCE + EXPLICIT AMENDMENT** | refund / REFUND; chargeback / CHARGEBACK; account_tax / ACCOUNT_TAX | `TRANSITION_KIND_NOT_SUPPORTED`: zero financial effect, no client-ledger reversal, **no OD-1 execution** |
+     | **NEVER AUTO** | transfer / PAYOUT (its bank side belongs to `transfer_between_accounts`, ADR-003 D7); outbound-payment classifications (`OUTBOUND_PAYMENT`, V-4 direction correction) | `NOT_AUTO_APPLICABLE`; ADMIN resolution through the owning domain RPC plus RPC 41 Mode 2 |
+
+   - **Helper note:** `mp_is_auto_applicable` (0048, unchanged) still recognizes the three deferred pairs. For such a movement the RPC 41 guard therefore also refuses manual consumption (`AUTO_APPLICATION_PENDING`). Neither an automatic nor a manual treasury effect is possible: fail-closed, REVIEW_REQUIRED. No pipeline can create these movements today (`api_refund` / refund discovery disabled, V-2 §15.1; chargeback / account-tax report rows unobserved, V-3).
    - Otherwise → `NOT_AUTO_APPLICABLE`.
 3. **L4:** lock the movement's source `FOR UPDATE`. A source in `ERROR` or `IGNORED` → `SOURCE_NOT_APPLICABLE`.
 4. Resolve the MP account → `MP_ACCOUNT_MISSING`.
@@ -369,12 +375,12 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
      - reconciliation has `assigned_amount` = the component amount and `financial_account_id` = the MP account.
    - Any other E → `TRANSITION_ALREADY_ASSIGNED`. This is a hard stop and REVIEW_REQUIRED, reported through the view.
    - Also, if any `financial_operation.external_ref` in P exists **without** a matching reconciliation → `EXTERNAL_REF_CONFLICT`, a hard stop.
-8. **L5**, for refund / chargeback only: lock the APPROVAL movement of the same payment (identity `('payment', resource_id, 'APPROVAL', '')`) → `APPROVAL_NOT_FOUND`.
+8. **[FUTURE CONTRACT ONLY — inactive until the refund / chargeback evidence gate and amendment]** **L5**, for refund / chargeback only: lock the APPROVAL movement of the same payment (identity `('payment', resource_id, 'APPROVAL', '')`) → `APPROVAL_NOT_FOUND`.
 9. **L6:** `assert_period_open(movement.occurred_date)` → `PERIOD_CLOSED` / `PERIOD_NOT_FOUND`.
 10. **Write** each component: `financial_operation` (type, `effective_date`, `external_ref`, `source_entity_type`, `source_entity_id`, reason `'ADR-006 auto-apply'`, `created_by` NULL), then `financial_posting` (MP account, amount, `effective_date`, `created_by` NULL), then `mp_reconciliation` (movement, operation, MP account, amount, key, `reconciled_by` NULL).
     - The per-request cap of RPC 41 is **not** evaluated per component. Instead step 6 guarantees the committed Σ = net, so the committed-state invariant `abs(Σ) ≤ abs(net)` (ADR-003 D6) holds after commit.
 11. **Status:** recompute the source with the ADR-003 D4 equivalence, using the same expression as 0042. The result is RECONCILED when every movement of the source is fully assigned.
-12. **OD-1 unwinding** (refund / chargeback only; ADR-006 §5d), under L5:
+12. **[FUTURE CONTRACT ONLY — inactive until the refund / chargeback evidence gate and amendment; not executed by 0051]** **OD-1 unwinding** (refund / chargeback only; ADR-006 §5d), under L5:
     - R = │movement.gross_amount│;
     - A = the active allocations of the APPROVAL movement, where active = allocation amount − Σ of its reversals > 0;
     - restore = min(R, Σ A.active). If restore = 0, the client ledger is untouched;
@@ -408,11 +414,15 @@ For a report **inbound** payment row (direction C) whose `('payment', …, 'APPR
 
 ### A1 refund example: partial refund 30 of that payment (refund transition t = 57), with active allocation 60 to client X
 
+**FUTURE CONTRACT ONLY** — inactive: today A1 returns `TRANSITION_KIND_NOT_SUPPORTED` for refund / REFUND.
+
 - Treasury: MP_SETTLEMENT −30.00 (key `MPA:57:SETTLE`); MP balance −30.
 - OD-1: restore = min(30, 60) = 30. X's ledger gets REVERSAL +30; an allocation row −30 is written (MP_REVERSAL); active attribution goes from 60 to 30.
 - The effective receipt goes from 100 to 70; the invariant 0 ≤ 30 ≤ 70 holds.
 
 ### A1 chargeback
+
+**FUTURE CONTRACT ONLY for the monetary part** — inactive: today A1 returns `TRANSITION_KIND_NOT_SUPPORTED` for chargeback / CHARGEBACK. The API signal / alert part below is active.
 
 - **API:** no movement. It is a derived alert only (R3).
 - **Report row (V-3):**

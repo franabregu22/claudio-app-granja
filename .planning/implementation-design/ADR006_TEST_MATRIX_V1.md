@@ -322,7 +322,7 @@ Any other functional assertion failure remains **BLOCKED**.
 - The later RPC 41 reconciliation calls, and every report view assertion, are unchanged. No stored reporting result is introduced.
 - Applies from 0048.
 
-**HRN-5 — `pnl.test.mjs` / `reporting.test.mjs`: no transition identity on the owner payment fixtures (Step 7).**
+**HRN-5 — `pnl.test.mjs` / `reporting.test.mjs`: no transition identity on the owner payment fixtures (Step 7). — ACCEPTED (owner, 2026-09-28).** These fixtures exercise manual reconciliation, not ADR-006 automatic application, so they intentionally carry no APPROVAL transition identity.
 - The HRN-2 / HRN-3 fixtures added a `('report', external_id, 'APPROVAL')` identity only "where the schema requires it"; the schema never requires one.
 - With the RPC 41 `AUTO_APPLICATION_PENDING` guard (0051) a payment/APPROVAL identity makes the fixture auto-applicable, so the suites' manual RPC 41 reconciliations would be refused.
 - The identity row is therefore not created. The movement, amounts, source status and every assertion are unchanged. Applies from 0051.
