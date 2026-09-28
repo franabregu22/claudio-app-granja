@@ -26,6 +26,7 @@
 - the attribution bound using applied reversals (§6.4, §7).
 
 The design documents are the mechanical contract; this ADR stays at decision level.
+**V-4 DIRECTION CORRECTION (2026-09-28, owner-directed):** V-4 proved that `SOURCE_ID == payment.id` also holds for payments **made by** the account. A payment is therefore an inbound receipt (`payment` / `APPROVAL`) **only when the account is proven to be the collector**. Outbound payments claim `OUTBOUND_PAYMENT`, are never auto-applied or attributed, and are resolved by the ADMIN through the owning domain RPC plus RPC 41 Mode 2 (§5, §8, §12). The contract is in `.planning/implementation-design/ADR006_V4_DIRECTION_CORRECTION.md`.
 **SCOPE:** Domain L (Mercado Pago), RPC 40 `mp_normalize_source`, RPC 41 `mp_reconcile_movement`, and the MP entry points into Collections and Treasury.
 **AMENDS (once accepted):**
 - ADR-003 D1, D2, D3 and D8, as listed in §4;
@@ -307,7 +308,8 @@ The service role performs this unwinding without choosing anything: both the amo
 
 | Type | Real-time source | Movement kind | Financial treatment |
 |---|---|---|---|
-| Payment approved (any payer: client, Feria consumer, own funds, other) | webhook → `GET /v1/payments/{id}` | `payment` | §5.1 automatic; client attribution optional (§5a) |
+| Payment approved **received by the account** (collector = account; any payer: client, Feria consumer, own funds, other) | webhook → `GET /v1/payments/{id}` | `payment` (`APPROVAL`) | §5.1 automatic; client attribution optional (§5a). `operation_type` (e.g. `account_fund`) never decides client identity |
+| Payment approved **made by the account** (account is the payer; outbound) | **report only**; the API resource belongs to another collector (COLLECTOR_MISMATCH) | `payment`, identity `OUTBOUND_PAYMENT` (V-4 direction correction) | **no** automatic application and **no** attribution; REVIEW_REQUIRED until the ADMIN resolves it through the owning domain RPC (`pay_supplier`, `transfer_between_accounts`, `pay_fiscal_obligation`, …) on the MP account plus RPC 41 Mode 2 link; the payer-side withholding through Mode 1 `ADJUSTMENT` |
 | Pending / in_process / rejected / cancelled | same | none (IGNORED) | none; shown as activity only |
 | Refund (full or partial) | same (`refunds[]` of the payment) | `refund` (gross = −refund amount, fee 0, tax 0, net = gross) | `mp_apply_transition`: `MP_SETTLEMENT` −R, key `MPA:{refund transition_id}:SETTLE`. The client ledger is touched **only** if the refunded payment carries allocations (OD-1) |
 | Fee returned by MP on a refund | **report only** (not in the refund object) | from the report | report discrepancy → ADMIN Mode 1 `FEE` counter-assignment (+) |
@@ -463,11 +465,12 @@ The dashboard may show POSTED activity immediately, before report confirmation.
 **Flow** (manual upload or scheduled report download, both loading `mp_source_record` `csv_import` rows as ADR-003 does). For each report row, RPC 40:
 1. Validates it exactly as D1 / D10.
 2. Resolves its transition:
-   - payment row → `('payment', SOURCE_ID, 'APPROVAL', '')`;
+   - payment row, **inbound** direction (Liberaciones C / Account Money net > 0) → inbound candidate for `('payment', SOURCE_ID, 'APPROVAL', '')`;
+   - payment row, **outbound** direction (Liberaciones D / Account Money net < 0) → `('payment', SOURCE_ID, 'OUTBOUND_PAYMENT', '')`: movement plus REPORT_ONLY; never auto-applied or attributed; no back-fill (V-4 direction correction);
    - refund row → `REFUND` with its refund id when the layout carries one (V-3);
    - payout / yield / tax rows → `('report', external_id, kind, '')`.
 3. **Transition already claimed** (the API arrived first) → no movement. The source is IGNORED with the note `MATCHED`, and an `mp_report_match` row is written with outcome **MATCHED** when gross, fee, tax, net and date are equal, or **DISCREPANCY** with the field-by-field difference otherwise. **No financial effect is ever created here.**
-4. **Payment transition not claimed** → no movement yet. The source stays PENDING, and a back-fill request for `GET /v1/payments/{SOURCE_ID}` is enqueued in the inbox (`origin = 'report_backfill'`).
+4. **Inbound payment transition not claimed** → no movement yet. The source stays PENDING, and a back-fill request for `GET /v1/payments/{SOURCE_ID}` is enqueued in the inbox (`origin = 'report_backfill'`). Only inbound candidates are back-filled. A back-fill that returns a foreign collector is a direction conflict: FAILED_PERMANENT, the fallback is refused, and the row stays REVIEW_REQUIRED.
    - When the API snapshot claims the transition, the report row is re-evaluated and matched (step 3).
    - If the API is permanently unavailable for that id (V-4 / FAILED_PERMANENT), the ADMIN may authorize creating the movement **from the report** through `mp_normalize_report_fallback(source_id, reason)`.
      - It runs a private internal claim path.
@@ -594,7 +597,7 @@ These are technical items, resolved mechanically during implementation. They are
 | V-1 | Exact signature manifest, `ts` unit and tolerance, retry timing and response deadline | **VERIFIED FOR ARCHITECTURE.** The exact integration-specific signature construction is rechecked against the current official Mercado Pago documentation during implementation, and encoded in tests. The fallback is fail-closed (reject). |
 | V-2 | `operation_type` allowlist and the payment field that carries taxes / withholdings | **REQUIRED before implementing `api_payment` normalization.** Fetch real payments of the owner's account (read-only API) and compare with the matching Liberaciones rows; anything outside the list → ERROR |
 | V-3 | Account Money report layout and parser | **REQUIRED before freezing its parser:** needs one real export file (an owner **action**, not a decision); specified by an ADR-006 addendum with the same rigour as ADR-003 D1 |
-| V-4 | Liberaciones `SOURCE_ID` = MP payment id for `payment` rows | **EVIDENCE STILL REQUIRED.** Check against real API fetches; if false, the §8 step 2 mapping is replaced before implementation |
+| V-4 | Liberaciones `SOURCE_ID` = MP payment id for `payment` rows | **ID EQUIVALENCE PROVEN** (2026-09-28, `ADR006_V4_EQUIVALENCE_EVIDENCE.md`) for payment-resource rows, both inbound and outbound. `mp_v4_verified()` may become true **only after** the report parser is direction-aware (`ADR006_V4_DIRECTION_CORRECTION.md` §9); outbound rows are never APPROVAL |
 
 ## 13. Owner decisions
 

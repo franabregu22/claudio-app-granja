@@ -240,12 +240,21 @@ ELSE:
 ```
 
 Transition resolution:
-- `csv_import` payment row → `('payment', SOURCE_ID, 'APPROVAL', '')`. **This is the V-4 rule.** Until V-4 is proven, the equivalence `SOURCE_ID = payment id` is behind a helper `mp_v4_verified() RETURNS BOOLEAN` (SQL, IMMUTABLE, SECURITY INVOKER, owner-only EXECUTE), which returns `false` until a migration redefines it.
+- `csv_import` payment row: **direction first** (`ADR006_V4_DIRECTION_CORRECTION.md` §3).
+  - **Inbound** (direction C) → inbound candidate for `('payment', SOURCE_ID, 'APPROVAL', '')`.
+  - **Outbound** (direction D, a payment made by the account) → `('payment', SOURCE_ID, 'OUTBOUND_PAYMENT', '')`:
+    - movement `payment` with the exported negative amounts;
+    - `mp_report_match` REPORT_ONLY;
+    - not auto-applicable, not attributable (`NOT_A_RECEIPT`), no back-fill;
+    - REVIEW_REQUIRED until the ADMIN links it (owning domain RPC plus RPC 41 Mode 2, payer-side tax through Mode 1 `ADJUSTMENT`).
+    - Needs `'OUTBOUND_PAYMENT'` in `chk_transition_kind` (a later migration). An outbound row is **never** claimed as `APPROVAL`.
+  - The same direction rule applies to the Account Money branch: K1 (net > 0) inbound, K2 (net < 0) outbound.
+  - **This is the V-4 rule.** Until V-4 is proven, the equivalence `SOURCE_ID = payment id` is behind a helper `mp_v4_verified() RETURNS BOOLEAN` (SQL, IMMUTABLE, SECURITY INVOKER, owner-only EXECUTE), which returns `false` until a migration redefines it.
   - While false, a Liberaciones payment row is validated but **never claimed and never normalized**.
   - It stays `PENDING` with note `DEFERRED_V4: payment/API equivalence unverified`, and **creates no movement and no match**.
   - It remains usable only as balance evidence (§R4).
   - As a result, **no report row can create a payment movement while V-4 is open**, and double counting against API payments is impossible.
-  - When V-4 is verified, a migration redefines the helper to return `true`. The worker then re-runs RPC 40 on those PENDING rows, and they follow §40.4.
+  - When V-4 is verified, a migration redefines the helper to return `true`. The worker then re-runs RPC 40 on those PENDING rows, and they follow §40.4. The helper may be redefined **only after** the direction-aware claim above is implemented (V-4 direction correction §9).
   - `mp_normalize_report_fallback` also requires V-4 (§R2).
 - `csv_import` yield row → `('report', external_id, 'YIELD', '')`.
 - `csv_import` payout row → `('report', external_id, 'PAYOUT', '')`.
@@ -305,7 +314,7 @@ For a report row whose transition is new and **report-only** (YIELD, PAYOUT, ACC
 - claim → movement → NORMALIZED;
 - plus `mp_report_match` **REPORT_ONLY**.
 
-For a report **payment** row whose `('payment', …)` identity does not exist (only possible once V-4 is verified):
+For a report **inbound** payment row (direction C) whose `('payment', …, 'APPROVAL', '')` identity does not exist (only possible once V-4 is verified). Outbound rows never enter this path; they claim `OUTBOUND_PAYMENT` as above:
 - no movement;
 - the status stays PENDING, with note `DEFERRED_BACKFILL: awaiting API payment <id>`;
 - `INSERT mp_webhook_delivery (origin 'report_backfill', delivery_key 'backfill:payment:<id>', topic 'payment', resource_id <id>, report_source_id <this>) ON CONFLICT DO NOTHING`.
@@ -520,6 +529,8 @@ No period guard: a flag is a work marker, not a business fact.
   3. A reason is present → `REASON_REQUIRED`.
   4. **L2:** lock the source `FOR UPDATE`. It must be a report type (`csv_import`, later `account_money_csv`) in `PENDING` with note `DEFERRED_BACKFILL:` → `NOT_DEFERRED`.
   5. Its back-fill delivery (`report_source_id` = this source) is `FAILED_PERMANENT` → `BACKFILL_NOT_EXHAUSTED`.
+  6. The row is an inbound candidate (direction C / Account Money net > 0) → `OUTBOUND_NOT_ELIGIBLE`. This is defence in depth: outbound rows never reach `DEFERRED_BACKFILL`, so check 4 normally refuses them first.
+  7. Its back-fill did not fail with `COLLECTOR_MISMATCH` → `DIRECTION_CONFLICT`. The report and the API disagree on direction, and the row stays REVIEW_REQUIRED (V-4 direction correction §3).
 
 **Why it cannot reuse the public RPC 40 path:** for a report payment row with no claimed API transition, RPC 40's normal outcome **is** `DEFERRED_BACKFILL`. Calling it again would only defer again. The fallback therefore uses a **separate internal claim path**.
 

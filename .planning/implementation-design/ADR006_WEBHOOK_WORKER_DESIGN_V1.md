@@ -189,7 +189,10 @@ Each invocation runs within a time budget of 50 s:
 2. **Normalize:** the worker calls RPC 40 per PENDING report row:
    - yield and payout → claim + movement + REPORT_ONLY (yield is then applied by A1; payout waits for the ADMIN transfer link);
    - reserve → IGNORED (ADR-003);
-   - payment → `DEFERRED_V4` while V-4 is open; after V-4 → MATCHED / DISCREPANCY, or `DEFERRED_BACKFILL` plus a back-fill delivery.
+   - payment → `DEFERRED_V4` while V-4 is open. After V-4:
+     - an **inbound** row → MATCHED / DISCREPANCY, or `DEFERRED_BACKFILL` plus a back-fill delivery;
+     - an **outbound** row (made by the account) → `OUTBOUND_PAYMENT` claim + movement + REPORT_ONLY, with no back-fill, awaiting the ADMIN domain link (`ADR006_V4_DIRECTION_CORRECTION.md`).
+   - A back-filled payment whose collector is not the account ends `FAILED_PERMANENT COLLECTOR_MISMATCH` and is never APPROVAL.
 3. **Coverage:** `mp_check_report_coverage(report_type, from, to)`. The coverage is the report's declared period (V-3 for Account Money; for Liberaciones, min and max `DATE` of the upload).
    - **While V-4 is open, MISSING_IN_REPORT is not computed for payment transitions**, since there is no equivalence to match on. It is computed for report-only kinds only.
 4. **Balance:** `mp_record_balance_check` for the day-closing row of each day in the upload.

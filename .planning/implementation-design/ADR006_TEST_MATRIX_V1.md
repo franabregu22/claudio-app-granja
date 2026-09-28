@@ -152,6 +152,21 @@ The "Assert" column lists exact row deltas. `Δ` means the change in row count.
 | M-7 | Balance check | a day-closing Liberaciones row with BALANCE_AMOUNT equal to Σ postings → BALANCE_CHECK `is_exception` false; different → true; `NOT_DAY_CLOSING_ROW` for others |
 | M-8 | V-4 guard | with `mp_v4_verified()` = false, a Liberaciones payment row → PENDING DEFERRED_V4; no claim, no match, no movement |
 
+## DIRECTION — Inbound vs outbound payment (V-4 direction correction, 2026-09-28)
+
+These are requirements only. They are implemented with the direction-aware report parser (steps 16 / 19). The fixtures are real-shaped: `adr006-v3-account-money.json` (K1 / K2 / K3) and `adr006-v4-equivalence.json`. The authority is `ADR006_V4_DIRECTION_CORRECTION.md`.
+
+| ID | Case | Setup / action | Assert |
+|---|---|---|---|
+| DIRECTION-1 | Inbound payment | report row direction C / K1 plus an API snapshot with collector = account for the same id | one identity `('payment', id, 'APPROVAL', '')`; movement `payment`; `mp_is_auto_applicable` = true; A1 applies it once; the report row becomes IGNORED + MATCHED |
+| DIRECTION-2 | Outbound payment | report row direction D / K2 (account is the payer) | identity `('payment', id, 'OUTBOUND_PAYMENT', '')`, **no** APPROVAL identity; movement `payment` with negative amounts plus REPORT_ONLY; `mp_is_auto_applicable` = false and no `mp_apply_transition` effect (Δ operation / posting = 0); C1 / C2 → `NOT_A_RECEIPT` / no allocation; Δ back-fill delivery = 0; listed as REVIEW_REQUIRED (unassigned) |
+| DIRECTION-2b | Outbound payment fetched by the API | an API snapshot whose collector is not the account (a back-fill or a webhook) | worker `FAILED_PERMANENT COLLECTOR_MISMATCH`; Δ source / movement / identity = 0; never APPROVAL |
+| DIRECTION-3 | Outbound resolved as a supplier payment | after DIRECTION-2: ADMIN `pay_supplier(…, p_financial_account_id = MP account)`, then RPC 41 **Mode 2** linking the movement to that operation for the supplier amount, and Mode 1 `ADJUSTMENT` for the payer-side withholding | the supplier ledger is written only by `pay_supplier`; exactly one negative MP posting from `pay_supplier` plus one `ADJUSTMENT` posting; Mode 2 creates no operation or posting; Σ assigned = movement net; no automatic MP posting; a repeated link → `DUPLICATE_LINK` |
+| DIRECTION-4 | Inbound `account_fund` | a DIRECTION-1 setup whose API `operation_type = 'account_fund'` (cvu) | treated exactly as DIRECTION-1 (inbound receipt, A1 applies); C2 `mp_auto_allocate` → `NO_EVIDENCE` (CLIENT_UNASSIGNED) unless deterministic evidence exists; `operation_type` is never read as client evidence |
+| DIRECTION-5 | Account Money K3 | a K3 row (no payment method, 13-digit id, zero tax) | no `YIELD` / payment claim; REVIEW (unclassified); Δ movement / operation = 0 |
+| DIRECTION-6 | Direction conflict | a direction-C row whose back-fill returns a foreign collector | back-fill `FAILED_PERMANENT COLLECTOR_MISMATCH`; `mp_normalize_report_fallback` → `DIRECTION_CONFLICT`; no APPROVAL; the row stays PENDING / REVIEW_REQUIRED |
+| DIRECTION-7 | Outbound across reports | the same outbound payment as a Liberaciones D row and an Account Money K2 row | one `OUTBOUND_PAYMENT` identity and one movement; the second row is IGNORED + MATCHED / DISCREPANCY; `mp_normalize_report_fallback` on an outbound row is refused with `NOT_DEFERRED` (outbound rows never reach `DEFERRED_BACKFILL`); `OUTBOUND_NOT_ELIGIBLE` is asserted on a crafted outbound row forced into `DEFERRED_BACKFILL` inside a rolled-back test transaction (defence in depth) |
+
 ## S — RLS and privilege abuse
 
 | ID | Case | Assert |
