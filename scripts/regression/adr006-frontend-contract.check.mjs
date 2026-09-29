@@ -9,7 +9,8 @@
  * .planning/implementation-design/ADR006_PHASE27_MP_FRONTEND_CONTRACT_V1.md and checks it against the
  * live catalog of the FROZEN backend: every read comes from a Step-10 view and names real columns; every
  * action is an authorized ADMIN RPC with its exact signature; no direct table write; no
- * register_collection / RPC 41 / service-only path; the axis labels cover exactly the states and reasons
+ * register_collection / RPC 41 / service-only path; exactly the three D-14-1 identifier lookups (C3 / C7 / S7,
+ * SELECT only, minimal allow-listed columns, exact predicates) and no other mp_* read; the axis labels cover exactly the states and reasons
  * the view can emit and follow ADR-006 §6.4; no client-attribution state is a work item.
  * Writes nothing.
  */
@@ -87,6 +88,49 @@ check('K-8 no direct table write: table_writes is empty and every action is an R
   && C.actions.every((a) => typeof a.rpc === 'string' && a.rpc.startsWith('mp_')));
 check('K-9 R2 is disabled while V-4 is unverified (mp_v4_verified() = false)', C.actions.find((a) => a.id === 'R2')?.availability === 'DISABLED_UNTIL_STEP_19'
   && owner('SELECT mp_v4_verified();') === 'f');
+
+// D-14-1 identifier lookups (owner decision, option (a))
+const EXPECTED_LOOKUPS = {
+  'L-C3': { for_action: 'C3', table: 'mp_client_allocation', columns: ['id', 'cliente_id', 'amount', 'mode', 'effective_date'],
+    predicate: { mp_financial_movement_id: ':selected_receipt', origin: 'ALLOCATION' }, rpc_param: 'p_allocation_id' },
+  'L-C7': { for_action: 'C7', table: 'mp_payer_client_map', columns: ['id', 'mp_payer_id', 'cliente_id', 'created_at'],
+    predicate: { activo: true }, rpc_param: 'p_mapping_id' },
+  'L-S7': { for_action: 'S7', table: 'mp_webhook_delivery', columns: ['id', 'resource_id', 'received_at'],
+    predicate: { topic_class: 'chargeback', status: 'SIGNAL_RECORDED', signal_resolution: null }, rpc_param: 'p_delivery_id' },
+};
+const SENSITIVE = /payload|manifest|body|header|signature|sha|key|token|secret|evidence|reason|lease|x_request|claim/i;
+const L = C.lookups ?? [];
+check('L-1 the three Step-10 views are the only state sources, and every screen read is one of them',
+  JSON.stringify([...(C.state_sources ?? [])].sort()) === JSON.stringify([...VIEWS].sort()) && reads.every(([, r]) => C.state_sources.includes(r.view)));
+check('L-2 exactly three lookup exceptions exist: L-C3 → mp_client_allocation, L-C7 → mp_payer_client_map, L-S7 → mp_webhook_delivery, one per action C3 / C7 / S7',
+  L.length === 3 && L.every((l) => EXPECTED_LOOKUPS[l.id] && EXPECTED_LOOKUPS[l.id].table === l.table && EXPECTED_LOOKUPS[l.id].for_action === l.for_action),
+  JSON.stringify(L.map((l) => `${l.id}:${l.table}:${l.for_action}`)));
+check('L-3 every lookup is SELECT only', L.every((l) => l.operation === 'SELECT'));
+const tcols = JSON.parse(owner(`SELECT json_object_agg(table_name, cols)::text FROM (SELECT table_name, json_agg(column_name::text) cols FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name IN ('mp_client_allocation','mp_payer_client_map','mp_webhook_delivery') GROUP BY table_name) x;`));
+check('L-4 lookup columns are explicitly allow-listed, minimal (exactly the approved set) and exist; predicate columns exist',
+  L.every((l) => JSON.stringify(l.columns) === JSON.stringify(EXPECTED_LOOKUPS[l.id].columns) && l.columns.every((c) => tcols[l.table].includes(c))
+    && Object.keys(l.predicate).every((c) => tcols[l.table].includes(c))), JSON.stringify(L.map((l) => l.columns)));
+const s7 = L.find((l) => l.id === 'L-S7');
+check('L-5 the S7 predicate is exactly the unresolved chargeback-signal predicate (topic_class chargeback, status SIGNAL_RECORDED, signal_resolution IS NULL)',
+  s7 && JSON.stringify(s7.predicate) === JSON.stringify(EXPECTED_LOOKUPS['L-S7'].predicate)
+    && JSON.stringify(L.find((l) => l.id === 'L-C3').predicate) === JSON.stringify(EXPECTED_LOOKUPS['L-C3'].predicate)
+    && JSON.stringify(L.find((l) => l.id === 'L-C7').predicate) === JSON.stringify(EXPECTED_LOOKUPS['L-C7'].predicate));
+check('L-6 no lookup exposes a raw / payload / manifest / header / signature / key / token / secret / evidence / reason field',
+  L.every((l) => l.columns.every((c) => !SENSITIVE.test(c))), L.flatMap((l) => l.columns.filter((c) => SENSITIVE.test(c))).join());
+const referenced = [...new Set([...reads.map(([, r]) => r.view), ...L.map((l) => l.table)].filter((t) => /^mp_|^report_mp_movement_status$/.test(t)))];
+check('L-7 no other mp_* read is authorized: the only mp_* tables referenced are the three lookup tables; report_mp_movement_status stays forbidden',
+  JSON.stringify(referenced.sort()) === JSON.stringify(['mp_client_allocation', 'mp_payer_client_map', 'mp_webhook_delivery'])
+    && C.forbidden_reads.includes('report_mp_movement_status') && reads.every(([, r]) => !/^mp_/.test(r.view)), referenced.join());
+check('L-8 each lookup yields exactly the identifier parameter of its action RPC',
+  L.every((l) => l.rpc_param === EXPECTED_LOOKUPS[l.id].rpc_param && (sig[AUTHORIZED[l.for_action]]?.args ?? '').startsWith(`${l.rpc_param} uuid`)));
+check('L-9 no grant or policy is needed: the ADMIN (authenticated) already holds SELECT on the three tables, under the unchanged Step-9 ACL (SELECT only)',
+  owner(`SELECT string_agg(c.relname || ':' || a.privilege_type, ',' ORDER BY c.relname, a.privilege_type) FROM pg_class c, aclexplode(c.relacl) a
+    WHERE c.relname IN ('mp_client_allocation','mp_payer_client_map','mp_webhook_delivery') AND a.grantee = 'authenticated'::regrole;`)
+    === 'mp_client_allocation:SELECT,mp_payer_client_map:SELECT,mp_webhook_delivery:SELECT');
+check('L-10 C3, C7 and S7 are ACTIVE; every other authorized action is unchanged (R2 disabled until Step 19)',
+  ['C1', 'C3', 'C4', 'C5', 'C6', 'C7', 'R1', 'S5', 'S6', 'S7'].every((id) => C.actions.find((a) => a.id === id)?.availability === 'ACTIVE')
+    && C.actions.length === 11);
 
 // labels
 const def = owner(`SELECT pg_get_viewdef('report_mp_receipt_status'::regclass, true);`);
