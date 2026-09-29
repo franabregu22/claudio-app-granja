@@ -330,8 +330,10 @@ check('B1 scenario built through the real RPCs (production, feed, classification
 // ═══════════════════════════════════════════════════════════════════════════
 section('A', 'Structure: seven derived views, nothing stored');
 
-check('A1 exactly the seven report_* views exist, and no other report object',
-  owner(`SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.views WHERE table_schema = 'public' AND table_name LIKE 'report%';`) === VIEWS.join(',')
+// ADR-006 Step 10 (0055) adds three derived MP views; they are proven by mp_views.test.mjs, not by this suite
+const ADR006_VIEWS = ['report_mp_delivery_health', 'report_mp_receipt_status', 'report_mp_report_exceptions'];
+check('A1 exactly the seven ADR-005 report_* views plus the three ADR-006 views exist, and no other report object',
+  owner(`SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.views WHERE table_schema = 'public' AND table_name LIKE 'report%';`) === [...VIEWS, ...ADR006_VIEWS].sort().join(',')
   && owner(`SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname LIKE 'report%' AND relkind <> 'v';`) === '0');
 check('A2 every report view is security_invoker = true and owned by postgres',
   owner(`SELECT count(*) FROM pg_class WHERE relname IN (${VIEWS.map(q).join(',')}) AND pg_get_userbyid(relowner) = 'postgres'

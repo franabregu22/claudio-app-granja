@@ -275,7 +275,8 @@ check('A9 flocks reused unchanged (frozen columns)', colsOf('flocks') === 'id,sh
 check('A10 operator_assignments reused unchanged', colsOf('operator_assignments') === 'id,operator_id,flock_id,activo,assigned_at,assigned_by');
 check('A11 no conflict table / conflict flag / MORTALITY_CONFLICT type (frozen Part 26)',
   owner(`SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND column_name ~* 'conflict'
-     AND NOT (table_name = 'mp_webhook_delivery' AND column_name = 'key_conflict_of');`) === '0'   // ADR-006 HRN-1: the only authorized exception
+     AND NOT (table_name = 'mp_webhook_delivery' AND column_name = 'key_conflict_of')          -- ADR-006 HRN-1: authorized exception
+     AND NOT (table_name = 'report_mp_delivery_health' AND column_name = 'key_conflicts');`) === '0'   // its derived count (ADR006_SCHEMA_DELTA_V1 §9)
   && owner(`SELECT string_agg(enumlabel, ',' ORDER BY enumsortorder) FROM pg_enum WHERE enumtypid = 'population_event_type'::regtype;`) === 'MORTALITY,COUNT_ADJUSTMENT');
 
 // ── common fixtures ──

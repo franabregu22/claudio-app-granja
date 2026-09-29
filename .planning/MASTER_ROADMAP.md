@@ -21,6 +21,7 @@ authority wins; this document only says *in what order* work happens and *where 
 | **Physical design** | FROZEN |
 | **Implementation design** | FROZEN |
 | **Production implementation started** | **NO** |
+| **ADR-006 (Mercado Pago real-time)** | IN IMPLEMENTATION in the local test environment — steps 0–10 of ADR006_IMPLEMENTATION_ORDER_V1 complete; backend not FROZEN; production untouched |
 
 Nothing has been created in the production Supabase project. Construction so far (Phases 13–25: Foundations, Commercial, Treasury, Cheques / eCheqs, Purchases / Suppliers, Production, Classification, Feed, Feria, Fiscal, Mercado Pago Definitive, P&L / Management, Dashboard / Reports) exists only in the local test environment of Phase 12. No data has been migrated. The
 existing system remains the operating system of record and is untouched.
@@ -39,7 +40,7 @@ existing system remains the operating system of record and is untouched.
 | `implementation-design/RLS_IMPLEMENTATION_SPEC_V1.md` | **Security model.** Role resolution, privilege perimeter, policies, safe views. | FROZEN |
 | `implementation-design/DATABASE_INVARIANTS_V1.md` | **Invariants.** 28 guarantees with named enforcement mechanisms. | FROZEN |
 | `implementation-design/IMPLEMENTATION_DEPENDENCY_ORDER_V1.md` | **Build order inside the schema.** Creation sequence of enums, tables, constraints, security, RPCs. | FROZEN |
-| `ADR-006-MP-REALTIME-INGESTION-RECONCILIATION.md` | **Mercado Pago real-time ingestion and report reconciliation.** Amends ADR-003 (D1, D2, D3, D7, D8), RPC 41 (one guard), and the `client_ledger` COLLECTION provenance (RPC_CONTRACTS_V1 §4, schema Domain D). Frozen files are not rewritten; the ADR prevails where they differ. | ACCEPTED 2026-09-27 — not yet implemented |
+| `ADR-006-MP-REALTIME-INGESTION-RECONCILIATION.md` | **Mercado Pago real-time ingestion and report reconciliation.** Amends ADR-003 (D1, D2, D3, D7, D8), RPC 41 (one guard), and the `client_ledger` COLLECTION provenance (RPC_CONTRACTS_V1 §4, schema Domain D). Frozen files are not rewritten; the ADR prevails where they differ. | ACCEPTED 2026-09-27 — **IN IMPLEMENTATION** (local test environment only): ADR006_IMPLEMENTATION_ORDER_V1 steps 0–10 complete (target migrations 0047–0055); V-2 verified; V-3 / V-4 evidence partial; steps 11–20 pending. Backend **not FROZEN** |
 | `MASTER_ROADMAP.md` (this file) | **Phase sequence and project state.** | LIVE — updated as phases close |
 
 ### Not authoritative
