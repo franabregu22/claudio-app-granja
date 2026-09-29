@@ -1,6 +1,65 @@
 import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
+
+type SignatureResult = { ok: true; dataId: string } | { ok: false; reason: string };
+
+function getHeader(headers: Record<string, string | undefined> | null | undefined, name: string): string {
+  if (!headers) return "";
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
+  return key ? (headers[key] ?? "").trim() : "";
+}
+
+/** Mercado Pago signs the `data.id` query parameter of the notification URL. */
+export function getSignedDataId(event: { queryStringParameters?: Record<string, string | undefined> | null; rawQuery?: string }): string {
+  const fromParams = event.queryStringParameters?.["data.id"];
+  if (fromParams) return fromParams.trim();
+  return event.rawQuery ? (new URLSearchParams(event.rawQuery).get("data.id") ?? "").trim() : "";
+}
+
+/** Alphanumeric data ids are signed in lowercase (Mercado Pago rule); numeric ids are unchanged. */
+export function normalizeDataId(id: string): string {
+  return /[a-z]/i.test(id) ? id.toLowerCase() : id;
+}
+
+/**
+ * Mercado Pago webhook signature: x-signature = "ts=<ts>,v1=<hex>",
+ * manifest = "id:<data.id>;request-id:<x-request-id>;ts:<ts>;", v1 = HMAC-SHA256(secret, manifest) in hex.
+ * Fails closed on any missing or malformed input. Never logs the secret, the header or the digest.
+ */
+export function verifyMercadoPagoSignature(input: {
+  secret: string | undefined;
+  signatureHeader: string;
+  requestId: string;
+  dataId: string;
+}): SignatureResult {
+  if (!input.secret) return { ok: false, reason: "WEBHOOK_SECRET_NOT_CONFIGURED" };
+  if (!input.signatureHeader) return { ok: false, reason: "MISSING_SIGNATURE" };
+  if (!input.requestId) return { ok: false, reason: "MISSING_REQUEST_ID" };
+  if (!input.dataId) return { ok: false, reason: "MISSING_DATA_ID" };
+
+  const parts: Record<string, string> = {};
+  for (const part of input.signatureHeader.split(",")) {
+    const i = part.indexOf("=");
+    if (i <= 0) return { ok: false, reason: "MALFORMED_SIGNATURE" };
+    const k = part.slice(0, i).trim();
+    if (k in parts) return { ok: false, reason: "MALFORMED_SIGNATURE" };
+    parts[k] = part.slice(i + 1).trim();
+  }
+  const ts = parts.ts ?? "";
+  const v1 = parts.v1 ?? "";
+  if (!/^\d{1,20}$/.test(ts)) return { ok: false, reason: "MALFORMED_SIGNATURE_TS" };
+  if (!/^[0-9a-fA-F]{64}$/.test(v1)) return { ok: false, reason: "MALFORMED_SIGNATURE_V1" };
+
+  const dataId = normalizeDataId(input.dataId);
+  const manifest = `id:${dataId};request-id:${input.requestId};ts:${ts};`;
+  const expected = createHmac("sha256", input.secret).update(manifest).digest();
+  const received = Buffer.from(v1, "hex");
+  if (received.length !== expected.length || !timingSafeEqual(expected, received)) {
+    return { ok: false, reason: "INVALID_SIGNATURE" };
+  }
+  return { ok: true, dataId };
+}
 
 const handler: Handler = async (event) => {
   const headers = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
@@ -16,15 +75,38 @@ const handler: Handler = async (event) => {
   try {
     console.log("Webhook received. Validating...");
 
+    // Authenticate before parsing, logging or any side effect
+    const requestId = getHeader(event.headers, "x-request-id");
+    const auth = verifyMercadoPagoSignature({
+      secret: process.env.MERCADOPAGO_WEBHOOK_SECRET,
+      signatureHeader: getHeader(event.headers, "x-signature"),
+      requestId,
+      dataId: getSignedDataId(event),
+    });
+    if (!auth.ok) {
+      console.warn(`Webhook rejected: ${auth.reason}`);
+      return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }), headers };
+    }
+
     // Parse webhook
-    const body = event.body ? JSON.parse(event.body) : {};
-    const signature = event.headers["x-signature"] || "";
-    const requestId = event.headers["x-request-id"] || "";
+    let body: any;
+    try {
+      body = event.body ? JSON.parse(event.body) : {};
+    } catch {
+      return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON" }), headers };
+    }
+    if (!body || typeof body !== "object") {
+      return { statusCode: 400, body: JSON.stringify({ error: "Invalid webhook" }), headers };
+    }
+
+    // The body is not signed: its resource id must match the signed data.id
+    const bodyDataId = body.data?.id;
+    if (bodyDataId !== undefined && normalizeDataId(String(bodyDataId)) !== auth.dataId) {
+      console.warn("Webhook rejected: BODY_DATA_ID_MISMATCH");
+      return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }), headers };
+    }
 
     console.log(`Event type: ${body.type}, ID: ${body.id}, Request: ${requestId}`);
-
-    // Validate signature (MercadoPago sends it but we can skip for now if not configured)
-    // In production, validate: signature should be HMAC-SHA256 of request body with secret
 
     if (!body.type || !body.id) {
       console.log("Invalid webhook structure");
