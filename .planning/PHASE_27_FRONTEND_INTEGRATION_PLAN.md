@@ -187,9 +187,31 @@ All of the following must hold, mechanically where possible:
 - the literal, the debug / sync UI, the `localStorage` path, every frontend call to `sync-mercadopago` and the static `sync-settlement.html` page are removed;
 - the static gate fingerprints the literal (SHA-256, the value is never stored) and detects lower-case secret assignments.
 
-**Owner (open):** rotate the Netlify environment variable **`SYNC_MERCADOPAGO_TOKEN`**. Also, the legacy function `sync-mercadopago` does not validate the header value at all (any non-empty `Authorization` is accepted), so the owner should disable or protect it in Netlify. It stays until cutover (N-1) and is not modified in Phase 27.
+**Owner:** `SYNC_MERCADOPAGO_TOKEN` rotated in Netlify. **Rotation CONFIRMED** (owner, 2026-09-29).
 
-**Rotation confirmed:** no | owner (rotation / function access); F27-A (removal: done) |
+S-1 is CLOSED. The separate legacy-function exposure is tracked as L-1 | owner (rotation: done); F27-A (removal: done) |
+| **L-1** | **Legacy Netlify MP functions — OPEN, pending an owner decision.** Code read on 2026-09-29, read-only; nothing modified or deployed.
+
+(a) `sync-mercadopago`:
+- it only requires a non-empty `Authorization` header, never compares it with `SYNC_MERCADOPAGO_TOKEN` (it does not read it), and sends CORS `*`;
+- anyone can trigger a full MP history fetch with the MP client credentials, plus a service-role upsert into `mercadopago_raw` / `sync_metadata`;
+- the response exposes counts only;
+- `MP_SYNC_WRITE_ENABLED` does **not** apply to it.
+
+(b) `sync-settlement-csv`:
+- **no authentication at all**; it accepts request-body CSV and upserts, by `id` (so existing rows are overwritten), into `mercadopago_raw` and `mercadopago_movements` with the service role;
+- it is reachable from the upload page served by the `sync-page` function.
+
+(c) By contrast, `sync-mercadopago-movements` and `sync-mercadopago-releases-status` validate `Bearer` exactly against `SYNC_MERCADOPAGO_TOKEN` and fail closed. `MP_SYNC_WRITE_ENABLED` gates only `sync-mercadopago-releases` (the scheduled 02:00 job, which passes `commit`) and `sync-mercadopago-releases-status`.
+
+Deployed frontend dependency (`origin/main`): only the "Sincronizar" button of the Caja → "MP Debug" view calls `sync-mercadopago`; the `useSyncMercadoPago` hook is defined but unused. No React screen reads `mercadopago_movements`.
+
+Not resolved until the owner chooses a mitigation (see the checkpoint report) | owner |
+| **D-DEPLOY** | **Phase-27 commits must not reach production before cutover (Phase 31) or an explicit deployment decision.**
+- Development continues on the local branch `phase27-frontend` (no upstream).
+- Local `main` (44 commits ahead of `origin/main`, tracking it) **must not be pushed**: the Phase-27 frontend needs the target schema (`current_app_role()`), which the legacy production database lacks.
+- `netlify.toml` builds `npm run build` → `dist`. The production branch is not declared in the repository (it is a Netlify site setting), so assume `main` | owner / all |
+
 | P27-D1 | **RESOLVED (owner):** the general `arqueos_caja` screen is retired from V1 and not recreated. Feria session counts remain | owner |
 | P27-D2 | **RESOLVED (owner):** "Flujo de caja" is retired. "Tendencia meses" is kept only as presentation over `pnl_summary` / `report_balance_period` values, with no new accounting or business formula | owner |
 | P27-D3 | **RESOLVED (owner):** `dueño` → ADMIN; `colaborador` → OPERATOR; `repartidor` → **no application access in V1**.
