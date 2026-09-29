@@ -15,13 +15,13 @@ authority wins; this document only says *in what order* work happens and *where 
 
 | | |
 |---|---|
-| **Current phase** | **27 — Frontend V1 Integration** (PENDING start; its Mercado Pago screens are gated by ADR-006 implementation) |
+| **Current phase** | **27 — Frontend V1 Integration** (PENDING start; its Mercado Pago screens wait for ADR-006 step 14, the frontend contract over the now-FROZEN ADR-006 backend) |
 | **Last completed phase** | 26 — Migration Rehearsal |
 | **Architecture** | FROZEN |
 | **Physical design** | FROZEN |
 | **Implementation design** | FROZEN |
 | **Production implementation started** | **NO** |
-| **ADR-006 (Mercado Pago real-time)** | IN IMPLEMENTATION in the local test environment — steps 0–12 of ADR006_IMPLEMENTATION_ORDER_V1 complete; step 13 pending; backend not FROZEN; production untouched |
+| **ADR-006 (Mercado Pago real-time)** | Steps 0–13 of ADR006_IMPLEMENTATION_ORDER_V1 COMPLETE in the local test environment; **ADR-006 backend contract FROZEN** (as reached by steps 0–13: integrated regression and current-target clean-cutover compatibility CT-1…CT-5 passed). Step 14 (Phase 27 MP frontend contract) next; steps 15–20 keep their own gates (V-3 / V-4 not implemented, `mp_v4_verified()` = false, no Account Money parser). Production untouched |
 
 Nothing has been created in the production Supabase project. Construction so far (Phases 13–25: Foundations, Commercial, Treasury, Cheques / eCheqs, Purchases / Suppliers, Production, Classification, Feed, Feria, Fiscal, Mercado Pago Definitive, P&L / Management, Dashboard / Reports) exists only in the local test environment of Phase 12. No data has been migrated. The
 existing system remains the operating system of record and is untouched.
@@ -40,7 +40,7 @@ existing system remains the operating system of record and is untouched.
 | `implementation-design/RLS_IMPLEMENTATION_SPEC_V1.md` | **Security model.** Role resolution, privilege perimeter, policies, safe views. | FROZEN |
 | `implementation-design/DATABASE_INVARIANTS_V1.md` | **Invariants.** 28 guarantees with named enforcement mechanisms. | FROZEN |
 | `implementation-design/IMPLEMENTATION_DEPENDENCY_ORDER_V1.md` | **Build order inside the schema.** Creation sequence of enums, tables, constraints, security, RPCs. | FROZEN |
-| `ADR-006-MP-REALTIME-INGESTION-RECONCILIATION.md` | **Mercado Pago real-time ingestion and report reconciliation.** Amends ADR-003 (D1, D2, D3, D7, D8), RPC 41 (one guard), and the `client_ledger` COLLECTION provenance (RPC_CONTRACTS_V1 §4, schema Domain D). Frozen files are not rewritten; the ADR prevails where they differ. | ACCEPTED 2026-09-27 — **IN IMPLEMENTATION** (local test environment only): ADR006_IMPLEMENTATION_ORDER_V1 steps 0–12 complete (target migrations 0047–0056; implementation notes in `implementation-design/ADR006_IMPLEMENTATION_NOTES.md`); V-2 verified; V-3 / V-4 evidence partial; step 13 next, steps 13–20 pending. Backend **not FROZEN** |
+| `ADR-006-MP-REALTIME-INGESTION-RECONCILIATION.md` | **Mercado Pago real-time ingestion and report reconciliation.** Amends ADR-003 (D1, D2, D3, D7, D8), RPC 41 (one guard), and the `client_ledger` COLLECTION provenance (RPC_CONTRACTS_V1 §4, schema Domain D). Frozen files are not rewritten; the ADR prevails where they differ. | ACCEPTED 2026-09-27 — **IN IMPLEMENTATION** (local test environment only): ADR006_IMPLEMENTATION_ORDER_V1 steps 0–13 complete (target migrations 0047–0056; implementation notes in `implementation-design/ADR006_IMPLEMENTATION_NOTES.md`; step-13 gate: `scripts/regression/clean-cutover-current-target.mjs`, `scripts/regression/adr006-matrix.test.mjs` and every target-db suite green). **Backend contract FROZEN** as reached by steps 0–13. V-2 verified; V-3 / V-4 evidence partial and not implemented (steps 16 / 19 pending; `mp_v4_verified()` = false). Step 14 next; steps 14–20 pending |
 | `MASTER_ROADMAP.md` (this file) | **Phase sequence and project state.** | LIVE — updated as phases close |
 
 ### Not authoritative
