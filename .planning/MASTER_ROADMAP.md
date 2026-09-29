@@ -15,7 +15,7 @@ authority wins; this document only says *in what order* work happens and *where 
 
 | | |
 |---|---|
-| **Current phase** | **27 — Frontend V1 Integration** (**IN PROGRESS** — planning pass complete: `PHASE_27_FRONTEND_INTEGRATION_PLAN.md`; implementation proceeds by slices F27-A…F27-I; its Mercado Pago screens follow the accepted ADR-006 Phase 27 MP frontend contract over the FROZEN ADR-006 backend) |
+| **Current phase** | **27 — Frontend V1 Integration** (**IN PROGRESS** — planning pass complete: `PHASE_27_FRONTEND_INTEGRATION_PLAN.md`; slice F27-A (foundation) COMPLETE, F27-B…F27-I pending; its Mercado Pago screens follow the accepted ADR-006 Phase 27 MP frontend contract over the FROZEN ADR-006 backend) |
 | **Last completed phase** | 26 — Migration Rehearsal |
 | **Architecture** | FROZEN |
 | **Physical design** | FROZEN |
@@ -148,7 +148,7 @@ No phase in this block may start before 10, 11 and 12 are closed.
 | # | Phase | Status | Exit criteria |
 |---|---|---|---|
 | 26 | Migration Rehearsal | **COMPLETE** | The migration runs end to end in the test environment against a realistic copy. Discrepancies explained, not silently reconciled. Repeatable. |
-| 27 | Frontend V1 Integration | **IN PROGRESS** (planning pass done — `PHASE_27_FRONTEND_INTEGRATION_PLAN.md`) | Frontend operates against the target schema for the V1 business flows and reporting surfaces, respects ADMIN/OPERATOR permissions, and contains no duplicated business/accounting authority. *(Inserted by ADR-005.)* Mercado Pago screens wait until the ADR-006 backend contract is implemented and frozen; they consume its two status axes (MP reconciliation; optional client attribution). |
+| 27 | Frontend V1 Integration | **IN PROGRESS** (planning pass done — `PHASE_27_FRONTEND_INTEGRATION_PLAN.md`; F27-A foundation complete) | Frontend operates against the target schema for the V1 business flows and reporting surfaces, respects ADMIN/OPERATOR permissions, and contains no duplicated business/accounting authority. *(Inserted by ADR-005.)* Mercado Pago screens wait until the ADR-006 backend contract is implemented and frozen; they consume its two status axes (MP reconciliation; optional client attribution). |
 | 28 | Integral QA | PENDING | All slices exercised together. Invariant queries return their expected results. No cross-domain contradiction. |
 | 29 | UAT | PENDING | The owner validates real operation against real expectations, on migrated data, in the test environment. |
 | 30 | Cutover Rehearsal | PENDING | The full cutover sequence rehearsed, including rollback. Rollback proven, not assumed. |
@@ -201,4 +201,4 @@ to again. No dual-write period, no partial operation across both systems.
 
 ---
 
-**PHASE SEQUENCE AUTHORITY — 34 PHASES (0–33) · CURRENT: 27 — FRONTEND V1 INTEGRATION (PENDING START)**
+**PHASE SEQUENCE AUTHORITY — 34 PHASES (0–33) · CURRENT: 27 — FRONTEND V1 INTEGRATION (IN PROGRESS)**

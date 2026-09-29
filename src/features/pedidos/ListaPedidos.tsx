@@ -38,7 +38,7 @@ export function ListaPedidos({
         </p>
         <div className="flex items-center justify-between mt-0.5">
           <h1 className="text-2xl font-bold text-[#2C2419]">Pedidos de hoy</h1>
-          {rol === 'dueño' && (
+          {rol === 'ADMIN' && (
             <button
               onClick={onNuevo}
               className="flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-2 rounded-lg hover:bg-[#8B4423] transition-colors"
@@ -132,7 +132,7 @@ export function ListaPedidos({
                   </div>
 
                   <div className="flex gap-2">
-                    {rol === 'dueño' || rol === 'repartidor' ? (
+                    {rol === 'ADMIN' ? (
                       <button
                         onClick={() => onEntregar?.(p.id)}
                         disabled={markingId === p.id}
@@ -141,7 +141,7 @@ export function ListaPedidos({
                         <Check className="w-4 h-4" /> Marcar entregado
                       </button>
                     ) : null}
-                    {rol === 'dueño' ? (
+                    {rol === 'ADMIN' ? (
                       <>
                         <button
                           onClick={() => onRectificar?.(p)}

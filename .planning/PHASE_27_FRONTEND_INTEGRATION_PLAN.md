@@ -44,7 +44,7 @@ Legend:
 
 | # | Legacy screen (file) | Legacy read → write | Target read | Target write | Visibility | Fate |
 |---|---|---|---|---|---|---|
-| 1 | Login (`auth/LoginScreen`, `AuthProvider`) | `perfiles.rol` | `perfiles.rol_type` / `current_app_role()` | Supabase Auth only | all | **A** (drop the ipify rate-limit call, or keep it only if the owner wants it) |
+| 1 | Login (`auth/LoginScreen`, `AuthProvider`) | `perfiles.rol` | `perfiles.rol_type` / `current_app_role()` | Supabase Auth only | all | **A — done in F27-A** (ipify removed) |
 | 2 | Sidebar / tabs (`App.tsx`) | client role checks | `current_app_role()` | — | ADMIN full; OPERATOR working set | **A** |
 | 3 | Dashboard producción (`ProductionDashboard`, `DashboardProduccion`) | `producciones`, `lotes`, `recuentos_lote` + client calcs | `report_flock_day` (laying_pct, population, quality_data_warning) | — | ADMIN all; OPERATOR assigned flocks only | **A** (calculations removed, §4) |
 | 4 | Producción entry / list (`ProductionApp`, `FormProduccion`, `ListaProducciones`) | `producciones` → insert / update | `report_flock_day` / `daily_production` (RLS) | `register_daily_production`, `rectify_daily_production`, `register_mortality`, `rectify_mortality`, `register_management_event` | ADMIN; OPERATOR assigned | **A** |
@@ -56,7 +56,7 @@ Legend:
 | 10 | Caja: movements (`CajaApp`, `ListaMovimientos`, `FormMovimiento`, `ModalEditar*`) | `movimientos_caja` insert / update / delete; `comisiones`; `facturas`; `pagos` update | `report_balance_period` (accounts), purchases / operations via views / RLS | `register_purchase` / `rectify_purchase` (expenses), `pay_supplier`, `transfer_between_accounts`, `register_freight`, `assign_freight_to_purchase` | ADMIN | **X** (no free-form movement CRUD in the target) |
 | 11 | Caja: saldos / flujo / tendencia (`ResumenSaldos`, `ResumenFlujoCaja`, `TendenciaMeses`) | client sums of `movimientos_caja` | `report_balance_period`, `pnl_summary` | — | ADMIN | **A / X** (see P27-D2) |
 | 12 | Caja: cuentas a pagar (`CuentasAPagar`) | client calc over `movimientos_caja` | `report_balance_period` (supplier ledger) | `pay_supplier` | ADMIN | **A** |
-| 13 | Caja: arqueos (`ArqueoCard`, `FormArqueo`, `HistorialArqueos`) | `arqueos_caja` insert, `cuentas_caja` | — (general cash counts have no target surface; Feria counts exist: `report_feria_session_cash`) | — | ADMIN | **X** unless P27-D1 decides otherwise |
+| 13 | Caja: arqueos (`ArqueoCard`, `FormArqueo`, `HistorialArqueos`) | `arqueos_caja` insert, `cuentas_caja` | — | — | — | **X — retired (P27-D1)** |
 | 14 | Cheques (inside Caja via `api/caja.ts`) | `cheques` insert / update | instruments (RLS) | `receive_cheque`, `deposit_cheque`, `endorse_cheque`, `clear_cheque`, `reject_cheque`, `issue_supplier_instrument`, `mark_supplier_instrument_debited`, `cancel_supplier_instrument`, `reject_supplier_instrument` | ADMIN | **X** (new instrument screens) |
 | 15 | Categorías (`CategoriasAdmin`, `api/categorias`) | `categorias_finanzas` insert / update; **re-classifies** `movimientos_caja` (update) | `expense_category` | direct `expense_category` (master: name / active / class); no re-classification of posted facts | ADMIN | **A** (the re-classification path is removed) |
 | 16 | Finanzas P&L (`FinanzasApp` → `PyLProesional`; `PyL`) | client P&L over `movimientos_caja` + `pedidos` | `pnl_summary`, `pnl_line_item` | — | ADMIN | **A** (all calculations removed) |
@@ -170,14 +170,39 @@ All of the following must hold, mechanically where possible:
 7. No secret in `src/` or in the built bundle beyond the public anon key. S-1 is closed: the token was removed and rotated by the owner.
 8. The owner confirms the V1 flows in a local walkthrough, which hands over to Phase 28 (Integral QA).
 
+## 9a. Slice status
+
+| Slice | Status | Evidence |
+|---|---|---|
+| F27-A Foundation | **COMPLETE** | `src/target/{roles,role,db}.ts`; the role from `current_app_role()`; role navigation plus a "Sin acceso" screen; S-1, MP debug / sync, `localStorage` secret, ipify and dead Google Sheets code removed. Checks: `phase27-frontend-static.check.mjs` (8/0; baseline 24 files / 109 legacy references), `npm test` 5/5, `npm run test:integration` 4/4, `tsc -b` 0, safe build + dist scan 0 findings |
+| F27-B…F27-I | pending | — |
+
 ## 10. Decisions and findings
 
 | Id | Item | Owner of the decision |
 |---|---|---|
-| **S-1** | **Security:** `src/features/mercadopago/MercadoPagoDebug.tsx` contains a hard-coded bearer token for the legacy Netlify `sync-mercadopago` function. It has been tracked and on `origin/main` since 2026-09-03, and it ships in the production bundle. `useMercadoPago` keeps another secret in `localStorage`. **Action:** the owner rotates that secret in the Netlify environment; F27-A removes both code paths. Note: the Step-12 secret scan did not flag it, because the value is assigned to a lower-case variable (`token = '…'`); F27-A's static gate covers that pattern | owner (rotation); F27-A (removal) |
-| P27-D1 | General cash counts (`arqueos_caja`) have no target surface. The target only has Feria session counts. Retire the screen, or keep counts as an out-of-system practice? | owner |
-| P27-D2 | "Flujo de caja" and "Tendencia meses" have no one-to-one target view. Render them from `pnl_summary` / `report_balance_period` as presentation only, or drop them? | owner |
-| P27-D3 | The legacy roles `colaborador` / `repartidor` map to target OPERATOR (or no access) for the migrated users. The target has only ADMIN / OPERATOR | owner (confirm) |
-| P27-D4 | The test tooling: a component-test runner plus a PostgREST integration harness. Technical; decided in F27-A | technical |
-| B-1 | Baseline: `tsc -b` passes (0 errors); `oxlint` cannot run locally, because Windows Application Control blocks its native binding (an environment issue, not code); there is no `test` script; `vite build` was not run in this pass, because it loads the `.env*` files into `dist/` | recorded |
+| **S-1** | **Security, treated as COMPROMISED.** `MercadoPagoDebug.tsx` held a hard-coded bearer token for the legacy Netlify MP sync, tracked on `origin/main` since 2026-09-03 and shipped in the production bundle; `useMercadoPago` kept a secret in `localStorage`.
+
+**F27-A (done):**
+- the literal, the debug / sync UI, the `localStorage` path, every frontend call to `sync-mercadopago` and the static `sync-settlement.html` page are removed;
+- the static gate fingerprints the literal (SHA-256, the value is never stored) and detects lower-case secret assignments.
+
+**Owner (open):** rotate the Netlify environment variable **`SYNC_MERCADOPAGO_TOKEN`**. Also, the legacy function `sync-mercadopago` does not validate the header value at all (any non-empty `Authorization` is accepted), so the owner should disable or protect it in Netlify. It stays until cutover (N-1) and is not modified in Phase 27.
+
+**Rotation confirmed:** no | owner (rotation / function access); F27-A (removal: done) |
+| P27-D1 | **RESOLVED (owner):** the general `arqueos_caja` screen is retired from V1 and not recreated. Feria session counts remain | owner |
+| P27-D2 | **RESOLVED (owner):** "Flujo de caja" is retired. "Tendencia meses" is kept only as presentation over `pnl_summary` / `report_balance_period` values, with no new accounting or business formula | owner |
+| P27-D3 | **RESOLVED (owner):** `dueño` → ADMIN; `colaborador` → OPERATOR; `repartidor` → **no application access in V1**.
+
+The frontend role type is only `ADMIN | OPERATOR`, from `current_app_role()`. A user with no active target profile gets the "Sin acceso" screen. The legacy → target mapping is applied by the data migration, not by the frontend | owner |
+| P27-D4 | **RESOLVED:** Vitest 5 (Vite 8 compatible) is the runner.
+- `npm test` runs `tests/unit`.
+- `npm run test:integration` runs `tests/integration` against the guarded local stack only, using the `guard.mjs` checks, the local demo keys from the running local container, and a fixed `127.0.0.1` URL.
+- `vitest.config.ts` points `envDir` at an empty directory, so tests never load the repository's `.env*`.
+- `scripts/regression/phase27-safe-build.mjs` builds with an empty env dir plus the local URL / anon key, and scans the bundle | technical |
+| B-1 | Baseline:
+- `tsc -b` = 0 errors.
+- `oxlint` is blocked by Windows Application Control (an environment limitation, not weakened or replaced).
+- The Supabase CLI binary is also blocked since F27-A, so the local keys are read from the running local container.
+- `fast-uri` (a transitive dependency of vite-plugin-pwa → workbox-build → ajv) has a pre-existing high advisory, not addressed in Phase 27 | recorded |
 | N-1 | The legacy Netlify functions (`netlify/functions/*`) and the legacy MP tables stay until cutover (Phase 31). Phase 27 removes only the frontend's dependency on them | — |

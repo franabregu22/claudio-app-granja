@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, AlertTriangle, RefreshCw, Database } from 'lucide-react';
+import { Plus, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useMovimientosCaja, useCheques, useAnularMovimiento, useSincronizarPagos } from '../../hooks/useCaja';
 import { useCuentas } from '../../hooks/useArqueos';
 import { useAuth } from '../../auth/useAuth';
@@ -11,12 +11,11 @@ import { CuentasAPagar } from './CuentasAPagar';
 import { ArqueoCard } from './ArqueoCard';
 import { FormArqueo } from './FormArqueo';
 import { HistorialArqueos } from './HistorialArqueos';
-import { MercadoPagoDebug } from '../mercadopago/MercadoPagoDebug';
 import { formatoPesos } from '../pedidos/helpers';
 import { getTodayDate } from '../../utils/dateUtils';
 import type { CuentaCaja } from '../../types/domain';
 
-type Vista = 'lista' | 'nuevo' | 'mercadopago';
+type Vista = 'lista' | 'nuevo';
 
 export function CajaApp() {
   const { rol } = useAuth();
@@ -32,12 +31,12 @@ export function CajaApp() {
   const sincronizarMutation = useSincronizarPagos();
   const cuentasQuery = useCuentas();
 
-  if (rol !== 'dueño') {
+  if (rol !== 'ADMIN') {
     return (
       <div className="min-h-screen bg-stone-100 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg text-center max-w-sm mx-4">
           <p className="text-lg font-semibold text-gray-800">Acceso restringido</p>
-          <p className="text-gray-600 mt-2">Solo el dueño puede acceder a Caja.</p>
+          <p className="text-gray-600 mt-2">Solo un administrador puede acceder a Caja.</p>
         </div>
       </div>
     );
@@ -84,29 +83,6 @@ export function CajaApp() {
     );
   }
 
-  if (vista === 'mercadopago') {
-    return (
-      <div className="min-h-screen bg-stone-100 flex justify-center">
-        <div className="w-full max-w-6xl bg-[#FAF6EE] min-h-screen flex flex-col">
-          <header className="px-4 md:px-6 pt-6 pb-4 border-b border-[#E4DCC8]">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-[#2C2419]">Debug MercadoPago</h1>
-              <button
-                onClick={() => setVista('lista')}
-                className="px-4 py-2 bg-[#A8552E] text-white rounded-lg hover:bg-[#8B4423]"
-              >
-                Volver
-              </button>
-            </div>
-          </header>
-          <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-6">
-            <MercadoPagoDebug />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
       <div className="w-full max-w-6xl bg-[#FAF6EE] min-h-screen flex flex-col">
@@ -118,14 +94,6 @@ export function CajaApp() {
           <div className="flex items-center justify-between mt-1">
             <h1 className="text-2xl font-bold text-[#2C2419]">Caja & Finanzas</h1>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setVista('mercadopago')}
-                className="flex items-center gap-2 text-xs px-3 py-1.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition"
-                title="Ver datos raw de MercadoPago"
-              >
-                <Database className="w-4 h-4" />
-                MP Debug
-              </button>
               <button
                 onClick={handleSincronizar}
                 disabled={sincronizarMutation.isPending}

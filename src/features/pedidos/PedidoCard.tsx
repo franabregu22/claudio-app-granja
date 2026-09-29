@@ -52,7 +52,7 @@ export function PedidoCard({
           </span>
         </div>
         <div className="flex gap-2 mt-3">
-          {rol === 'dueño' || rol === 'repartidor' ? (
+          {rol === 'ADMIN' ? (
             <button
               onClick={() => onEntregar?.(pedido.id)}
               disabled={isMarking}
@@ -61,7 +61,7 @@ export function PedidoCard({
               <Check className="w-4 h-4" /> Marcar entregado
             </button>
           ) : null}
-          {rol === 'dueño' ? (
+          {rol === 'ADMIN' ? (
             <>
               <button
                 onClick={() => onRectificar?.(pedido)}
@@ -112,7 +112,7 @@ export function PedidoCard({
             </p>
           )}
         </div>
-        {rol === 'dueño' ? (
+        {rol === 'ADMIN' ? (
           <button
             onClick={() => onRectificar?.(pedido)}
             aria-label="Editar pedido"

@@ -1,7 +1,9 @@
 export type Categoria = 'xl' | 'n1' | 'n2' | 'n3' | 'docena';
 export type PedidoEstado = 'pendiente' | 'entregado' | 'cancelado';
 export type MetodoPago = 'efectivo' | 'transferencia' | 'tarjeta' | 'mercadopago' | 'otro' | 'cheque' | 'echeq';
-export type Rol = 'dueño' | 'repartidor' | 'colaborador';
+// Target role (P27-D3): dueño → ADMIN, colaborador → OPERATOR, repartidor → no access. Authority: current_app_role().
+import type { AppRole } from '../target/roles';
+export type Rol = AppRole;
 export type ProductoCategoria = 'huevos' | 'cereales' | 'alimento' | 'subproducto' | 'otro';
 
 // Legacy: mantener por compatibilidad temporal

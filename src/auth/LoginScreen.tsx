@@ -2,36 +2,24 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { loginSchema } from '../validation/schemas';
 import { useFormValidation } from '../hooks/useFormValidation';
-import { useRateLimit } from '../hooks/useRateLimit';
 
 export function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const { checkRateLimit, isChecking: rateLimitChecking } = useRateLimit();
 
   const { isSubmitting, generalError, handleSubmit } = useFormValidation({
     schema: loginSchema,
     onSubmit: async (data) => {
-      // Check rate limit before attempting login
-      const rateLimitResult = await checkRateLimit(data.email);
-      if (rateLimitResult && !rateLimitResult.allowed) {
-        throw new Error(rateLimitResult.message);
-      }
-
       const { error: authError } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       });
 
       if (authError) {
-        // Log failed attempt
-        await checkRateLimit(data.email, false, authError.message);
         throw new Error(authError.message);
       }
 
-      // Log successful attempt
-      await checkRateLimit(data.email, true);
     },
   });
 
@@ -112,15 +100,15 @@ export function LoginScreen() {
 
           <button
             type="submit"
-            disabled={isSubmitting || rateLimitChecking}
+            disabled={isSubmitting}
             className="w-full bg-[#A8552E] hover:bg-[#8B4426] disabled:bg-[#D8CDB0] text-white font-semibold py-3 rounded-lg transition-colors disabled:text-[#A89878]"
           >
-            {isSubmitting || rateLimitChecking ? 'Verificando...' : 'Iniciar sesión'}
+            {isSubmitting ? 'Verificando...' : 'Iniciar sesión'}
           </button>
         </form>
 
         <p className="text-xs text-[#8A7A5C] text-center mt-6">
-          Contacta al dueño si necesitas una cuenta nueva
+          Contactá al administrador si necesitas una cuenta nueva
         </p>
       </div>
     </div>

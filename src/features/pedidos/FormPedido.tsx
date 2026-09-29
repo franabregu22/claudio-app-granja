@@ -200,7 +200,7 @@ export function FormPedido({
                     <p className="font-semibold text-[#2C2419]">{linea.producto_nombre}</p>
                     <div className="flex items-center gap-1 mt-1">
                       <span className="text-xs text-[#8A7A5C]">$</span>
-                      {rol === 'dueño' ? (
+                      {rol === 'ADMIN' ? (
                         <input
                           type="text"
                           inputMode="decimal"

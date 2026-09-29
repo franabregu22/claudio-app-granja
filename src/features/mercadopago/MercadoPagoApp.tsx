@@ -63,7 +63,7 @@ export function MercadoPagoApp() {
   }, [dateRange, customStart, customEnd]);
 
   useEffect(() => {
-    if (rol !== 'dueño') return;
+    if (rol !== 'ADMIN') return;
     let cancelled = false;
     const fetchData = async () => {
     setLoading(true);
@@ -95,12 +95,12 @@ export function MercadoPagoApp() {
   const visibleMovements = selectedTypes.length ? movements.filter(m => selectedTypes.includes(m.movement_class)) : movements;
   const currency = (amount: number | null) => amount === null ? 'Sin referencia' : new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(amount);
 
-  if (rol !== 'dueño') {
+  if (rol !== 'ADMIN') {
     return (
       <div className="min-h-screen bg-stone-100 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg text-center max-w-sm mx-4">
           <p className="text-lg font-semibold text-gray-800">Acceso restringido</p>
-          <p className="text-gray-600 mt-2">Solo el dueño puede acceder a Mercado Pago.</p>
+          <p className="text-gray-600 mt-2">Solo un administrador puede acceder a Mercado Pago.</p>
         </div>
       </div>
     );

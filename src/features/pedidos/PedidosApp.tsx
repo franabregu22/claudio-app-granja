@@ -136,12 +136,12 @@ export function PedidosApp() {
 
   const clientes = clientesQuery.data || [];
 
-  if (rol !== 'dueño') {
+  if (rol !== 'ADMIN') {
     return (
       <div className="min-h-screen bg-stone-100 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg text-center max-w-sm mx-4">
           <p className="text-lg font-semibold text-gray-800">Acceso restringido</p>
-          <p className="text-gray-600 mt-2">Solo el dueño puede gestionar pedidos.</p>
+          <p className="text-gray-600 mt-2">Solo un administrador puede gestionar pedidos.</p>
         </div>
       </div>
     );
@@ -159,7 +159,7 @@ export function PedidosApp() {
             </p>
             <div className="flex items-center justify-between mt-2">
               <h1 className="text-2xl font-bold text-[#2C2419]">Despachos / Pedidos</h1>
-              {rol === 'dueño' && (
+              {rol === 'ADMIN' && (
                 <button
                   onClick={abrirNuevo}
                   className="hidden md:flex items-center gap-2 bg-[#A8552E] text-white font-semibold px-4 py-2 rounded-lg hover:bg-[#8B4423] transition-colors"
@@ -171,7 +171,7 @@ export function PedidosApp() {
           </header>
 
           {/* Botón flotante para mobile */}
-          {rol === 'dueño' && (
+          {rol === 'ADMIN' && (
             <div className="md:hidden fixed bottom-6 right-4 z-40">
               <button
                 onClick={abrirNuevo}
@@ -246,7 +246,7 @@ export function PedidosApp() {
                           </div>
                           <div className="shrink-0 flex items-center gap-2">
                             <span className="text-sm font-bold text-[#A8552E]">{formatoPesos(p.monto_total)}</span>
-                            {rol === 'dueño' || rol === 'repartidor' ? (
+                            {rol === 'ADMIN' ? (
                               <button
                                 onClick={() => marcarEntregado(p.id)}
                                 disabled={marcarEntregadoMutation.isPending}
@@ -255,7 +255,7 @@ export function PedidosApp() {
                                 <Check className="w-3 h-3" /> Entregar
                               </button>
                             ) : null}
-                            {rol === 'dueño' ? (
+                            {rol === 'ADMIN' ? (
                               <>
                                 <button
                                   onClick={() => abrirRectificar(p)}
@@ -297,7 +297,7 @@ export function PedidosApp() {
                         <th className="hidden xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Fecha carga</th>
                         <th className="hidden 2xl:table-cell px-4 py-2 text-left font-semibold text-amber-900">Entregado por</th>
                         <th className="hidden lg:table-cell px-4 py-2 text-left font-semibold text-amber-900">Fecha entrega</th>
-                        {rol === 'dueño' && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
+                        {rol === 'ADMIN' && <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -335,7 +335,7 @@ export function PedidosApp() {
                               <td className="hidden lg:table-cell px-4 py-2 text-gray-700">
                                 {p.entregado_en ? formatearFechaLocal(p.entregado_en) : '—'}
                               </td>
-                              {rol === 'dueño' && (
+                              {rol === 'ADMIN' && (
                                 <td className="px-4 py-2 text-center">
                                   <button
                                     onClick={() => abrirRectificar(p)}

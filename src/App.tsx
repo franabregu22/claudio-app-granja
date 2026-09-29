@@ -11,8 +11,9 @@ import { ProductionApp } from './features/production/ProductionApp';
 import { ProductionDashboard } from './features/production/ProductionDashboard';
 import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp, CreditCard } from 'lucide-react';
 import { MercadoPagoApp } from './features/mercadopago/MercadoPagoApp';
+import { modulesFor, ROLE_LABEL, type ModuleId } from './target/roles';
 
-type Tab = 'pedidos' | 'cobros' | 'caja' | 'finanzas' | 'admin' | 'produccion' | 'dashboard_produccion' | 'mercadopago';
+type Tab = ModuleId;
 
 function App() {
   const { user, rol, loading, signOut } = useAuth();
@@ -64,22 +65,30 @@ function App() {
     return <LoginScreen />;
   }
 
-  const modules = [
-    ...(rol === 'dueño' ? [
-      { id: 'dashboard_produccion' as Tab, label: 'Dashboard', icon: BarChart3 },
-    ] : []),
-    ...(rol === 'dueño' || rol === 'colaborador' ? [
-      { id: 'produccion' as Tab, label: 'Producción', icon: Table }
-    ] : []),
-    ...(rol === 'dueño' ? [
-      { id: 'pedidos' as Tab, label: 'Pedidos', icon: ShoppingCart },
-      { id: 'cobros' as Tab, label: 'Cuentas a Cobrar', icon: DollarSign },
-      { id: 'caja' as Tab, label: 'Caja', icon: Wallet },
-      { id: 'mercadopago' as Tab, label: 'Mercado Pago', icon: CreditCard },
-      { id: 'finanzas' as Tab, label: 'Finanzas', icon: TrendingUp },
-      { id: 'admin' as Tab, label: 'Admin', icon: Settings }
-    ] : [])
-  ];
+  const MODULE_META: Record<ModuleId, { label: string; icon: typeof BarChart3 }> = {
+    dashboard_produccion: { label: 'Dashboard', icon: BarChart3 },
+    produccion: { label: 'Producción', icon: Table },
+    pedidos: { label: 'Pedidos', icon: ShoppingCart },
+    cobros: { label: 'Cuentas a Cobrar', icon: DollarSign },
+    caja: { label: 'Caja', icon: Wallet },
+    mercadopago: { label: 'Mercado Pago', icon: CreditCard },
+    finanzas: { label: 'Finanzas', icon: TrendingUp },
+    admin: { label: 'Admin', icon: Settings },
+  };
+  // UX only: RLS and the in-body RPC checks remain the authorization authority.
+  const modules = modulesFor(rol).map((id) => ({ id, ...MODULE_META[id] }));
+
+  if (modules.length === 0) {
+    return (
+      <div className="min-h-screen bg-stone-100 flex items-center justify-center p-4">
+        <div className="max-w-sm bg-[#FAF6EE] rounded-2xl shadow-lg p-8 text-center space-y-4">
+          <p className="text-lg font-bold text-[#2C2419]">Sin acceso a la aplicación</p>
+          <p className="text-sm text-[#4A4338]">Tu usuario no tiene un perfil activo habilitado. Consultá con el administrador.</p>
+          <button onClick={signOut} className="px-4 py-2 bg-[#A8552E] text-white rounded-lg">Cerrar sesión</button>
+        </div>
+      </div>
+    );
+  }
 
   // Si el tab actual no está disponible, ir al primer módulo disponible
   const isTabAvailable = modules.some(m => m.id === tab);
@@ -130,7 +139,7 @@ function App() {
           <div className="text-xs">
             <p className="text-[#D4AF37] font-semibold mb-1">{user.email}</p>
             <span className="inline-block text-[10px] bg-[#A8552E] text-white px-2 py-1 rounded">
-              {rol === 'dueño' ? 'Administrador' : 'Usuario'}
+              {rol ? ROLE_LABEL[rol] : ''}
             </span>
           </div>
           <button

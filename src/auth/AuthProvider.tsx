@@ -1,6 +1,7 @@
 import { createContext, useEffect, useState, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User, Rol } from '../types/domain';
+import { resolveTargetRole } from '../target/role';
 
 export interface AuthContextType {
   user: User | null;
@@ -28,15 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: session.user.email,
           });
 
-          const { data: perfilData } = await supabase
-            .from('perfiles')
-            .select('rol')
-            .eq('id', session.user.id)
-            .single();
-
-          if (perfilData) {
-            setRol(perfilData.rol);
-          }
+          setRol(await resolveTargetRole(supabase));
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
@@ -56,14 +49,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: session.user.email,
         });
 
-        const { data: perfilData } = await supabase
-          .from('perfiles')
-          .select('rol')
-          .eq('id', session.user.id)
-          .single();
-
-        if (perfilData) {
-          setRol(perfilData.rol);
+        try {
+          setRol(await resolveTargetRole(supabase));
+        } catch (error) {
+          console.error('Error resolving role:', error);
+          setRol(null);
         }
       } else {
         setUser(null);
