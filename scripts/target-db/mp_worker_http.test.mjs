@@ -7,7 +7,8 @@
  *     node scripts/target-db/mp_worker_http.test.mjs
  *
  * Proves the endpoint auth (x-worker-invoke-secret, constant-time), the real PostgREST + MP adapters
- * end to end, and the logging policy. Mercado Pago is a local mock HTTP server on this host, reached
+ * end to end under the final Step-9 privilege perimeter (0054: service_role SELECT on mp_webhook_delivery —
+ * chargeback auto-link and the CONFIG_BLOCKED probe read — with no owner simulation), and the logging policy. Mercado Pago is a local mock HTTP server on this host, reached
  * by the edge runtime through MP_API_BASE_URL=http://host.docker.internal:<port>; api.mercadopago.com
  * is never contacted. Fake secrets only.
  */
@@ -51,6 +52,8 @@ const svc = (s) => owner(`BEGIN;\nSET LOCAL ROLE service_role;\nSET LOCAL "reque
 // ── mock Mercado Pago on this host ───────────────────────────────────────────
 const PID = `7774${String(Date.now()).slice(-8)}`;
 const CB = `7775${String(Date.now()).slice(-8)}`;
+const PID2 = `77749${String(Date.now()).slice(-7)}`;
+let pid2Calls = 0;
 const mpLog = [];
 const CLIENT_NAME = `S8H-C2 ${Date.now()}`;
 let CLIENT = null;
@@ -63,6 +66,13 @@ const payload = {
 };
 const server = createServer((req, res) => {
   mpLog.push({ method: req.method, url: req.url, auth: req.headers.authorization ?? null });
+  if (req.method === 'GET' && req.url === `/v1/payments/${PID2}`) {
+    // first call 401 (credential broken), later calls 200 (credential fixed: probe + fetch)
+    pid2Calls += 1;
+    res.writeHead(pid2Calls === 1 ? 401 : 200, { 'content-type': 'application/json' });
+    res.end(pid2Calls === 1 ? '{"message":"unauthorized"}' : JSON.stringify({ ...payload, id: Number(PID2), external_reference: null }));
+    return;
+  }
   if (req.method === 'GET' && req.url === `/v1/payments/${PID}`) {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(payload));
@@ -93,6 +103,7 @@ DELETE FROM financial_operation WHERE id IN (SELECT id FROM _op);
 DELETE FROM mp_transition_identity WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
 DELETE FROM mp_financial_movement WHERE id IN (SELECT id FROM _mv);
 DELETE FROM mp_webhook_delivery WHERE triggered_by_delivery_id IN (SELECT id FROM _dl);
+DELETE FROM audit_events WHERE action = 'MP_DELIVERY_REQUEUE' AND reason = 'auto: credential probe succeeded' AND performed_by IS NULL;
 DELETE FROM mp_webhook_delivery WHERE id IN (SELECT id FROM _dl);
 DELETE FROM mp_source_record WHERE id IN (SELECT id FROM _src);
 DELETE FROM clients WHERE nombre LIKE 'S8H-C2 %';`);
@@ -127,6 +138,8 @@ payload.external_reference = `GST:C:${CLIENT}`;
 const foreignDue = owner(`SELECT count(*) FROM mp_webhook_delivery WHERE status IN ('RECEIVED', 'FAILED_RETRYABLE') AND next_attempt_at <= NOW() + INTERVAL '1 day'
   AND coalesce(resource_id, '') NOT LIKE '7774%' AND coalesce(resource_id, '') NOT LIKE '7775%';`);
 check('S0 no foreign due deliveries', foreignDue === '0', foreignDue);
+const foreignBlocked = owner(`SELECT count(*) FROM mp_webhook_delivery WHERE status = 'CONFIG_BLOCKED' AND coalesce(resource_id, '') NOT LIKE '7774%';`);
+check('S0b no foreign CONFIG_BLOCKED deliveries (the probe must only see this suite row)', foreignBlocked === '0', foreignBlocked);
 
 const dir = mkdtempSync(join(tmpdir(), 'mpwk-'));
 const envPath = join(dir, 'functions.env');
@@ -166,13 +179,37 @@ try {
     al === `1|${CLIENT}|AUTO|-100.00` && summary.allocated === 1, al + ' ' + JSON.stringify(summary));
   check('E-2 exactly one GET /v1/payments/{id} to the mock, with Authorization: Bearer <MP_ACCESS_TOKEN>; no other MP endpoint',
     reqs.length === 1 && reqs[0].method === 'GET' && reqs[0].auth === `Bearer ${TOKEN}` && mpLog.every((x) => x.url.startsWith('/v1/payments/')), JSON.stringify(mpLog));
-  check('E-3 chargeback signal recorded; before Step 9 the service role cannot read mp_webhook_delivery, so the edge adapter fails closed (unresolved, no refresh)',
-    owner(`SELECT status || '|' || coalesce(signal_resolution, '-') FROM mp_webhook_delivery WHERE id = '${cb}';`) === 'SIGNAL_RECORDED|-'
-      && owner(`SELECT count(*) FROM mp_webhook_delivery WHERE triggered_by_delivery_id = '${cb}';`) === '0');
+  check('E-3 chargeback auto-link through the real service-role PostgREST read (Step 9): data_payment_id read → SIGNAL_RECORDED + LINKED; exactly one chargeback_refresh payment delivery for that payment',
+    owner(`SELECT status || '|' || coalesce(signal_resolution, '-') FROM mp_webhook_delivery WHERE id = '${cb}';`) === 'SIGNAL_RECORDED|LINKED'
+      && owner(`SELECT count(*) || '|' || max(topic_class) || '|' || max(resource_id) || '|' || max(origin) FROM mp_webhook_delivery WHERE triggered_by_delivery_id = '${cb}';`) === `1|payment|${PID}|chargeback_refresh`,
+    owner(`SELECT status || '|' || coalesce(signal_resolution, '-') FROM mp_webhook_delivery WHERE id = '${cb}';`));
   r = await post({ 'x-worker-invoke-secret': SECRET });
   const s2 = await r.json();
-  check('E-4 a second run finds nothing to do (no duplicate effect)', r.status === 200 && s2.claimed === 0 && owner(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id
-    JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:${PID}:%';`) === '3', JSON.stringify(s2));
+  const ledger = () => owner(`SELECT (SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id
+    JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:${PID}:%') || '|' || (SELECT count(*) FROM mp_client_allocation a
+    JOIN mp_financial_movement m ON m.id = a.mp_financial_movement_id JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:${PID}:%');`);
+  check('E-4 the second run processes only the chargeback_refresh (current resource re-fetched → same source): FETCHED; no duplicate money or attribution',
+    r.status === 200 && s2.claimed === 1 && s2.fetched === 1 && s2.applied === 0 && s2.allocated === 0 && ledger() === '3|1'
+      && owner(`SELECT status FROM mp_webhook_delivery WHERE triggered_by_delivery_id = '${cb}';`) === 'FETCHED', JSON.stringify(s2) + ' ' + ledger());
+  r = await post({ 'x-worker-invoke-secret': SECRET });
+  const s3 = await r.json();
+  check('E-4b a third run finds nothing to do', r.status === 200 && s3.claimed === 0 && ledger() === '3|1', JSON.stringify(s3));
+
+  // CONFIG_BLOCKED probe through the real service-role PostgREST read
+  const d2 = JSON.parse(svc(`SELECT mp_register_delivery('webhook', 'payment', 'payment', 'payment.updated', '${PID2}', NULL, 'S8H-p', '{"notification_id":"s8h-p-${Date.now()}"}'::jsonb, true)::text;`)).delivery_id;
+  r = await post({ 'x-worker-invoke-secret': SECRET });
+  const sb = await r.json();
+  check('P-1 401 from MP → CONFIG_BLOCKED (auth circuit breaker); no source', sb.stopped === 'auth_circuit_breaker' && sb.config_blocked === 1
+    && owner(`SELECT status FROM mp_webhook_delivery WHERE id = '${d2}';`) === 'CONFIG_BLOCKED'
+    && owner(`SELECT count(*) FROM mp_source_record WHERE external_id LIKE 'MPPAY:${PID2}:%';`) === '0', JSON.stringify(sb));
+  const auditsBefore = Number(owner(`SELECT count(*) FROM audit_events WHERE action = 'MP_DELIVERY_REQUEUE';`));
+  r = await post({ 'x-worker-invoke-secret': SECRET });
+  const sp = await r.json();
+  const lastAudit = owner(`SELECT (performed_by IS NULL) || '|' || coalesce(reason, '-') FROM audit_events WHERE action = 'MP_DELIVERY_REQUEUE' ORDER BY id DESC LIMIT 1;`);
+  check('P-2 next run: the service role reads the oldest CONFIG_BLOCKED row (Step-9 grant) → exactly one probe GET → 200 → mp_requeue_config_blocked (actor NULL) → the row is processed → FETCHED',
+    sp.probe === 'requeued' && pid2Calls === 3 && owner(`SELECT status FROM mp_webhook_delivery WHERE id = '${d2}';`) === 'FETCHED'
+      && Number(owner(`SELECT count(*) FROM audit_events WHERE action = 'MP_DELIVERY_REQUEUE';`)) === auditsBefore + 1
+      && lastAudit === 'true|auto: credential probe succeeded', JSON.stringify(sp) + ` calls=${pid2Calls} ${lastAudit}`);
   check('E-5 no CORS header on the worker response', r.headers.get('access-control-allow-origin') === null || /kong/i.test(r.headers.get('via') ?? ''));
 
   await sleep(1500);

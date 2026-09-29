@@ -219,11 +219,13 @@ const synth = (o = {}) => {
 const netOf = (row) => Number(row.NET_CREDIT_AMOUNT) - Number(row.NET_DEBIT_AMOUNT);
 const extIdOf = (row) => `${row.SOURCE_ID}:${row.DESCRIPTION}:${netOf(row) > 0 ? 'C' : 'D'}`;
 // ingestion = direct service_role INSERT (RLS §9); raw values derived per ADR-003
+// o.asOwner: rows of a source type the narrowed service policy denies (ADR-006 Step 9 / 0054, §P23-T),
+// inserted as OWNER only to keep RPC 40 branch coverage.
 const ingest = (row, o = {}) => {
   const ext = o.ext ?? extIdOf(row);
   const at = o.at ?? row.DATE;
   const date = o.date ?? `(TIMESTAMPTZ '${at}' AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE`;
-  return okAs(SVC, `INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date)
+  return okAs(o.asOwner ? raw : SVC, `INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date)
     VALUES ('${o.type ?? 'csv_import'}', '${esc(ext)}', '${esc(JSON.stringify(row))}'::jsonb, '${at}', ${date}) RETURNING id;`);
 };
 const normalize = (src) => rpcAs(SVC, `mp_normalize_source('${src}')`);
@@ -333,8 +335,12 @@ check('B2 ADMIN, OPERATOR and anon cannot ingest', ins.every(denied), ins.map(fi
 r = SVC(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date)
   VALUES ('csv_import', '144502568133:payment:C', '{}'::jsonb, NOW(), '2026-05-01');`);
 check('B3 duplicate (source_type, external_id) is rejected by the physical UNIQUE', violates(r, 'mp_source_record_source_type_external_id_key'), firstErr(r));
-const bOther = ingest({ id: 'x', [TAG]: true }, { type: 'webhook', ext: '144502568133:payment:C', at: '2026-05-10T10:00:00-03:00' });
-check('B4 the same external_id under another source_type is a different source', !!bOther);
+// B4 (§P23-T, from Step 9 / 0054): the service-role INSERT of a non-report source type is denied (R4)
+r = SVC(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date)
+  VALUES ('webhook', 'b4-deny-webhook', '{}'::jsonb, '2026-05-10T10:00:00-03:00', '2026-05-10');`);
+check('B4 service-role INSERT of source_type webhook → denied (R4: narrowed mp_source_service_insert + guard trg_mp_source_insert_guard, since service_role has BYPASSRLS)', !r.ok && /SOURCE_TYPE_NOT_INSERTABLE/.test(r.err), firstErr(r));
+const bOther = ingest({ id: 'x', [TAG]: true }, { type: 'webhook', ext: '144502568133:payment:C', at: '2026-05-10T10:00:00-03:00', asOwner: true });
+check('B4b the same external_id under another source_type is a different source (row inserted as owner)', !!bOther);
 check('B5 read visibility: ADMIN and service_role see raw sources; OPERATOR sees none; anon has no privilege',
   Number(visible(ADMIN, 'mp_source_record')) >= 2 && Number(visible(SVC, 'mp_source_record')) >= 2 && visible(OPER, 'mp_source_record') === '0'
   && denied(ANON(`SELECT 1 FROM mp_source_record;`)));
@@ -396,9 +402,14 @@ const errCases = [
   ['non-string value in event_data', { ...synth(), GROSS_AMOUNT: 1010 }, {}, 'MALFORMED_EVENT_DATA'],
   ['unsupported CSV format (settlement report layout)', { SOURCE_ID: '9', TRANSACTION_TYPE: 'SETTLEMENT', SETTLEMENT_NET_AMOUNT: '10.00', [TAG]: '1' },
     { ext: 'settlement-1', at: '2026-05-10T10:00:00-03:00' }, 'UNSUPPORTED_CSV_FORMAT'],
-  ['unsupported source_type webhook', { type: 'payment', data: { id: '1' }, [TAG]: '1' }, { type: 'webhook', ext: 'wh-1', at: '2026-05-10T10:00:00-03:00' }, 'UNSUPPORTED_SOURCE_TYPE'],
-  ['unsupported source_type api', { id: 1, transaction_amount: 10, [TAG]: '1' }, { type: 'api', ext: 'api-1', at: '2026-05-10T10:00:00-03:00' }, 'UNSUPPORTED_SOURCE_TYPE'],
+  ['unsupported source_type webhook', { type: 'payment', data: { id: '1' }, [TAG]: '1' }, { type: 'webhook', ext: 'wh-1', at: '2026-05-10T10:00:00-03:00', asOwner: true }, 'UNSUPPORTED_SOURCE_TYPE'],
+  ['unsupported source_type api', { id: 1, transaction_amount: 10, [TAG]: '1' }, { type: 'api', ext: 'api-1', at: '2026-05-10T10:00:00-03:00', asOwner: true }, 'UNSUPPORTED_SOURCE_TYPE'],
 ];
+for (const t of ['webhook', 'api', 'api_payment', 'api_refund']) {
+  const d = SVC(`INSERT INTO mp_source_record (source_type, external_id, event_data, occurred_at, occurred_date)
+    VALUES ('${t}', 'd7-deny-${t}', '{}'::jsonb, '2026-05-10T10:00:00-03:00', '2026-05-10');`);
+  check(`D7 service-role INSERT of source_type ${t} → denied by the R4 guard (Step 9); the RPC 40 branch stays covered by owner-inserted rows`, !d.ok && /SOURCE_TYPE_NOT_INSERTABLE/.test(d.err), firstErr(d));
+}
 for (const [what, row, o, code] of errCases) {
   const src = ingest(row, o);
   const before = rawOf(src);

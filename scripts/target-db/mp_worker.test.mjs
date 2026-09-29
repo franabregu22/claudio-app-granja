@@ -6,10 +6,9 @@
  *         node scripts/target-db/mp_worker.test.mjs
  *
  * The worker core (supabase/functions/_shared/mp-worker-core.ts) runs with:
- *   - a psql DB adapter that calls the real RPCs as service_role (the same calls the edge adapter makes
- *     through PostgREST). The two reads whose service-role grant arrives with Step 9 (the chargeback
- *     notification's data_payment_id and the oldest CONFIG_BLOCKED delivery) are executed as OWNER here,
- *     simulating that grant; the edge adapter fails closed (null) until Step 9 lands;
+ *   - a psql DB adapter that calls the real RPCs and performs the reads as service_role (the same calls the
+ *     edge adapter makes through PostgREST), including the two mp_webhook_delivery reads that the Step-9
+ *     grant (0054) enables: the chargeback notification's data_payment_id and the oldest CONFIG_BLOCKED row;
  *   - a mock Mercado Pago API (no network: globalThis.fetch is replaced by a thrower);
  *   - an injected clock and log collector.
  * Synthetic ids only: payments 7772…, chargebacks 7773…; dates 2026-11.
@@ -100,14 +99,14 @@ const realDb = {
   },
   async applyTransition(id) { calls.push('apply'); return svcJson(`mp_apply_transition(${id})`); },
   async autoAllocate(id) { calls.push('allocate'); return svcJson(`mp_auto_allocate(${id})`); },
-  async chargebackPaymentRef(d) { // Step-9 read (simulated grant)
-    const v = owner(`SELECT coalesce(notification_payload->>'data_payment_id', '') FROM mp_webhook_delivery WHERE id = ${q(d)};`);
-    return v === '' ? null : v;
+  async chargebackPaymentRef(d) { // service_role read (0054 grant)
+    const rows = svcRows(`SELECT notification_payload->>'data_payment_id' AS v FROM mp_webhook_delivery WHERE id = ${q(d)}`);
+    return rows[0]?.v ?? null;
   },
-  async oldestConfigBlocked() { // Step-9 read (simulated grant), limited to this suite's rows
-    const v = owner(`SELECT coalesce((SELECT resource_id FROM mp_webhook_delivery WHERE status = 'CONFIG_BLOCKED' AND topic_class = 'payment'
-      AND resource_id LIKE '7772%' ORDER BY updated_at LIMIT 1), '');`);
-    return v === '' ? null : { resource_id: v };
+  async oldestConfigBlocked() { // service_role read (0054 grant), limited to this suite's rows
+    const rows = svcRows(`SELECT resource_id FROM mp_webhook_delivery WHERE status = 'CONFIG_BLOCKED' AND topic_class = 'payment'
+      AND resource_id LIKE '7772%' ORDER BY updated_at LIMIT 1`);
+    return rows[0] ? { resource_id: rows[0].resource_id } : null;
   },
   async requeueConfigBlocked(reason) { calls.push('requeue'); return svcJson(`mp_requeue_config_blocked(${q(reason)})`); },
   async pendingApiSources(limit) {

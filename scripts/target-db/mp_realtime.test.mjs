@@ -295,10 +295,16 @@ check('S6 no speculative API / V-2 column on the ADR-006 tables or on existing M
           AND table_name IN (${[...NEW_TABLES, 'mp_source_record', 'mp_financial_movement', 'mp_reconciliation'].map(q).join(',')})
           AND column_name ~* '(transaction_amount|net_received|fee_details|date_approved|date_last_updated|external_reference|payer|collector|currency|operation_type|refund)'
           AND NOT (table_name = 'mp_payer_client_map' AND column_name = 'mp_payer_id');`) === '0');
-check('S7 no application-role privilege on the six tables before 0051 (fail-closed)',
-  owner(`SELECT count(*) FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
-          WHERE c.relname IN (${NEW_TABLES.map(q).join(',')}) AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role'));`) === '0'
-  && [ADMIN, OPER, SVC, ANON].every((fn) => denied(fn(`SELECT count(*) FROM mp_webhook_delivery;`))));
+// Step 9 (0054) supersedes the pre-0054 fail-closed state: the final perimeter is asserted exactly here
+// and in full by mp_privileges.test.mjs (S-1…S-7).
+check('S7 final application-role privileges on the six tables (0054): SELECT only — authenticated on all six, service_role on delivery / identity / match; anon none',
+  owner(`SELECT string_agg(c.relname || ':' || r.rolname || ':' || a.privilege_type, ',' ORDER BY c.relname, r.rolname, a.privilege_type)
+          FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a JOIN pg_roles r ON r.oid = a.grantee
+          WHERE c.relname IN (${NEW_TABLES.map(q).join(',')}) AND r.rolname IN ('anon','authenticated','service_role');`)
+    === ['mp_attribution_flag:authenticated:SELECT', 'mp_client_allocation:authenticated:SELECT', 'mp_payer_client_map:authenticated:SELECT',
+      'mp_report_match:authenticated:SELECT', 'mp_report_match:service_role:SELECT', 'mp_transition_identity:authenticated:SELECT',
+      'mp_transition_identity:service_role:SELECT', 'mp_webhook_delivery:authenticated:SELECT', 'mp_webhook_delivery:service_role:SELECT'].join(',')
+  && denied(ANON(`SELECT count(*) FROM mp_webhook_delivery;`)) && OPER(`SELECT count(*) FROM mp_webhook_delivery;`).out === '0');
 x = raw(`BEGIN; INSERT INTO mp_webhook_delivery (delivery_key, notification_sha256, origin, topic, topic_class, resource_id, signature_verified)
   VALUES ('h:rt6-guard', repeat('a', 64), 'webhook', 'payment', 'payment', '123', true); UPDATE mp_webhook_delivery SET resource_id = '124' WHERE delivery_key = 'h:rt6-guard'; ROLLBACK;`);
 const xm = raw(`BEGIN; INSERT INTO mp_report_match (outcome, report_source_id, transition_id, detail, is_exception)
