@@ -52,9 +52,11 @@ const svc = (s) => owner(`BEGIN;\nSET LOCAL ROLE service_role;\nSET LOCAL "reque
 const PID = `7774${String(Date.now()).slice(-8)}`;
 const CB = `7775${String(Date.now()).slice(-8)}`;
 const mpLog = [];
+const CLIENT_NAME = `S8H-C2 ${Date.now()}`;
+let CLIENT = null;
 const payload = {
   id: Number(PID), operation_type: 'money_transfer', status: 'approved', status_detail: 'accredited', currency_id: 'ARS', live_mode: true,
-  collector_id: Number(COLLECTOR), payer: { id: '800000999', email: 'buyer@example.invalid', first_name: 'Buyer' }, external_reference: null,
+  collector_id: Number(COLLECTOR), payer: { id: '800000999', email: 'buyer@example.invalid', first_name: 'Buyer' }, external_reference: null, // set to GST:C:<client> below
   date_created: '2026-11-05T10:00:00.000-04:00', date_approved: '2026-11-05T10:00:00.000-04:00', transaction_amount: 100,
   transaction_details: { net_received_amount: 93 }, fee_details: [{ type: 'mercadopago_fee', amount: 5, fee_payer: 'collector' }],
   refunds: [], transaction_amount_refunded: 0, taxes_amount: 0, charges_details: [],
@@ -78,6 +80,10 @@ CREATE TEMP TABLE _src AS SELECT id FROM mp_source_record WHERE external_id LIKE
 CREATE TEMP TABLE _mv  AS SELECT id FROM mp_financial_movement WHERE mp_source_record_id IN (SELECT id FROM _src);
 CREATE TEMP TABLE _op  AS SELECT financial_operation_id AS id FROM mp_reconciliation WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
 CREATE TEMP TABLE _dl  AS SELECT id FROM mp_webhook_delivery WHERE resource_id LIKE '7774%' OR resource_id LIKE '7775%';
+CREATE TEMP TABLE _al  AS SELECT id, client_ledger_id FROM mp_client_allocation WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
+DELETE FROM audit_events WHERE entity_type = 'mp_client_allocation' AND entity_id IN (SELECT id::TEXT FROM _al);
+DELETE FROM mp_client_allocation WHERE id IN (SELECT id FROM _al);
+DELETE FROM client_ledger WHERE id IN (SELECT client_ledger_id FROM _al);
 DELETE FROM audit_events WHERE (entity_type = 'mp_source_record' AND entity_id IN (SELECT id::TEXT FROM _src))
    OR (entity_type = 'mp_financial_movement' AND entity_id IN (SELECT id::TEXT FROM _mv))
    OR (entity_type = 'mp_webhook_delivery' AND entity_id IN (SELECT id::TEXT FROM _dl));
@@ -88,7 +94,8 @@ DELETE FROM mp_transition_identity WHERE mp_financial_movement_id IN (SELECT id 
 DELETE FROM mp_financial_movement WHERE id IN (SELECT id FROM _mv);
 DELETE FROM mp_webhook_delivery WHERE triggered_by_delivery_id IN (SELECT id FROM _dl);
 DELETE FROM mp_webhook_delivery WHERE id IN (SELECT id FROM _dl);
-DELETE FROM mp_source_record WHERE id IN (SELECT id FROM _src);`);
+DELETE FROM mp_source_record WHERE id IN (SELECT id FROM _src);
+DELETE FROM clients WHERE nombre LIKE 'S8H-C2 %';`);
 }
 
 async function startServe(envPath) {
@@ -115,6 +122,8 @@ async function startServe(envPath) {
 assertNoProductionCredentials(process.env);
 assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
 cleanup();
+CLIENT = owner(`INSERT INTO clients (nombre, activo) VALUES ('${CLIENT_NAME}', true) RETURNING id;`);
+payload.external_reference = `GST:C:${CLIENT}`;
 const foreignDue = owner(`SELECT count(*) FROM mp_webhook_delivery WHERE status IN ('RECEIVED', 'FAILED_RETRYABLE') AND next_attempt_at <= NOW() + INTERVAL '1 day'
   AND coalesce(resource_id, '') NOT LIKE '7774%' AND coalesce(resource_id, '') NOT LIKE '7775%';`);
 check('S0 no foreign due deliveries', foreignDue === '0', foreignDue);
@@ -150,6 +159,11 @@ try {
   check('E-1 end to end through PostgREST: FETCHED, source RECONCILED, 3 A1 components', row[0] === 'FETCHED' && ops === '3'
     && owner(`SELECT processing_status FROM mp_source_record WHERE external_id LIKE 'MPPAY:${PID}:%';`) === 'RECONCILED', `${row} ${ops}`);
   const reqs = mpLog.filter((x) => x.url === `/v1/payments/${PID}`);
+  const al = owner(`SELECT count(*) || '|' || coalesce(max(a.cliente_id::text), '-') || '|' || coalesce(max(a.mode), '-') || '|' || coalesce(sum(l.signed_amount)::text, '-')
+    FROM mp_client_allocation a JOIN client_ledger l ON l.id = a.client_ledger_id JOIN mp_financial_movement m ON m.id = a.mp_financial_movement_id
+    JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:${PID}:%';`);
+  check('E-1b deterministic evidence (external_reference GST:C:<client>) → C2 AUTO allocation through the PostgREST adapter: 1 allocation, client_ledger −100, summary.allocated = 1',
+    al === `1|${CLIENT}|AUTO|-100.00` && summary.allocated === 1, al + ' ' + JSON.stringify(summary));
   check('E-2 exactly one GET /v1/payments/{id} to the mock, with Authorization: Bearer <MP_ACCESS_TOKEN>; no other MP endpoint',
     reqs.length === 1 && reqs[0].method === 'GET' && reqs[0].auth === `Bearer ${TOKEN}` && mpLog.every((x) => x.url.startsWith('/v1/payments/')), JSON.stringify(mpLog));
   check('E-3 chargeback signal recorded; before Step 9 the service role cannot read mp_webhook_delivery, so the edge adapter fails closed (unresolved, no refresh)',

@@ -202,7 +202,14 @@ export async function runWorker(deps: WorkerDeps): Promise<WorkerSummary> {
     }
   }
 
-  if (sum.stopped === 'completed') await maybeSweep(deps, sum);
+  if (sum.stopped === 'completed') {
+    try {
+      await maybeSweep(deps, sum);
+    } catch (err) {
+      // structural failure: the marker stays unset, so a later invocation in the window retries
+      log({ event: 'WORKER_SWEEP_FAILED', code: dbErrorCode(err) });
+    }
+  }
   log({ event: 'WORKER_RUN', duration_ms: clock.now() - start, counts: { ...countsOf(sum) } });
   return sum;
 }
@@ -338,15 +345,24 @@ async function applyOne(deps: WorkerDeps, movementId: number, deliveryId: string
   }
 }
 
+/**
+ * C2 NONE results ({allocated:false, reason}) are normal. NOT_A_RECEIPT is C2's deterministic
+ * rejection of a movement that is not a payment / APPROVAL receipt (nothing to attribute).
+ * Every other thrown RPC / DB error propagates: the item is aborted without FETCHED and the
+ * lease / re-claim / idempotency recover it.
+ */
 async function allocateOne(deps: WorkerDeps, movementId: number, deliveryId: string | undefined, pid: string | null): Promise<boolean> {
+  let r: { allocated: boolean; reason?: string };
   try {
-    const r = await deps.db.autoAllocate(movementId);
-    deps.log({ event: 'WORKER_AUTO_ALLOCATE', delivery_id: deliveryId, resource_id: pid, code: r.allocated ? 'ALLOCATED' : (r.reason ?? 'NONE') });
-    return r.allocated === true;
+    r = await deps.db.autoAllocate(movementId);
   } catch (err) {
-    deps.log({ event: 'WORKER_AUTO_ALLOCATE', delivery_id: deliveryId, resource_id: pid, code: dbErrorCode(err) });
-    return false;
+    const code = dbErrorCode(err);
+    deps.log({ event: 'WORKER_AUTO_ALLOCATE', delivery_id: deliveryId, resource_id: pid, code });
+    if (code === 'NOT_A_RECEIPT') return false;
+    throw err;
   }
+  deps.log({ event: 'WORKER_AUTO_ALLOCATE', delivery_id: deliveryId, resource_id: pid, code: r.allocated ? 'ALLOCATED' : (r.reason ?? 'NONE') });
+  return r.allocated === true;
 }
 
 /** §4a: signal only — no fetch, no movement, no treasury effect. */
@@ -400,8 +416,6 @@ async function maybeSweep(deps: WorkerDeps, sum: WorkerSummary): Promise<void> {
   const { db, clock, log, state } = deps;
   const { date, minuteOfDay } = localParts(clock.now());
   if (minuteOfDay < SWEEP_WINDOW_START_MIN || minuteOfDay >= SWEEP_WINDOW_END_MIN || state.lastSweepLocalDate === date) return;
-  state.lastSweepLocalDate = date;
-  sum.sweep = true;
   let normalized = 0;
   for (const s of await db.pendingApiSources(100)) {
     try {
@@ -423,5 +437,7 @@ async function maybeSweep(deps: WorkerDeps, sum: WorkerSummary): Promise<void> {
   }
   sum.applied += applied;
   sum.allocated += allocated;
+  sum.sweep = true;
+  state.lastSweepLocalDate = date; // committed only after the sweep completed
   log({ event: 'WORKER_SWEEP', counts: { normalized, applied, allocated } });
 }

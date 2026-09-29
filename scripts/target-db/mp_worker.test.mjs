@@ -186,6 +186,14 @@ CREATE TEMP TABLE _src AS SELECT id FROM mp_source_record WHERE external_id LIKE
 CREATE TEMP TABLE _mv  AS SELECT id FROM mp_financial_movement WHERE mp_source_record_id IN (SELECT id FROM _src);
 CREATE TEMP TABLE _op  AS SELECT financial_operation_id AS id FROM mp_reconciliation WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
 CREATE TEMP TABLE _dl  AS SELECT id FROM mp_webhook_delivery WHERE resource_id LIKE '7772%' OR resource_id LIKE '7773%';
+CREATE TEMP TABLE _al  AS SELECT id, client_ledger_id FROM mp_client_allocation WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
+CREATE TEMP TABLE _cl  AS SELECT id FROM clients WHERE nombre LIKE 'S8T-C2 %';
+DELETE FROM audit_events WHERE entity_type = 'mp_client_allocation' AND entity_id IN (SELECT id::TEXT FROM _al);
+DELETE FROM mp_attribution_flag WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
+DELETE FROM mp_client_allocation WHERE id IN (SELECT id FROM _al);
+DELETE FROM client_ledger WHERE id IN (SELECT client_ledger_id FROM _al);
+DELETE FROM mp_payer_client_map WHERE mp_payer_id LIKE '5557%' OR cliente_id IN (SELECT id FROM _cl);
+DELETE FROM pedidos WHERE cliente_id IN (SELECT id FROM _cl);
 DELETE FROM audit_events WHERE entity_type IN ('mp_source_record') AND entity_id IN (SELECT id::TEXT FROM _src);
 DELETE FROM audit_events WHERE entity_type = 'mp_financial_movement' AND entity_id IN (SELECT id::TEXT FROM _mv);
 DELETE FROM audit_events WHERE entity_type = 'mp_webhook_delivery' AND entity_id IN (SELECT id::TEXT FROM _dl);
@@ -197,7 +205,8 @@ DELETE FROM mp_financial_movement WHERE id IN (SELECT id FROM _mv);
 UPDATE mp_webhook_delivery SET source_record_id = NULL WHERE id IN (SELECT id FROM _dl) AND source_record_id IS NOT NULL AND false;
 DELETE FROM mp_webhook_delivery WHERE triggered_by_delivery_id IN (SELECT id FROM _dl) OR key_conflict_of IN (SELECT id FROM _dl);
 DELETE FROM mp_webhook_delivery WHERE id IN (SELECT id FROM _dl);
-DELETE FROM mp_source_record WHERE id IN (SELECT id FROM _src);`);
+DELETE FROM mp_source_record WHERE id IN (SELECT id FROM _src);
+DELETE FROM clients WHERE id IN (SELECT id FROM _cl);`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -525,6 +534,215 @@ section('P', 'closed period + daily sweep');
     sw2.sweep === false && owner('SELECT count(*) FROM financial_operation;') === opsAfter);
   const outside = await runWorker(deps({ clock: { now: () => Date.parse('2026-11-21T06:15:00Z') }, state: { lastProbeAt: SWEEP } }));
   check('no sweep outside the [03:00, 03:10) local window', outside.sweep === false);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+section('C2', 'mp_auto_allocate deterministic evidence (0053)');
+let cseq = 0;
+const mkClient = (activo = true) => owner(`INSERT INTO clients (nombre, activo) VALUES ('S8T-C2 ${++cseq}-${Date.now()}', ${activo}) RETURNING id;`);
+const mkPedido = (cli) => owner(`INSERT INTO pedidos (cliente_id) VALUES ('${cli}') RETURNING id;`);
+let payerSeq = 0;
+const newPayer = () => `5557${String(Date.now()).slice(-6)}${String(++payerSeq).padStart(2, '0')}`;
+const mkMap = (payer, cli) => owner(`INSERT INTO mp_payer_client_map (mp_payer_id, cliente_id, created_by) VALUES ('${payer}', '${cli}', '${ADMIN_UID}') RETURNING id;`);
+const mvOf = (pid) => owner(`SELECT m.id || '|' || t.id || '|' || m.occurred_date FROM mp_financial_movement m JOIN mp_transition_identity t ON t.mp_financial_movement_id = m.id
+  JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:${pid}:%' AND t.transition = 'APPROVAL';`).split('|');
+const allocRows = (pid) => JSON.parse(owner(`SELECT coalesce(json_agg(json_build_object('cliente', a.cliente_id, 'amount', a.amount::float8, 'mode', a.mode, 'key', a.idempotency_key,
+    'eff', a.effective_date, 'by', a.created_by, 'evidence', a.evidence, 'l_type', l.movement_type, 'l_amount', l.signed_amount::float8, 'l_date', l.effective_date,
+    'l_cli', l.cliente_id, 'l_src', l.source_entity_type || ':' || l.source_entity_id, 'l_by', l.created_by, 'id', a.id) ORDER BY a.created_at), '[]')::text
+  FROM mp_client_allocation a JOIN client_ledger l ON l.id = a.client_ledger_id JOIN mp_financial_movement m ON m.id = a.mp_financial_movement_id
+  JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:${pid}:%';`));
+const allocAudits = (pid) => Number(owner(`SELECT count(*) FROM audit_events e WHERE e.action = 'MP_CLIENT_ALLOCATION' AND e.entity_id IN (
+  SELECT a.id::TEXT FROM mp_client_allocation a JOIN mp_financial_movement m ON m.id = a.mp_financial_movement_id
+  JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE 'MPPAY:${pid}:%');`));
+const totals = () => owner(`SELECT (SELECT count(*) FROM collections) || '|' || (SELECT count(*) FROM financial_posting) || '|' || (SELECT count(*) FROM financial_operation) || '|' || (SELECT count(*) FROM client_ledger);`).split('|').map(Number);
+async function viaWorker({ extref = null, payer = '800000999', dbOver = null } = {}) {
+  const pid = newPid();
+  const d = registerPayment(pid);
+  const p = paymentPayload(pid);
+  p.external_reference = extref;
+  p.payer = { ...p.payer, id: payer };
+  mp.responses.set(pid, [ok200(p)]);
+  logs = [];
+  const s = await (dbOver ? runWorker(deps({ db: { ...realDb, ...dbOver } })) : run());
+  const codes = logs.filter((l) => l.event === 'WORKER_AUTO_ALLOCATE').map((l) => l.code);
+  return { pid, d, s, codes };
+}
+const autoAlloc = (mvId) => svcJson(`mp_auto_allocate(${mvId})`);
+check('C2-0 no active payer map exists for the default synthetic payer 800000999 (fixtures cannot leak evidence)',
+  owner(`SELECT count(*) FROM mp_payer_client_map WHERE mp_payer_id = '800000999' AND activo;`) === '0');
+check('C2-0b C2 has exactly one signature, (p_movement_id bigint): no client can be chosen through a parameter; still SECURITY DEFINER, service_role only',
+  owner(`SELECT string_agg(pg_get_function_identity_arguments(p.oid) || ':' || p.prosecdef, ',') FROM pg_proc p WHERE p.proname = 'mp_auto_allocate';`) === 'p_movement_id bigint:true'
+    && owner(`SELECT has_function_privilege('authenticated', 'mp_auto_allocate(bigint)', 'EXECUTE') || '|' || has_function_privilege('service_role', 'mp_auto_allocate(bigint)', 'EXECUTE');`) === 'false|true');
+{
+  // C2-1 + worker end-to-end: API payment → normalize → A1 → C2 AUTO → FETCHED
+  const A = mkClient();
+  const before = totals();
+  const r = await viaWorker({ extref: `GST:C:${A}` });
+  const after = totals();
+  const [mvId, tId, occ] = mvOf(r.pid);
+  const al = allocRows(r.pid);
+  check('C2-1 external_reference GST:C:<client> → exactly one AUTO allocation to that client; delivery FETCHED', r.s.allocated === 1 && dRow(r.d)[0] === 'FETCHED'
+    && al.length === 1 && al[0].cliente === A && al[0].mode === 'AUTO' && r.codes.join() === 'ALLOCATED', JSON.stringify(al) + r.codes.join());
+  check('C2-1b amount = effective receipt (gross 100, no applied refunds); effective_date = movement.occurred_date; key MPAUTO:<approval transition id>; created_by NULL; evidence {external_reference}',
+    al[0].amount === 100 && al[0].eff === occ && al[0].key === `MPAUTO:${tId}` && al[0].by === null
+      && JSON.stringify(al[0].evidence) === JSON.stringify({ external_reference: `GST:C:${A}` }), JSON.stringify(al[0]));
+  check('C2-1c client_ledger: one COLLECTION −100 for that client, dated movement.occurred_date, source mp_client_allocation:<allocation id>, created_by NULL',
+    al[0].l_type === 'COLLECTION' && al[0].l_amount === -100 && al[0].l_date === occ && al[0].l_cli === A && al[0].l_src === `mp_client_allocation:${al[0].id}` && al[0].l_by === null);
+  check('C2-1d E2E totals: MP treasury effect exactly once (A1: 3 operations / 3 postings); Δ client_ledger = 1; Δ collections = 0; audit MP_CLIENT_ALLOCATION exactly once',
+    opCount(r.pid) === 3 && after[1] - before[1] === 3 && after[2] - before[2] === 3 && after[3] - before[3] === 1 && after[0] === before[0] && allocAudits(r.pid) === 1,
+    `${before} → ${after}`);
+  // C2-10 replay
+  const t0 = totals();
+  const rep = autoAlloc(mvId);
+  registerPayment(r.pid);
+  await run();
+  check('C2-10 replay: direct C2 → {allocated:false, ALREADY_ALLOCATED}; duplicate notification through the worker → FETCHED; Δ ledger / allocation / audit / postings = 0',
+    rep.allocated === false && rep.reason === 'ALREADY_ALLOCATED' && allocRows(r.pid).length === 1 && allocAudits(r.pid) === 1 && totals().join() === t0.join(), JSON.stringify(rep));
+}
+{
+  const B = mkClient();
+  const ped = mkPedido(B);
+  const r = await viaWorker({ extref: `GST:P:${ped}` });
+  const al = allocRows(r.pid);
+  check('C2-2 GST:P:<pedido> → pedidos.cliente_id; one AUTO allocation, evidence {external_reference}', al.length === 1 && al[0].cliente === B
+    && al[0].evidence.external_reference === `GST:P:${ped}` && al[0].l_amount === -100, JSON.stringify(al));
+}
+{
+  const C = mkClient();
+  const payer = newPayer();
+  const map = mkMap(payer, C);
+  const r = await viaWorker({ payer });
+  const al = allocRows(r.pid);
+  check('C2-3 exact active payer map (payer.id as text) → mapped client; evidence {payer_map_id}', al.length === 1 && al[0].cliente === C
+    && JSON.stringify(al[0].evidence) === JSON.stringify({ payer_map_id: map }), JSON.stringify(al));
+  const rn = await viaWorker({ payer: Number(payer) });
+  check('C2-3b payer.id delivered as a JSON number is read as its text form (payload->\'payer\'->>\'id\') → same mapped client', allocRows(rn.pid).length === 1 && allocRows(rn.pid)[0].cliente === C);
+  const payer2 = newPayer();
+  const C2b = mkClient();
+  mkMap(payer2, C2b);
+  owner(`UPDATE mp_payer_client_map SET activo = false, deactivated_at = NOW(), deactivated_by = '${ADMIN_UID}', deactivation_reason = 'S8T' WHERE mp_payer_id = '${payer2}';`);
+  const ri = await viaWorker({ payer: payer2 });
+  check('C2-3c an INACTIVE payer map is not evidence → NO_EVIDENCE', allocRows(ri.pid).length === 0 && ri.codes.join() === 'NO_EVIDENCE', ri.codes.join());
+}
+{
+  const D = mkClient();
+  const payer = newPayer();
+  const map = mkMap(payer, D);
+  const r = await viaWorker({ extref: `GST:C:${D}`, payer });
+  const al = allocRows(r.pid);
+  check('C2-4 external_reference and payer map name the same client → one candidate → allocated once; evidence carries both axes',
+    al.length === 1 && al[0].cliente === D && al[0].evidence.external_reference === `GST:C:${D}` && al[0].evidence.payer_map_id === map, JSON.stringify(al));
+}
+{
+  const E = mkClient();
+  const F = mkClient();
+  const payer = newPayer();
+  mkMap(payer, F);
+  const t0 = totals();
+  const r = await viaWorker({ extref: `GST:C:${E}`, payer });
+  const t1 = totals();
+  check('C2-5 external_reference and payer map name different clients → AMBIGUOUS_EVIDENCE; zero allocation, zero client_ledger; delivery FETCHED',
+    r.codes.join() === 'AMBIGUOUS_EVIDENCE' && allocRows(r.pid).length === 0 && t1[3] === t0[3] && dRow(r.d)[0] === 'FETCHED', r.codes.join());
+}
+{
+  const r = await viaWorker({});
+  check('C2-6 no evidence (external_reference null, payer unmapped) → NO_EVIDENCE; CLIENT_UNASSIGNED remains a valid FETCHED end state',
+    r.codes.join() === 'NO_EVIDENCE' && allocRows(r.pid).length === 0 && dRow(r.d)[0] === 'FETCHED' && opCount(r.pid) === 3);
+}
+{
+  const G = mkClient(false);
+  const r = await viaWorker({ extref: `GST:C:${G}` });
+  check('C2-7 evidence names an inactive client → CLIENT_INACTIVE; no write', r.codes.join() === 'CLIENT_INACTIVE' && allocRows(r.pid).length === 0, r.codes.join());
+}
+{
+  // C2-8 a MANUAL attribution already exists; the payer is mapped afterwards and C2 is re-offered
+  const payer = newPayer();
+  const r = await viaWorker({ payer });
+  const [mvId, , occ] = mvOf(r.pid);
+  const H = mkClient();
+  const I = mkClient();
+  const man = ADMIN(`SELECT mp_allocate_to_client(${mvId}, '${I}', 40, '${occ}', 'S8T-man-${r.pid}', 'manual test')::text;`);
+  mkMap(payer, H);
+  const t0 = totals();
+  const res = autoAlloc(mvId);
+  check('C2-8 manual attribution exists (active ≠ 0) → ALREADY_ATTRIBUTED; no second client_ledger row',
+    man.ok && res.allocated === false && res.reason === 'ALREADY_ATTRIBUTED' && allocRows(r.pid).length === 1 && totals()[3] === t0[3], JSON.stringify(res) + man.err);
+}
+{
+  // C2-9 closed period: posted receipt, payer mapped later, period closed → PERIOD_CLOSED; reopened → allocated (the sweep's re-offer)
+  const payer = newPayer();
+  const r = await viaWorker({ payer });
+  const [mvId] = mvOf(r.pid);
+  const K = mkClient();
+  mkMap(payer, K);
+  owner(`UPDATE management_period SET status = 'CLOSED' WHERE periodo_fecha = '2026-11-01';`);
+  const t0 = totals();
+  const res = autoAlloc(mvId);
+  const t1 = totals();
+  owner(`UPDATE management_period SET status = 'OPEN' WHERE periodo_fecha = '2026-11-01';`);
+  const res2 = autoAlloc(mvId);
+  check('C2-9 period of movement.occurred_date CLOSED → {allocated:false, PERIOD_CLOSED}, no write; after reopening the same call allocates',
+    res.allocated === false && res.reason === 'PERIOD_CLOSED' && t1.join() === t0.join() && res2.allocated === true && allocRows(r.pid)[0].cliente === K,
+    JSON.stringify(res) + JSON.stringify(res2));
+}
+{
+  // C2-11 numeric-shaped payer ids are text: '0'-prefixed string ≠ mapped digits
+  const L = mkClient();
+  const payer = newPayer();
+  mkMap(payer, L);
+  const r = await viaWorker({ payer: `0${payer}` });
+  check('C2-11 payer.id "0<mapped digits>" (numerically equal, textually different) → NO_EVIDENCE: exact text match only, no numeric cast',
+    r.codes.join() === 'NO_EVIDENCE' && allocRows(r.pid).length === 0, r.codes.join());
+}
+{
+  // C2-12 unknown external_reference never guesses a client
+  const M = mkClient();
+  const cases = ['ORDER-123', `GST:C:${M} `, `gst:c:${M}`, `GST:X:${M}`, `GST:C:${M}:extra`, 'GST:C:not-a-uuid', 'GST:C:00000000-0000-4000-8000-000000000000',
+    'GST:P:00000000-0000-4000-8000-000000000000'];
+  const got = [];
+  for (const x of cases) {
+    const r = await viaWorker({ extref: x });
+    got.push(`${r.codes.join()}:${allocRows(r.pid).length}`);
+  }
+  check('C2-12 non-deterministic external_reference values (free text, whitespace, lower-case prefix, other axis, suffix, malformed uuid, unknown client / pedido) → NO_EVIDENCE, never a guessed client',
+    got.every((g) => g === 'NO_EVIDENCE:0'), got.join(' '));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+section('AC', 'auto-allocation failure recovery + sweep marker');
+{
+  // AUTOALLOC-CRASH
+  const J = mkClient();
+  const before = totals();
+  const r = await viaWorker({ extref: `GST:C:${J}`, dbOver: { autoAllocate: async () => { calls.push('allocate'); throw new DbError('could not obtain lock on row (simulated)'); } } });
+  const mid = totals();
+  const st = dRow(r.d)[0];
+  check('AUTOALLOC-CRASH A1 committed, then C2 throws a DB error → item aborted: delivery NOT FETCHED (still PROCESSING under its lease); money applied exactly once; no allocation',
+    st === 'PROCESSING' && r.s.fetched === 0 && opCount(r.pid) === 3 && mid[1] - before[1] === 3 && allocRows(r.pid).length === 0
+      && logs.some((l) => l.event === 'WORKER_ITEM_FAILED' && l.delivery_id === r.d), `${st} ${JSON.stringify(r.s)}`);
+  expireLease(r.d);
+  logs = [];
+  const s2 = await run();
+  const after = totals();
+  const [mvId] = mvOf(r.pid);
+  check('AUTOALLOC-CRASH after the lease expires, a healthy pass: no A1 re-application (Δ operations / postings = 0), C2 allocates once, delivery FETCHED',
+    dRow(r.d)[0] === 'FETCHED' && s2.applied === 0 && s2.allocated === 1 && after[1] === mid[1] && after[2] === mid[2] && after[3] - mid[3] === 1
+      && allocRows(r.pid).length === 1 && allocRows(r.pid)[0].cliente === J && allocAudits(r.pid) === 1 && after[0] === before[0]
+      && JSON.parse(SVC(`SELECT mp_apply_transition(${mvId})::text;`).out).status === 'ALREADY_APPLIED', `${JSON.stringify(s2)} ${mid} → ${after}`);
+}
+{
+  // SWEEP-RETRY
+  const T1 = Date.parse('2026-11-22T06:01:00Z'); // 03:01 local
+  const st = { lastProbeAt: T1 };
+  logs = [];
+  const s1 = await runWorker(deps({ clock: { now: () => T1 }, state: st, db: { ...realDb, pendingApiSources: async () => { throw new DbError('DB_ERROR: simulated read failure'); } } }));
+  check('SWEEP-RETRY 1st invocation: a structural sweep read throws → sweep not completed; lastSweepLocalDate stays unset; failure logged',
+    s1.sweep === false && st.lastSweepLocalDate === undefined && logs.some((l) => l.event === 'WORKER_SWEEP_FAILED'), JSON.stringify(st));
+  const s2 = await runWorker(deps({ clock: { now: () => T1 + 120_000 }, state: st }));
+  check('SWEEP-RETRY 2nd invocation at 03:03 with a healthy DB → the sweep runs; after completion the marker is set to the local date',
+    s2.sweep === true && st.lastSweepLocalDate === '2026-11-22', JSON.stringify(st));
+  const s3 = await runWorker(deps({ clock: { now: () => T1 + 240_000 }, state: st }));
+  check('SWEEP-RETRY 3rd invocation the same local day (03:05) → no second sweep', s3.sweep === false);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
