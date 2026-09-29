@@ -2,6 +2,13 @@
 
 All notable changes to Claudio App Granja will be documented in this file.
 
+## [Unreleased]
+
+### Security
+- Removed the exposed legacy MercadoPago sync surfaces (L-1): Netlify functions `sync-mercadopago`, `sync-settlement-csv` and `sync-page`, the MP Debug "Sincronizar Ahora" action (hard-coded bearer literal), the unused `useSyncMercadoPago` hook, the manual settlement CSV page `src/pages/sync-settlement.html` and the GitHub Actions workflow that called `sync-mercadopago` every 4 hours. The authenticated `sync-mercadopago-movements` / `sync-mercadopago-releases-status` functions and the scheduled `sync-mercadopago-releases` flow are unchanged.
+- Removed the remaining exposed legacy MercadoPago Netlify functions that used the service role without real authentication: write/destructive `reset-mercadopago`, `sync-mercadopago-period`, `quick-sync`, `sync-mercadopago-settlement`, `sync-settlement-proper`, `parse-mercadopago-email`, and read-only diagnostics `export-all-csv`, `check-data`, `debug-sync`, `inspect-payment`, `sync-status`, `validate-mercadopago-integration`. None had a production caller.
+- Removed the unauthenticated legacy MercadoPago diagnostic endpoints that used the production MP credentials (settlement report creation/download, account exploration): `debug-settlement-download`, `debug-settlement-params`, `explore-mp-api`, `find-statement-endpoint`, `settlement-full-flow`, `setup-settlement-config`, `test-small-report`, `try-settlement`. None had a production caller.
+
 ## [1.0.0] - 2026-08-28
 
 ### Added

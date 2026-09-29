@@ -13,10 +13,8 @@ interface MercadoPagoRaw {
 export function MercadoPagoDebug() {
   const [datos, setDatos] = useState<MercadoPagoRaw[]>([]);
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filtroProcessed, setFiltroProcessed] = useState<'all' | 'processed' | 'pending'>('pending');
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   const cargarDatos = async () => {
     setLoading(true);
@@ -48,54 +46,11 @@ export function MercadoPagoDebug() {
     return () => clearInterval(interval);
   }, [filtroProcessed]);
 
-  const handleSyncronizar = async () => {
-    setSyncing(true);
-    setSyncMsg(null);
-    try {
-      const token = 'cJPlph42yYxImZjpjMQmZ1wQ3B5EzYNrzFvwIXyJxoM';
-      const url = '/.netlify/functions/sync-mercadopago';
-
-      console.log('Sincronizando desde:', url);
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      console.log('Response status:', response.status);
-      const text = await response.text();
-      console.log('Response text:', text);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${text}`);
-      }
-
-      const result = JSON.parse(text);
-      setSyncMsg(`✓ Sincronizado: ${result.created} creados, ${result.skipped} saltados, ${result.total} totales`);
-      setTimeout(() => cargarDatos(), 1000);
-    } catch (err) {
-      console.error('Error completo:', err);
-      setSyncMsg(`✗ Error: ${err instanceof Error ? err.message : 'Error desconocido'}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   return (
     <div className="bg-white rounded-lg border border-[#E4DCC8] p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-[#2C2419]">Datos Raw de MercadoPago</h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleSyncronizar}
-            disabled={syncing}
-            className="flex items-center gap-2 px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            Sincronizar Ahora
-          </button>
           <button
             onClick={cargarDatos}
             disabled={loading}
@@ -106,16 +61,6 @@ export function MercadoPagoDebug() {
           </button>
         </div>
       </div>
-
-      {syncMsg && (
-        <div className={`mb-4 px-3 py-2 rounded text-sm ${
-          syncMsg.startsWith('✓')
-            ? 'bg-green-100 text-green-700 border border-green-300'
-            : 'bg-red-100 text-red-700 border border-red-300'
-        }`}>
-          {syncMsg}
-        </div>
-      )}
 
       <div className="flex gap-2 mb-4">
         {(['all', 'pending', 'processed'] as const).map((f) => (
