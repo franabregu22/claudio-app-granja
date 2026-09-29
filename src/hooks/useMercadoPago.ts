@@ -25,33 +25,3 @@ export function useMercadoPagoRaw() {
     refetchInterval: 30000, // Refresh cada 30s
   });
 }
-
-export function useSyncMercadoPago() {
-  return useQuery({
-    queryKey: ['sync-mercadopago'],
-    queryFn: async () => {
-      const edgeSecret = localStorage.getItem('edge_function_secret');
-      if (!edgeSecret) {
-        throw new Error('Edge function secret not configured');
-      }
-
-      const response = await fetch(
-        'https://santotomasapp.netlify.app/.netlify/functions/sync-mercadopago',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${edgeSecret}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Sync failed: ${response.statusText}`);
-      }
-
-      return response.json();
-    },
-    enabled: false, // Manual trigger only
-  });
-}
