@@ -265,7 +265,20 @@ Checks:
 - `npm test` 103/103 (F27-G 8);
 - `npm run test:integration` F27-G 5/5;
 - backend suites green (counts in the F27-G report); `tsc -b` 0; safe build + dist scan 0 findings |
-| F27-H…F27-I | pending | — |
+| F27-H Mercado Pago | **COMPLETE** | Commit "phase27: F27-H migrate Mercado Pago frontend to target". `src/target/mp.ts` + `features/mercadopago/{useMP.ts,CobrosMP.tsx,OperacionesMP.tsx,MercadoPagoApp.tsx}`, exactly the accepted Step-14 contract (ADMIN only):
+- **Screens:** S-A / S-B cobros (list with server-side filters on the two axes + detail with inline open exceptions); S-C / S-D; S-E banner and panel; S-G recovery; S-H chargeback signals; S-F report exceptions; S-I payer mappings.
+- **State:** only `report_mp_receipt_status`, `report_mp_delivery_health` and `report_mp_report_exceptions`, each with the §10 field list. Axis A and axis B are two separate badges; `CLIENT_UNASSIGNED` is a valid state, never a work item. No state, balance or remaining amount is computed.
+- **Lookups:** exactly L-C3 / L-C7 / L-S7 with the §5a predicate and allow-listed columns, used only for the C3 / C7 / S7 identifiers.
+- **Actions:** C1, C3, C4, C5, C6, C7, R1, S5, S6, S7 through their RPCs, each with a required reason; `ui:<uuid>` keys for C1 / C3. R2 is shown disabled (`DISABLED_UNTIL_STEP_19`) and has no call. There is no `register_collection` for an MP receipt and no MP table write.
+- **Removed:** the legacy MP frontend (`api/mercadopago`, `api/mercadopago-monthly`, `UnclassifiedMovements` with its `mp_financial_movement` UPDATE, `MonthlyReport`, `MovementsTable`, `SummaryCards`, `DateFilter`, `TypeFilter`; the `ledger_entry` / `account_balance` reads).
+- **Kept:** `src/lib/mercadopago-calculations.ts`. No frontend file imports it any more, but the legacy Netlify function `sync-mercadopago-releases-status` (N-1: stays until cutover) and its old node test do.
+
+Checks:
+- static gate 8/0, baseline 3 files / 11 → **0 files / 0 references**;
+- `npm test` 113/113 (F27-H 10, checked against the §10 block);
+- `npm run test:integration` F27-H 10/10. Fixtures go through the backend's own service pipeline, as in `mp_views`, with no real MP API;
+- MP backend suites and ADR-006 frontend contract green (counts in the F27-H report); `tsc -b` 0; safe build + dist scan 0 findings |
+| F27-I | pending | — |
 
 **Pre-cutover verification debt (recorded, not a blocker):**
 - the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31);

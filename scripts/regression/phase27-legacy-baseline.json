@@ -1,22 +1,4 @@
 {
   "note": "Phase 27 remaining legacy baseline (per file). May only shrink; empty at F27-I. Zero-tolerance findings are never listed here.",
-  "files": {
-    "src/api/mercadopago-monthly.ts": [
-      "name:ledger_entry",
-      "name:mp_financial_movement"
-    ],
-    "src/api/mercadopago.ts": [
-      "from:account_balance",
-      "from:ledger_entry",
-      "from:mp_financial_movement",
-      "name:account_balance",
-      "name:ledger_entry",
-      "name:mp_financial_movement"
-    ],
-    "src/features/mercadopago/UnclassifiedMovements.tsx": [
-      "from:mp_financial_movement",
-      "name:mp_financial_movement",
-      "write:mp_financial_movement:update"
-    ]
-  }
+  "files": {}
 }

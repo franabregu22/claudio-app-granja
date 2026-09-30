@@ -119,6 +119,28 @@ const MESSAGES: Record<string, string> = {
   INVALID_COMPENSATION_TARGET: 'Una compensación no puede compensarse a su vez.',
   COMPENSATION_TYPE_MISMATCH: 'La compensación debe ser del mismo tipo que el registro original.',
   COMPENSATION_EXCEEDS_ORIGINAL: 'La compensación supera lo pendiente del registro original.',
+  // F27-H Mercado Pago (Step-14 actions)
+  ALLOCATION_EXCEEDS_RECEIPT: 'El monto supera lo que queda sin asignar de este cobro.',
+  DUPLICATE_ALLOCATION: 'Esa asignación ya fue registrada.',
+  EFFECTIVE_DATE_BEFORE_RECEIPT: 'La fecha no puede ser anterior a la del cobro.',
+  NOT_A_RECEIPT: 'El movimiento no es un cobro.',
+  RECEIPT_NOT_POSTED: 'El cobro todavía no está acreditado en tesorería.',
+  ALLOCATION_NOT_FOUND: 'La asignación no existe.',
+  REVERSAL_EXCEEDS_ALLOCATION: 'El monto supera lo asignado.',
+  FLAG_ALREADY_OPEN: 'Ya hay una solicitud de asignación abierta.',
+  FLAG_NOT_OPEN: 'La solicitud ya está cerrada.',
+  INVALID_PAYER_ID: 'El id de pagador debe tener solo dígitos.',
+  PAYER_ALREADY_MAPPED: 'Ese pagador ya está asignado a un cliente.',
+  MAPPING_NOT_ACTIVE: 'El mapeo ya no está activo.',
+  ALREADY_RESOLVED: 'Ya estaba resuelto.',
+  INVALID_RESOLUTION: 'La resolución no es válida.',
+  MATCH_NOT_FOUND: 'La excepción no existe.',
+  NOT_AN_EXCEPTION: 'El registro no es una excepción abierta.',
+  NO_CORRECTION_FOUND: 'Para marcarla como corregida primero tiene que existir la corrección en tesorería.',
+  INVALID_PAYMENT_ID: 'El número de pago debe tener solo dígitos.',
+  INVALID_ARGUMENT: 'Faltan datos para esta acción.',
+  NOT_A_CHARGEBACK_SIGNAL: 'El registro no es un aviso de contracargo.',
+  V4_NOT_VERIFIED: 'Esta función estará disponible más adelante.',
 };
 
 export function errorMessage(err: unknown): string {
