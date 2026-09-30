@@ -278,7 +278,67 @@ Checks:
 - `npm test` 113/113 (F27-H 10, checked against the §10 block);
 - `npm run test:integration` F27-H 10/10. Fixtures go through the backend's own service pipeline, as in `mp_views`, with no real MP API;
 - MP backend suites and ADR-006 frontend contract green (counts in the F27-H report); `tsc -b` 0; safe build + dist scan 0 findings |
-| F27-I | pending | — |
+| F27-I Integrated validation | **COMPLETE** | Commit "phase27: F27-I integrated validation and frontend closure".
+- **Audit of the whole of `src/`** (beyond the gate), `tests/unit/f27i-audit.test.ts`:
+  - no legacy relation or RPC, legacy role name, sync / debug / ipify / service-role surface, or secret in browser storage;
+  - every PostgREST read / write / RPC goes through `src/target/db.ts`;
+  - no orphaned module except the N-1 helper.
+- **Target inventory** (mechanical):
+  - 11 views, 17 read tables, 39 RPCs;
+  - direct writes only where `DIRECT_WRITES` authorizes them: F27-B masters, `price_history`, `operator_assignments`, PENDING `pedidos` / `pedido_lineas`, plus Storage objects under ADR-008;
+  - no write outside `DIRECT_WRITES`, no RPC outside `TARGET_RPCS`;
+  - `TARGET_RPCS` without UI by design: `assert_period_open` (helper), `mp_reconcile_movement` (RPC 41, forbidden in the MP screens by Step 14), `mp_normalize_report_fallback` (R2, until Step 19).
+- **Cleanup** (proven unused, superseded by the target):
+  - `components/Modal.tsx` and `components/Pagination.tsx` (legacy, unimported);
+  - `constants/categorias.ts`;
+  - the legacy calculation helpers of `features/pedidos/helpers.ts`, including `totalPedidoGeneric` (plan §4); only `formatoPesos` remains;
+  - the legacy row types of `types/domain.ts`; only `User` / `Rol` remain;
+  - the legacy form schemas of `validation/schemas.ts`; only `loginSchema` remains.
+- **Cross-slice flows**, `tests/integration/f27i-e2e.test.ts`, 8/8:
+  - A + F: sale → `report_sales_line` + `pnl_summary` + client balance → collection;
+  - B + F: purchase → supplier debt + direct cost → payment;
+  - C: flock → assignment → production / mortality / adjustment → classification → feed → close → ADR-007 protection;
+  - D: Feria ADMIN-only, reads included;
+  - E: fiscal;
+  - G: MP pipeline receipt → `CLIENT_UNASSIGNED` → C1 → client balance;
+  - the role matrix, including a user without a profile (former repartidor).
+
+**Phase 27 DONE (§9):**
+1. Static gate 8/0 with baseline 0 files / 0 references, plus the whole-`src/` audit.
+2. Writes limited to RPCs and authorized direct writes (gate C-4 and the inventory).
+3. Role from `current_app_role()`; ADMIN / OPERATOR / no-profile matrix in integration; OPERATOR sees assigned flocks only and no monetary or cost data.
+4. Reporting surfaces on Phase-25 views; MP on the Step-14 contract (check 28/0).
+5. None of the §4 duplicated computations remain.
+6. `tsc -b` 0; safe build OK; every slice's integration green.
+7. No secret in `src/`, in tracked files or in a freshly built bundle; the only JWT is the public local anon key; S-1 closed.
+8. **Not claimed:** the owner's local walkthrough of the V1 flows is the owner's hand-over step to Phase 28.
+
+Items 1–7 are mechanically true. |
+
+## 9b. Pre-cutover checklist (consolidated at F27-I; mandatory before cutover, Phase 31; none executed here)
+
+Environment verification debt: SKIPPED / PRE-CUTOVER REQUIRED, never counted as passed.
+1. Canonical `supabase db reset` from 0001–0060 on the canonical local stack, then the full target suite.
+2. ADR-008 Storage API against the canonical stack with the Storage service:
+   - ADMIN upload, authenticated download and delete;
+   - MIME rejection and > 10 MB rejection;
+   - signed URL works, public URL gives no access
+   (`tests/integration/f27d-storage.test.ts` "ADR-008 Storage API").
+3. "Nueva compra" real Storage end-to-end: upload → `register_purchase` → attachment metadata; compensation on RPC failure (`tests/integration/f27d-treasury.test.ts`).
+4. `scripts/target-db/mp_audit_security.test.mjs` (needs the Supabase CLI).
+5. `scripts/target-db/mp_scheduler.test.mjs` (needs the Supabase CLI).
+6. `scripts/target-db/mp_webhook.test.mjs` (needs the Supabase CLI).
+7. ADR-006 X-7 (needs the Supabase CLI).
+8. Post-login JWT first-request stability:
+   - `JWT issued at future` seen twice at `f27c-commercial.test.ts:95` and once in F27-B `clients`, the first PostgREST call right after sign-in with all integration files running in parallel;
+   - never reproduced in isolation (230 probes, 5 + 5 reruns);
+   - to verify on the canonical stack.
+
+Cutover cleanup already recorded (N-1 / L-1 / D-DEPLOY):
+- **N-1:** the legacy Netlify functions (`netlify/functions/*`) and the legacy MP tables stay until cutover. `src/lib/mercadopago-calculations.ts` stays with them: it is imported by `netlify/functions/sync-mercadopago-releases-status.ts` and its node test, not by the frontend. Remove them at cutover.
+- **L-1:** the legacy Netlify MP function exposure (`sync-mercadopago`, `sync-settlement-csv`) is OPEN pending the owner's mitigation decision (§10).
+- **D-DEPLOY:** Phase-27 commits do not reach production before cutover or an explicit deployment decision. `phase27-frontend` is not pushed; local `main` is not pushed.
+- The local `dist/` folder is a stale pre-Phase-27 build (2026-09-23, gitignored, contains legacy code). It is not produced by the safe build, which builds in a temporary directory. Rebuild before any deployment.
 
 **Pre-cutover verification debt (recorded, not a blocker):**
 - the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31);
