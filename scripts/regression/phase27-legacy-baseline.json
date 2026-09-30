@@ -1,10 +1,6 @@
 {
   "note": "Phase 27 remaining legacy baseline (per file). May only shrink; empty at F27-I. Zero-tolerance findings are never listed here.",
   "files": {
-    "src/api/caja.ts": [
-      "from:movimientos_caja",
-      "name:movimientos_caja"
-    ],
     "src/api/mercadopago-monthly.ts": [
       "name:ledger_entry",
       "name:mp_financial_movement"

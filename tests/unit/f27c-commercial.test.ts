@@ -128,8 +128,8 @@ describe('F27-C migrated files carry no legacy or duplicated authority', () => {
       'features/cobros/ListaClientes.tsx', 'features/cobros/ListaFinalizados.tsx', 'features/cobros/ListaClientesConCredito.tsx']) {
       expect(existsSync(resolve(SRC, f)), f).toBe(false);
     }
-    const pedidosApi = readFileSync(resolve(SRC, 'api/pedidos.ts'), 'utf8');
-    expect(pedidosApi).not.toMatch(/\.(insert|update|delete)\(|\.rpc\(/);
+    // api/pedidos.ts stayed as a read-only P&L source after F27-C and was removed in F27-G
+    expect(existsSync(resolve(SRC, 'api/pedidos.ts'))).toBe(false);
     // api/pagos.ts was reduced to a Caja helper in F27-C and removed entirely in F27-D
     const pagosPath = resolve(SRC, 'api/pagos.ts');
     if (existsSync(pagosPath)) expect(readFileSync(pagosPath, 'utf8')).not.toMatch(/from\('pagos'\)/);

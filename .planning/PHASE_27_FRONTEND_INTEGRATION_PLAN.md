@@ -249,7 +249,23 @@ Checks:
 - `npm test` 95/95 (F27-F 12);
 - `npm run test:integration` 72 passed / 5 skipped (F27-F 9), 3 consecutive clean runs. An earlier pre-ADR-009 run hit the known post-login `JWT issued at future` intermittent at `f27c-commercial.test.ts:95` (not reproduced in 5 reruns);
 - backend suites green (counts in the F27-F report); `tsc -b` 0; safe build + dist scan 0 findings |
-| F27-G…F27-I | pending | — |
+| F27-G Reporting / P&L | **COMPLETE** | Commit "phase27: F27-G migrate reporting and pnl to target". `src/target/pnl.ts`; Finanzas rebuilt (ADMIN):
+- **P&L:** `pnl_summary` for 3 / 6 / 12 months, all 14 ADR-004 cascade lines exactly as reported. Per-month drill-down lists the `pnl_line_item` rows by bucket, never summed: bucket totals are the summary columns.
+- **Management events** (deferred from F27-E): retiros and reservas internas, with optional compensation, through `register_management_event` (RPC 43, ADMIN) only. `management_event` was added to the frontend read list (SELECT grant and ADMIN RLS already exist).
+- **Tendencia meses** (P27-D2): the single `TendenciaMeses` component over `pnl_summary` moved from Caja to Finanzas; there is no other trend logic.
+- **Removed** (all frontend accounting authority):
+  - `PyLProesional`, with its hard-coded category buckets, revenue from legacy `pedidos` and cost sums over `movimientos_caja`;
+  - the unimported `PyL`;
+  - `api/caja` / `useCaja` (the last `movimientos_caja` read);
+  - `api/pedidos` / `usePedidos` (the legacy pedidos read and its realtime subscription).
+- **Not reproduced:** the legacy "ventas facturadas / no facturadas" split and the per-category cost columns (alimento, cartones, sueldos, electricidad, …). The target P&L has no such authority: the cost breakdown is the drill-down rows with their expense category.
+
+Checks:
+- static gate 8/0, baseline 4 files / 13 → 3 files / 11 references (`api/caja.ts` removed; `api/pedidos.ts` / `usePedidos.ts` were never visible to the gate and are removed too). The remaining 11 references are the three Mercado Pago files owned by F27-H;
+- `npm test` 103/103 (F27-G 8);
+- `npm run test:integration` F27-G 5/5;
+- backend suites green (counts in the F27-G report); `tsc -b` 0; safe build + dist scan 0 findings |
+| F27-H…F27-I | pending | — |
 
 **Pre-cutover verification debt (recorded, not a blocker):**
 - the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31);

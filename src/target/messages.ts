@@ -80,7 +80,7 @@ const MESSAGES: Record<string, string> = {
   ALREADY_SUPERSEDED: 'Ese registro ya fue rectificado: rectificá la versión vigente.',
   NOT_OWN_RECORD: 'Solo podés rectificar la producción que cargaste vos.',
   MORTALITY_ALREADY_RECORDED: 'Ya hay mortandad cargada para ese lote en esa fecha: pedí su rectificación a un administrador.',
-  EVENT_NOT_FOUND: 'El registro de mortandad no existe.',
+  EVENT_NOT_FOUND: 'El registro no existe.',
   NOT_A_MORTALITY_EVENT: 'El registro no es de mortandad.',
   DUPLICATE_CLASSIFICATION: 'Esa clasificación ya fue registrada.',
   GRADE_NOT_FOUND: 'Una de las clasificaciones no existe o está inactiva.',
@@ -111,6 +111,14 @@ const MESSAGES: Record<string, string> = {
   OBLIGATION_CANCELLED: 'La obligación está anulada.',
   OVERPAYMENT: 'El pago supera el saldo pendiente.',
   INSTALLMENT_NOT_FOUND_OR_MISMATCH: 'La cuota no corresponde a esta obligación.',
+  // F27-G management events
+  INVALID_IDEMPOTENCY_KEY: 'La operación no tiene una clave válida. Volvé a abrir el formulario.',
+  DUPLICATE_MANAGEMENT_EVENT: 'Ese retiro o reserva ya fue registrado.',
+  ACCOUNT_NOT_ALLOWED: 'Una reserva interna no mueve dinero: no lleva cuenta.',
+  ACCOUNT_MISMATCH: 'La compensación de un retiro devuelve el dinero a la misma cuenta del retiro original.',
+  INVALID_COMPENSATION_TARGET: 'Una compensación no puede compensarse a su vez.',
+  COMPENSATION_TYPE_MISMATCH: 'La compensación debe ser del mismo tipo que el registro original.',
+  COMPENSATION_EXCEEDS_ORIGINAL: 'La compensación supera lo pendiente del registro original.',
 };
 
 export function errorMessage(err: unknown): string {

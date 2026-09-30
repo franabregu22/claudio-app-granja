@@ -1,6 +1,6 @@
 import { errorMessage } from '../../target/messages';
 import { formatoPesos } from '../pedidos/helpers';
-import { usePnlMonths } from './useTreasury';
+import { usePnlMonths } from '../caja/useTreasury';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const etiquetaMes = (period: string) => `${MESES[Number(period.slice(5, 7)) - 1]}-${period.slice(2, 4)}`.toUpperCase();

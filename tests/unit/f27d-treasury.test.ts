@@ -194,7 +194,7 @@ describe('ADR-008 purchase attachments: upload → register_purchase with compen
 describe('F27-D migrated files carry no legacy or duplicated authority', () => {
   const SRC = resolve(__dirname, '../../src');
   const FILES = ['target/treasury.ts', 'features/caja/useTreasury.ts', 'features/caja/CajaApp.tsx', 'features/caja/ResumenSaldos.tsx',
-    'features/caja/CuentasAPagar.tsx', 'features/caja/Compras.tsx', 'features/caja/Cheques.tsx', 'features/caja/TendenciaMeses.tsx', 'features/caja/Modal.tsx'];
+    'features/caja/CuentasAPagar.tsx', 'features/caja/Compras.tsx', 'features/caja/Cheques.tsx', 'features/finanzas/TendenciaMeses.tsx', 'features/caja/Modal.tsx'];
 
   it.each(FILES)('%s: no legacy table / hook, no direct PostgREST call, no balance or cash-flow computation', (f) => {
     const text = readFileSync(resolve(SRC, f), 'utf8');
@@ -215,8 +215,7 @@ describe('F27-D migrated files carry no legacy or duplicated authority', () => {
       'features/caja/HistorialArqueos.tsx']) {
       expect(existsSync(resolve(SRC, f)), f).toBe(false);
     }
-    const caja = readFileSync(resolve(SRC, 'api/caja.ts'), 'utf8');
-    expect(caja).not.toMatch(/\.(insert|update|delete|upsert)\(|\.rpc\(|storage/);
-    expect(caja.match(/export (async )?function/g)).toHaveLength(1);
+    // api/caja.ts stayed as the read-only P&L source after F27-D and was removed in F27-G
+    expect(existsSync(resolve(SRC, 'api/caja.ts'))).toBe(false);
   });
 });

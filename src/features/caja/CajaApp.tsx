@@ -4,21 +4,19 @@ import { Cheques } from './Cheques';
 import { Compras } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
 import { ResumenSaldos } from './ResumenSaldos';
-import { TendenciaMeses } from './TendenciaMeses';
 
-type Vista = 'saldos' | 'pagar' | 'compras' | 'instrumentos' | 'tendencia';
+type Vista = 'saldos' | 'pagar' | 'compras' | 'instrumentos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'saldos', label: 'Saldos' },
   { id: 'pagar', label: 'Cuentas a pagar' },
   { id: 'compras', label: 'Compras y fletes' },
   { id: 'instrumentos', label: 'Cheques' },
-  { id: 'tendencia', label: 'Tendencia meses' },
 ];
 
 /**
  * Caja (F27-D, ADMIN): treasury over the target. There is no free-form movement CRUD: money moves only through the
  * contract operations (collections in Cobros; transfers, supplier payments, purchases / freight and instruments here),
- * and balances are read from report_balance_period. The general cash count (arqueo) is retired in V1 (P27-D1).
+ * and balances are read from report_balance_period. The monthly trend lives in Finanzas (F27-G). The general cash count (arqueo) is retired in V1 (P27-D1).
  */
 export function CajaApp() {
   const { rol } = useAuth();
@@ -55,7 +53,6 @@ export function CajaApp() {
           {vista === 'pagar' && <CuentasAPagar />}
           {vista === 'compras' && <Compras />}
           {vista === 'instrumentos' && <Cheques />}
-          {vista === 'tendencia' && <TendenciaMeses />}
         </div>
       </div>
     </div>
