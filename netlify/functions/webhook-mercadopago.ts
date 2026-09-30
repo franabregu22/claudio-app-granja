@@ -2,59 +2,67 @@ import { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { createHmac, timingSafeEqual } from "crypto";
 
-const validateWebhookSignature = (
-  signature: string,
-  requestId: string,
-  dataId: string,
-  secret: string
-): boolean => {
-  if (!signature || !secret) {
-    console.log("Missing signature or secret");
-    return false;
+/** Actions of the configured "Pagos (legacy)" webhook (type "payment") that the legacy handler processes. */
+const PAYMENT_ACTIONS = new Set(["payment.created", "payment.updated"]);
+
+type SignatureResult ={ ok: true; dataId: string } | { ok: false; reason: string };
+
+function getHeader(headers: Record<string, string | undefined> | null | undefined, name: string): string {
+  if (!headers) return "";
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
+  return key ? (headers[key] ?? "").trim() : "";
+}
+
+/** Mercado Pago signs the `data.id` query parameter of the notification URL. */
+export function getSignedDataId(event: { queryStringParameters?: Record<string, string | undefined> | null; rawQuery?: string }): string {
+  const fromParams = event.queryStringParameters?.["data.id"];
+  if (fromParams) return fromParams.trim();
+  return event.rawQuery ? (new URLSearchParams(event.rawQuery).get("data.id") ?? "").trim() : "";
+}
+
+/** Alphanumeric data ids are signed in lowercase (Mercado Pago rule); numeric ids are unchanged. */
+export function normalizeDataId(id: string): string {
+  return /[a-z]/i.test(id) ? id.toLowerCase() : id;
+}
+
+/**
+ * Mercado Pago webhook signature: x-signature = "ts=<ts>,v1=<hex>",
+ * manifest = "id:<data.id>;request-id:<x-request-id>;ts:<ts>;", v1 = HMAC-SHA256(secret, manifest) in hex.
+ * Fails closed on any missing or malformed input. Never logs the secret, the header or the digest.
+ */
+export function verifyMercadoPagoSignature(input: {
+  secret: string | undefined;
+  signatureHeader: string;
+  requestId: string;
+  dataId: string;
+}): SignatureResult {
+  if (!input.secret) return { ok: false, reason: "WEBHOOK_SECRET_NOT_CONFIGURED" };
+  if (!input.signatureHeader) return { ok: false, reason: "MISSING_SIGNATURE" };
+  if (!input.requestId) return { ok: false, reason: "MISSING_REQUEST_ID" };
+  if (!input.dataId) return { ok: false, reason: "MISSING_DATA_ID" };
+
+  const parts: Record<string, string> = {};
+  for (const part of input.signatureHeader.split(",")) {
+    const i = part.indexOf("=");
+    if (i <= 0) return { ok: false, reason: "MALFORMED_SIGNATURE" };
+    const k = part.slice(0, i).trim();
+    if (k in parts) return { ok: false, reason: "MALFORMED_SIGNATURE" };
+    parts[k] = part.slice(i + 1).trim();
   }
+  const ts = parts.ts ?? "";
+  const v1 = parts.v1 ?? "";
+  if (!/^\d{1,20}$/.test(ts)) return { ok: false, reason: "MALFORMED_SIGNATURE_TS" };
+  if (!/^[0-9a-fA-F]{64}$/.test(v1)) return { ok: false, reason: "MALFORMED_SIGNATURE_V1" };
 
-  const parts = signature.split(",");
-  let timestamp = "";
-  let v1 = "";
-
-  for (const part of parts) {
-    const [key, value] = part.split("=");
-    if (key === "ts") timestamp = value;
-    if (key === "v1") v1 = value;
+  const dataId = normalizeDataId(input.dataId);
+  const manifest = `id:${dataId};request-id:${input.requestId};ts:${ts};`;
+  const expected = createHmac("sha256", input.secret).update(manifest).digest();
+  const received = Buffer.from(v1, "hex");
+  if (received.length !== expected.length || !timingSafeEqual(expected, received)) {
+    return { ok: false, reason: "INVALID_SIGNATURE" };
   }
-
-  if (!timestamp || !v1) {
-    console.log("Invalid signature format: missing ts or v1");
-    return false;
-  }
-
-  // Build manifest exactly per MercadoPago docs: id:{id};request-id:{request-id};ts:{ts};
-  // Omit id or request-id if not present
-  let manifest = "";
-  if (dataId) {
-    manifest += `id:${dataId.toLowerCase()};`;
-  }
-  if (requestId) {
-    manifest += `request-id:${requestId};`;
-  }
-  manifest += `ts:${timestamp};`;
-
-  console.log(`Manifest for HMAC: ${manifest}`);
-
-  const expectedSignature = createHmac("sha256", secret)
-    .update(manifest)
-    .digest("hex");
-
-  console.log(`Calculated HMAC: ${expectedSignature.substring(0, 8)}...`);
-  console.log(`Provided v1: ${v1.substring(0, 8)}...`);
-
-  try {
-    return timingSafeEqual(Buffer.from(v1), Buffer.from(expectedSignature));
-  } catch {
-    console.log("HMAC comparison failed");
-    return false;
-  }
-};
+  return { ok: true, dataId };
+}
 
 const handler: Handler = async (event) => {
   const headers = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
@@ -70,41 +78,40 @@ const handler: Handler = async (event) => {
   try {
     console.log("Webhook received. Validating...");
 
-    // Parse webhook
-    const bodyString = event.body || "";
-    const body = bodyString ? JSON.parse(bodyString) : {};
-    const signature = event.headers["x-signature"] || "";
-    const requestId = event.headers["x-request-id"] || "";
-
-    // Get data.id from query params or body
-    const dataId = event.queryStringParameters?.id || body.data?.id || "";
-
-    console.log(`Event type: ${body.type}, Data ID: ${dataId}, Request: ${requestId}`);
-
-    // Validate signature
-    const webhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      console.error("MERCADOPAGO_WEBHOOK_SECRET not configured");
-      return {
-        statusCode: 401,
-        body: JSON.stringify({ error: "Webhook secret not configured" }),
-        headers,
-      };
-    }
-
-    const isValidSignature = validateWebhookSignature(
-      signature,
+    // Authenticate before parsing, logging or any side effect
+    const requestId = getHeader(event.headers, "x-request-id");
+    const auth = verifyMercadoPagoSignature({
+      secret: process.env.MERCADOPAGO_WEBHOOK_SECRET,
+      signatureHeader: getHeader(event.headers, "x-signature"),
       requestId,
-      dataId,
-      webhookSecret
-    );
-
-    if (!isValidSignature) {
-      console.log("Invalid webhook signature");
-      return { statusCode: 401, body: JSON.stringify({ error: "Invalid signature" }), headers };
+      dataId: getSignedDataId(event),
+    });
+    if (!auth.ok) {
+      console.warn(`Webhook rejected: ${auth.reason}`);
+      return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }), headers };
     }
 
-    if (!body.type || !dataId) {
+    // Parse webhook
+    let body: any;
+    try {
+      body = event.body ? JSON.parse(event.body) : {};
+    } catch {
+      return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON" }), headers };
+    }
+    if (!body || typeof body !== "object") {
+      return { statusCode: 400, body: JSON.stringify({ error: "Invalid webhook" }), headers };
+    }
+
+    // The body is not signed: its resource id must match the signed data.id
+    const bodyDataId = body.data?.id;
+    if (bodyDataId !== undefined && normalizeDataId(String(bodyDataId)) !== auth.dataId) {
+      console.warn("Webhook rejected: BODY_DATA_ID_MISMATCH");
+      return { statusCode: 401, body: JSON.stringify({ error: "Unauthorized" }), headers };
+    }
+
+    console.log(`Event type: ${body.type}, ID: ${body.id}, Request: ${requestId}`);
+
+    if (!body.type || !body.id) {
       console.log("Invalid webhook structure");
       return { statusCode: 400, body: JSON.stringify({ error: "Invalid webhook" }), headers };
     }
@@ -119,19 +126,18 @@ const handler: Handler = async (event) => {
 
     console.log(`Processing event: ${eventType}`);
 
-    // Store webhook event for audit
-    try {
-      await supabase.from("webhook_events").insert({
-        event_type: eventType,
-        event_id: eventId,
-        request_id: requestId,
-        resource_type: resource,
-        data: body,
-        processed: false,
-        created_at: new Date().toISOString(),
-      });
-    } catch (auditErr) {
-      console.warn("Could not store webhook event:", auditErr instanceof Error ? auditErr.message : String(auditErr));
+    // Store webhook event for audit (best effort: the table might not exist yet)
+    const { error: auditError } = await supabase.from("webhook_events").insert({
+      event_type: eventType,
+      event_id: eventId,
+      request_id: requestId,
+      resource_type: resource,
+      data: body,
+      processed: false,
+      created_at: new Date().toISOString(),
+    });
+    if (auditError) {
+      console.warn(`webhook_events audit insert failed: ${auditError.message}`);
     }
 
     // Get token once for all API calls
@@ -147,145 +153,146 @@ const handler: Handler = async (event) => {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: `grant_type=client_credentials&client_id=${clientId}&client_secret=${clientSecret}`,
       });
+      if (!tokenRes.ok) return null;
       const tokenData = await tokenRes.json();
-      mpToken = tokenData.access_token;
+      mpToken = tokenData.access_token || null;
       return mpToken;
     };
 
-    // Process based on event type
-    if (eventType === "payment.created" || eventType === "payment.updated") {
-      console.log(`Processing payment: ${data.id}`);
+    // Process based on event type.
+    // The configured production webhook is "Pagos (legacy)": type "payment", action payment.created / payment.updated,
+    // resource id = the signed data.id. The commission / yield / refund / chargeback branches below are not part of
+    // the configured production webhook and are left unchanged.
+    if (eventType === "payment") {
+      if (!PAYMENT_ACTIONS.has(body.action)) {
+        console.log(`Ignoring payment notification with unsupported action`);
+        return { statusCode: 200, body: JSON.stringify({ success: true, ignored: "UNSUPPORTED_ACTION" }), headers };
+      }
+      const paymentId = auth.dataId;
+      console.log(`Processing payment: ${paymentId}`);
+
+      // Fetch full payment details from MercadoPago
+      const token = await getToken();
+      if (!token) {
+        console.error("MercadoPago token request failed");
+        return { statusCode: 502, body: JSON.stringify({ error: "MP_TOKEN_FAILED" }), headers };
+      }
+
+      const paymentRes = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!paymentRes.ok) {
+        console.error(`MercadoPago payment fetch failed: ${paymentRes.status}`);
+        return { statusCode: 502, body: JSON.stringify({ error: "MP_PAYMENT_FETCH_FAILED" }), headers };
+      }
+
+      const payment = await paymentRes.json();
+      if (!payment || normalizeDataId(String(payment.id)) !== paymentId) {
+        console.error("MercadoPago payment response does not match the signed payment id");
+        return { statusCode: 502, body: JSON.stringify({ error: "MP_PAYMENT_ID_MISMATCH" }), headers };
+      }
+
+      // Map payment fields (same as sync-mercadopago.ts)
+      const transactionDetails = payment.transaction_details as Record<string, unknown> || {};
+      const payer = payment.payer as Record<string, unknown> || {};
+      const payerIdentification = payer.identification as Record<string, unknown> || {};
+      const paymentMethod = payment.payment_method as Record<string, unknown> || {};
+
+      const record = {
+        id: String(payment.id),
+        data: payment,
+        transaction_amount: payment.transaction_amount as number || 0,
+        currency_id: payment.currency_id as string || "ARS",
+        status: payment.status as string || "",
+        status_detail: payment.status_detail as string || "",
+        date_created: payment.date_created as string || new Date().toISOString(),
+        date_approved: payment.date_approved as string || null,
+        money_release_date: payment.money_release_date as string || null,
+        payer_id: String(payer.id || ""),
+        payer_email: payer.email as string || null,
+        payer_identification: payerIdentification.number as string || null,
+        collector_id: payment.collector_id as number || 0,
+        payment_method: paymentMethod.id as string || "",
+        payment_type_id: payment.payment_type_id as string || "",
+        description: payment.description as string || "",
+        net_received_amount: transactionDetails.net_received_amount as number || 0,
+        total_paid_amount: transactionDetails.total_paid_amount as number || 0,
+        operation_type: payment.operation_type as string || "",
+        issuer_id: payment.issuer_id as string | null || null,
+        authorization_code: payment.authorization_code as string | null || null,
+        statement_descriptor: payment.statement_descriptor as string | null || null,
+        captured: payment.captured as boolean || false,
+        installments: payment.installments as number || 1,
+        processed: false,
+      };
+
+      const { error } = await supabase.from("mercadopago_raw").upsert([record], { onConflict: "id" });
+
+      if (error) {
+        console.error("Insert error:", error.message);
+        return { statusCode: 500, body: JSON.stringify({ error: "PAYMENT_WRITE_FAILED" }), headers };
+      }
+      console.log(`Saved payment ${paymentId}`);
+    } else if (eventType === "commission.created" || eventType === "commission.updated") {
+      console.log(`Processing commission: ${data.id}`);
 
       const token = await getToken();
       if (token) {
-        const paymentRes = await fetch(`https://api.mercadopago.com/v1/payments/${data.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const commission = {
+          id: String(data.id),
+          type: "commission",
+          amount: data.amount || data.transaction_amount || 0,
+          currency_id: data.currency_id || "ARS",
+          date_created: data.date_created || new Date().toISOString(),
+          status: data.status || "pending",
+          description: `Commission - ${data.reason || "MercadoPago fee"}`,
+          raw_data: data,
+        };
 
-        if (paymentRes.ok) {
-          const payment = await paymentRes.json();
-          const transactionDetails = payment.transaction_details as Record<string, unknown> || {};
-          const payer = payment.payer as Record<string, unknown> || {};
-          const payerIdentification = payer.identification as Record<string, unknown> || {};
-          const paymentMethod = payment.payment_method as Record<string, unknown> || {};
+        const { error } = await supabase.from("mercadopago_movements").upsert([commission], { onConflict: "id" }).catch(() => ({ error: null }));
 
-          const paymentId = String(payment.id);
-          const transactionAmount = payment.transaction_amount as number || 0;
-          const netReceivedAmount = transactionDetails.net_received_amount as number || transactionAmount;
-          const paymentStatus = payment.status as string || "";
-
-          // Save to mercadopago_raw
-          const record = {
-            id: paymentId,
-            data: payment,
-            transaction_amount: transactionAmount,
-            currency_id: payment.currency_id as string || "ARS",
-            status: paymentStatus,
-            status_detail: payment.status_detail as string || "",
-            date_created: payment.date_created as string || new Date().toISOString(),
-            date_approved: payment.date_approved as string || null,
-            money_release_date: payment.money_release_date as string || null,
-            payer_id: String(payer.id || ""),
-            payer_email: payer.email as string || null,
-            payer_identification: payerIdentification.number as string || null,
-            collector_id: payment.collector_id as number || 0,
-            payment_method: paymentMethod.id as string || "",
-            payment_type_id: payment.payment_type_id as string || "",
-            description: payment.description as string || "",
-            net_received_amount: netReceivedAmount,
-            total_paid_amount: transactionDetails.total_paid_amount as number || 0,
-            operation_type: payment.operation_type as string || "",
-            issuer_id: payment.issuer_id as string | null || null,
-            authorization_code: payment.authorization_code as string | null || null,
-            statement_descriptor: payment.statement_descriptor as string | null || null,
-            captured: payment.captured as boolean || false,
-            installments: payment.installments as number || 1,
-            processed: false,
-          };
-
-          await supabase.from("mercadopago_raw").upsert([record], { onConflict: "id" });
-
-          // Check if financial movement already exists for this payment
-          let existingFM = null;
-          try {
-            const result = await supabase
-              .from("mp_financial_movement")
-              .select("id")
-              .eq("external_reference", paymentId)
-              .single();
-            existingFM = result.data;
-          } catch (checkErr) {
-            console.log(`No existing FM for payment ${paymentId}`);
-          }
-
-          if (!existingFM && paymentStatus === "approved") {
-            try {
-              // Create mp_source_record
-              const { data: sourceRecord } = await supabase
-                .from("mp_source_record")
-                .insert({
-                  account_id: 1054315166,
-                  source_type: "webhook",
-                  source_external_id: paymentId,
-                  observed_at: new Date().toISOString(),
-                  raw_data: record,
-                })
-                .select("id")
-                .single();
-
-              if (sourceRecord) {
-                // Determine movement class
-                const movementClass = transactionAmount >= 0 ? "payment_in" : "payment_out";
-
-                // Create mp_financial_movement
-                const { data: fm } = await supabase
-                  .from("mp_financial_movement")
-                  .insert({
-                    account_id: 1054315166,
-                    movement_class: movementClass,
-                    transaction_amount: transactionAmount,
-                    settlement_amount: netReceivedAmount,
-                    external_reference: paymentId,
-                    transaction_date: payment.date_created as string || new Date().toISOString(),
-                    payer_name: payer.name as string || null,
-                    payer_id_number: payerIdentification.number as string || null,
-                    payment_method: paymentMethod.id as string || null,
-                    needs_review: paymentStatus !== "approved",
-                  })
-                  .select("id")
-                  .single();
-
-                if (fm) {
-                  // Link source to financial movement
-                  await supabase.from("mp_movement_source_link").insert({
-                    financial_movement_id: fm.id,
-                    source_record_id: sourceRecord.id,
-                    is_primary: true,
-                  });
-
-                  // Create ledger entry
-                  const category = movementClass === "payment_in" ? "income" : "expense";
-                  await supabase.from("ledger_entry").insert({
-                    account_id: 1054315166,
-                    financial_movement_id: fm.id,
-                    balance_impact: netReceivedAmount,
-                    category,
-                    source_reference: `payment.id=${paymentId}`,
-                    occurred_at: payment.date_created as string || new Date().toISOString(),
-                  });
-
-                  console.log(`Created financial movement for payment ${paymentId}`);
-                }
-              }
-            } catch (err) {
-              console.error(`Error creating financial movement for ${paymentId}:`, err instanceof Error ? err.message : String(err));
-            }
-          }
-
-          if (existingFM) {
-            console.log(`Payment ${paymentId} already has financial movement`);
-          }
+        if (!error) {
+          console.log(`Saved commission ${data.id}`);
         }
+      }
+    } else if (eventType === "investment_yield.created" || eventType === "yield.created") {
+      console.log(`Processing investment yield: ${data.id}`);
+
+      const yield_record = {
+        id: String(data.id),
+        type: "investment_yield",
+        amount: data.amount || data.net_amount || 0,
+        currency_id: data.currency_id || "ARS",
+        date_created: data.date_created || new Date().toISOString(),
+        status: "completed",
+        description: `Investment Yield - ${data.fund_name || "Interest"}`,
+        raw_data: data,
+      };
+
+      const { error } = await supabase.from("mercadopago_movements").upsert([yield_record], { onConflict: "id" }).catch(() => ({ error: null }));
+
+      if (!error) {
+        console.log(`Saved yield ${data.id}`);
+      }
+    } else if (eventType === "refund.created" || eventType === "chargeback.created") {
+      console.log(`Processing ${eventType}: ${data.id}`);
+
+      // These are negative movements
+      const refund = {
+        id: String(data.id),
+        type: eventType === "refund.created" ? "refund" : "chargeback",
+        amount: -(data.amount || data.transaction_amount || 0), // Negative
+        currency_id: data.currency_id || "ARS",
+        date_created: data.date_created || new Date().toISOString(),
+        status: data.status || "pending",
+        description: `${eventType === "refund.created" ? "Refund" : "Chargeback"} - ${data.reason || "N/A"}`,
+        raw_data: data,
+      };
+
+      const { error } = await supabase.from("mercadopago_movements").upsert([refund], { onConflict: "id" }).catch(() => ({ error: null }));
+
+      if (!error) {
+        console.log(`Saved ${eventType} ${data.id}`);
       }
     }
 

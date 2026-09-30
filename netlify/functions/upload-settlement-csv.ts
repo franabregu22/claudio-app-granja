@@ -108,7 +108,7 @@ const handler: Handler = async (event) => {
             difference_ars: (netTotal - 172814.62).toFixed(2),
           },
           sample_records: records.slice(0, 3),
-          next_step: "POST to /sync-settlement-csv with confirm=true to actually insert data",
+          next_step: "Preview only. The legacy CSV insert endpoint was removed (security hotfix L-1).",
         },
         null,
         2
