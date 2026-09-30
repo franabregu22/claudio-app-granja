@@ -160,6 +160,10 @@ describe('F27-F Feria session (open → movements → cash events → count → 
     const moves = await listSessionMovements(admin(), sessionId);
     expect(moves.map((m) => [m.movement_type, m.cantidad]).sort()).toEqual([['DISPATCH', 40], ['RETURN', 5]]);
     expect(moves[0].producto_nombre).toBe(`${TAG} maple`);
+    // [ADR-009, 0060] Feria reads are ADMIN-only too: OPERATOR sees neither the OPEN session nor its movements
+    expect((await listSessions(admin())).map((s) => s.id)).toContain(sessionId);
+    expect(await listSessions(operator())).toEqual([]);
+    expect(await listSessionMovements(operator(), sessionId)).toEqual([]);
     expect(owner(`SELECT count(*) FROM sales_session_movement WHERE sales_session_id = '${sessionId}' AND created_by = '${users.OPERATOR.id}';`)).toBe('0');
   });
 

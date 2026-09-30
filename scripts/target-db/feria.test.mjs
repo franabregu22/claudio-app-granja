@@ -574,15 +574,18 @@ rpc(cashCall(GO, 'COUNT', 50, CAJA));
 const GC = openS('2026-05-09', 'Feria cerrada').session_id;
 rpc(moveCall(GC, 'DISPATCH', MAPLE, 6));
 rpc(closeCall(GC, []));
-check('G1 OPERATOR sees OPEN sessions only (not the CLOSED one); ADMIN sees both',
-  visible(A, 'sales_session', `id = '${GO}'`) === '1' && visible(A, 'sales_session', `id = '${E}'`) === '0'
-  && visible(B, 'sales_session', `id = '${GO}'`) === '1' && visible(ADMIN, 'sales_session', `id IN ('${GO}','${E}')`) === '2');
-check('G2 OPERATOR sees movements of OPEN sessions only; ADMIN sees all',
-  visible(A, 'sales_session_movement', `sales_session_id = '${GO}'`) === '1' && visible(A, 'sales_session_movement', `sales_session_id = '${GC}'`) === '0'
+check('G1 [ADR-009, 0060] OPERATOR sees no session at all (OPEN or CLOSED); ADMIN sees both',
+  visible(A, 'sales_session', 'true') === '0' && visible(B, 'sales_session', 'true') === '0'
+  && visible(ADMIN, 'sales_session', `id IN ('${GO}','${E}')`) === '2');
+check('G2 [ADR-009, 0060] OPERATOR sees no movement at all; ADMIN sees all',
+  visible(A, 'sales_session_movement', 'true') === '0' && visible(B, 'sales_session_movement', 'true') === '0'
   && visible(ADMIN, 'sales_session_movement', `sales_session_id IN ('${GO}','${GC}')`) === '2');
 check('G3 cash events: ADMIN only; OPERATOR sees none, even of an OPEN session',
   visible(A, 'sales_session_cash_event', 'true') === '0' && visible(B, 'sales_session_cash_event', 'true') === '0'
   && visible(ADMIN, 'sales_session_cash_event', `sales_session_id = '${GO}'`) === '1');
+check('G3b [ADR-009, 0060] report_feria_session_cash (security_invoker) returns no row to OPERATOR; ADMIN reads the session',
+  visible(A, 'report_feria_session_cash', 'true') === '0' && visible(B, 'report_feria_session_cash', 'true') === '0'
+  && visible(ADMIN, 'report_feria_session_cash', `sales_session_id = '${GO}'`) !== '0');
 snap = snapshot();
 const direct = [
   A(`INSERT INTO sales_session (session_date, location, idempotency_key) VALUES ('2026-05-09', 'x', '${newKey()}');`),
@@ -603,9 +606,9 @@ check('G5 exact ACLs: authenticated SELECT only',
   acl === TABLES.map((t) => `${t}={postgres=arwdDxtm/postgres,authenticated=r/postgres}`).join(' '), acl);
 const pols = owner(`SELECT string_agg(tablename || ':' || policyname || ':' || cmd, ',' ORDER BY tablename, policyname) FROM pg_policies WHERE tablename IN (${TABLES.map((t) => `'${t}'`).join(',')});`);
 check('G6 policies exactly as frozen RLS §8 Feria',
-  pols === 'sales_session:sales_session_admin_select:SELECT,sales_session:sales_session_operator_select:SELECT,'
+  pols === 'sales_session:sales_session_admin_select:SELECT,'
   + 'sales_session_cash_event:sales_session_cash_event_admin_select:SELECT,'
-  + 'sales_session_movement:sales_session_movement_admin_select:SELECT,sales_session_movement:sales_session_movement_operator_select:SELECT', pols);
+  + 'sales_session_movement:sales_session_movement_admin_select:SELECT', pols);   // [ADR-009, 0060] no OPERATOR policy
 check('G7 sequences grant nothing to application roles',
   owner(`SELECT count(*) FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('s', c.relowner))) a
          WHERE c.relname IN ('sales_session_movement_id_seq','sales_session_cash_event_id_seq') AND a.grantee <> c.relowner;`) === '0');
@@ -619,6 +622,8 @@ check('G8 anon and service_role: no SELECT and no EXECUTE on RPCs 30–33', anon
 check('G9 [ADR-009] OPERATOR has no Feria movement of its own, so it reads no Feria audit (movement, session or cash)',
   okAs(A, `SELECT count(*) FROM audit_events WHERE entity_type = 'sales_session_movement';`) === '0'
   && okAs(A, `SELECT count(*) FROM audit_events WHERE entity_type IN ('sales_session','sales_session_cash_event');`) === '0');
+check('G9b [ADR-009, 0060] the OPERATOR audit policy no longer lists any Feria entity (other entity types unchanged)',
+  owner(`SELECT (qual NOT LIKE '%sales_session%') || '|' || (qual LIKE '%daily_production%' AND qual LIKE '%feed_inventory_count%') FROM pg_policies WHERE policyname = 'audit_events_operator_own';`) === 'true|true');
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('H', 'Periods (determinant = session_date; created_at / opened_at / closed_at never decide)');
@@ -881,8 +886,9 @@ okAs(ADMIN, `INSERT INTO pedido_lineas (pedido_id, producto_id, cantidad, precio
   VALUES ('${OIP}', '${MAPLE}', 20, 900, '${TAG} Maple', '${ADMIN_UID}');`);
 rpc(`deliver_order('${OIP}', '2026-05-23 11:00-03', 'mayorista en feria')`);
 rpc(cashCall(O, 'COUNT', 5000, CAJA, null, null, 'arqueo'));
-check('O1 during the session operator A sees the session and its 4 physical movements, but no cash event',
-  visible(A, 'sales_session', `id = '${O}'`) === '1' && visible(A, 'sales_session_movement', `sales_session_id = '${O}'`) === '4'
+check('O1 [ADR-009, 0060] during the session ADMIN sees the session and its 4 physical movements; operator A sees nothing of it (no session, movement or cash event)',
+  visible(ADMIN, 'sales_session', `id = '${O}'`) === '1' && visible(ADMIN, 'sales_session_movement', `sales_session_id = '${O}'`) === '4'
+  && visible(A, 'sales_session', `id = '${O}'`) === '0' && visible(A, 'sales_session_movement', `sales_session_id = '${O}'`) === '0'
   && visible(A, 'sales_session_cash_event', `sales_session_id = '${O}'`) === '0');
 const oc = rpc(closeCall(O, [L(MAPLE, 50, 1000), L(MAPLE, 17, 950)], 'cierre jornada'));
 check('O2 close: one CONSUMIDOR FINAL aggregate with two Maple lines at different prices, total 50·1000 + 17·950 = 66150, delivered on 2026-05-23',

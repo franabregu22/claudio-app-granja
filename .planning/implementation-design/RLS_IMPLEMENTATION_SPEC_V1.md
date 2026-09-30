@@ -4,7 +4,7 @@
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 **AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — purchase attachment objects: private Storage bucket `purchase-attachments` (10 MB, PDF / JPEG / PNG / WebP) with ADMIN-only SELECT / INSERT / DELETE policies on `storage.objects` (migration 0058). No public-schema change. Amended section is marked **[ADR-008]**.  
-**AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 carries the ADMIN guard (migration 0059); no table privilege or policy changes. Amended passage is marked **[ADR-009]**.  
+**AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 carries the ADMIN guard (migration 0059); migration 0060 drops the OPERATOR read policies on sales_session / sales_session_movement and removes the Feria entity from audit_events_operator_own, so Feria is completely ADMIN-only in V1, including reads. Amended passages are marked **[ADR-009]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md Part 2 (frozen)  
@@ -217,7 +217,7 @@ CREATE POLICY audit_events_operator_own ON audit_events FOR SELECT
     AND performed_by = auth.uid()
     AND entity_type IN ('daily_production','population_events','classification',
                         'flock_weighing','temperature_record','feed_manufacturing',
-                        'feed_inventory_count','sales_session_movement')
+                        'feed_inventory_count')   -- [ADR-009] 'sales_session_movement' removed (0060)
   );
 ```
 No INSERT/UPDATE/DELETE policy and no privilege: audit rows are written only inside RPCs and can
@@ -558,24 +558,19 @@ Layer 3 — no write privilege on either table for any application role.
 ALTER TABLE sales_session ENABLE ROW LEVEL SECURITY;
 CREATE POLICY sales_session_admin_select ON sales_session FOR SELECT
   USING (current_app_role() = 'ADMIN');
-CREATE POLICY sales_session_operator_select ON sales_session FOR SELECT
-  USING (current_app_role() = 'OPERATOR' AND estado = 'OPEN');
+-- [ADR-009] sales_session_operator_select dropped (0060): Feria is completely ADMIN-only in V1, including reads.
 
 ALTER TABLE sales_session_movement ENABLE ROW LEVEL SECURITY;
 CREATE POLICY sales_session_movement_admin_select ON sales_session_movement FOR SELECT
   USING (current_app_role() = 'ADMIN');
-CREATE POLICY sales_session_movement_operator_select ON sales_session_movement FOR SELECT
-  USING (
-    current_app_role() = 'OPERATOR'
-    AND sales_session_id IN (SELECT id FROM sales_session WHERE estado = 'OPEN')
-  );
+-- [ADR-009] sales_session_movement_operator_select dropped (0060).
 
 ALTER TABLE sales_session_cash_event ENABLE ROW LEVEL SECURITY;
 -- cash is financial: ADMIN only.
 CREATE POLICY sales_session_cash_event_admin_select ON sales_session_cash_event FOR SELECT
   USING (current_app_role() = 'ADMIN');
 ```
-**[ADR-009]** Feria is ADMIN-only in V1: OPERATOR records no physical movement (RPC 31 now requires ADMIN, like RPCs 30 / 32 / 33) and never sees the session's cash events. The OPERATOR SELECT policies above are unchanged (no mutation follows from them; the V1 frontend exposes no Feria screen to OPERATOR).
+**[ADR-009]** Feria is completely ADMIN-only in V1, including reads. OPERATOR records no physical movement (RPC 31 requires ADMIN, like RPCs 30 / 32 / 33; migration 0059) and reads no session, movement, cash event, Feria audit row or `report_feria_session_cash` row (the view is `security_invoker`; OPERATOR policies dropped by migration 0060).
 
 ---
 
@@ -687,8 +682,8 @@ SERVICE_ROLE reaches MP tables and the RPCs that bridge them to `financial_opera
 | feed_movement | S | — | — | RPC 28 only |
 | feed_inventory_count | S | S | — | RPC 27 only |
 | flock_feed_assignment | S | S assigned | — | RPC 29 only |
-| sales_session | S | S open | — | RPC 30/33 only |
-| sales_session_movement | S | S open | — | RPC 31 only |
+| sales_session | S | — **[ADR-009]** | — | RPC 30/33 only |
+| sales_session_movement | S | — **[ADR-009]** | — | RPC 31 only (ADMIN) |
 | sales_session_cash_event | S | — | — | RPC 32 only |
 | fiscal_document | S | — | — | RPC 34 only |
 | fiscal_document_component | S | — | — | RPC 34 only |

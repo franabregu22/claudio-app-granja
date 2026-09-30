@@ -242,7 +242,7 @@ Checks:
 - The owner rejected granting OPERATOR product access. OPERATOR has no Feria capability, and fiscal stays ADMIN-only.
 - Migration `0059_feria_admin_only.sql` gives RPC 31 the standard ADMIN guard. The audit found RPCs 30 / 32 / 33 already ADMIN-only and no other Feria writer. No schema, grant or policy change; `products` / `price_history` RLS unchanged.
 - The Phase 21 backend suite encoded the old OPERATOR permission. It was amended (C0, C1–C7, G9, H2, J2 / J3) and is green.
-- The OPERATOR SELECT policies on OPEN sessions / movements are kept as frozen: no mutation follows, and no screen is exposed.
+- Owner follow-up: Feria is completely ADMIN-only in V1, including reads. Migration `0060_feria_admin_only_reads.sql` drops the OPERATOR read policies on `sales_session` / `sales_session_movement` and removes the Feria entity from `audit_events_operator_own`. OPERATOR now reads no session, movement, cash event, Feria audit row or `report_feria_session_cash` row; ADMIN keeps full access. The Phase 21 suite was amended again (G1, G2, G3b, G6, G9b, O1).
 
 Checks:
 - static gate 8/0 (4 files / 13, unchanged);
