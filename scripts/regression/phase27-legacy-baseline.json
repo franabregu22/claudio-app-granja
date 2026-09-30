@@ -1,44 +1,9 @@
 {
   "note": "Phase 27 remaining legacy baseline (per file). May only shrink; empty at F27-I. Zero-tolerance findings are never listed here.",
   "files": {
-    "src/api/arqueos.ts": [
-      "from:arqueos_caja",
-      "from:cuentas_caja",
-      "from:movimientos_caja",
-      "name:arqueos_caja",
-      "name:cuentas_caja",
-      "name:movimientos_caja",
-      "write:arqueos_caja:insert"
-    ],
     "src/api/caja.ts": [
-      "from:cheques",
-      "from:clientes",
-      "from:comisiones",
-      "from:facturas",
       "from:movimientos_caja",
-      "from:pagos",
-      "name:cheques",
-      "name:clientes",
-      "name:comisiones",
-      "name:facturas",
-      "name:movimientos_caja",
-      "name:pagos",
-      "write:cheques:insert",
-      "write:cheques:update",
-      "write:comisiones:insert",
-      "write:movimientos_caja:delete",
-      "write:movimientos_caja:insert",
-      "write:movimientos_caja:update",
-      "write:pagos:update"
-    ],
-    "src/api/categorias.ts": [
-      "from:categorias_finanzas",
-      "from:movimientos_caja",
-      "name:categorias_finanzas",
-      "name:movimientos_caja",
-      "write:categorias_finanzas:insert",
-      "write:categorias_finanzas:update",
-      "write:movimientos_caja:update"
+      "name:movimientos_caja"
     ],
     "src/api/lotes.ts": [
       "from:lotes",
@@ -59,11 +24,6 @@
       "name:ledger_entry",
       "name:mp_financial_movement"
     ],
-    "src/api/pagos.ts": [
-      "from:pago_en_caja",
-      "name:pago_en_caja",
-      "write:pago_en_caja:insert"
-    ],
     "src/api/producciones.ts": [
       "from:perfiles",
       "from:producciones",
@@ -82,15 +42,6 @@
       "from:mp_financial_movement",
       "name:mp_financial_movement",
       "write:mp_financial_movement:update"
-    ],
-    "src/hooks/useArqueos.ts": [
-      "name:arqueos_caja",
-      "name:cuentas_caja"
-    ],
-    "src/hooks/useCaja.ts": [
-      "name:cheques",
-      "name:comisiones",
-      "name:pagos"
     ],
     "src/hooks/useLotes.ts": [
       "name:lotes"

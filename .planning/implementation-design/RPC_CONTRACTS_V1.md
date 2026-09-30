@@ -4,6 +4,7 @@
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
+**AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — RPC 13 `register_purchase`: the attachment objects live in the private Storage bucket `purchase-attachments` and are uploaded by the caller before the call (removed by the caller if the call fails). The RPC itself is unchanged. Amended passage is marked **[ADR-008]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -903,7 +904,8 @@ END
 **supplier_ledger:** `+amount_total` PURCHASE. **financial:** none — payment is a separate act (`pay_supplier`). Immediate-payment purchases are two RPC calls, never one netted row.  
 **Idempotency:** `purchases.idempotency_key` UNIQUE.  
 **Errors:** `FORBIDDEN`, `INVALID_AMOUNT`, `NATURE_REQUIRED`, `CATEGORY_REQUIRED`, `ATTACHMENT_REQUIRED`, `SUPPLIER_NOT_FOUND_OR_INACTIVE`, `RESERVED_IDEMPOTENCY_KEY` **[ADR-002]**, `DUPLICATE_PURCHASE`, `DUPLICATE_SUPPLIER_INVOICE`, `PERIOD_NOT_FOUND`, `PERIOD_CLOSED`.  
-**Returns:** `{purchase_id, supplier_ledger_id, line_count, attachment_count}`.
+**Returns:** `{purchase_id, supplier_ledger_id, line_count, attachment_count}`.  
+**Attachment objects [ADR-008]:** each `storage_path` is the key of an object the caller has already uploaded to the private bucket `purchase-attachments` (ADMIN-only, 10 MB, PDF / JPEG / PNG / WebP; key `<auth-user-id>/<uuid>.<ext>`; the original name goes in `file_name`). The RPC does not read Storage and is unchanged. Caller sequencing: upload → call; on an upload failure the RPC is not called; if the call fails the caller deletes the objects it uploaded and reports the RPC's original error.
 
 ---
 

@@ -3,6 +3,7 @@
 **STATUS:** **FROZEN** — Fase 9 (Implementation Design) closed 2026-09-24. Implementation-ready security model.  
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
+**AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — purchase attachment objects: private Storage bucket `purchase-attachments` (10 MB, PDF / JPEG / PNG / WebP) with ADMIN-only SELECT / INSERT / DELETE policies on `storage.objects` (migration 0058). No public-schema change. Amended section is marked **[ADR-008]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md Part 2 (frozen)  
@@ -366,6 +367,29 @@ CREATE POLICY purchase_attachment_admin_insert ON purchase_attachment FOR INSERT
 Additional attachments may be added to an existing purchase. There is no DELETE policy: the
 mandatory attachment cannot be removed, so a purchase can never become attachment-less after
 `register_purchase` created it with at least one.
+
+### Purchase attachment objects (Storage) **[ADR-008]**
+
+The objects that `purchase_attachment.storage_path` points to live in the **private** bucket
+`purchase-attachments` (`public = false`, `file_size_limit` 10 MB, `allowed_mime_types` =
+`application/pdf`, `image/jpeg`, `image/png`, `image/webp`). The Storage service runs object queries as the
+caller's role, so these policies are the access authority (migration 0058):
+
+```sql
+-- storage.objects, TO authenticated only; nothing for anon; no UPDATE policy (no overwrite / move)
+CREATE POLICY purchase_attachments_admin_select ON storage.objects FOR SELECT TO authenticated
+  USING (CASE WHEN bucket_id = 'purchase-attachments' THEN public.current_app_role() = 'ADMIN' ELSE false END);
+CREATE POLICY purchase_attachments_admin_insert ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (CASE WHEN bucket_id = 'purchase-attachments'
+                   THEN public.current_app_role() = 'ADMIN' AND (storage.foldername(name))[1] = auth.uid()::TEXT
+                   ELSE false END);
+CREATE POLICY purchase_attachments_admin_delete ON storage.objects FOR DELETE TO authenticated
+  USING (CASE WHEN bucket_id = 'purchase-attachments' THEN public.current_app_role() = 'ADMIN' ELSE false END);
+```
+
+The `CASE` resolves the role only for rows of this bucket (`current_app_role()` raises for a caller without an
+active profile), so no other bucket is opened or affected. Object keys are generated as
+`<auth-user-id>/<uuid>.<ext>`; no public URL is used (signed URLs only). OPERATOR has no access.
 
 ---
 

@@ -191,9 +191,35 @@ Checks:
 - `npm run test:integration` 35/35 (F27-A 4, F27-B 19, F27-C 12). Across 11 full runs, 1 run failed 2 F27-B `clients` cases that pass in isolation. It was not reproducible in 10 reruns; the cause is not identified. Recorded as an observed cross-file flake;
 - backend commercial 147/0, reporting 63/0, treasury 107/0, instruments 200/0, foundations 96/0;
 - `tsc -b` 0; safe build + dist scan 0 findings |
-| F27-D…F27-I | pending | — |
+| F27-D Treasury, suppliers, purchases, instruments | **COMPLETE** (owner decision on E-F27D-2, option (a), 2026-09-30). Commit "phase27: F27-D migrate treasury purchases and instruments". The Storage-API and end-to-end "Nueva compra" verification is deferred to MANDATORY pre-cutover verification, not waived: those tests are SKIPPED, not passed | `src/target/treasury.ts` + `features/caja/useTreasury.ts`; Caja rebuilt as tabs (Saldos, Cuentas a pagar, Compras y fletes, Cheques, Tendencia meses):
+- Account and supplier balances: the latest closing balance of `report_balance_period` (ACCOUNT / SUPPLIER); no balance computed in React.
+- RPC-only: `transfer_between_accounts`; `pay_supplier` (CASH / TRANSFER / MERCADOPAGO); paying by cheque / eCheq = `issue_supplier_instrument`; `rectify_purchase` (reason required, attachments carried forward by the backend); `register_freight`, `assign_freight_to_purchase`.
+- Instruments: `receive_cheque` (the cheque collection deferred from F27-C), `deposit_cheque`, `clear_cheque`, `endorse_cheque`, `reject_cheque`, `mark_supplier_instrument_debited`, `cancel_supplier_instrument`, `reject_supplier_instrument`. The buttons per state mirror the contract; no instrument state is written by the frontend.
+- "Tendencia meses" (P27-D2): `pnl_summary` columns as reported (accrued net sales, operating result, result after investments), last 6 periods; the legacy margin and ingresos − egresos formulas are not recreated.
+- Removed: free-form movement CRUD (`ListaMovimientos`, `FormMovimiento`, `ModalEditarMovimiento`), the category re-classification (`ModalEditarCategoria`, `api/categorias`, `useCategorias`), "Sincronizar pagos" / `agregarPagoAlaCaja` / `api/pagos`, the general flujo de caja (`ResumenFlujoCaja`, P27-D2), the general arqueos (`ArqueoCard`, `FormArqueo`, `HistorialArqueos`, `api/arqueos`, `useArqueos`, P27-D1), `constants/categorias-caja`. No `pagos`, `cheques`, `comisiones`, `facturas`, `arqueos_caja` or `cuentas_caja` reference remains in `src/`.
+- Kept for F27-G (baselined, read-only): `api/caja.listarMovimientosCaja` / `useMovimientosCaja`, the source of the Finanzas P&L (`PyLProesional`; `PyL` is unimported). This is the only remaining `movimientos_caja` reference.
 
-**Pre-cutover verification debt (recorded, not a blocker):** the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31).
+**D-F27D-1 — RESOLVED (owner, 2026-09-30) → ADR-008.** Purchase attachments live in the PRIVATE Storage bucket `purchase-attachments`: ADMIN-only upload / read / delete through `current_app_role()`, 10 MB, PDF / JPEG / PNG / WebP, generated key `<auth-user-id>/<uuid>.<ext>`, no UPDATE, no public URL. Migration `0058_purchase_attachment_storage.sql` (applied locally; ledger 58). "Nueva compra" (`src/target/attachments.ts`): validate → upload → `register_purchase`; upload failure = no RPC call; RPC failure = uploaded objects removed and the original error shown; a failed cleanup is reported with object keys only.
+
+**E-F27D-2 (environment) — DEFERRED to mandatory pre-cutover verification (owner, option (a)):** the local stack runs without the Storage service (its container is started by the Supabase CLI, which Windows Application Control blocks). The RLS perimeter of 0058 is verified in the database as the roles the Storage service uses. Not executable here, and written as tests that run automatically once the service is up:
+- the Storage-API layer: MIME refusal, 10 MB refusal, signed / public URL, real upload / download / delete;
+- the end-to-end "Nueva compra" upload → RPC.
+
+Checks:
+- static gate 8/0, baseline 15 files / 70 → 10 files / 31 references (no `--allow-grow`);
+- `npm test` 67/67 (F27-D 24, including the upload / compensation sequence);
+- `npm run test:integration` 53 passed / 5 skipped. The skipped 5 are the 2 Storage-API + 3 end-to-end tests of E-F27D-2. The files are F27-A 4, F27-B 19, F27-C 12, F27-D 11 (+3 skipped), Storage perimeter 7 (+2 skipped);
+- backend treasury, purchases, instruments, commercial, reporting, pnl green (counts in the F27-D report); ADR-006 frontend contract 28/0;
+- `tsc -b` 0; safe build + dist scan 0 findings |
+| F27-E…F27-I | pending | — |
+
+**Pre-cutover verification debt (recorded, not a blocker):**
+- the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31);
+- the F27-B `clients` integration flake observed once in F27-C (1 of 11 full runs; not reproduced in 10 F27-C reruns nor in 3 F27-D full runs) must be re-checked for stability before cutover;
+- a second intermittent of the same shape, seen once in F27-D (1 of 3 full runs): the first PostgREST call after sign-in in `f27c-commercial` failed with `JWT issued at future`. The cause is a token used within the second it was issued, rejected by PostgREST's time check. It was not reproduced in 5 reruns of that file nor in 230 sign-in → request probes, including 200 concurrent ones. It is probably the same cause as the F27-B flake, which also failed on the first write after sign-in;
+- E-F27D-2, **SKIPPED / PRE-CUTOVER REQUIRED** (never counted as PASS). They must run green against the canonical local stack with the Storage service:
+  - `tests/integration/f27d-storage.test.ts` "ADR-008 Storage API": ADMIN upload, authenticated download and delete; unsupported MIME rejected; > 10 MB rejected; signed URL works; public access does not work;
+  - `tests/integration/f27d-treasury.test.ts` "Nueva compra": real upload to `purchase-attachments` → `register_purchase` → persisted attachment metadata; cleanup compensation on RPC failure; OPERATOR upload refused without calling the RPC.
 
 ## 10. Decisions and findings
 

@@ -3,6 +3,7 @@
 **STATUS:** **FROZEN** — Fase 9 (Implementation Design) closed 2026-09-24. Implementation-ready physical schema.  
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
+**AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — `purchase_attachment.storage_path` refers to an object in the private Storage bucket `purchase-attachments` (migration 0058 creates the bucket and its policies in the `storage` schema). No public-schema change. Amended passage is marked **[ADR-008]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen). This document translates it; it does not reinterpret it.
@@ -741,6 +742,9 @@ CREATE TABLE purchase_attachment (
 ALTER TABLE purchase_attachment ENABLE ROW LEVEL SECURITY;
 CREATE INDEX idx_purchase_attachment_purchase ON purchase_attachment(purchase_id);
 ```
+**[ADR-008]** `storage_path` is the key of an object in the private Storage bucket `purchase-attachments`
+(generated as `<auth-user-id>/<uuid>.<ext>`; ADMIN-only; 10 MB; PDF / JPEG / PNG / WebP). `file_name` keeps the
+user's original file name as metadata only. The table itself is unchanged.
 
 ### freight
 ```sql

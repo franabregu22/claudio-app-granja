@@ -130,7 +130,8 @@ describe('F27-C migrated files carry no legacy or duplicated authority', () => {
     }
     const pedidosApi = readFileSync(resolve(SRC, 'api/pedidos.ts'), 'utf8');
     expect(pedidosApi).not.toMatch(/\.(insert|update|delete)\(|\.rpc\(/);
-    const pagosApi = readFileSync(resolve(SRC, 'api/pagos.ts'), 'utf8');
-    expect(pagosApi).not.toMatch(/from\('pagos'\)/);
+    // api/pagos.ts was reduced to a Caja helper in F27-C and removed entirely in F27-D
+    const pagosPath = resolve(SRC, 'api/pagos.ts');
+    if (existsSync(pagosPath)) expect(readFileSync(pagosPath, 'utf8')).not.toMatch(/from\('pagos'\)/);
   });
 });
