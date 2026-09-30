@@ -175,7 +175,8 @@ All of the following must hold, mechanically where possible:
 | Slice | Status | Evidence |
 |---|---|---|
 | F27-A Foundation | **COMPLETE** | `src/target/{roles,role,db}.ts`; the role from `current_app_role()`; role navigation plus a "Sin acceso" screen; S-1, MP debug / sync, `localStorage` secret, ipify and dead Google Sheets code removed. Checks: `phase27-frontend-static.check.mjs` (8/0; baseline 24 files / 109 legacy references), `npm test` 5/5, `npm run test:integration` 4/4, `tsc -b` 0, safe build + dist scan 0 findings |
-| F27-B…F27-I | pending | — |
+| F27-B Masters / Admin | **COMPLETE** | Admin screens on the target masters through `src/target/masters.ts` (authorized INSERT / UPDATE only, no delete path; an RLS-filtered UPDATE is reported as NOT_UPDATED): clients, products + price_history (a change closes the current row the day before and appends the new one), expense_category (`pnl_cost_class` set on creation only), sheds, flocks (read-only: the frozen contract has no frontend write path), suppliers, financial_account, operator_assignments, projects. Unused legacy `usePrecios` / `api/precios` removed. Legacy hooks still used by later slices (`useClientes`, `useProductos` → F27-C; `useLotes` → F27-E; `useCategorias` → F27-D) stay in the baseline. Checks: static gate 8/0, baseline 24 files / 109 → 20 files / 97 references; `npm test` 22/22; `npm run test:integration` 19/19 (F27-B: ADMIN create / update per form, OPERATOR insert / update denied, no delete grant); `tsc -b` 0; safe build + dist scan 0 findings |
+| F27-C…F27-I | pending | — |
 
 ## 10. Decisions and findings
 

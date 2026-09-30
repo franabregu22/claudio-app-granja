@@ -92,6 +92,11 @@ export function normalizeDbError(err: unknown): TargetDbError {
   if (m) return new TargetDbError(m[1], m[2] ?? '');
   if (e.code === '42501' || /permission denied/i.test(message)) return new TargetDbError('PERMISSION_DENIED', message);
   if (/row-level security/i.test(message)) return new TargetDbError('RLS_DENIED', message);
+  // declarative constraints (unique names, CHECK ranges, restricted references)
+  if (e.code === '23505') return new TargetDbError('DUPLICATE', message);
+  if (e.code === '23514') return new TargetDbError('CHECK_VIOLATION', message);
+  if (e.code === '23503') return new TargetDbError('FK_VIOLATION', message);
+  if (e.code === '23502') return new TargetDbError('MISSING_VALUE', message);
   return new TargetDbError('DB_ERROR', message);
 }
 

@@ -91,11 +91,6 @@
       "write:pedidos:insert",
       "write:pedidos:update"
     ],
-    "src/api/precios.ts": [
-      "from:precios_actuales",
-      "name:precios_actuales",
-      "write:precios_actuales:update"
-    ],
     "src/api/producciones.ts": [
       "from:perfiles",
       "from:producciones",
@@ -109,21 +104,6 @@
       "write:recuentos_lote:delete",
       "write:recuentos_lote:insert",
       "write:recuentos_lote:update"
-    ],
-    "src/features/admin/AdminApp.tsx": [
-      "name:clientes",
-      "name:lotes"
-    ],
-    "src/features/admin/ClientesAdmin.tsx": [
-      "name:clientes"
-    ],
-    "src/features/admin/PreciosAdmin.tsx": [
-      "from:precios_actuales",
-      "from:precios_historial",
-      "name:precios_actuales",
-      "name:precios_historial",
-      "write:precios_actuales:update",
-      "write:precios_historial:insert"
     ],
     "src/features/mercadopago/UnclassifiedMovements.tsx": [
       "from:mp_financial_movement",
