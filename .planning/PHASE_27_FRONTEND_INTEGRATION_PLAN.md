@@ -211,7 +211,25 @@ Checks:
 - `npm run test:integration` 53 passed / 5 skipped. The skipped 5 are the 2 Storage-API + 3 end-to-end tests of E-F27D-2. The files are F27-A 4, F27-B 19, F27-C 12, F27-D 11 (+3 skipped), Storage perimeter 7 (+2 skipped);
 - backend treasury, purchases, instruments, commercial, reporting, pnl green (counts in the F27-D report); ADR-006 frontend contract 28/0;
 - `tsc -b` 0; safe build + dist scan 0 findings |
-| F27-E…F27-I | pending | — |
+| F27-E Production, classification, feed | **COMPLETE** | Commit "phase27: F27-E migrate production classification and feed". `src/target/{production,classification,feed}.ts` + `features/production/useProduction.ts`:
+- **Production:** register / rectify through RPCs 18 / 19. The daily form (flock, business date by default, eggs total / broken / dirty, optional deaths, notes) records production and, when entered, mortality: two contract facts. The history is `report_flock_day`, with eggs, laying % and expected curve, mortality, population and the quality warning as reported.
+- **Mortality and population:** register mortality (RPC 20); mortality rectification (RPC 21, ADMIN only); count adjustment with reason (RPC 22). Population comes only from `report_flock_day`. The ADR-007 exit-date rule is enforced by the backend: activity dated after the exit is refused, a correction on or before it is accepted.
+- **Classification:** one idempotent `register_classification` session per form. The grades come from the `classification_grade` reference data, with no frontend constants. The daily summary is `report_classification_day`.
+- **Feed:** manufacturing (effective formula version) and physical counts (ADMIN and OPERATOR); loss / adjustment movements and flock feed assignment (ADMIN only). Consumption is the count-to-count `report_feed_consumption_interval` in kg; no cost is read.
+- **Roles:** OPERATOR modules are production dashboard, production, classification and feed, for assigned flocks only (RLS). The production dashboard moved from ADMIN-only to the OPERATOR working set per §2 row 3.
+- **Removed:** the legacy production screens and calculations (`produccionCalculos`, `produccionHelpers`, `DashboardProduccion`, `ListaProducciones`, including the "huevos sanos"-based laying % that contradicted ADR-005 D1); `api/{lotes,producciones,recuentos}`; `hooks/{useLotes,useProducciones,useRecuentos}` with their realtime subscriptions.
+- **Not in F27-E (reported):**
+  - `register_management_event` is an ADR-004 monetary P&L event (RETIRO / RESERVA_INTERNA, ADMIN only), so it moves to F27-G with the P&L. §2 row 4 listed it under production;
+  - an external feed sale (`EXTERNAL_SALE`) needs its Pedido (`PEDIDO_REQUIRED`); the Pedido link is not offered, so the movement form offers loss and adjustments only;
+  - the legacy mid-day / afternoon split has no target field: the day's totals are entered.
+- `writeTable` now refuses a table outside `DIRECT_WRITES` with `DIRECT_WRITE_NOT_ALLOWED` instead of a TypeError.
+
+Checks:
+- static gate 8/0, baseline 10 files / 31 → 4 files / 13 references (no `--allow-grow`);
+- `npm test` 83/83 (F27-E 16);
+- `npm run test:integration` 63 passed / 5 skipped, 3 consecutive runs (F27-E 10; the 5 skipped are the E-F27D-2 Storage tests);
+- backend suites green (counts in the F27-E report); `tsc -b` 0; safe build + dist scan 0 findings |
+| F27-F…F27-I | pending | — |
 
 **Pre-cutover verification debt (recorded, not a blocker):**
 - the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31);

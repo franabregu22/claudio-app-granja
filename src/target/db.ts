@@ -128,7 +128,9 @@ export async function callRpc<Result>(client: SupabaseClient, rpc: TargetRpc, ar
 /** A direct write on one of the authorized master / PENDING-order tables. */
 export async function writeTable<T extends DirectWriteTable>(client: SupabaseClient, table: T, op: DirectWriteOp<T>,
   payload: Record<string, unknown> | Record<string, unknown>[] | null, match: Record<string, unknown> = {}): Promise<unknown[]> {
-  if (!(DIRECT_WRITES[table] as readonly string[]).includes(op)) throw new TargetDbError('DIRECT_WRITE_NOT_ALLOWED', `${op} on ${table}`);
+  // a table outside DIRECT_WRITES (only reachable through an unchecked cast) is refused the same way
+  const allowed = (DIRECT_WRITES as Record<string, readonly string[]>)[table] ?? [];
+  if (!allowed.includes(op)) throw new TargetDbError('DIRECT_WRITE_NOT_ALLOWED', `${op} on ${table}`);
   const q = client.from(table);
   const r = op === 'insert' ? await q.insert(payload as never).select()
     : op === 'update' ? await q.update(payload as never).match(match).select()

@@ -5,13 +5,6 @@
       "from:movimientos_caja",
       "name:movimientos_caja"
     ],
-    "src/api/lotes.ts": [
-      "from:lotes",
-      "name:lotes",
-      "write:lotes:delete",
-      "write:lotes:insert",
-      "write:lotes:update"
-    ],
     "src/api/mercadopago-monthly.ts": [
       "name:ledger_entry",
       "name:mp_financial_movement"
@@ -24,33 +17,10 @@
       "name:ledger_entry",
       "name:mp_financial_movement"
     ],
-    "src/api/producciones.ts": [
-      "from:perfiles",
-      "from:producciones",
-      "name:producciones",
-      "write:producciones:insert",
-      "write:producciones:update"
-    ],
-    "src/api/recuentos.ts": [
-      "from:recuentos_lote",
-      "name:recuentos_lote",
-      "write:recuentos_lote:delete",
-      "write:recuentos_lote:insert",
-      "write:recuentos_lote:update"
-    ],
     "src/features/mercadopago/UnclassifiedMovements.tsx": [
       "from:mp_financial_movement",
       "name:mp_financial_movement",
       "write:mp_financial_movement:update"
-    ],
-    "src/hooks/useLotes.ts": [
-      "name:lotes"
-    ],
-    "src/hooks/useProducciones.ts": [
-      "name:producciones"
-    ],
-    "src/hooks/useRecuentos.ts": [
-      "name:recuentos_lote"
     ]
   }
 }

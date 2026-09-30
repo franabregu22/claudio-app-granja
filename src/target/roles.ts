@@ -17,6 +17,8 @@ export function parseAppRole(value: unknown): AppRole | null {
 export type ModuleId =
   | 'dashboard_produccion'
   | 'produccion'
+  | 'clasificacion'
+  | 'alimento'
   | 'pedidos'
   | 'cobros'
   | 'caja'
@@ -24,10 +26,10 @@ export type ModuleId =
   | 'finanzas'
   | 'admin';
 
-const ADMIN_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'pedidos', 'cobros', 'caja', 'mercadopago', 'finanzas', 'admin'];
+const ADMIN_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'mercadopago', 'finanzas', 'admin'];
 // OPERATOR working set (RLS_IMPLEMENTATION_SPEC_V1 §8: production, classification, feed, feria movements on
-// assigned flocks). Only production exists as a screen today; later slices add the rest of the working set.
-const OPERATOR_MODULES: readonly ModuleId[] = ['produccion'];
+// assigned flocks). F27-E: production dashboard, production, classification and feed; Feria movements come with F27-F.
+const OPERATOR_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'clasificacion', 'alimento'];
 
 /** Modules visible to a role. No role (no active profile, or a former repartidor) → no business module. */
 export function modulesFor(role: AppRole | null): ModuleId[] {

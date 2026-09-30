@@ -73,6 +73,24 @@ const MESSAGES: Record<string, string> = {
   WRONG_DIRECTION: 'Esta acción no corresponde a este tipo de cheque (recibido / emitido).',
   ALREADY_REJECTED: 'El cheque ya fue rechazado.',
   DUPLICATE_EXTERNAL_REF: 'Ese cheque ya fue emitido.',
+  // F27-E production / population / classification / feed
+  FLOCK_NOT_ASSIGNED: 'No tenés asignado ese lote.',
+  DUPLICATE_PRODUCTION: 'Ya hay producción cargada para ese lote en esa fecha: rectificala.',
+  PRODUCTION_NOT_FOUND: 'El registro de producción no existe.',
+  ALREADY_SUPERSEDED: 'Ese registro ya fue rectificado: rectificá la versión vigente.',
+  NOT_OWN_RECORD: 'Solo podés rectificar la producción que cargaste vos.',
+  MORTALITY_ALREADY_RECORDED: 'Ya hay mortandad cargada para ese lote en esa fecha: pedí su rectificación a un administrador.',
+  EVENT_NOT_FOUND: 'El registro de mortandad no existe.',
+  NOT_A_MORTALITY_EVENT: 'El registro no es de mortandad.',
+  DUPLICATE_CLASSIFICATION: 'Esa clasificación ya fue registrada.',
+  GRADE_NOT_FOUND: 'Una de las clasificaciones no existe o está inactiva.',
+  DUPLICATE_GRADE_IN_SESSION: 'Una clasificación aparece dos veces.',
+  DUPLICATE_MANUFACTURING: 'Esa fabricación ya fue registrada.',
+  FORMULA_VERSION_NOT_FOUND: 'La fórmula no existe.',
+  FORMULA_VERSION_NOT_EFFECTIVE: 'La fórmula no está vigente en esa fecha.',
+  DUPLICATE_COUNT: 'Ya hay un recuento de ese alimento en esa fecha.',
+  PEDIDO_REQUIRED: 'Una venta externa de alimento debe indicar su pedido.',
+  FEED_TYPE_NOT_FOUND_OR_INACTIVE: 'El alimento no existe o está inactivo.',
 };
 
 export function errorMessage(err: unknown): string {

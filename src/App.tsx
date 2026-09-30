@@ -9,7 +9,9 @@ import { FinanzasApp } from './features/finanzas/FinanzasApp';
 import { AdminApp } from './features/admin/AdminApp';
 import { ProductionApp } from './features/production/ProductionApp';
 import { ProductionDashboard } from './features/production/ProductionDashboard';
-import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp, CreditCard } from 'lucide-react';
+import { ClasificacionApp } from './features/production/ClasificacionApp';
+import { AlimentoApp } from './features/production/AlimentoApp';
+import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp, CreditCard, Egg, Wheat } from 'lucide-react';
 import { MercadoPagoApp } from './features/mercadopago/MercadoPagoApp';
 import { modulesFor, ROLE_LABEL, type ModuleId } from './target/roles';
 
@@ -68,6 +70,8 @@ function App() {
   const MODULE_META: Record<ModuleId, { label: string; icon: typeof BarChart3 }> = {
     dashboard_produccion: { label: 'Dashboard', icon: BarChart3 },
     produccion: { label: 'Producción', icon: Table },
+    clasificacion: { label: 'Clasificación', icon: Egg },
+    alimento: { label: 'Alimento', icon: Wheat },
     pedidos: { label: 'Pedidos', icon: ShoppingCart },
     cobros: { label: 'Cuentas a Cobrar', icon: DollarSign },
     caja: { label: 'Caja', icon: Wallet },
@@ -177,6 +181,8 @@ function App() {
         <div className="flex-1">
           {currentTab === 'produccion' && <ProductionApp />}
           {currentTab === 'dashboard_produccion' && <ProductionDashboard />}
+          {currentTab === 'clasificacion' && <ClasificacionApp />}
+          {currentTab === 'alimento' && <AlimentoApp />}
           {currentTab === 'pedidos' && <PedidosApp />}
           {currentTab === 'cobros' && <CobrosApp />}
           {currentTab === 'caja' && <CajaApp />}
