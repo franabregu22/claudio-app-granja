@@ -3,15 +3,16 @@
 **STATUS:** **FROZEN** — Fase 9 (Implementation Design) closed 2026-09-24. Implementation-ready invariant registry.  
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
+**AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
-**COMPANIONS:** `POSTGRES_SCHEMA_SPEC_V1.md` (54 tables) · `RPC_CONTRACTS_V1.md` (42 RPCs — RPC 42 by ADR-001) · `RLS_IMPLEMENTATION_SPEC_V1.md`
+**COMPANIONS:** `POSTGRES_SCHEMA_SPEC_V1.md` (54 tables) · `RPC_CONTRACTS_V1.md` (45 RPCs — RPC 42 by ADR-001, RPC 43 by ADR-004, RPCs 44 / 45 by ADR-007) · `RLS_IMPLEMENTATION_SPEC_V1.md`
 
 Every invariant below names its enforcement mechanism and the exact identifiers involved. Where a
 mechanism is "absent privilege", that is deliberate and explained in invariant 9.
 
-**COUNT: 28 invariants.**
+**COUNT: 29 invariants.** **[ADR-007]** (invariant 29 added)
 
 ---
 
@@ -19,6 +20,7 @@ mechanism is "absent privilege", that is deliberate and explained in invariant 9
 
 **Rule:** at most one `flocks` row per `shed_id` has `estado='ACTIVE'`.  
 **Enforced by:** `CREATE UNIQUE INDEX idx_flocks_shed_active ON flocks(shed_id) WHERE estado='ACTIVE'`.  
+**[ADR-007]** A flock enters ACTIVE only through RPC 44 `register_flock` (shed row locked; a second ACTIVE flock is `SHED_OCCUPIED`) and leaves it only through RPC 45 `close_flock`.  
 **Why an index:** PostgreSQL has no partial UNIQUE *constraint*; `ALTER TABLE ADD CONSTRAINT UNIQUE … WHERE` does not exist.  
 **Violation:** production records become ambiguous between two concurrent flocks.
 
@@ -419,11 +421,26 @@ Technical idempotency is carried separately by `purchases.idempotency_key`.
 
 ---
 
+## 29. No dated flock activity after the flock's exit **[ADR-007]**
+
+**Rule:** when `flocks.exit_date IS NOT NULL`, no dated flock activity may be created or rectified with an effective date
+after it: `daily_production.production_date`, `population_events.event_date` (MORTALITY and COUNT_ADJUSTMENT) and
+`flock_feed_assignment.effective_from` must be `<= exit_date`. The rule is about the effective date, not the flock's
+current state: activity dated on or before the exit stays valid, and correctable, on a RETIRED flock.
+**Enforced by:** the owner-only INVOKER helper `assert_flock_activity_date(flock_id, date)` (`ACTIVITY_AFTER_FLOCK_EXIT`),
+called by RPCs 18–22 and 29; RPC 45 `close_flock` refuses an exit date before existing current activity
+(`EXIT_BEFORE_RECORDED_ACTIVITY`). The helper reads the flock `FOR KEY SHARE`, so a dated write concurrent with a close
+waits for it and sees the committed exit date. No write privilege on `flocks` exists for any API role.
+**Violation:** activity after the exit falls outside `report_flock_day` (which stops at `exit_date`) and describes birds that
+are no longer housed.
+
+---
+
 ## COMPLIANCE MATRIX
 
 | # | Invariant | Schema | Privileges | RPC | Trigger |
 |---|---|---|---|---|---|
-| 1 | one ACTIVE flock/shed | partial unique index | — | — | — |
+| 1 | one ACTIVE flock/shed | partial unique index | no write on flocks | RPC 44 / 45 **[ADR-007]** | — |
 | 2 | one current MORTALITY/date | partial unique index | — | RPC 20/21 | — |
 | 3 | subtotal derived | GENERATED ALWAYS | — | — | — |
 | 4 | delivered order immutable | — | no UPDATE on lines | RPC 2 | — |
@@ -451,6 +468,7 @@ Technical idempotency is carried separately by `purchases.idempotency_key`.
 | 26 | structural prohibitions | absent tables/columns | no DELETE | — | — |
 | 27 | derived never stored | absent columns | — | — | — |
 | 28 | feria aggregation | is_aggregated_retail | — | RPC 33 | — |
+| 29 | no flock activity after exit **[ADR-007]** | — | no write on flocks | RPC 18–22, 29, 45 (assert_flock_activity_date) | — |
 
 ---
 
@@ -537,10 +555,17 @@ SELECT table_name FROM information_schema.tables
 SELECT sales_session_id FROM pedidos
  WHERE is_aggregated_retail=true AND sales_session_id IS NOT NULL
  GROUP BY sales_session_id HAVING COUNT(*) > 1;
+
+-- 29 no current flock activity after the flock's exit date (expect 0)   [ADR-007]
+SELECT f.id FROM flocks f
+ WHERE f.exit_date IS NOT NULL AND (
+   EXISTS (SELECT 1 FROM daily_production d WHERE d.flock_id = f.id AND d.is_current AND d.production_date > f.exit_date)
+   OR EXISTS (SELECT 1 FROM population_events e WHERE e.flock_id = f.id AND e.is_current AND e.event_date > f.exit_date)
+   OR EXISTS (SELECT 1 FROM flock_feed_assignment a WHERE a.flock_id = f.id AND a.effective_from > f.exit_date));
 ```
 
 ---
 
-**STATUS: FROZEN — 28 INVARIANTS SPECIFIED, EACH WITH A NAMED ENFORCEMENT MECHANISM**
+**STATUS: FROZEN — 29 INVARIANTS SPECIFIED, EACH WITH A NAMED ENFORCEMENT MECHANISM** (invariant 29 by ADR-007)
 
 No invariant contradicts the schema, the RPC contracts or the security model.

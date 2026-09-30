@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DIRECT_WRITES, normalizeDbError, TargetDbError, writeTable } from '../../src/target/db';
-import { cleanValues, previousDay, setPrice, updateMaster } from '../../src/target/masters';
+import { DIRECT_WRITES, normalizeDbError, TARGET_RPCS, TargetDbError, writeTable } from '../../src/target/db';
+import { cleanValues, closeFlock, previousDay, registerFlock, setPrice, updateMaster } from '../../src/target/masters';
 import { errorMessage } from '../../src/target/messages';
 
 /** A minimal PostgREST-shaped stub: records the calls and answers with the queued results. */
@@ -84,6 +84,39 @@ describe('F27-B master data layer', () => {
     const err = await setPrice(failing.client, { productId: 'prod', list: 'MINORISTA', precio: 120, effectiveFrom: '2026-10-01', userId: 'u' }).catch((e) => e);
     expect(err.code).toBe('CHECK_VIOLATION');
     expect(failing.calls.at(-1)).toEqual({ table: 'price_history', op: 'update', payload: { effective_to: null }, match: { id: 'p-1' } });
+  });
+});
+
+describe('F27-B flock lifecycle goes through RPC 44 / 45 only (ADR-007)', () => {
+  function rpcStub() {
+    const calls: { fn: string; args: Record<string, unknown> }[] = [];
+    const client = {
+      rpc: async (fn: string, args: Record<string, unknown>) => { calls.push({ fn, args }); return { data: { ok: true }, error: null }; },
+      from: () => { throw new Error('flocks must not be written directly'); },
+    };
+    return { client: client as never, calls };
+  }
+
+  it('registerFlock calls register_flock with trimmed optional fields and never touches the table', async () => {
+    const { client, calls } = rpcStub();
+    await registerFlock(client, { shedId: 's', entryDate: '2026-09-01', initialPopulation: 1000, geneticsLine: '  Hy-Line  ', birthDate: '', supplierId: '' });
+    expect(calls).toEqual([{ fn: 'register_flock', args: {
+      p_shed_id: 's', p_entry_date: '2026-09-01', p_initial_population: 1000, p_genetics_line: 'Hy-Line', p_birth_date: null, p_supplier_id: null, p_reason: null,
+    } }]);
+  });
+
+  it('closeFlock calls close_flock with the exit date and reason', async () => {
+    const { client, calls } = rpcStub();
+    await closeFlock(client, { flockId: 'f', exitDate: '2026-09-20', reason: ' venta ' });
+    expect(calls).toEqual([{ fn: 'close_flock', args: { p_flock_id: 'f', p_exit_date: '2026-09-20', p_reason: 'venta' } }]);
+  });
+
+  it('both RPCs are in the authorized executable set; flocks stay without a direct write grant', () => {
+    expect(TARGET_RPCS).toContain('register_flock');
+    expect(TARGET_RPCS).toContain('close_flock');
+    expect(Object.keys(DIRECT_WRITES)).not.toContain('flocks');
+    expect(errorMessage(new TargetDbError('SHED_OCCUPIED', ''))).toMatch(/lote activo/);
+    expect(errorMessage(new TargetDbError('ACTIVITY_AFTER_FLOCK_EXIT', ''))).toMatch(/salida/);
   });
 });
 

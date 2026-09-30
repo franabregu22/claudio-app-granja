@@ -4,10 +4,10 @@
  * Only the authorized direct master writes are used (INSERT / UPDATE; there is no delete path). Every row the
  * UI shows comes from the database; RLS decides who may read or write it. An UPDATE that RLS filters out
  * affects zero rows without raising, so it is reported as NOT_UPDATED instead of looking like a success.
- * `flocks` has no frontend write path in the frozen contract and is read-only here.
+ * `flocks` is written only through RPC 44 register_flock / RPC 45 close_flock (ADR-007).
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readTable, TargetDbError, writeTable } from './db';
+import { callRpc, readTable, TargetDbError, writeTable } from './db';
 
 export const ACCOUNT_TYPES = ['CASH', 'BANK_ACCOUNT', 'EXTERNAL_SERVICE'] as const;
 export const PROJECT_STATUSES = ['ACTIVE', 'PAUSED', 'CLOSED'] as const;
@@ -111,9 +111,30 @@ export async function setPrice(client: SupabaseClient, p: {
 
 // ── flocks and operator assignments ───────────────────────────────────────────
 
-/** Flocks are read-only in the frontend: the frozen contract grants no INSERT / UPDATE and has no flock RPC. */
 export function listFlocks(client: SupabaseClient): Promise<FlockRow[]> {
   return readTable<FlockRow>(client, 'flocks', (q) => q.order('entry_date', { ascending: false }));
+}
+
+/**
+ * Flocks have no direct write grant: they are registered and closed only through RPC 44 / 45 (ADR-007). The
+ * backend validates dates against the business date, the one-ACTIVE-flock-per-shed rule, periods and activity.
+ */
+export function registerFlock(client: SupabaseClient, p: {
+  shedId: string; entryDate: string; initialPopulation: number; geneticsLine?: string | null; birthDate?: string | null;
+  supplierId?: string | null; reason?: string | null;
+}): Promise<{ flock_id: string; shed_id: string; estado: 'ACTIVE' }> {
+  const text = (v: string | null | undefined) => (v && v.trim() !== '' ? v.trim() : null);
+  return callRpc(client, 'register_flock', {
+    p_shed_id: p.shedId, p_entry_date: p.entryDate, p_initial_population: p.initialPopulation,
+    p_genetics_line: text(p.geneticsLine), p_birth_date: text(p.birthDate), p_supplier_id: text(p.supplierId), p_reason: text(p.reason),
+  });
+}
+
+export function closeFlock(client: SupabaseClient, p: { flockId: string; exitDate: string; reason?: string | null }):
+  Promise<{ flock_id: string; exit_date: string; estado: 'RETIRED'; deactivated_assignments: number }> {
+  return callRpc(client, 'close_flock', {
+    p_flock_id: p.flockId, p_exit_date: p.exitDate, p_reason: p.reason && p.reason.trim() !== '' ? p.reason.trim() : null,
+  });
 }
 
 export function listProfiles(client: SupabaseClient): Promise<ProfileRow[]> {

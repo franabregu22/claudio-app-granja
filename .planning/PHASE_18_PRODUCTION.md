@@ -382,7 +382,7 @@ No manual step or Studio action was needed. At the end, Supabase local was stopp
 ## 30. Deferred
 
 - **RPC 23 `register_flock_weighing` / `flock_weighing`, RPC 24 `register_temperature_record` / `temperature_record`:** frozen, but outside the roadmap's Slice 3 exit scope. They are not built and need to be scheduled.
-- **Flock create/close RPCs:** none exist in the frozen inventory; the privileged owner path stands.
+- **Flock create/close RPCs:** none exist in the frozen inventory; the privileged owner path stands. *(Later amended: ADR-007, 2026-09-29, adds RPC 44 `register_flock` / RPC 45 `close_flock` and invariant 29; this phase record is not rewritten.)*
 - **RPC 38 `reopen_management_period`:** its own phase.
 - **Other phases and carry-forwards:** Classification (19), Feed (20), the transversal financial idempotency key, `source_collection_id`, frontend, and real-data migration.
 

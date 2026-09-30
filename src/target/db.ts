@@ -61,6 +61,7 @@ export const TARGET_RPCS = [
   'receive_cheque', 'deposit_cheque', 'endorse_cheque', 'clear_cheque', 'reject_cheque',
   'issue_supplier_instrument', 'mark_supplier_instrument_debited', 'cancel_supplier_instrument', 'reject_supplier_instrument',
   'register_daily_production', 'rectify_daily_production', 'register_mortality', 'rectify_mortality', 'register_management_event',
+  'register_flock', 'close_flock',
   'register_classification', 'register_feed_manufacturing', 'register_feed_movement', 'register_feed_inventory_count',
   'register_count_adjustment', 'assign_flock_feed',
   'open_sales_session', 'close_sales_session', 'register_session_movement', 'register_session_cash_event',

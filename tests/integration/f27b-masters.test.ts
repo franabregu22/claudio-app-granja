@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertNoProductionCredentials, assertSafeDestructiveTarget } from '../../scripts/test-env/guard.mjs';
 import { TargetDbError, writeTable } from '../../src/target/db';
 import {
-  assignOperator, createMaster, listCurrentPrices, listFlocks, listMaster, listOperatorAssignments, listProfiles, setAssignmentActive,
+  assignOperator, closeFlock, createMaster, listCurrentPrices, registerFlock, listFlocks, listMaster, listOperatorAssignments, listProfiles, setAssignmentActive,
   setPrice, updateMaster, type MasterTable,
 } from '../../src/target/masters';
 
@@ -70,7 +70,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const del = (table: string) => (created[table]?.length ? `DELETE FROM ${table} WHERE id IN (${created[table].map((i) => `'${i}'`).join(',')});` : '');
-  owner(['operator_assignments', 'price_history', 'flocks', 'products', 'sheds', 'clients', 'suppliers', 'expense_category', 'financial_account', 'projects']
+  // flocks registered / closed through RPC 44 / 45 leave audit rows (fixture cleanup only)
+  const flockAudit = created.flocks?.length
+    ? `DELETE FROM audit_events WHERE entity_type = 'flocks' AND entity_id IN (${created.flocks.map((i) => `'${i}'`).join(',')});\n` : '';
+  owner(flockAudit + ['operator_assignments', 'price_history', 'flocks', 'products', 'sheds', 'clients', 'suppliers', 'expense_category', 'financial_account', 'projects']
     .map(del).join('\n') || 'SELECT 1;');
   const ids = Object.values(users).map((u) => u.id).filter(Boolean);
   if (ids.length) owner(`DELETE FROM perfiles WHERE id IN (${ids.map((i) => `'${i}'`).join(',')});`);
@@ -151,20 +154,36 @@ describe('F27-B prices (products + price_history)', () => {
   });
 });
 
-describe('F27-B flocks (read-only) and operator assignments', () => {
+describe('F27-B flocks (RPC 44 / 45, ADR-007) and operator assignments', () => {
   let flockId = '';
   let assignmentId = '';
+  const today = () => owner(`SELECT (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE;`);
 
-  beforeAll(() => {
-    // fixture only: the frozen contract has no frontend write path for flocks
-    flockId = track('flocks', owner(`INSERT INTO flocks (shed_id, entry_date, initial_population)
-      VALUES ('${created.sheds[0]}', '2026-01-10', 900) RETURNING id;`));
+  it('flocks keep no direct write grant, even for ADMIN', async () => {
+    const raw = await admin().from('flocks').insert({ shed_id: created.sheds[0], entry_date: '2026-01-10', initial_population: 1 }).select();
+    expect(raw.error).not.toBeNull();
   });
 
-  it('flocks have no frontend write path (no grant, even for ADMIN)', async () => {
-    const raw = await admin().from('flocks').update({ initial_population: 1 }).eq('id', flockId).select();
-    expect(raw.error).not.toBeNull();
+  it('ADMIN registers a flock through register_flock; OPERATOR is FORBIDDEN; a second ACTIVE flock in the shed is SHED_OCCUPIED', async () => {
+    const opErr = await registerFlock(operator(), { shedId: created.sheds[0], entryDate: '2026-01-10', initialPopulation: 900 }).catch((e) => e);
+    expect(opErr).toBeInstanceOf(TargetDbError);
+    expect(opErr.code).toBe('FORBIDDEN');
+    const r = await registerFlock(admin(), {
+      shedId: created.sheds[0], entryDate: '2026-01-10', initialPopulation: 900, geneticsLine: 'Hy-Line', supplierId: created.suppliers[0],
+    });
+    flockId = track('flocks', r.flock_id);
+    expect(r.estado).toBe('ACTIVE');
     expect((await listFlocks(admin())).map((f) => f.id)).toContain(flockId);
+    const dup = await registerFlock(admin(), { shedId: created.sheds[0], entryDate: '2026-01-11', initialPopulation: 10 }).catch((e) => e);
+    expect(dup.code).toBe('SHED_OCCUPIED');
+  });
+
+  it('register_flock rejects a future entry date with INVALID_DATE (backend business date)', async () => {
+    const future = owner(`SELECT ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE + 1);`);
+    const shed = await createMaster<{ id: string }>(admin(), 'sheds', { nombre: `F27B galpon futuro ${run}` });
+    track('sheds', shed.id);
+    const err = await registerFlock(admin(), { shedId: shed.id, entryDate: future, initialPopulation: 10 }).catch((e) => e);
+    expect(err.code).toBe('INVALID_DATE');
   });
 
   it('ADMIN assigns an OPERATOR to a flock; a duplicate pair is refused', async () => {
@@ -186,9 +205,28 @@ describe('F27-B flocks (read-only) and operator assignments', () => {
     expect(upd.code).toBe('NOT_UPDATED');
   });
 
-  it('ADMIN deactivates the assignment: the OPERATOR loses the flock (RLS)', async () => {
-    const a = await setAssignmentActive(admin(), assignmentId, false);
-    expect(a.activo).toBe(false);
+  it('ADMIN deactivates and reactivates the assignment: the OPERATOR loses and regains the flock (RLS)', async () => {
+    expect((await setAssignmentActive(admin(), assignmentId, false)).activo).toBe(false);
     expect(await listFlocks(operator())).toEqual([]);
+    expect((await setAssignmentActive(admin(), assignmentId, true)).activo).toBe(true);
+    expect((await listFlocks(operator())).map((f) => f.id)).toEqual([flockId]);
+  });
+
+  it('close_flock: OPERATOR is FORBIDDEN; ADMIN marks the exit, the flock is RETIRED and its assignments become inactive', async () => {
+    const opErr = await closeFlock(operator(), { flockId, exitDate: today() }).catch((e) => e);
+    expect(opErr.code).toBe('FORBIDDEN');
+    const r = await closeFlock(admin(), { flockId, exitDate: today(), reason: 'fin de ciclo' });
+    expect(r.estado).toBe('RETIRED');
+    expect(r.deactivated_assignments).toBe(1);
+    expect((await listOperatorAssignments(admin())).find((a) => a.id === assignmentId)?.activo).toBe(false);
+    expect(await listFlocks(operator())).toEqual([]);
+    const again = await closeFlock(admin(), { flockId, exitDate: today() }).catch((e) => e);
+    expect(again.code).toBe('FLOCK_NOT_ACTIVE');
+  });
+
+  it('after the exit the shed is free: a new flock registers in it', async () => {
+    const r = await registerFlock(admin(), { shedId: created.sheds[0], entryDate: today(), initialPopulation: 500 });
+    track('flocks', r.flock_id);
+    expect(r.estado).toBe('ACTIVE');
   });
 });

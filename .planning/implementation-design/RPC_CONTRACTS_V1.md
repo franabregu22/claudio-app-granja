@@ -3,12 +3,13 @@
 **STATUS:** **FROZEN** — Fase 9 (Implementation Design) closed 2026-09-24. Implementation-ready transactional contracts.  
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
+**AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
 **SCHEMA:** every table/column referenced here is defined in `POSTGRES_SCHEMA_SPEC_V1.md`
 
-**RPC COUNT: 42** (exact inventory at the end of this document) **[ADR-001]**: RPC 42 appended; 1–41 unchanged and not renumbered
+**RPC COUNT: 45** (exact inventory at the end of this document) **[ADR-001]**: RPC 42 appended; 1–41 unchanged and not renumbered. **[ADR-007]**: RPCs 44 / 45 appended; 1–43 unchanged and not renumbered (RPC 43 is `register_management_event`, specified by ADR-004 D9)
 
 ---
 
@@ -1186,6 +1187,11 @@ END
 
 ## PRODUCTION
 
+**[ADR-007] Invariant 29 (no dated flock activity after exit):** RPCs 18–22 and 29 call the owner-only helper
+`assert_flock_activity_date(flock_id, effective_date)` before their period guard: when the flock has an `exit_date`,
+an effective date after it raises `ACTIVITY_AFTER_FLOCK_EXIT`. Rectifications check the original date they keep.
+Historical activity dated on or before the exit stays valid on a RETIRED flock; RPC 18 keeps its `FLOCK_NOT_ACTIVE` check.
+
 ### 18. register_daily_production
 
 **Signature:** `register_daily_production(p_flock_id UUID, p_production_date DATE, p_eggs_total INTEGER, p_eggs_broken INTEGER DEFAULT 0, p_eggs_dirty INTEGER DEFAULT 0, p_reason TEXT DEFAULT NULL) RETURNS JSONB`  
@@ -1532,6 +1538,65 @@ END
 
 ---
 
+### 44. register_flock **[ADR-007]**
+
+**Signature:** `register_flock(p_shed_id UUID, p_entry_date DATE, p_initial_population BIGINT, p_genetics_line VARCHAR DEFAULT NULL, p_birth_date DATE DEFAULT NULL, p_supplier_id UUID DEFAULT NULL, p_purchase_id UUID DEFAULT NULL, p_reason TEXT DEFAULT NULL) RETURNS JSONB`
+**Actor:** ADMIN · **SECURITY DEFINER:** yes · **Period determinant:** `flocks.entry_date`
+
+```
+BEGIN
+  IF current_app_role() <> 'ADMIN' RAISE 'FORBIDDEN: ADMIN required'
+  IF p_initial_population IS NULL OR p_initial_population < 0 RAISE 'INVALID_QUANTITY'
+  IF p_entry_date IS NULL OR p_entry_date > business_today RAISE 'INVALID_DATE'
+      -- business_today = (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE
+  IF p_birth_date IS NOT NULL AND p_birth_date > p_entry_date RAISE 'INVALID_DATE'
+  ASSERT_PERIOD_OPEN(p_entry_date)
+  shed = SELECT * FROM sheds WHERE id = p_shed_id FOR UPDATE      -- serialises registrations per shed
+  IF shed NOT FOUND RAISE 'SHED_NOT_FOUND'
+  IF NOT shed.activo RAISE 'SHED_INACTIVE'
+  IF EXISTS (SELECT 1 FROM flocks WHERE shed_id = p_shed_id AND estado = 'ACTIVE') RAISE 'SHED_OCCUPIED'
+  IF p_supplier_id given AND not found in suppliers RAISE 'SUPPLIER_NOT_FOUND'
+  IF p_purchase_id given AND not found in purchases RAISE 'PURCHASE_NOT_FOUND'
+  flock_id = INSERT INTO flocks (shed_id, estado, genetics_line, birth_date, entry_date, initial_population,
+                                 supplier_id, purchase_id, created_by)
+             VALUES (p_shed_id, 'ACTIVE', NULLIF(trim(p_genetics_line), ''), p_birth_date, p_entry_date,
+                     p_initial_population, p_supplier_id, p_purchase_id, auth.uid())
+      -- unique_violation on idx_flocks_shed_active → 'SHED_OCCUPIED'
+  INSERT INTO audit_events ('flocks', flock_id, 'CREATE', after {shed_id, entry_date, initial_population, estado}, p_reason)
+  RETURN {flock_id, shed_id, entry_date, initial_population, estado: 'ACTIVE'}
+COMMIT
+```
+**Idempotency:** not idempotent by key; a repeated call for the same shed is `SHED_OCCUPIED` while the first flock is ACTIVE.
+**Errors:** `NOT_AUTHENTICATED`, `USER_NOT_FOUND_OR_INACTIVE`, `FORBIDDEN`, `INVALID_QUANTITY`, `INVALID_DATE`, `PERIOD_CLOSED`, `PERIOD_NOT_FOUND`, `SHED_NOT_FOUND`, `SHED_INACTIVE`, `SHED_OCCUPIED`, `SUPPLIER_NOT_FOUND`, `PURCHASE_NOT_FOUND`.
+
+### 45. close_flock **[ADR-007]**
+
+**Signature:** `close_flock(p_flock_id UUID, p_exit_date DATE, p_reason TEXT DEFAULT NULL) RETURNS JSONB`
+**Actor:** ADMIN · **SECURITY DEFINER:** yes · **Period determinant:** `flocks.exit_date`
+
+```
+BEGIN
+  IF current_app_role() <> 'ADMIN' RAISE 'FORBIDDEN: ADMIN required'
+  IF p_exit_date IS NULL RAISE 'INVALID_DATE'
+  flock = SELECT * FROM flocks WHERE id = p_flock_id FOR UPDATE
+  IF flock NOT FOUND RAISE 'FLOCK_NOT_FOUND'
+  IF flock.estado <> 'ACTIVE' RAISE 'FLOCK_NOT_ACTIVE'
+  IF p_exit_date < flock.entry_date OR p_exit_date > business_today RAISE 'INVALID_DATE'
+  IF a current daily_production.production_date, a current population_events.event_date or a
+     flock_feed_assignment.effective_from of the flock is > p_exit_date RAISE 'EXIT_BEFORE_RECORDED_ACTIVITY'
+  ASSERT_PERIOD_OPEN(p_exit_date)
+  UPDATE flocks SET estado = 'RETIRED', exit_date = p_exit_date WHERE id = p_flock_id   -- the shed is free again
+  ids = UPDATE operator_assignments SET activo = false
+         WHERE flock_id = p_flock_id AND activo = true RETURNING id                     -- rows kept as history
+  INSERT INTO audit_events ('flocks', p_flock_id, 'CLOSE', before {estado, exit_date},
+                            after {estado, exit_date, deactivated_assignment_ids: ids}, p_reason)
+  RETURN {flock_id, shed_id, exit_date, estado: 'RETIRED', deactivated_assignments: count(ids)}
+COMMIT
+```
+**Idempotency:** a second close is `FLOCK_NOT_ACTIVE` and writes nothing.
+**Errors:** `NOT_AUTHENTICATED`, `USER_NOT_FOUND_OR_INACTIVE`, `FORBIDDEN`, `INVALID_DATE`, `FLOCK_NOT_FOUND`, `FLOCK_NOT_ACTIVE`, `EXIT_BEFORE_RECORDED_ACTIVITY`, `PERIOD_CLOSED`, `PERIOD_NOT_FOUND`.
+No population event is written: the population at exit stays derived. The exit reason lives in `audit_events.reason`.
+
 ## CLASSIFICATION
 
 ### 25. register_classification
@@ -1689,6 +1754,8 @@ The economic sale itself is the Pedido; this row is the physical feed outflow. N
 ---
 
 ### 29. assign_flock_feed
+
+**[ADR-007]** `p_effective_from` is checked against the flock exit date (invariant 29, `ACTIVITY_AFTER_FLOCK_EXIT`).
 
 **Signature:** `assign_flock_feed(p_flock_id UUID, p_feed_type_id UUID, p_effective_from DATE, p_reason TEXT DEFAULT NULL) RETURNS JSONB`  
 **Actor:** ADMIN · **SECURITY DEFINER:** yes · **Period determinant:** none (a master assignment, not an economic fact)
@@ -2353,8 +2420,11 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 | 40 | mp_normalize_source | MP | SERVICE_ROLE | yes | occurred_date |
 | 41 | mp_reconcile_movement | MP | SERVICE_ROLE/ADMIN | yes | occurred_date |
 | 42 | cancel_supplier_instrument **[ADR-001]** | Issued instr. | ADMIN | yes | cancelled_date |
+| 43 | register_management_event **[ADR-004]** (contract: ADR-004 D9) | P&L | ADMIN | yes | event_date |
+| 44 | register_flock **[ADR-007]** | Production | ADMIN | yes | entry_date |
+| 45 | close_flock **[ADR-007]** | Production | ADMIN | yes | exit_date |
 
-**TOTAL: 42 RPCs** **[ADR-001]** (41 + RPC 42). 38 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Four are not:
+**TOTAL: 45 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45). 41 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Four are not:
 `cancel_order` (3) and `assign_flock_feed` (29) create no economic fact, and
 `close_management_period` (37) / `reopen_management_period` (38) control periods themselves.
 
@@ -2364,4 +2434,4 @@ consequences, idempotency, errors and return type.
 
 ---
 
-**STATUS: FROZEN — 42 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001)
+**STATUS: FROZEN — 45 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001; RPC 43 by ADR-004 D9; RPCs 44 / 45 by ADR-007)

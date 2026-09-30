@@ -697,8 +697,9 @@ const definers = owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg
 const STEP6_DEFINERS = ['mp_ingest_api_snapshot'];
 // Step 7 (0051) adds exactly A1 and R2 (INV class D, by name); the fallback helper is SECURITY INVOKER
 const STEP7_DEFINERS = ['mp_apply_transition', 'mp_normalize_report_fallback'];
-const expected = [...BASELINE_DEFINERS, ...Object.keys(STEP2_DEFINERS), ...STEP6_DEFINERS, ...STEP7_DEFINERS].sort().join(',');
-check(`Z1 exact SECURITY DEFINER set = baseline (41) ∪ the ${Object.keys(STEP2_DEFINERS).length} Step-2 definers ∪ the Step-6 definer mp_ingest_api_snapshot ∪ the Step-7 definers mp_apply_transition / mp_normalize_report_fallback, by name`, definers === expected,
+const ADR007_DEFINERS = ['register_flock', 'close_flock'];   // ADR-007 RPCs 44 / 45 (0057), owner-approved 60 → 62
+const expected = [...BASELINE_DEFINERS, ...Object.keys(STEP2_DEFINERS), ...STEP6_DEFINERS, ...STEP7_DEFINERS, ...ADR007_DEFINERS].sort().join(',');
+check(`Z1 exact SECURITY DEFINER set = baseline (41) ∪ the ${Object.keys(STEP2_DEFINERS).length} Step-2 definers ∪ the Step-6 definer mp_ingest_api_snapshot ∪ the ADR-007 definers register_flock / close_flock ∪ the Step-7 definers mp_apply_transition / mp_normalize_report_fallback, by name`, definers === expected,
   definers.split(',').filter((d) => !expected.split(',').includes(d)).join(',') || 'missing:' + expected.split(',').filter((d) => !definers.split(',').includes(d)).join(','));
 const hard = owner(`SELECT string_agg(proname || '=' || prosecdef || ':' || (coalesce(proconfig, '{}') @> ARRAY['search_path=public']) || ':' || pg_get_userbyid(proowner)
   || ':' || has_function_privilege('anon', oid, 'EXECUTE') || ':' || has_function_privilege('authenticated', oid, 'EXECUTE') || ':' || has_function_privilege('service_role', oid, 'EXECUTE'), ',' ORDER BY proname)

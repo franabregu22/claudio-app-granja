@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
-  assignOperator, createMaster, listCurrentPrices, listFlocks, listMaster, listOperatorAssignments, listProfiles,
+  assignOperator, closeFlock, createMaster, listCurrentPrices, registerFlock, listFlocks, listMaster, listOperatorAssignments, listProfiles,
   setAssignmentActive, setPrice, updateMaster, type MasterTable, type PriceList,
 } from '../../target/masters';
 
@@ -35,6 +35,19 @@ export function useSetPrice() {
 
 export function useFlocks() {
   return useQuery({ queryKey: ['master', 'flocks'], queryFn: () => listFlocks(supabase) });
+}
+
+/** RPC 44 / 45 (ADR-007). A close also deactivates the flock's operator assignments, so both lists refresh. */
+export function useFlockLifecycle() {
+  const qc = useQueryClient();
+  const onSuccess = () => Promise.all([
+    qc.invalidateQueries({ queryKey: ['master', 'flocks'] }),
+    qc.invalidateQueries({ queryKey: ['master', 'operator_assignments'] }),
+  ]);
+  return {
+    register: useMutation({ mutationFn: (p: Parameters<typeof registerFlock>[1]) => registerFlock(supabase, p), onSuccess }),
+    close: useMutation({ mutationFn: (p: Parameters<typeof closeFlock>[1]) => closeFlock(supabase, p), onSuccess }),
+  };
 }
 
 export function useProfiles() {

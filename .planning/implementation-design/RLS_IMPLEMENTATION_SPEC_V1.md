@@ -2,6 +2,7 @@
 
 **STATUS:** **FROZEN** — Fase 9 (Implementation Design) closed 2026-09-24. Implementation-ready security model.  
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
+**AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md Part 2 (frozen)  
@@ -160,7 +161,7 @@ attempt the statement. Period validation therefore cannot be bypassed: there is 
 tables that skips the RPC, and every RPC calls `ASSERT_PERIOD_OPEN` before writing.
 
 ```sql
--- RPC ownership and execution (applies to all 42 RPCs — RPC 42 by ADR-001)
+-- RPC ownership and execution (applies to all 45 RPCs — RPC 42 by ADR-001, RPC 43 by ADR-004, RPCs 44 / 45 by ADR-007)
 ALTER FUNCTION <rpc_name>(…) OWNER TO postgres;
 REVOKE ALL     ON FUNCTION <rpc_name>(…) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION <rpc_name>(…) TO authenticated;   -- service_role for MP RPCs 40/41
@@ -285,6 +286,9 @@ CREATE POLICY flocks_operator_assigned ON flocks FOR SELECT
 ```
 `flocks` has no write privilege in section 4: creating or retiring a flock is an ADMIN action through
 a privileged path, which keeps the one-ACTIVE-flock-per-shed index safe from races.
+**[ADR-007]** That privileged path is RPC 44 `register_flock` and RPC 45 `close_flock` (ADMIN, SECURITY DEFINER).
+`flocks` still has no write privilege for any API role. Closing a flock deactivates its operator assignments,
+so it leaves the OPERATOR working set through the policy above.
 
 ---
 
@@ -646,7 +650,7 @@ SERVICE_ROLE reaches MP tables and the RPCs that bridge them to `financial_opera
 | purchase_attachment | S,I | — | — | RPC 13 + ADMIN adds |
 | freight | S | — | — | RPC 16 only |
 | freight_allocation | S | — | — | RPC 17 only |
-| flocks | S | S assigned | — | ADMIN (privileged) |
+| flocks | S | S assigned | — | RPC 44 / 45 only **[ADR-007]** |
 | population_events | S | S assigned | — | RPC 20–22 only |
 | daily_production | S | S assigned | — | RPC 18/19 only |
 | flock_weighing | S | S assigned | — | RPC 23 only |
@@ -743,7 +747,7 @@ SELECT polname, cmd, qual, with_check FROM pg_policies
 
 -- 6. Every SECURITY DEFINER function pins its search_path (expect 0 rows)
 --
---    Scope: the SECURITY DEFINER inventory is exactly current_app_role() plus the 42 RPCs [ADR-001].
+--    Scope: the SECURITY DEFINER inventory is exactly current_app_role() plus the 45 RPCs [ADR-001] [ADR-004] [ADR-007].
 --    mp_source_raw_guard() is deliberately NOT in it — it is SECURITY INVOKER (see 6b), so it is
 --    correctly excluded by the prosecdef filter rather than by an exception clause.
 SELECT proname FROM pg_proc
@@ -751,8 +755,8 @@ SELECT proname FROM pg_proc
    AND pronamespace = 'public'::regnamespace
    AND NOT (COALESCE(proconfig, '{}') @> ARRAY['search_path=public']);
 
--- 6b. The SECURITY DEFINER inventory contains only what it should (expect exactly 43:
---     current_app_role + 42 RPCs [ADR-001]; mp_source_raw_guard must NOT appear)
+-- 6b. The SECURITY DEFINER inventory contains only what it should (expect exactly 46:
+--     current_app_role + 45 RPCs [ADR-001] [ADR-004] [ADR-007]; mp_source_raw_guard and assert_flock_activity_date must NOT appear)
 SELECT proname FROM pg_proc
  WHERE prosecdef = true AND pronamespace = 'public'::regnamespace
  ORDER BY proname;
@@ -819,7 +823,7 @@ The last line is the point of section 3: SERVICE_ROLE has no business role, by d
 - Cost data is unreachable by OPERATOR: separate column, ADMIN-only table, cost-free safe view.
 - No self-escalation: `perfiles` is not writable by `authenticated`.
 - SECURITY DEFINER is required and used deliberately, and only where elevation is actually needed:
-  `current_app_role()` and the 42 RPCs **[ADR-001]**. Each pins `search_path`, derives the actor internally, and
+  `current_app_role()` and the 45 RPCs **[ADR-001]** **[ADR-004]** **[ADR-007]**. Each pins `search_path`, derives the actor internally, and
   revokes PUBLIC execute. `mp_source_raw_guard()` is **not** in that inventory: it stays
   SECURITY INVOKER because it only compares `OLD` against `NEW` and needs to cross neither RLS nor
   any privilege, so making it SECURITY DEFINER would add privilege for nothing. Its protection of the

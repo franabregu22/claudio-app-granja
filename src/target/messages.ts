@@ -16,6 +16,18 @@ const MESSAGES: Record<string, string> = {
   MISSING_VALUE: 'Falta completar un dato obligatorio.',
   DIRECT_WRITE_NOT_ALLOWED: 'Operación no permitida.',
   PERIOD_CLOSED: 'El período está cerrado.',
+  PERIOD_NOT_FOUND: 'No existe un período de gestión para esa fecha.',
+  INVALID_DATE: 'La fecha no es válida (no puede ser futura ni anterior a la entrada del lote).',
+  INVALID_QUANTITY: 'La cantidad no es válida.',
+  SHED_NOT_FOUND: 'El galpón no existe.',
+  SHED_INACTIVE: 'El galpón está inactivo.',
+  SHED_OCCUPIED: 'El galpón ya tiene un lote activo.',
+  SUPPLIER_NOT_FOUND: 'El proveedor no existe.',
+  PURCHASE_NOT_FOUND: 'La compra no existe.',
+  FLOCK_NOT_FOUND: 'El lote no existe.',
+  FLOCK_NOT_ACTIVE: 'El lote no está activo.',
+  EXIT_BEFORE_RECORDED_ACTIVITY: 'Hay producción, mortandad o asignaciones de alimento posteriores a esa fecha de salida.',
+  ACTIVITY_AFTER_FLOCK_EXIT: 'La fecha es posterior a la salida del lote.',
 };
 
 export function errorMessage(err: unknown): string {

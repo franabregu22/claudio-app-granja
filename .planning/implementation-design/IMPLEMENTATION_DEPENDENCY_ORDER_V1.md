@@ -2,10 +2,11 @@
 
 **STATUS:** **FROZEN** — Fase 9 (Implementation Design) closed 2026-09-24. Technical sequencing for the Physical Schema Implementation phase.  
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
+**AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
-**SOURCES:** `POSTGRES_SCHEMA_SPEC_V1.md` (54 tables) · `RPC_CONTRACTS_V1.md` (42 RPCs — RPC 42 by ADR-001) · `RLS_IMPLEMENTATION_SPEC_V1.md` · `DATABASE_INVARIANTS_V1.md` (28 invariants)
+**SOURCES:** `POSTGRES_SCHEMA_SPEC_V1.md` (54 tables) · `RPC_CONTRACTS_V1.md` (45 RPCs — RPC 42 by ADR-001, RPC 43 by ADR-004, RPCs 44 / 45 by ADR-007) · `RLS_IMPLEMENTATION_SPEC_V1.md` · `DATABASE_INVARIANTS_V1.md` (29 invariants — invariant 29 by ADR-007)
 
 **THIS IS NOT A MIGRATION.** It specifies the ORDER in which objects must be created so that every
 dependency resolves. No data moves. No timeline, no effort estimate.
@@ -398,14 +399,14 @@ GRANT SELECT ON feed_formula_line_safe TO authenticated;
 
 ## PHASE 5 — RPC FUNCTIONS
 
-All 42 contracts from `RPC_CONTRACTS_V1.md` **[ADR-001]**. Each one:
+All 45 contracts from `RPC_CONTRACTS_V1.md` **[ADR-001]** **[ADR-004]** **[ADR-007]**. Each one:
 
 - exact signature and parameter types from its contract;
 - `LANGUAGE plpgsql SECURITY DEFINER SET search_path = public`;
 - `OWNER TO postgres` (required: application roles hold no write privilege on fact tables);
 - `REVOKE ALL … FROM PUBLIC` then `GRANT EXECUTE … TO authenticated` (RPCs 40/41: `service_role`);
 - derives the actor from `auth.uid()` and the role from `current_app_role()`; accepts no caller-supplied actor or role;
-- calls `ASSERT_PERIOD_OPEN` when period-sensitive (38 of 42 **[ADR-001]**);
+- calls `ASSERT_PERIOD_OPEN` when period-sensitive (41 of 45 **[ADR-001]** **[ADR-004]** **[ADR-007]**);
 - locks with `SELECT … FOR UPDATE` where its contract says so;
 - writes `audit_events`;
 - contains no `COMMIT` — the RPC call is already one transaction;
@@ -424,7 +425,7 @@ RPCs have no inter-function dependency except one: `close_sales_session` (33) ca
 | Issued instruments | 10 issue_supplier_instrument · 11 mark_supplier_instrument_debited · 12 reject_supplier_instrument · 42 cancel_supplier_instrument **[ADR-001]** |
 | Purchases & suppliers | 13 register_purchase · 14 rectify_purchase · 15 pay_supplier |
 | Freight | 16 register_freight · 17 assign_freight_to_purchase |
-| Production | 18 register_daily_production · 19 rectify_daily_production · 20 register_mortality · 21 rectify_mortality · 22 register_count_adjustment · 23 register_flock_weighing · 24 register_temperature_record |
+| Production | 18 register_daily_production · 19 rectify_daily_production · 20 register_mortality · 21 rectify_mortality · 22 register_count_adjustment · 23 register_flock_weighing · 24 register_temperature_record · 44 register_flock · 45 close_flock **[ADR-007]** |
 | Classification | 25 register_classification |
 | Feed | 26 register_feed_manufacturing · 27 register_feed_inventory_count · 28 register_feed_movement · 29 assign_flock_feed |
 | Feria | 30 open_sales_session · 31 register_session_movement · 32 register_session_cash_event · 33 close_sales_session |
@@ -433,7 +434,7 @@ RPCs have no inter-function dependency except one: `close_sales_session` (33) ca
 | Treasury | 39 transfer_between_accounts |
 | Mercado Pago | 40 mp_normalize_source · 41 mp_reconcile_movement |
 
-**Total: 42.** **[ADR-001]**
+**Total: 45.** **[ADR-001]** **[ADR-004]** **[ADR-007]** (RPC 43 `register_management_event` by ADR-004; RPCs 44 / 45 are created after 43; they need `sheds`, `flocks`, `suppliers`, `purchases`, `operator_assignments`, the production and feed-assignment tables, `audit_events` and the period guard, all earlier)
 
 ### 5.2 Seed data required before RPCs can run
 
@@ -466,7 +467,7 @@ Additional structural checks for this phase:
 SELECT COUNT(*) FROM information_schema.tables
  WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
 
--- 42 RPCs exist (expect 42)   [ADR-001]
+-- 45 RPCs exist (expect 45)   [ADR-001] [ADR-004] [ADR-007]
 SELECT COUNT(*) FROM pg_proc
  WHERE pronamespace = 'public'::regnamespace AND prosecdef = true
    AND proname NOT IN ('current_app_role','mp_source_raw_guard');
@@ -536,7 +537,7 @@ ENUM TYPES (28)
   │
   ├─ SECURITY: current_app_role() → privileges → ENABLE RLS → policies → safe view
   │
-  └─ RPCs (42, contract order 1→41 then 42 [ADR-001]; 33 depends on 1)
+  └─ RPCs (45, contract order 1→41 then 42 [ADR-001], 43 [ADR-004], then 44 / 45 [ADR-007]; 33 depends on 1)
 ```
 
 ---
@@ -552,10 +553,10 @@ ENUM TYPES (28)
 - [ ] Phase 4: `current_app_role()` created and hardened; write privileges revoked from `anon` and
       `authenticated` with only the documented re-grants; RLS enabled on all 54 tables; policies
       attached per the RLS spec; `feed_formula_line_safe` created, owned by `postgres`, granted.
-- [ ] Phase 5: 42 RPCs created **[ADR-001]**, each `SECURITY DEFINER` with pinned `search_path`, owned by
+- [ ] Phase 5: 45 RPCs created **[ADR-001]** **[ADR-004]** **[ADR-007]**, each `SECURITY DEFINER` with pinned `search_path`, owned by
       `postgres`, PUBLIC execute revoked; seed data loaded.
 - [ ] Phase 6: RLS checks 1–8 return their expected results; invariant queries return 0 rows;
-      structural counts return 54 tables and 42 RPCs **[ADR-001]**; behavioural tests pass for ADMIN, OPERATOR and
+      structural counts return 54 tables and 45 RPCs **[ADR-001]** **[ADR-004]** **[ADR-007]**; behavioural tests pass for ADMIN, OPERATOR and
       SERVICE_ROLE.
 
 ---
@@ -569,4 +570,4 @@ deliberately absent here. The system prior to cutover stays read-only (frozen Pa
 
 ---
 
-**STATUS: FROZEN — SEQUENCING DEFINED, 28 ENUMS, 54 TABLES, 4 DEFERRED CYCLIC FKs, 42 RPCs** (RPC 42 by ADR-001)
+**STATUS: FROZEN — SEQUENCING DEFINED, 28 ENUMS, 54 TABLES, 4 DEFERRED CYCLIC FKs, 45 RPCs** (RPC 42 by ADR-001; RPC 43 by ADR-004; RPCs 44 / 45 by ADR-007)

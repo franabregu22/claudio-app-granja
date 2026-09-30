@@ -182,8 +182,8 @@ section('V', 'definitions and privileges');
   check('V-4 no view definition references an attribution state as a review reason, and no "reconciled / pending" wording on axis B',
     owner(`SELECT count(*) FROM pg_views WHERE viewname IN (${VIEWS.map(q).join(',')})
       AND (definition ~ 'CLIENT_[A-Z_]+''::text[^,]*review' OR definition ~* 'CLIENT_(RECONCILED|UNRECONCILED|PENDING)');`) === '0');
-  check('V-5 SECURITY DEFINER set unchanged: exactly 60 (no function added for the views)',
-    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '60');
+  check('V-5 SECURITY DEFINER set unchanged by the views: exactly 62 (60 + ADR-007 RPCs 44 / 45; no function added for the views)',
+    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '62');
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
