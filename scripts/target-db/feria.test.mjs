@@ -371,45 +371,50 @@ const b10 = openS('2026-05-02', 'Feria Plaza');
 check('B10 the same date and location can hold another session (different key): no uniqueness beyond the idempotency key', b10.session_id !== b1.session_id);
 
 // ═══════════════════════════════════════════════════════════════════════════
-section('C', 'Physical movements (RPC 31, ADMIN or OPERATOR)');
+section('C', 'Physical movements (RPC 31, ADMIN only — ADR-009 supersedes the OPERATOR permission)');
 
 econ0 = econ();
 const balances0 = [balance(CAJA), balance(BNA)].join('|');
 const S = b1.session_id;
+snap = snapshot();
+const opMoves = [A(`SELECT ${moveCall(S, 'DISPATCH', MAPLE, 100)};`), B(`SELECT ${moveCall(S, 'LOSS', MAPLE, 2, 'maples rotos')};`)];
+check('C0 [ADR-009] OPERATOR (assigned or not) → FORBIDDEN on RPC 31; nothing written',
+  opMoves.every((x) => raised(x, 'FORBIDDEN')) && snapshot() === snap, opMoves.map(firstErr).join(' / '));
 const mv = {
-  DISPATCH: rpcAs(A, moveCall(S, 'DISPATCH', MAPLE, 100)),
-  RETURN: rpcAs(A, moveCall(S, 'RETURN', MAPLE, 10)),
-  LOSS: rpcAs(B, moveCall(S, 'LOSS', MAPLE, 2, 'maples rotos')),
+  DISPATCH: rpc(moveCall(S, 'DISPATCH', MAPLE, 100)),
+  RETURN: rpc(moveCall(S, 'RETURN', MAPLE, 10)),
+  LOSS: rpc(moveCall(S, 'LOSS', MAPLE, 2, 'maples rotos')),
   ADJUSTMENT: rpc(moveCall(S, 'ADJUSTMENT', MAPLE, 1, 'recuento')),
 };
 const mvRows = owner(`SELECT string_agg(movement_type::TEXT || ':' || cantidad || ':' || coalesce(reason, '-') || ':' || created_by, ',' ORDER BY id)
   FROM sales_session_movement WHERE sales_session_id = '${S}';`);
-check('C1 all four physical movement types persist exactly (OPERATOR A, operator B without any flock assignment, ADMIN); {movement_id}',
-  mvRows === `DISPATCH:100.0000:-:${OPA},RETURN:10.0000:-:${OPA},LOSS:2.0000:maples rotos:${OPB},ADJUSTMENT:1.0000:recuento:${ADMIN_UID}`
+check('C1 all four physical movement types persist exactly (ADMIN); {movement_id}',
+  mvRows === `DISPATCH:100.0000:-:${ADMIN_UID},RETURN:10.0000:-:${ADMIN_UID},LOSS:2.0000:maples rotos:${ADMIN_UID},ADJUSTMENT:1.0000:recuento:${ADMIN_UID}`
   && Object.values(mv).every((m) => typeof m.movement_id === 'number' && Object.keys(m).length === 1), mvRows);
 check('C2 physical ≠ sale: no operation, posting, ledger, collection or Pedido; account balances unchanged',
   econ() === econ0 && [balance(CAJA), balance(BNA)].join('|') === balances0 && pedidosOf(S) === '0');
 snap = snapshot();
 for (const [what, fn, call, code] of [
-  ['LOSS without reason', A, moveCall(S, 'LOSS', MAPLE, 1), 'REASON_REQUIRED'],
-  ['ADJUSTMENT with blank reason', A, moveCall(S, 'ADJUSTMENT', MAPLE, 1, '  '), 'REASON_REQUIRED'],
-  ['quantity 0', A, moveCall(S, 'DISPATCH', MAPLE, 0), 'INVALID_QUANTITY'],
-  ['negative quantity', A, moveCall(S, 'DISPATCH', MAPLE, -1), 'INVALID_QUANTITY'],
-  ['NULL quantity', A, moveCall(S, 'DISPATCH', MAPLE, null), 'INVALID_QUANTITY'],
-  ['missing session', A, moveCall(MISSING_UUID, 'DISPATCH', MAPLE, 1), 'SESSION_NOT_FOUND'],
+  ['LOSS without reason', ADMIN, moveCall(S, 'LOSS', MAPLE, 1), 'REASON_REQUIRED'],
+  ['ADJUSTMENT with blank reason', ADMIN, moveCall(S, 'ADJUSTMENT', MAPLE, 1, '  '), 'REASON_REQUIRED'],
+  ['quantity 0', ADMIN, moveCall(S, 'DISPATCH', MAPLE, 0), 'INVALID_QUANTITY'],
+  ['negative quantity', ADMIN, moveCall(S, 'DISPATCH', MAPLE, -1), 'INVALID_QUANTITY'],
+  ['NULL quantity', ADMIN, moveCall(S, 'DISPATCH', MAPLE, null), 'INVALID_QUANTITY'],
+  ['missing session', ADMIN, moveCall(MISSING_UUID, 'DISPATCH', MAPLE, 1), 'SESSION_NOT_FOUND'],
+  ['OPERATOR, even with a valid call', A, moveCall(S, 'DISPATCH', MAPLE, 1), 'FORBIDDEN'],
   ['inactive profile', (s) => asUser(INACTIVE_UID, s), moveCall(S, 'DISPATCH', MAPLE, 1), 'USER_NOT_FOUND_OR_INACTIVE'],
 ]) {
   r = fn(`SELECT ${call};`);
   check(`C3 ${what} → ${code}`, raised(r, code), firstErr(r));
 }
-r = A(`SELECT ${moveCall(S, 'DISPATCH', MISSING_UUID, 1)};`);
+r = ADMIN(`SELECT ${moveCall(S, 'DISPATCH', MISSING_UUID, 1)};`);
 check('C4 missing product → rejected by the frozen FK', violates(r, 'sales_session_movement_producto_id_fkey'), firstErr(r));
-r = A(`SELECT ${moveCall(S, 'SALE', MAPLE, 1)};`);
+r = ADMIN(`SELECT ${moveCall(S, 'SALE', MAPLE, 1)};`);
 check('C5 movement type outside the frozen enum is rejected', !r.ok && /invalid input value for enum session_movement_type/.test(r.err), firstErr(r));
 check('C6 every rejection was atomic', snapshot() === snap);
 check('C7 audit CREATE: session_id, movement_type, producto_id, cantidad, reason, actor',
   owner(`SELECT action || '|' || (after_values->>'session_id') || '|' || (after_values->>'movement_type') || '|' || (after_values->>'cantidad') || '|' || reason || '|' || performed_by
-         FROM audit_events WHERE entity_type = 'sales_session_movement' AND entity_id = '${mv.LOSS.movement_id}';`) === `CREATE|${S}|LOSS|2|maples rotos|${OPB}`);
+         FROM audit_events WHERE entity_type = 'sales_session_movement' AND entity_id = '${mv.LOSS.movement_id}';`) === `CREATE|${S}|LOSS|2|maples rotos|${ADMIN_UID}`);
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('D', 'Cash events (RPC 32, ADMIN only)');
@@ -512,7 +517,7 @@ check('E7 session CLOSED with closed_at, closed_by and aggregated_pedido_id; aud
 snap = snapshot();
 r = ADMIN(`SELECT ${closeCall(E, [L(XL, 1, 1)])};`);
 check('E8 closing twice → SESSION_ALREADY_CLOSED; never a second aggregated Pedido', raised(r, 'SESSION_ALREADY_CLOSED') && snapshot() === snap && pedidosOf(E) === '1', firstErr(r));
-const rm = A(`SELECT ${moveCall(E, 'DISPATCH', MAPLE, 1)};`);
+const rm = ADMIN(`SELECT ${moveCall(E, 'DISPATCH', MAPLE, 1)};`);   // [ADR-009] RPC 31 is ADMIN-only
 const rc = ADMIN(`SELECT ${cashCall(E, 'COUNT', 1, CAJA)};`);
 check('E9 a CLOSED session rejects movements and cash events → SESSION_CLOSED', raised(rm, 'SESSION_CLOSED') && raised(rc, 'SESSION_CLOSED') && snapshot() === snap);
 const EV = openS('2026-05-07', 'Feria validación').session_id;
@@ -564,10 +569,10 @@ check('F4 a Pedido cannot reference a nonexistent session (fk_pedidos_sales_sess
 section('G', 'RLS / privileges');
 
 const GO = openS('2026-05-09', 'Feria abierta').session_id;
-rpcAs(A, moveCall(GO, 'DISPATCH', MAPLE, 5));
+rpc(moveCall(GO, 'DISPATCH', MAPLE, 5));
 rpc(cashCall(GO, 'COUNT', 50, CAJA));
 const GC = openS('2026-05-09', 'Feria cerrada').session_id;
-rpcAs(A, moveCall(GC, 'DISPATCH', MAPLE, 6));
+rpc(moveCall(GC, 'DISPATCH', MAPLE, 6));
 rpc(closeCall(GC, []));
 check('G1 OPERATOR sees OPEN sessions only (not the CLOSED one); ADMIN sees both',
   visible(A, 'sales_session', `id = '${GO}'`) === '1' && visible(A, 'sales_session', `id = '${E}'`) === '0'
@@ -611,8 +616,8 @@ const anonSr = [
   asServiceRole(`SELECT ${closeCall(GO, [])};`),
 ];
 check('G8 anon and service_role: no SELECT and no EXECUTE on RPCs 30–33', anonSr.every(denied), anonSr.map((d) => (denied(d) ? 'd' : 'OPEN')).join(','));
-check('G9 OPERATOR reads the audit of its own movements (frozen audit policy) but no session or cash audit',
-  okAs(A, `SELECT count(*) FROM audit_events WHERE entity_type = 'sales_session_movement';`) !== '0'
+check('G9 [ADR-009] OPERATOR has no Feria movement of its own, so it reads no Feria audit (movement, session or cash)',
+  okAs(A, `SELECT count(*) FROM audit_events WHERE entity_type = 'sales_session_movement';`) === '0'
   && okAs(A, `SELECT count(*) FROM audit_events WHERE entity_type IN ('sales_session','sales_session_cash_event');`) === '0');
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -626,8 +631,9 @@ openPeriod('2026-03-01');
 const HS = openS('2026-03-14', 'Feria marzo', 100, CAJA).session_id;
 closePeriod('2026-03-01');
 snap = snapshot();
+r = A(`SELECT ${moveCall(HS, 'DISPATCH', MAPLE, 1)};`);
+check('H2 [ADR-009] RPC 31 (OPERATOR) is refused by the role guard before any period check → FORBIDDEN', raised(r, 'FORBIDDEN'), firstErr(r));
 for (const [what, fn, call] of [
-  ['RPC 31 (OPERATOR)', A, moveCall(HS, 'DISPATCH', MAPLE, 1)],
   ['RPC 31 (ADMIN)', ADMIN, moveCall(HS, 'DISPATCH', MAPLE, 1)],
   ['RPC 32', ADMIN, cashCall(HS, 'EXPENSE', 1, CAJA, CAT)],
   ['RPC 33', ADMIN, closeCall(HS, [L(XL, 1, 100)])],
@@ -641,7 +647,7 @@ r = ADMIN(`SELECT ${openCall('2027-02-10', 'x', newKey())};`);
 check('H4 RPC 30 on a date without management_period → PERIOD_NOT_FOUND', raised(r, 'PERIOD_NOT_FOUND'), firstErr(r));
 closePeriod(CURRENT_MONTH);
 const HM = openS('2026-05-11', 'Feria mayo', 200, CAJA).session_id;
-rpcAs(A, moveCall(HM, 'DISPATCH', MAPLE, 3));
+rpc(moveCall(HM, 'DISPATCH', MAPLE, 3));
 rpc(cashCall(HM, 'EXPENSE', 10, CAJA, CAT));
 const hmc = rpc(closeCall(HM, [L(MAPLE, 1, 1000)]));
 check(`H5 created_at / opened_at / closed_at irrelevant: current month ${CURRENT_MONTH} CLOSED, session dated OPEN May → open, move, cash, close all accepted; delivered_date = 2026-05-11`,
@@ -767,12 +773,12 @@ check('J1 same idempotency_key: B waited, then DUPLICATE_SESSION; exactly one se
   x.aIn && x.bWait && x.ra.ok && raised(x.rb, 'DUPLICATE_SESSION')
   && owner(`SELECT count(*) || '|' || max(location) FROM sales_session WHERE idempotency_key = '${raceKey}';`) === '1|Race', firstErr(x.rb));
 let JS = openS('2026-06-02', 'Race close/move').session_id;
-x = await race(ADMIN_UID, `SELECT ${closeCall(JS, [])};`, OPA, `SELECT ${moveCall(JS, 'DISPATCH', MAPLE, 7)};`, 'p21-cm');
+x = await race(ADMIN_UID, `SELECT ${closeCall(JS, [])};`, ADMIN_UID, `SELECT ${moveCall(JS, 'DISPATCH', MAPLE, 7)};`, 'p21-cm');   // [ADR-009] both ADMIN
 check('J2 close first, movement concurrently: the movement waited on the session lock, then SESSION_CLOSED; no movement in the closed session',
   x.aIn && x.bWait && x.ra.ok && raised(x.rb, 'SESSION_CLOSED')
   && owner(`SELECT count(*) FROM sales_session_movement WHERE sales_session_id = '${JS}';`) === '0', firstErr(x.rb));
 JS = openS('2026-06-03', 'Race move/close').session_id;
-x = await race(OPA, `SELECT ${moveCall(JS, 'DISPATCH', MAPLE, 8)};`, ADMIN_UID, `SELECT ${closeCall(JS, [L(MAPLE, 2, 1000)])};`, 'p21-mc');
+x = await race(ADMIN_UID, `SELECT ${moveCall(JS, 'DISPATCH', MAPLE, 8)};`, ADMIN_UID, `SELECT ${closeCall(JS, [L(MAPLE, 2, 1000)])};`, 'p21-mc');
 check('J3 movement first, close concurrently: the close waited, then closed; the movement belongs to the session, the aggregate exists once',
   x.aIn && x.bWait && x.ra.ok && x.rb.ok && sessionRow(JS).includes('|CLOSED|')
   && owner(`SELECT count(*) FROM sales_session_movement WHERE sales_session_id = '${JS}';`) === '1' && pedidosOf(JS) === '1', firstErr(x.rb));
@@ -865,10 +871,10 @@ section('O', 'Feria end to end');
 const e2eKey = newKey();
 const O = rpc(openCall('2026-05-23', 'Feria Plaza Central', e2eKey, 3000, CAJA)).session_id;
 const cajaO = balance(CAJA);
-rpcAs(A, moveCall(O, 'DISPATCH', MAPLE, 100));
-rpcAs(A, moveCall(O, 'RETURN', MAPLE, 10));
-rpcAs(A, moveCall(O, 'LOSS', MAPLE, 2, 'rotos en traslado'));
-rpcAs(A, moveCall(O, 'ADJUSTMENT', MAPLE, 1, 'recuento'));
+rpc(moveCall(O, 'DISPATCH', MAPLE, 100));
+rpc(moveCall(O, 'RETURN', MAPLE, 10));
+rpc(moveCall(O, 'LOSS', MAPLE, 2, 'rotos en traslado'));
+rpc(moveCall(O, 'ADJUSTMENT', MAPLE, 1, 'recuento'));
 rpc(cashCall(O, 'EXPENSE', 200, CAJA, CAT, null, 'bolsas'));
 const OIP = okAs(ADMIN, `INSERT INTO pedidos (cliente_id, sales_session_id, created_by) VALUES ('${MAYORISTA}', '${O}', '${ADMIN_UID}') RETURNING id;`);
 okAs(ADMIN, `INSERT INTO pedido_lineas (pedido_id, producto_id, cantidad, precio_unitario, producto_nombre, created_by)

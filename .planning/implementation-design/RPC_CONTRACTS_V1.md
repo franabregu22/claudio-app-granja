@@ -5,6 +5,7 @@
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 **AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — RPC 13 `register_purchase`: the attachment objects live in the private Storage bucket `purchase-attachments` and are uploaded by the caller before the call (removed by the caller if the call fails). The RPC itself is unchanged. Amended passage is marked **[ADR-008]**.  
+**AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 `register_session_movement` gets the ADMIN guard (migration 0059); OPERATOR has no Feria capability. Amended passages are marked **[ADR-009]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -1837,11 +1838,11 @@ The opening fund is a cash *transfer into the session*, not income. **Returns:**
 ### 31. register_session_movement
 
 **Signature:** `register_session_movement(p_session_id UUID, p_movement_type session_movement_type, p_producto_id UUID, p_cantidad DECIMAL, p_reason TEXT DEFAULT NULL) RETURNS JSONB`  
-**Actor:** ADMIN or OPERATOR · **SECURITY DEFINER:** yes · **Period determinant:** session's `session_date`
+**Actor:** ADMIN **[ADR-009]** (the former OPERATOR permission is superseded) · **SECURITY DEFINER:** yes · **Period determinant:** session's `session_date`
 
 ```
 BEGIN
-  role = current_app_role()
+  IF current_app_role() <> 'ADMIN' RAISE 'FORBIDDEN: ADMIN required'   -- [ADR-009] Feria is ADMIN-only in V1
   IF p_cantidad <= 0 RAISE 'INVALID_QUANTITY'
 
   session = SELECT * FROM sales_session WHERE id = p_session_id FOR UPDATE
@@ -2410,7 +2411,7 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 | 28 | register_feed_movement | Feed | ADMIN | yes | movement_date |
 | 29 | assign_flock_feed | Feed | ADMIN | yes | none (master assignment) |
 | 30 | open_sales_session | Feria | ADMIN | yes | session_date |
-| 31 | register_session_movement | Feria | OPERATOR/ADMIN | yes | session_date |
+| 31 | register_session_movement | Feria | ADMIN **[ADR-009]** | yes | session_date |
 | 32 | register_session_cash_event | Feria | ADMIN | yes | session_date |
 | 33 | close_sales_session | Feria | ADMIN | yes | session_date |
 | 34 | register_fiscal_document | Fiscal | ADMIN | yes | document_date / fiscal_period |

@@ -9,13 +9,13 @@ describe('role model (P27-D3)', () => {
     for (const legacy of ['dueño', 'colaborador', 'repartidor', 'admin', '', null, undefined]) expect(parseAppRole(legacy)).toBeNull();
   });
   it('ADMIN sees every module; OPERATOR only the production working set; no role sees nothing', () => {
-    expect(modulesFor('ADMIN')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'mercadopago', 'finanzas', 'admin']);
+    expect(modulesFor('ADMIN')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'feria', 'fiscal', 'mercadopago', 'finanzas', 'admin']);
     expect(modulesFor('OPERATOR')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento']);   // F27-E working set
     expect(modulesFor(null)).toEqual([]);
   });
   it('OPERATOR never gets an ADMIN-only module', () => {
     // F27-E: the production dashboard joined the OPERATOR working set (plan §2 row 3: assigned flocks only, RLS)
-    for (const m of ['pedidos', 'cobros', 'caja', 'mercadopago', 'finanzas', 'admin'] as const) {
+    for (const m of ['pedidos', 'cobros', 'caja', 'feria', 'fiscal', 'mercadopago', 'finanzas', 'admin'] as const) {
       expect(canSeeModule('OPERATOR', m)).toBe(false);
       expect(canSeeModule(null, m)).toBe(false);
     }

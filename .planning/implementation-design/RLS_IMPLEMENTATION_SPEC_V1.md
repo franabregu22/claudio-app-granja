@@ -4,6 +4,7 @@
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 **AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — purchase attachment objects: private Storage bucket `purchase-attachments` (10 MB, PDF / JPEG / PNG / WebP) with ADMIN-only SELECT / INSERT / DELETE policies on `storage.objects` (migration 0058). No public-schema change. Amended section is marked **[ADR-008]**.  
+**AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 carries the ADMIN guard (migration 0059); no table privilege or policy changes. Amended passage is marked **[ADR-009]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md Part 2 (frozen)  
@@ -574,8 +575,7 @@ ALTER TABLE sales_session_cash_event ENABLE ROW LEVEL SECURITY;
 CREATE POLICY sales_session_cash_event_admin_select ON sales_session_cash_event FOR SELECT
   USING (current_app_role() = 'ADMIN');
 ```
-OPERATOR may record physical movements in an open session (through RPC 31) and see them, but never
-the session's cash events.
+**[ADR-009]** Feria is ADMIN-only in V1: OPERATOR records no physical movement (RPC 31 now requires ADMIN, like RPCs 30 / 32 / 33) and never sees the session's cash events. The OPERATOR SELECT policies above are unchanged (no mutation follows from them; the V1 frontend exposes no Feria screen to OPERATOR).
 
 ---
 

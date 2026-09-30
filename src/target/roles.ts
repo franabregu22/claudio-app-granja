@@ -22,13 +22,15 @@ export type ModuleId =
   | 'pedidos'
   | 'cobros'
   | 'caja'
+  | 'feria'
+  | 'fiscal'
   | 'mercadopago'
   | 'finanzas'
   | 'admin';
 
-const ADMIN_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'mercadopago', 'finanzas', 'admin'];
-// OPERATOR working set (RLS_IMPLEMENTATION_SPEC_V1 §8: production, classification, feed, feria movements on
-// assigned flocks). F27-E: production dashboard, production, classification and feed; Feria movements come with F27-F.
+const ADMIN_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'feria', 'fiscal', 'mercadopago', 'finanzas', 'admin'];
+// OPERATOR working set (RLS_IMPLEMENTATION_SPEC_V1 §8, assigned flocks): production dashboard, production,
+// classification and feed. Feria and fiscal are ADMIN-only in V1 (ADR-009; RPC 31 enforces it in the backend).
 const OPERATOR_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'clasificacion', 'alimento'];
 
 /** Modules visible to a role. No role (no active profile, or a former repartidor) → no business module. */

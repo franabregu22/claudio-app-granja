@@ -229,7 +229,27 @@ Checks:
 - `npm test` 83/83 (F27-E 16);
 - `npm run test:integration` 63 passed / 5 skipped, 3 consecutive runs (F27-E 10; the 5 skipped are the E-F27D-2 Storage tests);
 - backend suites green (counts in the F27-E report); `tsc -b` 0; safe build + dist scan 0 findings |
-| F27-F…F27-I | pending | — |
+| F27-F Feria + fiscal | **COMPLETE** | Commit "phase27: F27-F migrate feria and fiscal to target". New target surfaces; there was no legacy Feria or fiscal screen, so nothing is removed and the baseline stays at 4 files / 13 references. The remaining references are owned by F27-G (`api/caja.ts`, the P&L source) and F27-H (the three Mercado Pago files). Implementation: `src/target/{feria,fiscal}.ts`, `features/feria/{useFeriaFiscal.ts,FeriaApp.tsx}`, `features/fiscal/FiscalApp.tsx`.
+- **Feria (ADMIN):**
+  - RPC 30–33 only. Open (an opening fund needs a cash account); goods movements; cash events (expense, withdrawal, transfer out); the physical COUNT, an observation with no posting.
+  - Close with the aggregated retail lines, which become the CONSUMIDOR FINAL Pedido; the price starts from the current MINORISTA price and stays editable. A closed session takes nothing more.
+  - The reconciliation is `report_feria_session_cash` as reported: expected cash = fund − expenses − withdrawals − transfers, and each count's variance stays visible, never auto-corrected.
+  - There is no rectification RPC for sessions. This is the Feria session count, not the retired general arqueo (P27-D1).
+- **Fiscal (ADMIN):** record documents with their tax components, obligations (optional installments, each with a due date) and payments, through the fiscal RPCs only. The target does not issue documents to AFIP / ARCA and nothing calls an external fiscal service.
+
+**D-F27F-1 — RESOLVED (owner, 2026-09-30): Feria is ADMIN-only in V1 → ADR-009.**
+- The gap: RPC 31 accepted OPERATOR while RLS §6 gives OPERATOR no product catalogue.
+- The owner rejected granting OPERATOR product access. OPERATOR has no Feria capability, and fiscal stays ADMIN-only.
+- Migration `0059_feria_admin_only.sql` gives RPC 31 the standard ADMIN guard. The audit found RPCs 30 / 32 / 33 already ADMIN-only and no other Feria writer. No schema, grant or policy change; `products` / `price_history` RLS unchanged.
+- The Phase 21 backend suite encoded the old OPERATOR permission. It was amended (C0, C1–C7, G9, H2, J2 / J3) and is green.
+- The OPERATOR SELECT policies on OPEN sessions / movements are kept as frozen: no mutation follows, and no screen is exposed.
+
+Checks:
+- static gate 8/0 (4 files / 13, unchanged);
+- `npm test` 95/95 (F27-F 12);
+- `npm run test:integration` 72 passed / 5 skipped (F27-F 9), 3 consecutive clean runs. An earlier pre-ADR-009 run hit the known post-login `JWT issued at future` intermittent at `f27c-commercial.test.ts:95` (not reproduced in 5 reruns);
+- backend suites green (counts in the F27-F report); `tsc -b` 0; safe build + dist scan 0 findings |
+| F27-G…F27-I | pending | — |
 
 **Pre-cutover verification debt (recorded, not a blocker):**
 - the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31);

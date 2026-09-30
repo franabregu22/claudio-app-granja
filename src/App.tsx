@@ -11,7 +11,9 @@ import { ProductionApp } from './features/production/ProductionApp';
 import { ProductionDashboard } from './features/production/ProductionDashboard';
 import { ClasificacionApp } from './features/production/ClasificacionApp';
 import { AlimentoApp } from './features/production/AlimentoApp';
-import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp, CreditCard, Egg, Wheat } from 'lucide-react';
+import { FeriaApp } from './features/feria/FeriaApp';
+import { FiscalApp } from './features/fiscal/FiscalApp';
+import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp, CreditCard, Egg, Wheat, Store, Landmark } from 'lucide-react';
 import { MercadoPagoApp } from './features/mercadopago/MercadoPagoApp';
 import { modulesFor, ROLE_LABEL, type ModuleId } from './target/roles';
 
@@ -75,6 +77,8 @@ function App() {
     pedidos: { label: 'Pedidos', icon: ShoppingCart },
     cobros: { label: 'Cuentas a Cobrar', icon: DollarSign },
     caja: { label: 'Caja', icon: Wallet },
+    feria: { label: 'Feria', icon: Store },
+    fiscal: { label: 'Fiscal', icon: Landmark },
     mercadopago: { label: 'Mercado Pago', icon: CreditCard },
     finanzas: { label: 'Finanzas', icon: TrendingUp },
     admin: { label: 'Admin', icon: Settings },
@@ -186,6 +190,8 @@ function App() {
           {currentTab === 'pedidos' && <PedidosApp />}
           {currentTab === 'cobros' && <CobrosApp />}
           {currentTab === 'caja' && <CajaApp />}
+          {currentTab === 'feria' && <FeriaApp />}
+          {currentTab === 'fiscal' && <FiscalApp />}
           {currentTab === 'mercadopago' && <MercadoPagoApp />}
           {currentTab === 'finanzas' && <FinanzasApp />}
           {currentTab === 'admin' && <AdminApp />}
