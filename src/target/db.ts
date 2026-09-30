@@ -26,6 +26,7 @@ export const TARGET_READ_TABLES = [
   'freight', 'financial_instrument', 'sales_session', 'sales_session_movement', 'classification', 'classification_line', 'feed_manufacturing',
   'feed_movement', 'feed_inventory_count', 'flock_feed_assignment', 'fiscal_document', 'fiscal_obligation', 'fiscal_obligation_installment',
   'mp_client_allocation', 'mp_payer_client_map', 'mp_webhook_delivery',
+  'collections',
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 

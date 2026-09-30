@@ -40,12 +40,6 @@
       "write:categorias_finanzas:update",
       "write:movimientos_caja:update"
     ],
-    "src/api/clientes.ts": [
-      "from:clientes",
-      "name:clientes",
-      "write:clientes:insert",
-      "write:clientes:update"
-    ],
     "src/api/lotes.ts": [
       "from:lotes",
       "name:lotes",
@@ -66,30 +60,9 @@
       "name:mp_financial_movement"
     ],
     "src/api/pagos.ts": [
-      "from:clientes",
-      "from:movimientos_caja",
       "from:pago_en_caja",
-      "from:pagos",
-      "from:perfiles",
-      "name:clientes",
-      "name:movimientos_caja",
       "name:pago_en_caja",
-      "name:pagos",
-      "write:movimientos_caja:insert",
-      "write:movimientos_caja:update",
-      "write:pago_en_caja:insert",
-      "write:pagos:delete",
-      "write:pagos:insert"
-    ],
-    "src/api/pedidos.ts": [
-      "from:pedido_lineas",
-      "from:pedidos",
-      "from:perfiles",
-      "rpc:marcar_pedido_entregado",
-      "write:pedido_lineas:delete",
-      "write:pedido_lineas:insert",
-      "write:pedidos:insert",
-      "write:pedidos:update"
+      "write:pago_en_caja:insert"
     ],
     "src/api/producciones.ts": [
       "from:perfiles",
@@ -119,21 +92,11 @@
       "name:comisiones",
       "name:pagos"
     ],
-    "src/hooks/useClientes.ts": [
-      "name:clientes"
-    ],
     "src/hooks/useLotes.ts": [
       "name:lotes"
     ],
-    "src/hooks/usePagos.ts": [
-      "name:pagos"
-    ],
     "src/hooks/useProducciones.ts": [
       "name:producciones"
-    ],
-    "src/hooks/useProductos.ts": [
-      "from:productos",
-      "name:productos"
     ],
     "src/hooks/useRecuentos.ts": [
       "name:recuentos_lote"

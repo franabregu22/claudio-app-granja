@@ -28,6 +28,21 @@ const MESSAGES: Record<string, string> = {
   FLOCK_NOT_ACTIVE: 'El lote no está activo.',
   EXIT_BEFORE_RECORDED_ACTIVITY: 'Hay producción, mortandad o asignaciones de alimento posteriores a esa fecha de salida.',
   ACTIVITY_AFTER_FLOCK_EXIT: 'La fecha es posterior a la salida del lote.',
+  ORDER_NOT_FOUND: 'El pedido no existe.',
+  ORDER_NOT_PENDING: 'El pedido ya no está pendiente.',
+  ORDER_NOT_DELIVERED: 'Solo se puede rectificar un pedido entregado.',
+  ORDER_HAS_NO_LINES: 'El pedido no tiene productos.',
+  ONLY_PENDING_CAN_CANCEL: 'Solo se puede cancelar un pedido pendiente.',
+  EMPTY_LINE_SET: 'Agregá al menos un producto.',
+  NO_CURRENT_LINES: 'El pedido no tiene líneas vigentes.',
+  INVALID_PRICE: 'El precio no es válido.',
+  PRODUCT_NOT_FOUND: 'El producto no existe.',
+  REASON_REQUIRED: 'Indicá el motivo.',
+  INVALID_AMOUNT: 'El monto debe ser mayor a cero.',
+  ACCOUNT_REQUIRED: 'Elegí la cuenta donde entra el cobro.',
+  CLIENT_NOT_FOUND_OR_INACTIVE: 'El cliente no existe o está inactivo.',
+  DUPLICATE_RECEIPT: 'Ya existe un cobro con ese comprobante.',
+  USE_RECEIVE_CHEQUE: 'Los cheques se registran desde la recepción de cheques.',
 };
 
 export function errorMessage(err: unknown): string {

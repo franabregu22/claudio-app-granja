@@ -176,7 +176,24 @@ All of the following must hold, mechanically where possible:
 |---|---|---|
 | F27-A Foundation | **COMPLETE** | `src/target/{roles,role,db}.ts`; the role from `current_app_role()`; role navigation plus a "Sin acceso" screen; S-1, MP debug / sync, `localStorage` secret, ipify and dead Google Sheets code removed. Checks: `phase27-frontend-static.check.mjs` (8/0; baseline 24 files / 109 legacy references), `npm test` 5/5, `npm run test:integration` 4/4, `tsc -b` 0, safe build + dist scan 0 findings |
 | F27-B Masters / Admin | **COMPLETE** | Two commits: `50c83b3` (masters / admin) and the ADR-007 completion commit (flock lifecycle). Admin screens on the target masters through `src/target/masters.ts` (authorized INSERT / UPDATE only, no delete path; an RLS-filtered UPDATE is reported as NOT_UPDATED): clients, products + price_history (a change closes the current row the day before and appends the new one), expense_category (`pnl_cost_class` set on creation only, D-F27B-2), sheds, suppliers, financial_account, operator_assignments, projects. **Flocks (D-F27B-1, ADR-007):** "Nuevo lote" and "Marcar salida" in LotesAdmin through RPC 44 `register_flock` / RPC 45 `close_flock` only (no direct flock write grant); the pullet `purchase_id` stays optional in the RPC and is not offered in the form (purchase selection belongs to F27-D). Unused legacy `usePrecios` / `api/precios` removed; legacy hooks still used by later slices (`useClientes`, `useProductos` → F27-C; `useLotes` → F27-E; `useCategorias` → F27-D) stay in the baseline. Checks: static gate 8/0 (C-1 verifies RPC 44 / 45 in the live executable set), baseline 24 files / 109 → 20 files / 97 references; `npm test` 25/25; `npm run test:integration` 23/23; backend `flock_lifecycle.test.mjs` 46/46 plus the production, feed and perimeter suites at 62 SECURITY DEFINER; `tsc -b` 0; safe build + dist scan 0 findings |
-| F27-C…F27-I | pending | — |
+| F27-C Commercial | **COMPLETE** | Commit "phase27: F27-C migrate commercial flows to target". `src/target/commercial.ts` + `features/pedidos/useCommercial.ts`:
+- Pedidos: PENDING order + lines are direct writes (INSERT / UPDATE of the order while PENDING; lines are inserted, then the previous version deleted). The subtotal is the generated column. The line price is the snapshot of the current `price_history` of the list chosen in the form. A rejected line set cancels the half-created order through `cancel_order`.
+- Deliver / cancel / rectify only through RPC 1 / 3 / 2. Rectification requires a reason.
+- Cuentas a cobrar: the balance is the latest client `closing_balance` of `report_balance_period`. Collections go only through `register_collection` (CASH / TRANSFER / MERCADOPAGO, financial account required). Cheques stay with the instruments flow (F27-D). The receipt id is the idempotency key.
+- The sales dashboard reads `report_sales_line` only.
+- Removed: `useClientesSaldo`, `pedidosCalculos`, `usePagos`, `useClientes`, `useProductos`, `api/clientes`, the legacy order / collection lists and cards. No `marcar_pedido_entregado` and no `pagos` write remain in commercial code.
+- Kept for later slices (baselined): `api/pedidos.listarPedidos` / `usePedidos` read for `caja/PyLProesional` (F27-G; the table names coincide with target tables, so the gate cannot see that it reads the legacy row shape); `api/pagos.agregarPagoAlaCaja` and the `pagos` update in `api/caja.ts` for Caja (F27-D).
+- UX without a target column, dropped: order date and observations; the "Total de huevos" metric (a units-per-product conversion with no authority); linking a Caja movement to a collection; the client-side overpayment block (the backend decides). Delivery uses the current time.
+
+Checks:
+- static gate 8/0; baseline 20 files / 97 → 15 files / 70 references (no `--allow-grow`);
+- `npm test` 43/43 (F27-C 19);
+- `npm run test:integration` 35/35 (F27-A 4, F27-B 19, F27-C 12). Across 11 full runs, 1 run failed 2 F27-B `clients` cases that pass in isolation. It was not reproducible in 10 reruns; the cause is not identified. Recorded as an observed cross-file flake;
+- backend commercial 147/0, reporting 63/0, treasury 107/0, instruments 200/0, foundations 96/0;
+- `tsc -b` 0; safe build + dist scan 0 findings |
+| F27-D…F27-I | pending | — |
+
+**Pre-cutover verification debt (recorded, not a blocker):** the canonical `supabase db reset` and the CLI-dependent suites `mp_audit_security`, `mp_scheduler`, `mp_webhook` and ADR-006 X-7 cannot run while Windows Application Control blocks the Supabase CLI. They must be re-run green once the CLI is available and before cutover (Phase 31).
 
 ## 10. Decisions and findings
 

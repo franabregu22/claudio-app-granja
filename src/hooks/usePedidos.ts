@@ -1,14 +1,12 @@
 import { useEffect, useRef } from 'react';
 import {
   useQuery,
-  useMutation,
   useQueryClient,
   type UseQueryResult,
-  type UseMutationResult,
 } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import * as pedidosApi from '../api/pedidos';
-import type { Pedido, LineaPedido } from '../types/domain';
+import type { Pedido } from '../types/domain';
 
 export function usePedidos(): UseQueryResult<Pedido[], Error> {
   const queryClient = useQueryClient();
@@ -47,97 +45,4 @@ export function usePedidos(): UseQueryResult<Pedido[], Error> {
   }, [queryClient]);
 
   return query;
-}
-
-export function useCrearPedido(): UseMutationResult<
-  Pedido,
-  Error,
-  {
-    clienteId: string;
-    clienteNombre: string;
-    lineas: LineaPedido[];
-    fechaPedido: string;
-    observaciones?: string;
-  }
-> {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ clienteId, clienteNombre, lineas, fechaPedido, observaciones }) =>
-      pedidosApi.crearPedido(clienteId, clienteNombre, lineas, fechaPedido, observaciones),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
-    },
-  });
-}
-
-export function useRectificarPedido(): UseMutationResult<
-  Pedido,
-  Error,
-  {
-    id: number;
-    lineas: LineaPedido[];
-    fechaPedido: string;
-    clienteId: string;
-    clienteNombre: string;
-    observaciones?: string;
-  }
-> {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, lineas, fechaPedido, clienteId, clienteNombre, observaciones }) =>
-      pedidosApi.rectificarPedido(id, lineas, fechaPedido, clienteId, clienteNombre, observaciones),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
-    },
-  });
-}
-
-export function useCancelarPedido(): UseMutationResult<Pedido, Error, number> {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (id) => pedidosApi.cancelarPedido(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
-    },
-  });
-}
-
-export function useMarcarEntregado(): UseMutationResult<void, Error, number> {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (id) => pedidosApi.marcarEntregado(id),
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['pedidos'] });
-
-      const previousData = queryClient.getQueryData<Pedido[]>(['pedidos']);
-
-      if (previousData) {
-        queryClient.setQueryData<Pedido[]>(['pedidos'], (old) =>
-          old?.map((p) =>
-            p.id === id
-              ? {
-                  ...p,
-                  estado: 'entregado' as const,
-                  entregado_en: new Date().toISOString(),
-                }
-              : p
-          )
-        );
-      }
-
-      return { previousData };
-    },
-    onError: (_error, _id, context) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(['pedidos'], context.previousData);
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
-    },
-  });
 }
