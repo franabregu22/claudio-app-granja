@@ -439,3 +439,13 @@ The ADR-008 Storage-API tests and the real-Storage "Nueva compra" end-to-end tes
 | D-FEED-9 | "Rectificar" appears on current rows when allowed. A row shows "Rectificada", and the detail shows the prior versions and the reason. | `FabricacionesHistorial.tsx` |
 | D-CLS-6 | Classification grade Rotos is inactive for new entries (merged forward into Descarte); history is unchanged. The Production metric "Rotos" is untouched. | 0065 |
 | — | Two OPERATOR read gaps found during implementation and closed. 0066 lets OPERATOR read inactive grade names for history. 0067 lets OPERATOR read historical formula versions (no cost). Both are ADR-014 §1 / §3. | 0066, 0067 |
+
+### 10.3 Feria — FERIA LOGIC REVIEW — DEFERRED / STANDBY (owner, 2026-10-01)
+
+Feria manual acceptance is **PARTIAL / DEFERRED**: the session-cash model and the movement history need an owner-approved redesign. This does not block the walkthrough of the other modules, which continue to be validated independently. The current Feria implementation stays unchanged (no backend, frontend, accounting or migration change) until the owner resumes the topic.
+
+Deferred findings:
+1. **Movement history:** session movements are not visibly traceable. A history is needed of dispatches / deliveries, expenses, withdrawals, session movements and closing movements, visible while the session is open and after it closes.
+2. **Expenses:** Feria expenses currently ask for a general financial account. Owner model: they reduce the cash held inside the Feria session.
+3. **Withdrawals:** same issue. A withdrawal is a movement of the Feria session cash, not an ordinary treasury movement.
+4. **Closing:** Feria keeps its own temporary session cash (cash sales increase it; expenses and withdrawals reduce it). At closing the session is reconciled and its net cash determined, and only then is the amount registered into Caja Chica or another destination account. The accounting implementation is not decided.
