@@ -1,17 +1,15 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../auth/useAuth';
 import { supabase } from '../../lib/supabase';
 import { errorMessage } from '../../target/messages';
 import {
-  MANAGEMENT_EVENT_TYPES, PNL_LINES, PNL_RESULT_LINES, listManagementEvents, listPnlLineItems, listPnlSummary, registerManagementEvent,
-  type ManagementEventRow, type ManagementEventType,
+  PNL_LINES, PNL_RESULT_LINES, listPnlLineItems, listPnlSummary, type ManagementEventRow,
 } from '../../target/pnl';
 import { getTodayDate } from '../../utils/dateUtils';
-import { campo, etiqueta, Modal } from '../caja/Modal';
 import { useExpenseCategories } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
-import { useFinancialAccounts } from '../pedidos/useCommercial';
+import { EVENTO_LABEL, EventoGestionModal, useManagementEvents } from './EventoGestionModal';
 import { TendenciaMeses } from './TendenciaMeses';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -23,10 +21,9 @@ const periodoAtras = (date: string, n: number) => {
 };
 const BUCKET: Record<string, string> = {
   VENTAS_NETAS: 'Ventas netas', COSTOS_DIRECTOS: 'Costos directos', COSTOS_INDIRECTOS: 'Costos indirectos',
-  OTROS_INGRESOS_FINANCIEROS: 'Otros ingresos financieros', REINVERSION: 'Reinversión', RETIROS: 'Retiros',
+  OTROS_INGRESOS_FINANCIEROS: 'Otros ingresos financieros', REINVERSION: 'Reinversión', RETIROS: 'Retiros de socios',
   RESERVAS_INTERNAS: 'Reservas internas', INVERSIONES: 'Inversiones',
 };
-const EVENTO: Record<ManagementEventType, string> = { RETIRO: 'Retiro', RESERVA_INTERNA: 'Reserva interna' };
 const PNL = ['pnl'];
 
 /**
@@ -42,7 +39,7 @@ export function FinanzasApp() {
   const desde = periodoAtras(hoy, meses - 1);
   const hasta = periodoAtras(hoy, 0);
   const resumen = useQuery({ queryKey: [...PNL, 'summary', desde, hasta], queryFn: () => listPnlSummary(supabase, desde, hasta), enabled: rol === 'ADMIN' });
-  const eventos = useQuery({ queryKey: [...PNL, 'events'], queryFn: () => listManagementEvents(supabase), enabled: rol === 'ADMIN' });
+  const eventos = useManagementEvents();
   const [detalle, setDetalle] = useState<string | null>(null);
   const [nuevoEvento, setNuevoEvento] = useState(false);
 
@@ -120,14 +117,20 @@ export function FinanzasApp() {
 
           <section>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Retiros y reservas internas</p>
-              <button onClick={() => setNuevoEvento(true)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Registrar</button>
+              <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Retiros de socios y reservas internas</p>
+              <details className="relative text-sm">
+                <summary className="cursor-pointer text-[#A8552E]">Más acciones</summary>
+                <div className="absolute right-0 z-10 mt-1 bg-white border border-[#E4DCC8] rounded-lg shadow p-2 w-56">
+                  <button onClick={() => setNuevoEvento(true)} className="w-full text-left px-2 py-1 rounded hover:bg-amber-50">Registrar reserva interna</button>
+                  <p className="px-2 pt-1 text-xs text-gray-500">Los retiros de socios se registran en Caja → Más acciones.</p>
+                </div>
+              </details>
             </div>
             <ListaEventos eventos={eventos.data ?? []} />
           </section>
         </div>
       </div>
-      {nuevoEvento && <EventoModal eventos={eventos.data ?? []} onClose={() => setNuevoEvento(false)} />}
+      {nuevoEvento && <EventoGestionModal tipo="RESERVA_INTERNA" onClose={() => setNuevoEvento(false)} />}
     </div>
   );
 }
@@ -160,69 +163,14 @@ function DetalleMes({ period, onClose }: { period: string; onClose: () => void }
 }
 
 function ListaEventos({ eventos }: { eventos: ManagementEventRow[] }) {
-  if (eventos.length === 0) return <p className="text-sm text-[#8A7A5C]">Sin retiros ni reservas registrados.</p>;
+  if (eventos.length === 0) return <p className="text-sm text-[#8A7A5C]">Sin retiros de socios ni reservas registrados.</p>;
   return (
     <div className="space-y-1 text-sm">
       {eventos.map((e) => (
         <p key={e.id} className="text-gray-700">
-          {e.effective_date} · <b>{EVENTO[e.event_type]}</b>{e.compensates_event_id ? ' (compensación)' : ''} · {formatoPesos(e.amount)}{e.reason ? ` · ${e.reason}` : ''}
+          {e.effective_date} · <b>{EVENTO_LABEL[e.event_type]}</b>{e.compensates_event_id ? ' (compensación)' : ''} · {formatoPesos(e.amount)}{e.reason ? ` · ${e.reason}` : ''}
         </p>
       ))}
     </div>
-  );
-}
-
-function EventoModal({ eventos, onClose }: { eventos: ManagementEventRow[]; onClose: () => void }) {
-  const qc = useQueryClient();
-  const registrar = useMutation({
-    mutationFn: (p: Parameters<typeof registerManagementEvent>[1]) => registerManagementEvent(supabase, p),
-    onSuccess: () => Promise.all([PNL, ['treasury']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
-  });
-  const cuentas = useFinancialAccounts();
-  const [tipo, setTipo] = useState<ManagementEventType>('RETIRO');
-  const [fecha, setFecha] = useState(getTodayDate());
-  const [monto, setMonto] = useState('');
-  const [cuentaId, setCuentaId] = useState('');
-  const [compensaId, setCompensaId] = useState('');
-  const [motivo, setMotivo] = useState('');
-  const [clave] = useState(() => `GEST-${crypto.randomUUID()}`);   // idempotency: one per opened form
-  const compensables = eventos.filter((e) => e.event_type === tipo && !e.compensates_event_id);
-  const puede = Number(monto) > 0 && fecha !== '' && motivo.trim() !== '' && (tipo !== 'RETIRO' || cuentaId !== '');
-  return (
-    <Modal titulo="Registrar retiro o reserva" onClose={onClose} puedeGuardar={puede} guardando={registrar.isPending} error={registrar.error ?? cuentas.error}
-      textoGuardar="Registrar"
-      onSubmit={() => registrar.mutate({
-        type: tipo, effectiveDate: fecha, amount: Number(monto), idempotencyKey: clave, reason: motivo.trim(),
-        accountId: tipo === 'RETIRO' ? cuentaId : null, compensatesEventId: compensaId || null,
-      }, { onSuccess: onClose })}>
-      <div className="grid grid-cols-2 gap-2">
-        {MANAGEMENT_EVENT_TYPES.map((t) => (
-          <button key={t} type="button" onClick={() => { setTipo(t); setCompensaId(''); }}
-            className={`px-3 py-2 rounded-lg text-sm font-medium ${tipo === t ? 'bg-amber-600 text-white' : 'bg-stone-100 text-gray-700 hover:bg-stone-200'}`}>
-            {EVENTO[t]}
-          </button>
-        ))}
-      </div>
-      <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
-      <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
-      {tipo === 'RETIRO' && (
-        <label className={etiqueta}>Cuenta de la que sale el dinero
-          <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={campo}>
-            <option value="">Elegir cuenta…</option>
-            {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-          </select>
-        </label>
-      )}
-      {compensables.length > 0 && (
-        <label className={etiqueta}>Compensa a (opcional)
-          <select value={compensaId} onChange={(e) => setCompensaId(e.target.value)} className={campo}>
-            <option value="">No compensa ninguno</option>
-            {compensables.map((e) => <option key={e.id} value={e.id}>{e.effective_date} · {formatoPesos(e.amount)}{e.reason ? ` · ${e.reason}` : ''}</option>)}
-          </select>
-        </label>
-      )}
-      <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
-      <p className="text-xs text-gray-500">{tipo === 'RETIRO' ? 'Un retiro saca dinero de la cuenta elegida.' : 'Una reserva interna no mueve dinero: separa resultado en el estado de resultados.'}</p>
-    </Modal>
   );
 }

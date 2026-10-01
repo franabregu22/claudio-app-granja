@@ -8,7 +8,7 @@
  * obligation status, and books the payment's financial operation.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { callRpc, readTable } from './db';
+import { callRpc, readTable, readView } from './db';
 
 export const FISCAL_DOCUMENT_TYPES = ['INVOICE_A', 'INVOICE_B', 'INVOICE_C', 'CREDIT_NOTE', 'DEBIT_NOTE', 'RECEIPT', 'OTHER'] as const;
 export type FiscalDocumentType = (typeof FISCAL_DOCUMENT_TYPES)[number];
@@ -83,3 +83,61 @@ export function payFiscalObligation(client: SupabaseClient, p: {
     p_idempotency_key: p.idempotencyKey, p_installment_id: p.installmentId ?? null, p_reason: reasonOrNull(p.reason),
   });
 }
+
+// ── consolidated fiscal position (ADR-015) ──────────────────────────────────
+
+export interface FiscalPeriodRow {
+  period: string; tax_kind: string; debit_amount: number; credit_amount: number; debit_documents: number; credit_documents: number;
+  period_difference: number;
+}
+/**
+ * report_fiscal_period exactly as reported: loaded tax amounts by period / tax kind / direction, credit notes already
+ * reversed by the backend, and the backend's informational period_difference (debit − credit). Not a payable amount and
+ * nothing is carried forward; nothing is summed or derived here.
+ */
+export async function listFiscalPeriods(client: SupabaseClient, limit = 120): Promise<FiscalPeriodRow[]> {
+  const rows = await readView<FiscalPeriodRow>(client, 'report_fiscal_period', (q) => q.order('period', { ascending: false }).order('tax_kind').limit(limit));
+  return rows.map((r) => ({
+    ...r, debit_amount: num(r.debit_amount), credit_amount: num(r.credit_amount), debit_documents: num(r.debit_documents),
+    credit_documents: num(r.credit_documents), period_difference: num(r.period_difference),
+  }));
+}
+
+export interface FiscalPaymentRow {
+  id: string; fiscal_obligation_id: string; effective_date: string; amount: number; tax_kind: string | null; fiscal_period: string | null; cuenta: string | null;
+}
+export async function listFiscalPayments(client: SupabaseClient, limit = 200): Promise<FiscalPaymentRow[]> {
+  const rows = await readTable<{ id: string; fiscal_obligation_id: string; effective_date: string; amount: number | string;
+    fiscal_obligation: { tax_kind: string; fiscal_period: string } | null; financial_account: { nombre: string } | null }>(client, 'fiscal_payment',
+    (q) => q.order('effective_date', { ascending: false }).limit(limit),
+    'id, fiscal_obligation_id, effective_date, amount, fiscal_obligation(tax_kind, fiscal_period), financial_account(nombre)');
+  return rows.map((p) => ({
+    id: p.id, fiscal_obligation_id: p.fiscal_obligation_id, effective_date: p.effective_date, amount: num(p.amount),
+    tax_kind: p.fiscal_obligation?.tax_kind ?? null, fiscal_period: p.fiscal_obligation?.fiscal_period ?? null, cuenta: p.financial_account?.nombre ?? null,
+  }));
+}
+
+/** Optional fiscal data of a purchase (D-FISCAL-4): amounts exactly as typed; nothing is derived here. */
+export interface PurchaseFiscalInput {
+  documentType: FiscalDocumentType; fiscalPeriod: string; netAmount: number; totalAmount: number;
+  components: Omit<ComponentInput, 'direction'>[];
+}
+
+export type ComponenteForm = { tax_kind: TaxKind; base: string; alicuota: string; importe: string };
+export interface FiscalForm { tipo: FiscalDocumentType | ''; periodo: string; neto: string; total: string; componentes: ComponenteForm[] }
+export const FISCAL_VACIO: FiscalForm = { tipo: '', periodo: '', neto: '', total: '', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '', importe: '' }] };
+
+/**
+ * The typed fiscal data, or null while incomplete. Every amount is exactly what the user typed: no rate, base or tax
+ * is derived here (the backend stores them as supplied). Components left completely blank are ignored.
+ */
+export function fiscalInput(f: FiscalForm, fecha: string): PurchaseFiscalInput | null {
+  if (f.tipo === '' || f.neto === '' || f.total === '') return null;
+  const usados = f.componentes.filter((c) => c.base !== '' || c.alicuota !== '' || c.importe !== '');
+  if (usados.some((c) => c.base === '' || c.alicuota === '' || c.importe === '')) return null;
+  return {
+    documentType: f.tipo, fiscalPeriod: f.periodo !== '' ? `${f.periodo}-01` : firstOfMonth(fecha), netAmount: Number(f.neto), totalAmount: Number(f.total),
+    components: usados.map((c) => ({ tax_kind: c.tax_kind, base_amount: Number(c.base), rate_applied: Number(c.alicuota), tax_amount: Number(c.importe) })),
+  };
+}
+

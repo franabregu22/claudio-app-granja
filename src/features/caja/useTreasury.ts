@@ -16,7 +16,7 @@ const FREIGHT = ['treasury', 'freight'];
 /** Every treasury effect can move account, supplier and client balances: refresh all of them (and F27-C's). */
 function useRefresh() {
   const qc = useQueryClient();
-  return () => Promise.all([TREASURY, ['commercial', 'balances']].map((queryKey) => qc.invalidateQueries({ queryKey })));
+  return () => Promise.all([TREASURY, ['commercial', 'balances'], ['fiscal'], ['pnl']].map((queryKey) => qc.invalidateQueries({ queryKey })));
 }
 
 export function useLedgerBalances(ledger: 'ACCOUNT' | 'SUPPLIER') {

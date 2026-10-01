@@ -12,7 +12,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { TargetDbError } from './db';
-import { registerPurchase } from './treasury';
+import type { PurchaseFiscalInput } from './fiscal';
+import { registerPurchase, registerPurchaseWithFiscal } from './treasury';
 
 export const PURCHASE_ATTACHMENT_BUCKET = 'purchase-attachments';
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -63,10 +64,10 @@ type PurchaseInput = Omit<Parameters<typeof registerPurchase>[1], 'attachments'>
  * so the caller can report them; the thrown error is always the original upload / purchase error.
  */
 export async function createPurchaseWithAttachments(client: SupabaseClient, p: PurchaseInput & {
-  userId: string; files: (AttachmentFile & Blob)[]; onCleanupFailure?: (paths: string[]) => void;
+  userId: string; files: (AttachmentFile & Blob)[]; onCleanupFailure?: (paths: string[]) => void; fiscal?: PurchaseFiscalInput | null;
 }) {
   validateAttachments(p.files);
-  const { userId, files, onCleanupFailure, ...purchase } = p;
+  const { userId, files, onCleanupFailure, fiscal, ...purchase } = p;
   const uploaded: AttachmentMeta[] = [];
   const compensate = async () => {
     const paths = uploaded.map((a) => a.storage_path);
@@ -84,7 +85,10 @@ export async function createPurchaseWithAttachments(client: SupabaseClient, p: P
   }
 
   try {
-    return await registerPurchase(client, { ...purchase, attachments: uploaded });
+    // ADR-015: with fiscal data the purchase and its document are one backend transaction (RPC 50)
+    return fiscal
+      ? await registerPurchaseWithFiscal(client, { ...purchase, attachments: uploaded, fiscal })
+      : await registerPurchase(client, { ...purchase, attachments: uploaded });
   } catch (err) {
     await compensate();
     throw err;

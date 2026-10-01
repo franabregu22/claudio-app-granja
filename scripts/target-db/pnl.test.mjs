@@ -48,7 +48,7 @@ const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_pur
   + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_feed_manufacturing,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_flock,'
-  + 'register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
+  + 'register_freight,register_management_event,register_mortality,register_purchase,register_purchase_with_fiscal_document,register_session_cash_event,register_session_movement,reject_cheque,'
   + 'reject_supplier_instrument,transfer_between_accounts';
 
 let container;

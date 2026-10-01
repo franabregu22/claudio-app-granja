@@ -13,6 +13,7 @@ export const TARGET_VIEWS = [
   'report_feed_consumption_interval', 'report_classification_day', 'pnl_summary', 'pnl_line_item', 'feed_formula_line_safe',
   'report_mp_receipt_status', 'report_mp_delivery_health', 'report_mp_report_exceptions',
   'report_bank_tax_period',   // ADR-011
+  'report_fiscal_period',   // ADR-015
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -27,7 +28,7 @@ export const TARGET_READ_TABLES = [
   'freight', 'financial_instrument', 'sales_session', 'sales_session_movement', 'classification', 'classification_line', 'feed_manufacturing',
   'feed_movement', 'feed_inventory_count', 'flock_feed_assignment', 'fiscal_document', 'fiscal_obligation', 'fiscal_obligation_installment',
   'mp_client_allocation', 'mp_payer_client_map', 'mp_webhook_delivery',
-  'collections', 'management_event',
+  'collections', 'management_event', 'fiscal_payment',
   'financial_operation', 'financial_posting', 'bank_tax_charge',   // Phase 27 acceptance fixes: transfer history (D-WALK-2) + ADR-011
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
@@ -73,6 +74,7 @@ export const TARGET_RPCS = [
   'register_bank_tax',   // ADR-011 (RPC 46)
   'rectify_classification', 'publish_feed_formula_version',   // ADR-012 (RPC 47) / ADR-013 (RPC 48)
   'rectify_feed_manufacturing',   // ADR-014 (RPC 49)
+  'register_purchase_with_fiscal_document',   // ADR-015 (RPC 50)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

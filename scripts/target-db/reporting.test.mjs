@@ -47,7 +47,7 @@ const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_pur
   + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_feed_manufacturing,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_flock,'
-  + 'register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
+  + 'register_freight,register_management_event,register_mortality,register_purchase,register_purchase_with_fiscal_document,register_session_cash_event,register_session_movement,reject_cheque,'
   + 'reject_supplier_instrument,transfer_between_accounts';
 const MONEY = /(^|_)(amount|precio|price|prices|cost|costs|subtotal|balance|saldo|fee|fees|tax|taxes|gross|net|cash|variance|importe|monto)(_|$)/i;
 
@@ -333,8 +333,8 @@ section('A', 'Structure: seven derived views, nothing stored');
 
 // ADR-006 Step 10 (0055) adds three derived MP views; they are proven by mp_views.test.mjs, not by this suite
 const ADR006_VIEWS = ['report_mp_delivery_health', 'report_mp_receipt_status', 'report_mp_report_exceptions'];
-const ADR011_VIEWS = ['report_bank_tax_period'];   // ADR-011 (0062), proven by bank_tax.test.mjs
-check('A1 exactly the seven ADR-005 report_* views plus the three ADR-006 views and the ADR-011 view exist, and no other report object',
+const ADR011_VIEWS = ['report_bank_tax_period', 'report_fiscal_period'];   // ADR-011 (0062) / ADR-015 (0068), proven by bank_tax / fiscal_report suites
+check('A1 exactly the seven ADR-005 report_* views plus the three ADR-006 views and the ADR-011 / ADR-015 views exist, and no other report object',
   owner(`SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.views WHERE table_schema = 'public' AND table_name LIKE 'report%';`) === [...VIEWS, ...ADR006_VIEWS, ...ADR011_VIEWS].sort().join(',')
   && owner(`SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname LIKE 'report%' AND relkind <> 'v';`) === '0');
 check('A2 every report view is security_invoker = true and owned by postgres',

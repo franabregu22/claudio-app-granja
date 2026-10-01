@@ -3,6 +3,7 @@ import { ChevronDown } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { ATTACHMENT_TYPES, validateAttachments } from '../../target/attachments';
 import { UNIT_TYPES, type UnitType } from '../../target/masters';
+import { FISCAL_VACIO, fiscalInput, TAX_KINDS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
 import { PURCHASE_NATURES, type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
@@ -108,9 +109,12 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
   const [errorArchivo, setErrorArchivo] = useState<unknown>(null);
   const [notas, setNotas] = useState('');
   const [clave] = useState(() => `CMP-${crypto.randomUUID()}`);   // idempotency: one per opened form
+  const [fiscal, setFiscal] = useState<FiscalForm>(FISCAL_VACIO);
+  const fiscalDatos = fiscalInput(fiscal, fecha);
   const setLinea = (i: number, patch: Partial<PurchaseLineInput>) => setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const lineasOk = lineas.every((l) => l.descripcion.trim() !== '' && l.cantidad > 0 && l.precio_unitario >= 0);
-  const puede = !!user && proveedorId !== '' && categoriaId !== '' && fecha !== '' && Number(total) > 0 && !errorArchivo && lineasOk;
+  const puede = !!user && proveedorId !== '' && categoriaId !== '' && fecha !== '' && Number(total) > 0 && !errorArchivo && lineasOk
+    && (fiscal.tipo === '' || fiscalDatos !== null);
 
   function elegirArchivos(lista: FileList | null) {
     const files = Array.from(lista ?? []);
@@ -124,7 +128,7 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
       onSubmit={() => createPurchase.mutate({
         userId: user!.id, files: archivos, supplierId: proveedorId, economicDate: fecha, amountNet: neto === '' ? Number(total) : Number(neto),
         amountTotal: Number(total), categoryId: categoriaId, subcategory: null, nature: naturaleza, lines: lineas.map((l) => ({ ...l, descripcion: l.descripcion.trim() })),
-        idempotencyKey: clave, invoiceNumber: factura.trim() || null, reason: notas,
+        idempotencyKey: clave, invoiceNumber: factura.trim() || null, reason: notas, fiscal: fiscalDatos,
       }, { onSuccess: onClose })}>
       <label className={etiqueta}>Proveedor
         <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className={campo}>
@@ -175,6 +179,7 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
           </div>
         ))}
       </details>
+      <DatosFiscales value={fiscal} onChange={setFiscal} />
       <details className="border border-[#E4DCC8] rounded-lg p-2">
         <summary className="text-sm text-[#8A6A2E] cursor-pointer">Más datos</summary>
         <div className="grid grid-cols-2 gap-2 mt-2">
@@ -307,5 +312,54 @@ function AsignarFleteModal({ purchaseId, fletes, onClose }: { purchaseId: string
         <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
     </Modal>
+  );
+}
+
+// ── D-FISCAL-4 / D-FISCAL-5: optional fiscal data of a purchase (ADR-015) ──────────────────────────
+const TIPO_COMPROBANTE: [FiscalDocumentType, string][] = [['INVOICE_A', 'Factura A'], ['INVOICE_B', 'Factura B'], ['INVOICE_C', 'Factura C'], ['RECEIPT', 'Recibo'], ['OTHER', 'Otro']];
+const IMPUESTO: Record<TaxKind, string> = { IVA: 'IVA', IIBB: 'IIBB', GANANCIAS: 'Ganancias', RETENTION: 'Retención', PERCEPTION: 'Percepción', OTHER: 'Otro' };
+function DatosFiscales({ value, onChange }: { value: FiscalForm; onChange: (v: FiscalForm) => void }) {
+  const set = (patch: Partial<FiscalForm>) => onChange({ ...value, ...patch });
+  const setComp = (i: number, patch: Partial<ComponenteForm>) => set({ componentes: value.componentes.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+  return (
+    <details className="border border-[#E4DCC8] rounded-lg p-2">
+      <summary className="text-sm text-[#8A6A2E] cursor-pointer">Datos fiscales (opcional)</summary>
+      <div className="space-y-2 mt-2">
+        <div className="grid grid-cols-2 gap-2">
+          <label className={etiqueta}>Tipo de comprobante
+            <select value={value.tipo} onChange={(e) => set({ tipo: e.target.value as FiscalDocumentType | '' })} className={campo}>
+              <option value="">Sin datos fiscales</option>
+              {TIPO_COMPROBANTE.map(([t, l]) => <option key={t} value={t}>{l}</option>)}
+            </select>
+          </label>
+          <label className={etiqueta}>Período fiscal
+            <input type="month" value={value.periodo} onChange={(e) => set({ periodo: e.target.value })} className={campo} />
+          </label>
+        </div>
+        {value.tipo !== '' && (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <label className={etiqueta}>Neto del comprobante<input type="number" min="0" step="0.01" value={value.neto} onChange={(e) => set({ neto: e.target.value })} className={campo} /></label>
+              <label className={etiqueta}>Total del comprobante<input type="number" min="0" step="0.01" value={value.total} onChange={(e) => set({ total: e.target.value })} className={campo} /></label>
+            </div>
+            {value.componentes.map((c, i) => (
+              <div key={i} className="grid grid-cols-4 gap-2 items-end">
+                <label className="text-xs text-gray-600">Impuesto
+                  <select value={c.tax_kind} onChange={(e) => setComp(i, { tax_kind: e.target.value as TaxKind })} className={campo}>
+                    {TAX_KINDS.map((k) => <option key={k} value={k}>{IMPUESTO[k]}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-gray-600">Base<input type="number" min="0" step="0.01" value={c.base} onChange={(e) => setComp(i, { base: e.target.value })} className={campo} /></label>
+                <label className="text-xs text-gray-600">Alícuota %<input type="number" min="0" step="0.01" value={c.alicuota} onChange={(e) => setComp(i, { alicuota: e.target.value })} className={campo} /></label>
+                <label className="text-xs text-gray-600">Importe<input type="number" min="0" step="0.01" value={c.importe} onChange={(e) => setComp(i, { importe: e.target.value })} className={campo} /></label>
+              </div>
+            ))}
+            <button type="button" onClick={() => set({ componentes: [...value.componentes, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '' }] })}
+              className="text-xs text-[#A8552E] hover:underline">+ Otro impuesto (percepción, IIBB…)</button>
+            <p className="text-xs text-gray-500">Cargá los importes tal como figuran en el comprobante; no se calculan. El Nº de comprobante es el de arriba. La compra y su comprobante se guardan juntos.</p>
+          </>
+        )}
+      </div>
+    </details>
   );
 }

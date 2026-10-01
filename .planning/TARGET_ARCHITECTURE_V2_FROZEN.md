@@ -699,6 +699,8 @@ Do NOT hardcode rules (they change).
 
 System is MANAGERIAL; final legal reporting via fiscal tools/professional.
 
+> **Amendment [ADR-015]** (owner, 2026-10-01): Fiscal is report-first: `report_fiscal_period` consolidates the loaded tax amounts by period (credit notes reversed; "Diferencia del período" = debit − credit is informational, not a payable; no carry-forward). Purchase documents are captured with the purchase (RPC 50, atomic); the sales ↔ document link is deferred; manual documents remain a secondary path. Purchases still enter the P&L by `amount_total`. See `.planning/adr/ADR-015_FISCAL_POSITION_AND_PURCHASE_FISCAL.md`.
+
 ---
 
 ## PART 19: P&L / MANAGEMENT

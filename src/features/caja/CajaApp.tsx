@@ -4,6 +4,7 @@ import { Cheques } from './Cheques';
 import { Compras } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
 import { ResumenSaldos } from './ResumenSaldos';
+import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 
 type Vista = 'saldos' | 'pagar' | 'compras' | 'instrumentos';
 const VISTAS: { id: Vista; label: string }[] = [
@@ -21,6 +22,7 @@ const VISTAS: { id: Vista; label: string }[] = [
 export function CajaApp() {
   const { rol } = useAuth();
   const [vista, setVista] = useState<Vista>('saldos');
+  const [retiro, setRetiro] = useState(false);
 
   if (rol !== 'ADMIN') {
     return (
@@ -38,7 +40,15 @@ export function CajaApp() {
       <div className="w-full max-w-6xl bg-[#FAF6EE] min-h-screen flex flex-col">
         <header className="px-4 md:px-6 pt-6 pb-3 border-b border-[#E4DCC8]">
           <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
-          <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Caja & Tesorería</h1>
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Caja & Tesorería</h1>
+            <details className="relative text-sm mt-2">
+              <summary className="cursor-pointer text-[#A8552E]">Más acciones</summary>
+              <div className="absolute right-0 z-10 mt-1 bg-white border border-[#E4DCC8] rounded-lg shadow p-2 w-56">
+                <button onClick={() => setRetiro(true)} className="w-full text-left px-2 py-1 rounded hover:bg-amber-50">Retiro de socios</button>
+              </div>
+            </details>
+          </div>
           <nav className="flex gap-2 mt-4 overflow-x-auto">
             {VISTAS.map((v) => (
               <button key={v.id} onClick={() => setVista(v.id)}
@@ -54,6 +64,7 @@ export function CajaApp() {
           {vista === 'compras' && <Compras />}
           {vista === 'instrumentos' && <Cheques />}
         </div>
+        {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}
       </div>
     </div>
   );

@@ -270,6 +270,10 @@ ADMIN-only views also carry `WHERE (SELECT current_app_role()) = 'ADMIN'`, the p
 - **Cost-sensitive:** no.
 - **Why the existing source is insufficient:** population(D), age and theoretical consumption exist only as test queries (Phase 20 carry-forward).
 
+### V8 `report_fiscal_period` **[ADR-015]** (2026-10-01, migration 0068)
+
+ADMIN only (security_invoker plus an ADMIN predicate). One row per fiscal period and tax kind: `debit_amount` / `credit_amount` sum the loaded component `tax_amount` by **document** direction (DEBITO = issued to clients, CREDITO = received from suppliers); a `CREDIT_NOTE` contributes with the opposite sign; `debit_documents` / `credit_documents` count documents; `period_difference = debit_amount − credit_amount` is informational ("Diferencia del período"), not a payable or balance in favour, and nothing is carried forward. No P&L effect.
+
 ### V7 `report_classification_day`
 - **Purpose:** grade quantities and mix.
 - **Roles:** ADMIN, OPERATOR (own sessions, through RLS).

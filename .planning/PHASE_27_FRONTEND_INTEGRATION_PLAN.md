@@ -449,3 +449,15 @@ Deferred findings:
 2. **Expenses:** Feria expenses currently ask for a general financial account. Owner model: they reduce the cash held inside the Feria session.
 3. **Withdrawals:** same issue. A withdrawal is a movement of the Feria session cash, not an ordinary treasury movement.
 4. **Closing:** Feria keeps its own temporary session cash (cash sales increase it; expenses and withdrawals reduce it). At closing the session is reconciled and its net cash determined, and only then is the amount registered into Caja Chica or another destination account. The accounting implementation is not decided.
+
+### 10.4 Fiscal + Finance (owner D-FISCAL-1…8, D-FIN-1…2; 2026-10-01; ADR-015)
+
+| Id | Fix | Where |
+|---|---|---|
+| D-FISCAL-1 / 7 | Fiscal is report-first: Resumen fiscal (IVA débito / crédito / "Diferencia del período"; other tax kinds as loaded), Obligaciones, Pagos, Comprobantes. "Registrar comprobante manual" is a secondary link. | `FiscalApp.tsx`, `fiscal.ts` |
+| D-FISCAL-2 / 3 | `report_fiscal_period` (ADMIN): by document direction; credit notes reversed; the difference is informational, with no carry-forward and no P&L effect (migration 0068). | 0068 |
+| D-FISCAL-4 / 5 | Nueva compra → "Datos fiscales (opcional)": type, period, net, total, components (typed, never derived). With data, RPC 50 saves the purchase and its document atomically; without data, RPC 13 as before. | `Compras.tsx`, `treasury.ts`, `attachments.ts`, 0068 |
+| D-FISCAL-6 | **Deferred:** the sales (pedido) ↔ fiscal document link, pending the invoicing lifecycle definition. Sales documents are registered manually in Fiscal meanwhile. | — |
+| D-FISCAL-8 | Future document recognition: schema compatible, not implemented (ADR-015 §5). | — |
+| D-FIN-1 | "Retiro de socios" lives in Caja → Más acciones; the ADR-004 P&L treatment is unchanged. | `CajaApp.tsx`, `EventoGestionModal.tsx` |
+| D-FIN-2 | "Reserva interna" lives in Finanzas → Más acciones; backend and P&L line unchanged. | `FinanzasApp.tsx` |

@@ -47,7 +47,7 @@ const BASELINE_DEFINERS = ['assert_period_open', 'assign_flock_feed', 'assign_fr
   'rectify_delivered_order', 'rectify_feed_manufacturing', 'rectify_mortality', 'rectify_purchase', 'register_bank_tax', 'register_classification', 'register_collection',
   'register_count_adjustment', 'register_daily_production', 'register_feed_inventory_count', 'register_feed_manufacturing',
   'register_feed_movement', 'register_fiscal_document', 'register_fiscal_obligation', 'register_freight',
-  'register_management_event', 'register_mortality', 'register_purchase', 'register_session_cash_event',
+  'register_management_event', 'register_mortality', 'register_purchase', 'register_purchase_with_fiscal_document', 'register_session_cash_event',
   'register_session_movement', 'reject_cheque', 'reject_supplier_instrument', 'transfer_between_accounts'];
 // Step-2 definers by design (ADR006_TEST_MATRIX_V1 §INV checkpoint "after 0048")
 const STEP2_DEFINERS = {

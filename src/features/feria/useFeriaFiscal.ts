@@ -3,7 +3,9 @@ import { supabase } from '../../lib/supabase';
 import {
   closeSalesSession, listSessionCash, listSessionMovements, listSessions, openSalesSession, registerSessionCashEvent, registerSessionMovement,
 } from '../../target/feria';
-import { listFiscalDocuments, listObligations, payFiscalObligation, registerFiscalDocument, registerFiscalObligation } from '../../target/fiscal';
+import {
+  listFiscalDocuments, listFiscalPayments, listFiscalPeriods, listObligations, payFiscalObligation, registerFiscalDocument, registerFiscalObligation,
+} from '../../target/fiscal';
 
 const FERIA = ['feria'];
 const FISCAL = ['fiscal'];
@@ -34,6 +36,8 @@ export function useFeriaMutations() {
 }
 
 export const useFiscalDocuments = () => useQuery({ queryKey: [...FISCAL, 'documents'], queryFn: () => listFiscalDocuments(supabase) });
+export const useFiscalPeriods = () => useQuery({ queryKey: [...FISCAL, 'periods'], queryFn: () => listFiscalPeriods(supabase) });
+export const useFiscalPayments = () => useQuery({ queryKey: [...FISCAL, 'payments'], queryFn: () => listFiscalPayments(supabase) });
 export const useObligations = () => useQuery({ queryKey: [...FISCAL, 'obligations'], queryFn: () => listObligations(supabase) });
 
 export function useFiscalMutations() {

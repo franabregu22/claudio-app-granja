@@ -10,6 +10,7 @@
 **AMENDMENTS:** ADR-011 (`.planning/adr/ADR-011_BANK_TAX.md`, ACCEPTED 2026-09-30) — RPC 46 `register_bank_tax` (migration 0062); the inventory grows 45 → 46. Amended passages are marked **[ADR-011]**.
 **AMENDMENTS:** ADR-012 (`.planning/adr/ADR-012_CLASSIFICATION_UNITS_RECTIFICATION.md`, ACCEPTED 2026-10-01) — RPC 25 line format `{classification_grade_id, quantity, unit}` with backend MAPLE conversion; RPC 47 `rectify_classification` (migration 0063). ADR-013 (`.planning/adr/ADR-013_FEED_FORMULA_PUBLICATION.md`, ACCEPTED 2026-10-01) — RPC 48 `publish_feed_formula_version`; RPC 26 refuses an empty version (migration 0064). The inventory grows 46 → 48. Amended passages are marked **[ADR-012]** / **[ADR-013]**.
 **AMENDMENTS:** ADR-014 (`.planning/adr/ADR-014_FEED_MANUFACTURING_RECTIFICATION.md`, ACCEPTED 2026-10-01) — RPC 49 `rectify_feed_manufacturing` (migration 0065); classification grade Rotos inactive for new entries (RPCs 25 / 47 refuse it as any inactive grade). The inventory grows 48 → 49. Amended passages are marked **[ADR-014]**.
+**AMENDMENTS:** ADR-015 (`.planning/adr/ADR-015_FISCAL_POSITION_AND_PURCHASE_FISCAL.md`, ACCEPTED 2026-10-01) — RPC 50 `register_purchase_with_fiscal_document` (migration 0068): RPC 34 + RPC 13 in one transaction; RPCs 13 / 34 unchanged. The inventory grows 49 → 50. Amended passages are marked **[ADR-015]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -2435,6 +2436,14 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 **Consequences:** the original stays unchanged; `report_feed_consumption_interval` counts current versions only; no stock movement is generated (stock is the physical count).
 **Returns:** `{manufacturing_id, superseded_id, version_seq, quantity_kg}`.
 
+### 50. register_purchase_with_fiscal_document **[ADR-015]**
+
+**Signature:** `register_purchase_with_fiscal_document(p_supplier_id UUID, p_economic_date DATE, p_amount_net NUMERIC, p_amount_total NUMERIC, p_expense_category_id UUID, p_nature purchase_nature, p_lines JSONB, p_attachments JSONB, p_idempotency_key VARCHAR, p_fiscal_document_type fiscal_document_type, p_fiscal_period DATE, p_fiscal_net_amount NUMERIC, p_fiscal_total_amount NUMERIC, p_fiscal_components JSONB, p_subcategory VARCHAR DEFAULT NULL, p_project_id UUID DEFAULT NULL, p_supplier_invoice_number VARCHAR DEFAULT NULL, p_flock_id UUID DEFAULT NULL, p_reason TEXT DEFAULT NULL) RETURNS JSONB`
+**Actor:** ADMIN · **SECURITY DEFINER:** yes · **Period determinant:** `economic_date` (= the document date)
+**Validation:** `FORBIDDEN` · `INVALID_DOCUMENT_TYPE` (CREDIT_NOTE / DEBIT_NOTE) · `INVALID_AMOUNT` · `INVALID_COMPONENTS` (array; tax_kind, base_amount, rate_applied, tax_amount required; direction defaults to CREDITO), then every rule of RPC 34 and RPC 13.
+**Atomic steps:** RPC 34 `register_fiscal_document` (CREDITO, the purchase supplier, document date = economic date, number = supplier invoice number); RPC 13 `register_purchase` with the new `fiscal_document_id`. One transaction: an error in either rolls back both. Amounts stored as typed; nothing derived.
+**Returns:** RPC 13's result plus `{fiscal_document_id, component_count}`.
+
 ## RPC INVENTORY (EXACT)
 
 | # | RPC | Domain | Actor | SEC.DEF | Period determinant |
@@ -2488,8 +2497,9 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 | 47 | rectify_classification **[ADR-012]** | Classification | OPERATOR or ADMIN | yes | classification_date (original) |
 | 48 | publish_feed_formula_version **[ADR-013]** | Feed | ADMIN | yes | none (master data) |
 | 49 | rectify_feed_manufacturing **[ADR-014]** | Feed | OPERATOR or ADMIN | yes | manufacturing_date (original) |
+| 50 | register_purchase_with_fiscal_document **[ADR-015]** | Purchases / Fiscal | ADMIN | yes | economic_date |
 
-**TOTAL: 48 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48) · **[ADR-014]** (+ RPC 49). 44 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
+**TOTAL: 48 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48) · **[ADR-014]** (+ RPC 49) · **[ADR-015]** (+ RPC 50). 45 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
 `cancel_order` (3) and `assign_flock_feed` (29) create no economic fact, and
 `close_management_period` (37) / `reopen_management_period` (38) control periods themselves.
 
@@ -2499,4 +2509,4 @@ consequences, idempotency, errors and return type.
 
 ---
 
-**STATUS: FROZEN — 49 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001; RPC 43 by ADR-004 D9; RPCs 44 / 45 by ADR-007; RPC 46 by ADR-011; RPC 47 by ADR-012; RPC 48 by ADR-013; RPC 49 by ADR-014)
+**STATUS: FROZEN — 50 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001; RPC 43 by ADR-004 D9; RPCs 44 / 45 by ADR-007; RPC 46 by ADR-011; RPC 47 by ADR-012; RPC 48 by ADR-013; RPC 49 by ADR-014; RPC 50 by ADR-015)

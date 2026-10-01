@@ -10,7 +10,8 @@ import { campo, etiqueta, Modal } from '../caja/Modal';
 import { useClients, useSuppliers } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
-import { useFiscalDocuments, useFiscalMutations, useObligations } from '../feria/useFeriaFiscal';
+import { useFiscalDocuments, useFiscalMutations, useFiscalPayments, useFiscalPeriods, useObligations } from '../feria/useFeriaFiscal';
+import type { FiscalPeriodRow } from '../../target/fiscal';
 
 const TIPO: Record<FiscalDocumentType, string> = {
   INVOICE_A: 'Factura A', INVOICE_B: 'Factura B', INVOICE_C: 'Factura C', CREDIT_NOTE: 'Nota de crédito', DEBIT_NOTE: 'Nota de débito', RECEIPT: 'Recibo', OTHER: 'Otro',
@@ -19,8 +20,10 @@ const DIRECCION: Record<FiscalDirection, string> = { DEBITO: 'Débito fiscal (ve
 const ESTADO: Record<ObligationRow['status'], string> = { PENDING: 'Pendiente', PARTIALLY_PAID: 'Pago parcial', PAID: 'Pagada', CANCELLED: 'Anulada' };
 
 /**
- * Fiscal (F27-F, ADMIN). Records fiscal documents with their tax components, tax obligations (optionally in
- * installments) and obligation payments, through the fiscal RPCs only. The target does not issue documents to
+ * Fiscal (F27-F, ADMIN; ADR-015 report-first). First the consolidated position (report_fiscal_period as reported:
+ * loaded debit / credit, credit notes already reversed, the backend's informational "Diferencia del período"), then
+ * obligations, payments and the documents. Purchase documents are entered from Nueva compra; "Registrar comprobante
+ * manual" is the secondary path for sales and standalone documents (sales linkage deferred). The target does not issue documents to
  * AFIP / ARCA: nothing here contacts an external fiscal service. Periods, duplicates, installment totals,
  * overpayment and statuses are the backend's rules.
  */
@@ -28,6 +31,8 @@ export function FiscalApp() {
   const { rol } = useAuth();
   const docs = useFiscalDocuments();
   const obligaciones = useObligations();
+  const periodos = useFiscalPeriods();
+  const pagos = useFiscalPayments();
   const [modal, setModal] = useState<'documento' | 'obligacion' | ObligationRow | null>(null);
 
   if (rol !== 'ADMIN') {
@@ -40,16 +45,18 @@ export function FiscalApp() {
       </div>
     );
   }
-  const error = docs.error ?? obligaciones.error;
+  const error = docs.error ?? obligaciones.error ?? periodos.error ?? pagos.error;
 
   return (
     <div className="min-h-screen bg-[#FAF6EE] px-4 md:px-6 pt-6 pb-20 space-y-6">
       <div>
         <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
         <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Fiscal</h1>
-        <p className="text-xs text-[#8A7A5C] mt-1">Registro de comprobantes e impuestos. La aplicación no emite comprobantes ante AFIP / ARCA.</p>
+        <p className="text-xs text-[#8A7A5C] mt-1">Posición fiscal consolidada a partir de lo cargado. Las facturas de compra se cargan en Caja → Compras. La aplicación no emite comprobantes ante AFIP / ARCA.</p>
       </div>
       {error ? <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded text-sm">{errorMessage(error)}</div> : null}
+
+      <ResumenFiscal filas={periodos.data ?? []} cargando={periodos.isLoading} />
 
       <section>
         <div className="flex items-center justify-between mb-2">
@@ -78,9 +85,20 @@ export function FiscalApp() {
       </section>
 
       <section>
+        <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Pagos</p>
+        {(pagos.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">Sin pagos.</p> : (
+          <div className="space-y-1 text-sm">
+            {(pagos.data ?? []).map((p) => (
+              <p key={p.id} className="text-gray-700">{p.effective_date} · {p.tax_kind ?? '—'} {p.fiscal_period?.slice(0, 7) ?? ''} · {formatoPesos(p.amount)}{p.cuenta ? ` · ${p.cuenta}` : ''}</p>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Comprobantes</p>
-          <button onClick={() => setModal('documento')} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Registrar comprobante</button>
+          <button onClick={() => setModal('documento')} className="text-xs text-[#A8552E] hover:underline">Registrar comprobante manual</button>
         </div>
         {(docs.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">Sin comprobantes.</p> : (
           <div className="bg-white rounded-lg border border-amber-200 overflow-x-auto">
@@ -131,7 +149,7 @@ function DocumentoModal({ onClose }: { onClose: () => void }) {
   const puede = fecha !== '' && periodo !== '' && contraparteId !== '' && neto !== '' && Number(total) > 0;
 
   return (
-    <Modal titulo="Registrar comprobante fiscal" onClose={onClose} puedeGuardar={puede} guardando={registrarDoc.isPending}
+    <Modal titulo="Registrar comprobante manual" onClose={onClose} puedeGuardar={puede} guardando={registrarDoc.isPending}
       error={registrarDoc.error ?? proveedores.error ?? clientes.error} textoGuardar="Registrar"
       onSubmit={() => registrarDoc.mutate({
         type: tipo, direction: direccion, date: fecha, fiscalPeriod: firstOfMonth(`${periodo}-01`), netAmount: Number(neto), totalAmount: Number(total),
@@ -262,5 +280,51 @@ function PagoModal({ obligacion, onClose }: { obligacion: ObligationRow; onClose
         </select>
       </label>
     </Modal>
+  );
+}
+
+const IMPUESTO_LABEL: Record<string, string> = {
+  IVA: 'IVA', IIBB: 'IIBB', GANANCIAS: 'Ganancias', RETENTION: 'Retenciones', PERCEPTION: 'Percepciones', OTHER: 'Otros', DEBITOS_CREDITOS: 'Débitos y créditos',
+};
+
+/**
+ * D-FISCAL-2 / D-FISCAL-7: the period position exactly as report_fiscal_period returns it. "Diferencia del período" is
+ * the backend's informational debit − credit for IVA; it is not a payable amount and nothing is carried forward.
+ */
+function ResumenFiscal({ filas, cargando }: { filas: FiscalPeriodRow[]; cargando: boolean }) {
+  const periodos = [...new Set(filas.map((f) => f.period))];
+  return (
+    <section>
+      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Resumen fiscal</p>
+      {cargando ? <p className="text-sm text-gray-500">Cargando…</p> : periodos.length === 0 ? (
+        <p className="text-sm text-[#8A7A5C]">Todavía no hay comprobantes con impuestos cargados.</p>
+      ) : (
+        <div className="space-y-3">
+          {periodos.map((p) => {
+            const delPeriodo = filas.filter((f) => f.period === p);
+            const iva = delPeriodo.find((f) => f.tax_kind === 'IVA');
+            const otros = delPeriodo.filter((f) => f.tax_kind !== 'IVA');
+            return (
+              <div key={p} className="bg-white rounded-lg border border-[#E4DCC8] p-3 text-sm">
+                <p className="font-semibold text-amber-900 mb-1">Período {p.slice(0, 7)}</p>
+                {iva && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <span>Débito fiscal<br /><b>{formatoPesos(iva.debit_amount)}</b> <span className="text-xs text-gray-500">({iva.debit_documents} comp.)</span></span>
+                    <span>Crédito fiscal<br /><b>{formatoPesos(iva.credit_amount)}</b> <span className="text-xs text-gray-500">({iva.credit_documents} comp.)</span></span>
+                    <span>Diferencia del período<br /><b>{formatoPesos(iva.period_difference)}</b></span>
+                  </div>
+                )}
+                {otros.map((o) => (
+                  <p key={o.tax_kind} className="text-xs text-gray-700 mt-1">
+                    {IMPUESTO_LABEL[o.tax_kind] ?? o.tax_kind}: en ventas {formatoPesos(o.debit_amount)} · en compras {formatoPesos(o.credit_amount)}
+                  </p>
+                ))}
+              </div>
+            );
+          })}
+          <p className="text-xs text-gray-500">La diferencia del período es informativa (débito − crédito de lo cargado). No es el saldo a pagar ni arrastra saldos de otros períodos. Las notas de crédito ya restan.</p>
+        </div>
+      )}
+    </section>
   );
 }

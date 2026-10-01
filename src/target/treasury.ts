@@ -11,6 +11,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readTable, readView } from './db';
+import type { PurchaseFiscalInput } from './fiscal';
 import type { UnitType } from './masters';
 
 export const SUPPLIER_PAYMENT_METHODS = ['CASH', 'TRANSFER', 'MERCADOPAGO'] as const;   // CHEQUE → issue_supplier_instrument
@@ -218,6 +219,22 @@ export function registerPurchase(client: SupabaseClient, p: {
     p_attachments: p.attachments, p_idempotency_key: p.idempotencyKey, p_project_id: p.projectId ?? null, p_fiscal_document_id: null,
     p_supplier_invoice_number: p.invoiceNumber ?? null, p_flock_id: p.flockId ?? null, p_reason: reasonOrNull(p.reason),
   });
+}
+
+/**
+ * ADR-015 RPC 50: the purchase and its fiscal document (direction CREDITO, the purchase supplier, document date = economic
+ * date, number = supplier invoice number) in ONE backend transaction — both or neither. Amounts are sent as typed.
+ */
+export function registerPurchaseWithFiscal(client: SupabaseClient, p: Parameters<typeof registerPurchase>[1] & { fiscal: PurchaseFiscalInput }) {
+  return callRpc<{ purchase_id: string; supplier_ledger_id: string; line_count: number; attachment_count: number; fiscal_document_id: string }>(
+    client, 'register_purchase_with_fiscal_document', {
+      p_supplier_id: p.supplierId, p_economic_date: p.economicDate, p_amount_net: p.amountNet, p_amount_total: p.amountTotal,
+      p_expense_category_id: p.categoryId, p_nature: p.nature, p_lines: p.lines, p_attachments: p.attachments, p_idempotency_key: p.idempotencyKey,
+      p_fiscal_document_type: p.fiscal.documentType, p_fiscal_period: p.fiscal.fiscalPeriod, p_fiscal_net_amount: p.fiscal.netAmount,
+      p_fiscal_total_amount: p.fiscal.totalAmount, p_fiscal_components: p.fiscal.components.map((c) => ({ ...c, direction: 'CREDITO' })),
+      p_subcategory: p.subcategory ?? null, p_project_id: p.projectId ?? null, p_supplier_invoice_number: p.invoiceNumber ?? null,
+      p_flock_id: p.flockId ?? null, p_reason: reasonOrNull(p.reason),
+    });
 }
 
 export function rectifyPurchase(client: SupabaseClient, p: {
