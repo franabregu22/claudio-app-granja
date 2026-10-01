@@ -86,9 +86,9 @@ describe('ADR-013 formula publication and selector', () => {
 
 describe('ADR-014 manufacturing history and rectification', () => {
   it('author labels stay within the caller\'s permissions', () => {
-    const profiles = new Map([['a', 'admin@x.invalid']]);
+    const profiles = new Map([['a', 'admin@example.invalid']]);
     expect(userLabel('me', 'me', profiles)).toBe('Vos');
-    expect(userLabel('a', 'me', profiles)).toBe('admin@x.invalid');
+    expect(userLabel('a', 'me', profiles)).toBe('admin@example.invalid');
     expect(userLabel('other', 'me', profiles)).toBe('Otro usuario');
     expect(userLabel(null, 'me', profiles)).toBe('Otro usuario');
   });

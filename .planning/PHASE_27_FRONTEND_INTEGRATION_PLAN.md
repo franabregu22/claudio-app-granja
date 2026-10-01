@@ -376,6 +376,45 @@ Cutover cleanup already recorded (N-1 / L-1 / D-DEPLOY):
 
 Feria remains PARTIAL / DEFERRED.
 
+## 9d. Pre-cutover validation on the canonical stack (2026-10-01, Ubuntu WSL2 + official Supabase CLI 2.119.0)
+
+**Result: PRE-CUTOVER BLOCKED.**
+- The canonical rebuild, Storage, the ADR-006 matrix and the clean-cutover contract are green.
+- Remaining blockers:
+  - B-1, a real privilege defect;
+  - B-2 / B-3, environment items;
+  - Feria.
+
+Backend / CLI ran in Ubuntu; frontend / tsc / build ran in Windows, against the same Docker Desktop stack.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Canonical `supabase db reset` + `apply.mjs` 0001→0068 | **PASS** | ledger 68; 67 SECURITY DEFINER; 33 enums; 60 tables; 15 views; private bucket `purchase-attachments`; cron `mp_worker_every_minute` |
+| Clean-cutover contract CT-1…CT-5 | **PASS** | 21/0, including CT-1b (ledger = files) and CT-1c (sha256 = file). The DB was then restored to canonical clean (reset + apply, ledger 68) |
+| Backend suites, in series | 30 PASS | no business residue after any suite |
+| commercial H15 / I4, mp_privileges S-1b | **FAIL — B-1** | anon holds EXECUTE on 6 SECURITY DEFINER functions: `assert_period_open`, `current_app_role`, `cancel_order`, `deliver_order`, `rectify_delivered_order`, `register_collection` |
+| mp_worker_http (11/6), mp_scheduler (26/7), mp_audit_security L-W1 / L-K1 / L-K2 | **BLOCKED — B-2 (environment)** | the edge runtime reaches `host.docker.internal` = the Windows host, not the WSL distro where the suites' MP mock listens (verified both ways). L-K1 / L-K2 passed once |
+| mp_webhook | **BLOCKED — B-3 (environment)** | imports `.ts` directly: needs Node ≥ 22.18 / 24 in Ubuntu (Node 20 installed); it also needs B-2 |
+| mp_worker, verifySignature | PASS | run on Windows Node 24 (no CLI needed): 78/0, 95/0 |
+| mp_audit_security K-2 | FAIL (scan scope) | (1) `tests/unit/block4-classification-feed.test.ts` used `x.invalid`: fixed to `example.invalid`. (2) `package-lock.json`: public npm author metadata (`@izs.me`), not PII; the scan reads every file changed since `81e0a6a`. Pending an owner decision on excluding lockfiles |
+| ADR-006 matrix | **PASS** | 13/0, X-1…X-7 (X-7 with `supabase status`) |
+| ADR-008 Storage + "Nueva compra" with a file | **PASS** | 23/23, nothing skipped: upload, download, signed URL, delete, MIME, > 10 MB, OPERATOR / anon denied, own-folder path, compensation |
+| "Nueva compra" without a file (ADR-010) | PASS | integration |
+| Frontend unit / static gate / ADR-006 frontend contract / tsc / safe build | PASS | 211/0; 8/0; 28/0; 0 errors; 0 findings |
+| Frontend integration ×3 | 2 PASS (113/113), 1 with 2 FAIL | f27h S7 + f27i FLOW G: both call `mp_claim_deliveries(50,120)` on the shared queue, so a concurrent file claims the other's delivery. A deterministic **test-isolation collision** under file parallelism; not an application defect |
+| JWT `issued at future` | NOT REPRODUCED | 0 / 3 integration runs |
+| instruments R7 | NOT REPRODUCED | 3 / 3 PASS |
+| `dist/` regeneration | PENDING | not every mandatory item is green |
+
+**Owner decisions needed:**
+- **B-1:** a new migration (0069) that revokes EXECUTE from anon on the 6 functions. Today 0006 / 0011 revoke only PUBLIC, and 0013 removes only the table / sequence default privileges. The current Supabase image grants anon EXECUTE by default, so a fresh project would inherit the drift. Impact is low (the functions refuse without an app role), but the frozen privilege contract is broken.
+- **B-2:** WSL mirrored networking (`%USERPROFILE%.wslconfig`: `[wsl2] networkingMode=mirrored`, then `wsl --shutdown`), or another accepted way for the edge runtime to reach the test MP mock.
+- **B-3:** `nvm install 24` in Ubuntu.
+- **K-2:** exclude lockfiles from the scan scope.
+- **Integration isolation:** run f27h / f27i serially.
+
+Feria remains PARTIAL / DEFERRED. The system is not CUTOVER_READY.
+
 ## 10. Decisions and findings
 
 | Id | Item | Owner of the decision |
