@@ -415,6 +415,41 @@ Backend / CLI ran in Ubuntu; frontend / tsc / build ran in Windows, against the 
 
 Feria remains PARTIAL / DEFERRED. The system is not CUTOVER_READY.
 
+## 9e. Pre-cutover technical validation — GREEN (2026-10-01, after B-1 / B-2 / B-3 / K-2)
+
+**Result: TECHNICAL PRE-CUTOVER GREEN. NOT CUTOVER_READY: Feria is PARTIAL / DEFERRED.**
+
+Environment:
+- Ubuntu WSL2 with mirrored networking;
+- Node 24.21.0 for the suites;
+- the official Supabase CLI 2.119.0 (Linux);
+- frontend / tsc / build on Windows against the same Docker Desktop stack.
+
+Fixes in this pass:
+- **B-1:** migration `0069_revoke_anon_execute_early_definers.sql` revokes anon EXECUTE on the 6 early SECURITY DEFINER functions; authenticated is unchanged. Regression: `scripts/target-db/privileges_anon.test.mjs`.
+- **K-2:** `mp_audit_security` excludes dependency lockfiles from the e-mail check only; the K-1 secret scan still reads every tracked file.
+- **f27h / f27i:** run serially (they share the MP delivery queue claimed by `mp_claim_deliveries`); every other integration file runs in parallel.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Platform reset (`supabase db reset`) + `apply.mjs` 0001→0069 | PASS | ledger 69 = files (version, filename, sha256 identical); 67 SECURITY DEFINER; 33 enums; 60 tables; 15 views; 0 SECURITY DEFINER executable by anon |
+| Clean-cutover contract CT-1…CT-5 | PASS | 21/0. The DB was then restored to canonical clean (69) |
+| Backend suites, serial (40, including mp_audit_security / mp_scheduler / mp_webhook / mp_worker_http / privileges_anon) | PASS | all green; residue after every suite: 0 MP deliveries, 0 operations, only the seed client |
+| commercial H15 / I4, mp_privileges S-1b | PASS | 147/0, 47/0 |
+| mp_audit_security / mp_scheduler / mp_webhook / mp_worker_http | PASS | 66/0, 33/0, 41/0, 17/0 (edge runtime reaches the local MP mock under mirrored networking; no real MP call) |
+| ADR-006 matrix | PASS | 13/0, X-1…X-7 |
+| ADR-008 Storage + "Nueva compra" with / without a file | PASS | inside the integration runs, nothing skipped |
+| Frontend unit / integration (×3, safe order) | PASS | 211/0; 113/113 three times |
+| JWT `issued at future` | NOT REPRODUCED | 0 in 3 runs |
+| instruments R7 | NOT REPRODUCED | 3/3 |
+| MP test interference | RESOLVED BY ORDER | 0 with f27h / f27i serial |
+| Static gate / ADR-006 frontend contract / tsc / safe build | PASS | 8/0; 28/0; 0 errors; 0 findings |
+| Secret scan | PASS | the only JWT-shaped string in tracked files is an illustrative placeholder in `IMPORTADOR_MP_REPORTS.md`: ref = the fake project `abc123def`, no iat / exp, empty signature |
+| PII scan | PASS | the only non-synthetic-domain matches are fake connection strings in `guard.test.mjs` |
+| `dist/` | REGENERATED, scanned | built with the local target env (repository `.env*` not loaded): 0 hits for ipify, sync-mercadopago / settlement, Netlify functions, MercadoPagoDebug / useMercadoPago, mercadopago-calculations, legacy MP tables, APP_USR / sk_live / service_role / MP_ACCESS_TOKEN; only JWT = the local demo anon key. **Not deployable**: it points at the local stack. The new target project URL / anon key are set at cutover (D-PC-3) |
+
+Feria remains PARTIAL / DEFERRED (D-PC-6). L-1 remains OPEN until the cutover removal is validated.
+
 ## 10. Decisions and findings
 
 | Id | Item | Owner of the decision |

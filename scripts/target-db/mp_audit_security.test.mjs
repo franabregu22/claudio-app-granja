@@ -565,7 +565,10 @@ section('K', 'secret scan (all tracked files) and PII scan (ADR-006 files)');
   const evidence = [];
   for (const f of adrFiles) {
     const text = readFileSync(join(REPO, f), 'utf8');
-    for (const m of text.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)) if (!EMAIL_OK.test(m[0])) pii.push(`${f}: email`);
+    // dependency lockfiles carry public package-author metadata (npm), not project PII: excluded from the e-mail
+    // check only (pre-cutover K-2 decision); they stay in the K-1 secret scan and in the phone / id checks below
+    const isLockfile = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)$/.test(f);
+    if (!isLockfile) for (const m of text.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)) if (!EMAIL_OK.test(m[0])) pii.push(`${f}: email`);
     if (/\+?54\s?9?\s?\d{2,4}[\s-]\d{4}[\s-]\d{4}/.test(text)) pii.push(`${f}: phone`);
     for (const m of text.matchAll(/(DNI|identification)[^\n]{0,60}?(\d{7,8})\b/gi)) if (!/^(\d)\1+$/.test(m[2]) && m[2] !== C.dni && !/^\d{2}222333$/.test(m[2])) pii.push(`${f}: identification number`);
     const isEvidence = /ADR006_V[1-4]_[A-Z_]*\.md$/.test(f);
