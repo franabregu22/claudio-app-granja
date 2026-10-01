@@ -547,6 +547,8 @@ Grades (V1):
 * Sucios
 * Descarte
 
+> **Amendment [ADR-014]** (owner D-CLS-6, 2026-10-01): **Rotos is inactive for new classification entries** (merged forward into Descarte). The forward grade set is XL, N1, N2, N3, Sucios, Descarte. Historical Rotos lines are kept and displayed as recorded. This grade is unrelated to the Production metric "Rotos" (`daily_production.eggs_broken`), which is unchanged. See `.planning/adr/ADR-014_FEED_MANUFACTURING_RECTIFICATION.md`.
+
 Multiple sessions per day allowed.
 
 > **Amendment [ADR-012]** (owner, 2026-10-01): lines are entered as UNIDAD or MAPLE and converted by the backend to eggs (MAPLE = 20 for XL, 30 for the other grades); the entry is stored as typed. A session can be rectified as a whole with a new version (mandatory reason, original kept); reports count the current version. Classification still does not reference flock. See `.planning/adr/ADR-012_CLASSIFICATION_UNITS_RECTIFICATION.md`.
@@ -586,6 +588,8 @@ Each version IMMUTABLE once used.
 > **Amendment [ADR-013]** (owner, 2026-10-01): one effective formula version per feed type on any date; versions and their lines are published only through the atomic RPC 48 `publish_feed_formula_version`, which closes the prior version at D − 1; a version without lines is never manufactured. See `.planning/adr/ADR-013_FEED_FORMULA_PUBLICATION.md`.
 
 Manufacturing references exact version applied.
+
+> **Amendment [ADR-014]** (owner, 2026-10-01): a manufacturing record is corrected only through RPC 49 `rectify_feed_manufacturing` (whole-record new version, mandatory reason, original kept); consumption reporting counts current versions only. See `.planning/adr/ADR-014_FEED_MANUFACTURING_RECTIFICATION.md`.
 
 ### Consumo Económico / Calculado
 

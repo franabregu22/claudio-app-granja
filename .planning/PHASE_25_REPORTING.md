@@ -243,6 +243,8 @@ ADMIN-only views also carry `WHERE (SELECT current_app_role()) = 'ADMIN'`, the p
 - **Why the existing source is insufficient:** the expectation and variance exist only as test queries (Phase 21 carry-forward).
 
 ### V5 `report_feed_consumption_interval`
+
+> **Amendment [ADR-014]** (2026-10-01, migration 0065): manufactured kg counts only current `feed_manufacturing` versions (`is_current`), so a rectified manufacturing is never double-counted. Columns unchanged.
 - **Purpose:** internal consumption, and its variance from theoretical consumption.
 - **Roles:** ADMIN.
 - **Source:** `feed_inventory_count` pairs, `feed_manufacturing` (via version → type), `feed_movement`, and V6 theoretical kg.

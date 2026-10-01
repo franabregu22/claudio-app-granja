@@ -44,7 +44,7 @@ const BASELINE_DEFINERS = ['assert_period_open', 'assign_flock_feed', 'assign_fr
   'cancel_supplier_instrument', 'clear_cheque', 'close_sales_session', 'current_app_role', 'deliver_order', 'deposit_cheque',
   'endorse_cheque', 'issue_supplier_instrument', 'mark_supplier_instrument_debited', 'mp_normalize_source', 'mp_reconcile_movement',
   'open_sales_session', 'pay_fiscal_obligation', 'pay_supplier', 'publish_feed_formula_version', 'receive_cheque', 'rectify_classification', 'rectify_daily_production',
-  'rectify_delivered_order', 'rectify_mortality', 'rectify_purchase', 'register_bank_tax', 'register_classification', 'register_collection',
+  'rectify_delivered_order', 'rectify_feed_manufacturing', 'rectify_mortality', 'rectify_purchase', 'register_bank_tax', 'register_classification', 'register_collection',
   'register_count_adjustment', 'register_daily_production', 'register_feed_inventory_count', 'register_feed_manufacturing',
   'register_feed_movement', 'register_fiscal_document', 'register_fiscal_obligation', 'register_freight',
   'register_management_event', 'register_mortality', 'register_purchase', 'register_session_cash_event',

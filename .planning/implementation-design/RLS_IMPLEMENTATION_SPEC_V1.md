@@ -6,6 +6,7 @@
 **AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — purchase attachment objects: private Storage bucket `purchase-attachments` (10 MB, PDF / JPEG / PNG / WebP) with ADMIN-only SELECT / INSERT / DELETE policies on `storage.objects` (migration 0058). No public-schema change. Amended section is marked **[ADR-008]**.  
 **AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 carries the ADMIN guard (migration 0059); migration 0060 drops the OPERATOR read policies on sales_session / sales_session_movement and removes the Feria entity from audit_events_operator_own, so Feria is completely ADMIN-only in V1, including reads. Amended passages are marked **[ADR-009]**.
 **AMENDMENTS:** ADR-013 (`.planning/adr/ADR-013_FEED_FORMULA_PUBLICATION.md`, ACCEPTED 2026-10-01) — `feed_formula_version_admin_insert` and `feed_formula_line_admin_insert` are dropped and INSERT on both tables is revoked from `authenticated` (migration 0064): RPC 48 `publish_feed_formula_version` is the only write path. ADR-012 (`.planning/adr/ADR-012_CLASSIFICATION_UNITS_RECTIFICATION.md`) adds RPC 47 `rectify_classification` with no RLS change. Amended passages are marked **[ADR-013]**.
+**AMENDMENTS:** ADR-014 (`.planning/adr/ADR-014_FEED_MANUFACTURING_RECTIFICATION.md`, ACCEPTED 2026-10-01) — OPERATOR may read every `classification_grade` row (0066: historical inactive grade names) and every `feed_formula_version` row (0067: the exact version of historical manufacturing; no cost column). No write privilege changes. Amended passages are marked **[ADR-014]**.
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md Part 2 (frozen)  
@@ -651,7 +652,7 @@ SERVICE_ROLE reaches MP tables and the RPCs that bridge them to `financial_opera
 | suppliers | S,I,U | — | — | ADMIN |
 | financial_account | S,I,U | — | — | ADMIN |
 | expense_category | S,I,U | — | — | ADMIN |
-| classification_grade | S,I,U | S active | — | ADMIN |
+| classification_grade | S,I,U | S all (was active only; **[ADR-014]** 0066) | — | ADMIN |
 | projects | S,I,U | — | — | ADMIN |
 | feed_type | S,I,U | S active | — | ADMIN |
 | feed_ingredient | S,I,U | S active | — | ADMIN |
@@ -677,7 +678,7 @@ SERVICE_ROLE reaches MP tables and the RPCs that bridge them to `financial_opera
 | temperature_record | S | S assigned sheds | — | RPC 24 only |
 | classification | S | own S | — | RPC 25 only |
 | classification_line | S | own S | — | RPC 25 only |
-| feed_formula_version | S (I removed **[ADR-013]**: RPC 48 only) | S effective | — | ADMIN |
+| feed_formula_version | S (I removed **[ADR-013]**: RPC 48 only) | S all (was effective only; **[ADR-014]** 0067) | — | ADMIN |
 | feed_formula_line | S (I removed **[ADR-013]**: RPC 48 only) | — (safe view) | — | ADMIN |
 | feed_manufacturing | S | S | — | RPC 26 only |
 | feed_movement | S | — | — | RPC 28 only |

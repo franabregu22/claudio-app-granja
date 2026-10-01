@@ -72,6 +72,7 @@ export const TARGET_RPCS = [
   'mp_request_refetch', 'mp_resolve_chargeback_signal',
   'register_bank_tax',   // ADR-011 (RPC 46)
   'rectify_classification', 'publish_feed_formula_version',   // ADR-012 (RPC 47) / ADR-013 (RPC 48)
+  'rectify_feed_manufacturing',   // ADR-014 (RPC 49)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

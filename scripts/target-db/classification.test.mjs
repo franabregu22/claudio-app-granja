@@ -47,7 +47,7 @@ const KEY_PREFIX = 'd19e0000-0000-4000-8000-';
 const TABLES = ['classification', 'classification_line'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,close_flock,close_sales_session,current_app_role,deliver_order,'
   + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,publish_feed_formula_version,receive_cheque,'
-  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
+  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_feed_manufacturing,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,register_fiscal_document,register_fiscal_obligation,register_flock,register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
   + 'reject_supplier_instrument,transfer_between_accounts';
 
@@ -249,9 +249,9 @@ const dateUnique = owner(`SELECT count(*) FROM pg_index i JOIN pg_class c ON c.o
   AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum = ANY(i.indkey) AND a.attname IN ('classification_date','location'));`);
 check('A7 NO uniqueness by date or (date, location): multiple sessions per day are possible', dateUnique === '0', dateUnique);
 check('A8 no stored session total', owner(`SELECT count(*) FROM information_schema.columns WHERE table_name IN ('classification','classification_line') AND column_name ~* 'total';`) === '0');
-check('A9 classification_grade reused (not recreated), seed catalog intact: 7 active grades',
-  owner(`SELECT count(*) FILTER (WHERE activo) || '|' || string_agg(nombre, ',' ORDER BY nombre) FROM classification_grade WHERE nombre NOT LIKE '${TAG}%';`)
-  === '7|Descarte,N1,N2,N3,Rotos,Sucios,XL');
+check('A9 classification_grade reused (not recreated), seed catalog intact: 7 grades, 6 active (ADR-014 / D-CLS-6: Rotos inactive for new entries)',
+  owner(`SELECT count(*) FILTER (WHERE activo) || '|' || string_agg(nombre, ',' ORDER BY nombre) || '|' || string_agg(nombre, ',' ORDER BY nombre) FILTER (WHERE NOT activo) FROM classification_grade WHERE nombre NOT LIKE '${TAG}%';`)
+  === '6|Descarte,N1,N2,N3,Rotos,Sucios,XL|Rotos');
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('B', 'ADMIN happy path');
@@ -534,7 +534,7 @@ const left = owner(`SELECT (SELECT count(*) FROM classification WHERE idempotenc
   + (SELECT count(*) FROM classification_grade WHERE nombre LIKE '${TAG}%') + (SELECT count(*) FROM perfiles WHERE id = '${OPB}')
   + (SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'p19_harness') + (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'p19_%');`);
 check('Z1 all P19-TEST sessions, the inactive-grade fixture, operator B, harness schema and triggers removed; seed grades untouched',
-  left === '0' && owner(`SELECT count(*) FROM classification_grade WHERE activo;`) === '7', left);
+  left === '0' && owner(`SELECT count(*) FROM classification_grade WHERE activo;`) === '6', left);
 const closedLeft = owner(`SELECT count(*) FROM management_period WHERE status = 'CLOSED' AND periodo_fecha IN (${CLOSED_BY_SUITE.map((m) => `'${m}'`).join(',')});`);
 check('Z2 periods closed by the suite are OPEN again', closedLeft === '0', closedLeft);
 

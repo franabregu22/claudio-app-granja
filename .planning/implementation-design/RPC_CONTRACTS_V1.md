@@ -9,6 +9,7 @@
 **AMENDMENTS:** ADR-010 (`.planning/adr/ADR-010_OPTIONAL_PURCHASE_ATTACHMENTS.md`, ACCEPTED 2026-09-30) — purchase attachments are optional: RPC 13 accepts NULL / `[]` (INVALID_ATTACHMENTS for a non-array), RPC 14 no longer requires an attachment to carry forward (migration 0061). Amended passages are marked **[ADR-010]**.  
 **AMENDMENTS:** ADR-011 (`.planning/adr/ADR-011_BANK_TAX.md`, ACCEPTED 2026-09-30) — RPC 46 `register_bank_tax` (migration 0062); the inventory grows 45 → 46. Amended passages are marked **[ADR-011]**.
 **AMENDMENTS:** ADR-012 (`.planning/adr/ADR-012_CLASSIFICATION_UNITS_RECTIFICATION.md`, ACCEPTED 2026-10-01) — RPC 25 line format `{classification_grade_id, quantity, unit}` with backend MAPLE conversion; RPC 47 `rectify_classification` (migration 0063). ADR-013 (`.planning/adr/ADR-013_FEED_FORMULA_PUBLICATION.md`, ACCEPTED 2026-10-01) — RPC 48 `publish_feed_formula_version`; RPC 26 refuses an empty version (migration 0064). The inventory grows 46 → 48. Amended passages are marked **[ADR-012]** / **[ADR-013]**.
+**AMENDMENTS:** ADR-014 (`.planning/adr/ADR-014_FEED_MANUFACTURING_RECTIFICATION.md`, ACCEPTED 2026-10-01) — RPC 49 `rectify_feed_manufacturing` (migration 0065); classification grade Rotos inactive for new entries (RPCs 25 / 47 refuse it as any inactive grade). The inventory grows 48 → 49. Amended passages are marked **[ADR-014]**.
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -2425,6 +2426,15 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 **Atomic steps:** lock the feed type; close the open prior version at D − 1; insert version `max + 1` from D (open); insert every line; audit `PUBLISH`.
 **Returns:** `{formula_version_id, version, line_count, closed_version_id}`.
 
+### 49. rectify_feed_manufacturing **[ADR-014]**
+
+**Signature:** `rectify_feed_manufacturing(p_idempotency_key VARCHAR, p_manufacturing_id UUID, p_quantity_kg DECIMAL, p_reason TEXT, p_batch_number VARCHAR DEFAULT NULL, p_formula_version_id UUID DEFAULT NULL) RETURNS JSONB`
+**Actor:** ADMIN (any current record) or OPERATOR (a current record of a chain it started) · **SECURITY DEFINER:** yes · **Period determinant:** the record's `manufacturing_date` (kept)
+**Validation:** `REASON_REQUIRED` · `INVALID_QUANTITY` · `EXTERNAL_REF_REQUIRED` · `DUPLICATE_MANUFACTURING` (idempotency key) · `MANUFACTURING_NOT_FOUND` (missing, or not the OPERATOR's chain) · `MANUFACTURING_SUPERSEDED` · `FORMULA_VERSION_NOT_FOUND` / `FORMULA_VERSION_NOT_EFFECTIVE` / `FORMULA_VERSION_EMPTY` (version = given or kept) · `ASSERT_PERIOD_OPEN`.
+**Atomic steps:** lock the record; mark it `is_current = false`; insert the new version (same date, `version_seq + 1`, `supersedes_id`, `rectification_reason`, batch given or kept); audit `RECTIFY` (before / after quantity and version, reason).
+**Consequences:** the original stays unchanged; `report_feed_consumption_interval` counts current versions only; no stock movement is generated (stock is the physical count).
+**Returns:** `{manufacturing_id, superseded_id, version_seq, quantity_kg}`.
+
 ## RPC INVENTORY (EXACT)
 
 | # | RPC | Domain | Actor | SEC.DEF | Period determinant |
@@ -2477,8 +2487,9 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 | 46 | register_bank_tax **[ADR-011]** | Treasury | ADMIN | yes | effective_date |
 | 47 | rectify_classification **[ADR-012]** | Classification | OPERATOR or ADMIN | yes | classification_date (original) |
 | 48 | publish_feed_formula_version **[ADR-013]** | Feed | ADMIN | yes | none (master data) |
+| 49 | rectify_feed_manufacturing **[ADR-014]** | Feed | OPERATOR or ADMIN | yes | manufacturing_date (original) |
 
-**TOTAL: 48 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48). 43 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
+**TOTAL: 48 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48) · **[ADR-014]** (+ RPC 49). 44 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
 `cancel_order` (3) and `assign_flock_feed` (29) create no economic fact, and
 `close_management_period` (37) / `reopen_management_period` (38) control periods themselves.
 
@@ -2488,4 +2499,4 @@ consequences, idempotency, errors and return type.
 
 ---
 
-**STATUS: FROZEN — 48 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001; RPC 43 by ADR-004 D9; RPCs 44 / 45 by ADR-007; RPC 46 by ADR-011; RPC 47 by ADR-012; RPC 48 by ADR-013)
+**STATUS: FROZEN — 49 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001; RPC 43 by ADR-004 D9; RPCs 44 / 45 by ADR-007; RPC 46 by ADR-011; RPC 47 by ADR-012; RPC 48 by ADR-013; RPC 49 by ADR-014)

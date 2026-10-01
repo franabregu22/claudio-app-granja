@@ -44,7 +44,7 @@ const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_pur
   + 'close_flock,close_sales_session,current_app_role,deliver_order,'
   + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
   + 'open_sales_session,pay_fiscal_obligation,pay_supplier,publish_feed_formula_version,receive_cheque,'
-  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
+  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_feed_manufacturing,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_flock,'
   + 'register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
@@ -279,13 +279,13 @@ rpc(`register_feed_movement('${FTID}', 'EXTERNAL_SALE', 100, '2026-05-03', '${FP
 rpc(`register_feed_movement('${FTID}', 'ADJUSTMENT_NEGATIVE', 15, '2026-05-03', NULL, 'humedad')`);
 rpc(`register_feed_inventory_count('${FTID}', '2026-05-03', 900)`);
 rpc(`register_feed_inventory_count('${FTID}', '2026-06-01', 900)`);
-// classification: ADMIN 05-17 (XL 100, N1 50), OPERATOR 05-17 (XL 30, Rotos 20), ADMIN 05-18 (N2 10), OPERATOR 05-19 (own grade 5)
+// classification: ADMIN 05-17 (XL 100, N1 50), OPERATOR 05-17 (XL 30, Descarte 20 — Rotos is inactive for new entries, ADR-014 / D-CLS-6), ADMIN 05-18 (N2 10), OPERATOR 05-19 (own grade 5)
 const G = {};
-for (const g of ['XL', 'N1', 'N2', 'Rotos']) G[g] = owner(`SELECT id FROM classification_grade WHERE nombre = '${g}';`);
+for (const g of ['XL', 'N1', 'N2', 'Descarte']) G[g] = owner(`SELECT id FROM classification_grade WHERE nombre = '${g}';`);
 G.T = okAs(ADMIN, `INSERT INTO classification_grade (nombre) VALUES ('${TAG} Extra') RETURNING id;`);
 const classify = (fn, date, lines) => rpcAs(fn, `register_classification('${randomUUID()}', '${date}', ${j(lines.map(([g, qty]) => ({ classification_grade_id: G[g], quantity: qty })))}, '${TAG} sala')`).classification_id;
 const S1 = classify(ADMIN, '2026-05-17', [['XL', 100], ['N1', 50]]);
-const S2 = classify(OPER, '2026-05-17', [['XL', 30], ['Rotos', 20]]);
+const S2 = classify(OPER, '2026-05-17', [['XL', 30], ['Descarte', 20]]);
 classify(ADMIN, '2026-05-18', [['N2', 10]]);
 const S4 = classify(OPER, '2026-05-19', [['T', 5]]);
 okAs(ADMIN, `UPDATE classification_grade SET activo = false WHERE id = '${G.T}';`);
@@ -425,21 +425,21 @@ check('O5 only CURRENTLY assigned flocks: when the FA assignment is deactivated,
     const n0 = okAs(OPER, `SELECT count(*) FROM report_flock_day WHERE flock_id = '${FA}';`);
     owner(`UPDATE operator_assignments SET activo = true WHERE operator_id = '${OPA}' AND flock_id = '${FA}';`);
     return n0 === '0'; })());
-check('O6 OPERATOR classification: only its own sessions — 05-17 XL 30 (60.0000 %) and Rotos 20 (40.0000 %), day total 50, 1 session; ADMIN-only 05-18 absent',
+check('O6 OPERATOR classification: only its own sessions — 05-17 XL 30 (60.0000 %) and Descarte 20 (40.0000 %), day total 50, 1 session; ADMIN-only 05-18 absent',
   okAs(OPER, `SELECT string_agg(g.nombre || ':' || v.quantity || ':' || v.share_pct || ':' || v.day_total || ':' || v.day_sessions, ',' ORDER BY g.nombre)
      FROM report_classification_day v JOIN classification_grade g ON g.id = v.classification_grade_id WHERE v.business_date = '2026-05-17';`)
-  === 'Rotos:20:40.0000:50:1,XL:30:60.0000:50:1'
+  === 'Descarte:20:40.0000:50:1,XL:30:60.0000:50:1'
   && okAs(OPER, `SELECT count(*) FROM report_classification_day WHERE business_date = '2026-05-18';`) === '0');
-check('O7 a deactivated grade never drops an OPERATOR fact row: 05-19 own line (5) present with grade_nombre NULL for OPERATOR, named for ADMIN',
-  okAs(OPER, `SELECT quantity || ':' || coalesce(grade_nombre, 'null') FROM report_classification_day WHERE business_date = '2026-05-19';`) === '5:null'
+check('O7 a deactivated grade never drops an OPERATOR fact row and keeps its name (ADR-014 / 0066): 05-19 own line (5) named for OPERATOR and ADMIN',
+  okAs(OPER, `SELECT quantity || ':' || coalesce(grade_nombre, 'null') FROM report_classification_day WHERE business_date = '2026-05-19';`) === `5:${TAG} Extra`
   && okAs(ADMIN, `SELECT grade_nombre FROM report_classification_day WHERE business_date = '2026-05-19';`) === `${TAG} Extra`);
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('C', 'Classification (ADMIN)');
 
-check('C1 ADMIN 05-17: XL 130 (65.0000 %), N1 50 (25.0000 %), Rotos 20 (10.0000 %); day total 200; 2 sessions',
+check('C1 ADMIN 05-17: XL 130 (65.0000 %), N1 50 (25.0000 %), Descarte 20 (10.0000 %); day total 200; 2 sessions',
   okAs(ADMIN, `SELECT string_agg(grade_nombre || ':' || quantity || ':' || share_pct || ':' || day_total || ':' || day_sessions, ',' ORDER BY grade_nombre)
-     FROM report_classification_day WHERE business_date = '2026-05-17';`) === 'N1:50:25.0000:200:2,Rotos:20:10.0000:200:2,XL:130:65.0000:200:2');
+     FROM report_classification_day WHERE business_date = '2026-05-17';`) === 'Descarte:20:10.0000:200:2,N1:50:25.0000:200:2,XL:130:65.0000:200:2');
 check('C2 drill-down: classification_ids of the XL row re-sum from classification_line to 130; no flock column exists in the view',
   okAs(ADMIN, `SELECT SUM(l.quantity) FROM report_classification_day v, unnest(v.classification_ids) cid JOIN classification_line l ON l.classification_id = cid
      WHERE v.business_date = '2026-05-17' AND v.grade_nombre = 'XL' AND l.classification_grade_id = v.classification_grade_id;`) === '130'

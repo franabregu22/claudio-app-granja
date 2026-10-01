@@ -449,6 +449,12 @@ are no longer housed.
 **Enforced by:** `excl_feed_formula_version_no_overlap`, RPC 48, RPC 26 (`FORMULA_VERSION_EMPTY`), `reject_line_on_used_formula_version`, no INSERT / UPDATE / DELETE for API roles.
 **Violation:** two recipes valid on the same day for the same feed, or manufacturing with an empty or rewritten recipe.
 
+## 32. A manufacturing counts once, in its current version **[ADR-014]**
+
+**Rule:** a manufacturing record is corrected only by a new version (RPC 49); the prior version is never changed or deleted and stops being current; consumption reporting counts `is_current` versions only. Each version keeps its exact formula version.
+**Enforced by:** RPC 49, `chk_feed_manufacturing_version_chain`, `UNIQUE (supersedes_id)`, no write privilege for API roles, `report_feed_consumption_interval` filtering `is_current`.
+**Violation:** a corrected manufacturing double-counted, or a historical record rewritten.
+
 ---
 
 ## COMPLIANCE MATRIX
@@ -485,6 +491,7 @@ are no longer housed.
 | 28 | feria aggregation | is_aggregated_retail | — | RPC 33 | — |
 | 29 | no flock activity after exit **[ADR-007]** | — | no write on flocks | RPC 18–22, 29, 45 (assert_flock_activity_date) | — |
 | 30 | classification counts once, current version **[ADR-012]** | chain / entry CHECKs, UNIQUE supersedes_id | no write on classification | RPC 25, 47 | — |
+| 32 | manufacturing counts once, current version **[ADR-014]** | chain CHECK, UNIQUE supersedes_id | no write on feed_manufacturing | RPC 26, 49 | — |
 | 31 | one effective formula version per feed type **[ADR-013]** | EXCLUDE no_overlap | no write on versions / lines | RPC 48, 26 | reject_line_on_used_formula_version |
 
 ---

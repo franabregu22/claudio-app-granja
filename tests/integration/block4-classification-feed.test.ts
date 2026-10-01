@@ -15,7 +15,8 @@ import { assertNoProductionCredentials, assertSafeDestructiveTarget } from '../.
 import { TargetDbError, writeTable } from '../../src/target/db';
 import { listClassificationDays, listGrades, listSessions, rectifyClassification, registerClassification } from '../../src/target/classification';
 import {
-  listFormulaComposition, listFormulaVersions, publishFormulaVersion, registerFeedManufacturing, versionsEffectiveOn,
+  listFormulaComposition, listFormulaVersions, listManufacturing, listProfileNames, publishFormulaVersion, rectifyFeedManufacturing, registerFeedInventoryCount,
+  registerFeedManufacturing, userLabel, versionsEffectiveOn,
 } from '../../src/target/feed';
 import { createMaster } from '../../src/target/masters';
 
@@ -65,6 +66,8 @@ const VERSIONS = `(SELECT id FROM feed_formula_version WHERE feed_type_id IN ${T
 function cleanup() {
   owner(`
 CREATE TEMP TABLE _c AS SELECT id FROM classification WHERE location = '${TAG}';
+UPDATE feed_manufacturing SET supersedes_id = NULL, version_seq = 0, rectification_reason = NULL WHERE formula_version_id IN ${VERSIONS};
+DELETE FROM feed_inventory_count WHERE feed_type_id IN ${TYPES};
 DELETE FROM classification_line WHERE classification_id IN (SELECT id FROM _c);
 UPDATE classification SET supersedes_id = NULL, version_seq = 0, rectification_reason = NULL WHERE id IN (SELECT id FROM _c);
 DELETE FROM classification WHERE id IN (SELECT id FROM _c);
@@ -175,5 +178,45 @@ describe('ADR-013 feed formula publication', () => {
     await expect(writeTable(admin(), 'feed_formula_version' as never, 'insert' as never, {})).rejects.toMatchObject({ code: 'DIRECT_WRITE_NOT_ALLOWED' });
     const raw = await admin().from('feed_formula_line').insert({ formula_version_id: v2.formula_version_id, ingredient_id: maiz, quantity_kg: 1 }).select();
     expect(raw.error).not.toBeNull();
+  });
+});
+
+describe('ADR-014 manufacturing history and rectification; D-CLS-6 grades', () => {
+  it('history keeps the exact version; OPERATOR rectifies its own record; the report counts the effective version', async () => {
+    const tipo = (await createMaster<{ id: string }>(admin(), 'feed_type', { nombre: `${TAG} Historial`, feed_category: 'LAYER' })).id;
+    const maiz = (await createMaster<{ id: string }>(admin(), 'feed_ingredient', { nombre: `${TAG} Maíz historial`, unit_type: 'KG' })).id;
+    const v1 = await publishFormulaVersion(admin(), { feedTypeId: tipo, effectiveFrom: '2026-01-01', lines: [{ ingredientId: maiz, quantityKg: 100 }] });
+    await registerFeedInventoryCount(operator(), { feedTypeId: tipo, date: '2026-09-10', quantityKg: 0 });
+    await registerFeedInventoryCount(operator(), { feedTypeId: tipo, date: '2026-09-20', quantityKg: 40 });
+    const m = await registerFeedManufacturing(operator(), { formulaVersionId: v1.formula_version_id, date: '2026-09-15', quantityKg: 500, idempotencyKey: `${TAG}-H1`, batchNumber: 'L-9' });
+    await publishFormulaVersion(admin(), { feedTypeId: tipo, effectiveFrom: '2026-09-25', lines: [{ ingredientId: maiz, quantityKg: 90 }] });
+
+    const [rec] = (await listManufacturing(operator(), '2026-09-15', '2026-09-15')).filter((r) => r.current.feed_type_id === tipo);
+    expect(rec.current).toMatchObject({ id: m.manufacturing_id, formula_version: 1, quantity_kg: 500, batch_number: 'L-9', feed_type_nombre: `${TAG} Historial` });
+    expect((await listFormulaComposition(operator(), [rec.current.formula_version_id])).map((l) => l.quantity_kg)).toEqual([100]);
+    const opProfiles = await listProfileNames(operator());
+    expect([...opProfiles.keys()]).toEqual([users.OPERATOR.id]);
+    expect(userLabel(rec.author, users.OPERATOR.id!, opProfiles)).toBe('Vos');
+    expect(userLabel(rec.author, users.ADMIN.id!, await listProfileNames(admin()))).toBe(users.OPERATOR.email);
+
+    const noReason = await rectifyFeedManufacturing(operator(), { idempotencyKey: `${TAG}-R0`, manufacturingId: m.manufacturing_id, quantityKg: 50, reason: ' ' }).catch((e) => e);
+    expect(code(noReason)).toBe('REASON_REQUIRED');
+    const r = await rectifyFeedManufacturing(operator(), { idempotencyKey: `${TAG}-R1`, manufacturingId: m.manufacturing_id, quantityKg: 50, reason: 'eran 50 kg' });
+    const [after] = (await listManufacturing(admin(), '2026-09-15', '2026-09-15')).filter((x) => x.current.feed_type_id === tipo);
+    expect(after.current).toMatchObject({ id: r.manufacturing_id, quantity_kg: 50, rectification_reason: 'eran 50 kg', formula_version: 1 });
+    expect(after.history.map((h) => [h.id, h.quantity_kg])).toEqual([[m.manufacturing_id, 500]]);
+    const report = await admin().from('report_feed_consumption_interval').select('manufactured_kg, internal_consumption_kg').eq('feed_type_id', tipo);
+    expect(report.data?.map((x) => [Number(x.manufactured_kg), Number(x.internal_consumption_kg)])).toEqual([[50, 10]]);
+    const again = await rectifyFeedManufacturing(operator(), { idempotencyKey: `${TAG}-R2`, manufacturingId: m.manufacturing_id, quantityKg: 40, reason: 'x' }).catch((e) => e);
+    expect(code(again)).toBe('MANUFACTURING_SUPERSEDED');
+  });
+
+  it('Rotos is no longer offered for new classification; Descarte is', async () => {
+    const names = (await listGrades(operator())).map((g) => g.nombre);
+    expect(names).toContain('Descarte');
+    expect(names).not.toContain('Rotos');
+    const rotosId = owner(`SELECT id FROM classification_grade WHERE nombre = 'Rotos';`);
+    const refused = await registerClassification(operator(), { idempotencyKey: randomUUID(), date: DAY, location: TAG, lines: [{ classification_grade_id: rotosId, quantity: 1, unit: 'UNIDAD' }] }).catch((e) => e);
+    expect(code(refused)).toBe('GRADE_NOT_FOUND');
   });
 });

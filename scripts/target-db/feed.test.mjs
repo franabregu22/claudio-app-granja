@@ -61,7 +61,7 @@ const TABLES = ['feed_formula_line', 'feed_formula_version', 'feed_inventory_cou
 const FEED_RPCS = ['assign_flock_feed', 'register_feed_inventory_count', 'register_feed_manufacturing', 'register_feed_movement'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,close_flock,close_sales_session,current_app_role,deliver_order,'
   + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,publish_feed_formula_version,receive_cheque,'
-  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
+  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_feed_manufacturing,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_flock,register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,reject_supplier_instrument,transfer_between_accounts';
 
@@ -380,7 +380,9 @@ check('A1 the six Phase 20 tables exist; feed_type / feed_ingredient / genetics_
 const wantCols = {
   feed_formula_version: 'id:uuid,feed_type_id:uuid,version:integer,effective_from:date,effective_to:date,created_at:timestamp with time zone,created_by:uuid',
   feed_formula_line: 'id:uuid,formula_version_id:uuid,ingredient_id:uuid,quantity_kg:numeric,unit_cost_snapshot:numeric,created_at:timestamp with time zone',
-  feed_manufacturing: 'id:uuid,formula_version_id:uuid,manufacturing_date:date,quantity_kg:numeric,batch_number:character varying,idempotency_key:character varying,created_at:timestamp with time zone,created_by:uuid',
+  // + the ADR-014 version chain (0065)
+  feed_manufacturing: 'id:uuid,formula_version_id:uuid,manufacturing_date:date,quantity_kg:numeric,batch_number:character varying,idempotency_key:character varying,created_at:timestamp with time zone,created_by:uuid,'
+    + 'version_seq:integer,is_current:boolean,supersedes_id:uuid,rectification_reason:text',
   feed_movement: 'id:bigint,feed_type_id:uuid,movement_type:USER-DEFINED,quantity_kg:numeric,movement_date:date,pedido_id:uuid,reason:text,created_at:timestamp with time zone,created_by:uuid',
   feed_inventory_count: 'id:bigint,feed_type_id:uuid,count_date:date,quantity_kg:numeric,reason:text,created_at:timestamp with time zone,created_by:uuid',
   flock_feed_assignment: 'id:uuid,flock_id:uuid,feed_type_id:uuid,effective_from:date,effective_to:date,created_at:timestamp with time zone,created_by:uuid',
@@ -395,21 +397,22 @@ check('A3 numeric precision: quantity_kg DECIMAL(15,3), unit_cost_snapshot NUMER
   && owner(`SELECT character_maximum_length FROM information_schema.columns WHERE table_name = 'feed_manufacturing' AND column_name = 'idempotency_key';`) === '100', precision);
 const cons = owner(`SELECT string_agg(conrelid::regclass || '.' || conname || ':' || contype::TEXT, ',' ORDER BY conrelid::regclass::TEXT, conname) FROM pg_constraint
   WHERE conrelid IN (${TABLES.map((t) => `'${t}'::regclass`).join(',')}) AND contype IN ('u','c');`);
-check('A4 UNIQUE / CHECK constraints exactly as frozen',
+check('A4 UNIQUE / CHECK constraints exactly as frozen + the ADR-014 manufacturing version chain',
   cons === 'feed_formula_line.feed_formula_line_formula_version_id_ingredient_id_key:u,feed_formula_line.feed_formula_line_quantity_kg_check:c,'
   + 'feed_formula_version.chk_formula_version_range:c,feed_formula_version.feed_formula_version_feed_type_id_version_key:u,feed_formula_version.feed_formula_version_version_check:c,'
   + 'feed_inventory_count.feed_inventory_count_feed_type_id_count_date_key:u,feed_inventory_count.feed_inventory_count_quantity_kg_check:c,'
-  + 'feed_manufacturing.feed_manufacturing_idempotency_key_key:u,feed_manufacturing.feed_manufacturing_quantity_kg_check:c,'
+  + 'feed_manufacturing.chk_feed_manufacturing_version_chain:c,feed_manufacturing.feed_manufacturing_idempotency_key_key:u,feed_manufacturing.feed_manufacturing_quantity_kg_check:c,'
+  + 'feed_manufacturing.feed_manufacturing_supersedes_id_key:u,feed_manufacturing.feed_manufacturing_version_seq_check:c,'
   + 'feed_movement.feed_movement_quantity_kg_check:c,flock_feed_assignment.chk_flock_feed_range:c', cons);
 const fks = owner(`SELECT string_agg(x, ',' ORDER BY x) FROM (
   SELECT c.conrelid::regclass || '.' || a.attname || '>' || c.confrelid::regclass || ':' || c.confdeltype::TEXT AS x
     FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
    WHERE c.contype = 'f' AND c.conrelid IN (${TABLES.map((t) => `'${t}'::regclass`).join(',')})) s;`);
-check('A5 FKs exactly as frozen, all ON DELETE RESTRICT',
+check('A5 FKs exactly as frozen + the ADR-014 rectification self-reference, all ON DELETE RESTRICT',
   fks === 'feed_formula_line.formula_version_id>feed_formula_version:r,feed_formula_line.ingredient_id>feed_ingredient:r,'
   + 'feed_formula_version.created_by>perfiles:r,feed_formula_version.feed_type_id>feed_type:r,'
   + 'feed_inventory_count.created_by>perfiles:r,feed_inventory_count.feed_type_id>feed_type:r,'
-  + 'feed_manufacturing.created_by>perfiles:r,feed_manufacturing.formula_version_id>feed_formula_version:r,'
+  + 'feed_manufacturing.created_by>perfiles:r,feed_manufacturing.formula_version_id>feed_formula_version:r,feed_manufacturing.supersedes_id>feed_manufacturing:r,'
   + 'feed_movement.created_by>perfiles:r,feed_movement.feed_type_id>feed_type:r,feed_movement.pedido_id>pedidos:r,'
   + 'flock_feed_assignment.created_by>perfiles:r,flock_feed_assignment.feed_type_id>feed_type:r,flock_feed_assignment.flock_id>flocks:r', fks);
 const idx = owner(`SELECT string_agg(indexname || '=' || regexp_replace(indexdef, '^.* USING ', ''), ' ; ' ORDER BY indexname) FROM pg_indexes
@@ -759,9 +762,9 @@ check('H4 deriving wrote nothing (the result is never stored)', snapshot() === s
 check('H5 no stored consumption object: no table or view named *consum* / *consumo* except the reference curve',
   owner(`SELECT coalesce(string_agg(table_name, ','), '') FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(consum|consumo)' AND table_name NOT IN (${ADR005_VIEWS});`)
   === 'genetics_consumption_curve');
-check('H6 no correction / supersede path invented for counts: the only feed functions are RPCs 26–29, RPC 48 publish_feed_formula_version (ADR-013) and the immutability trigger function',
+check('H6 no correction / supersede path invented for counts: the only feed functions are RPCs 26–29, RPC 48 publish_feed_formula_version (ADR-013), RPC 49 rectify_feed_manufacturing (ADR-014) and the immutability trigger function',
   owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname ~* '(feed|formula|consum)';`)
-  === 'assign_flock_feed,publish_feed_formula_version,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,reject_line_on_used_formula_version');
+  === 'assign_flock_feed,publish_feed_formula_version,rectify_feed_manufacturing,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,reject_line_on_used_formula_version');
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('I', 'Theoretical consumption — derived from curve × population × assignment');
@@ -808,9 +811,11 @@ check('J8 no cost reaches OPERATOR through other paths: manufacturing audit rows
   && okAs(A, `SELECT count(*) FROM audit_events WHERE entity_type = 'feed_manufacturing' AND after_values::TEXT ~* 'cost';`) === '0');
 const effectiveNow = owner(`SELECT count(*) FROM feed_formula_version WHERE feed_type_id IN ${FT}
   AND effective_from <= CURRENT_DATE AND (effective_to IS NULL OR effective_to >= CURRENT_DATE);`);
-check('J9 OPERATOR sees only formula versions effective today (v1 Jan–Mar hidden, v2 open-ended visible); ADMIN sees all',
-  visible(A, 'feed_formula_version', `feed_type_id IN ${FT}`) === effectiveNow && visible(A, 'feed_formula_version', `id = '${V1}'`) === '0'
-  && visible(A, 'feed_formula_version', `id = '${V2}'`) === '1'
+// [ADR-014] 0067: OPERATOR reads every version row (the exact version of historical manufacturing); still no cost line
+void effectiveNow;
+check('J9 OPERATOR and ADMIN see every formula version (ADR-014 / 0067: historical versions, no cost column)',
+  visible(A, 'feed_formula_version', `feed_type_id IN ${FT}`) === owner(`SELECT count(*) FROM feed_formula_version WHERE feed_type_id IN ${FT};`)
+  && visible(A, 'feed_formula_version', `id = '${V1}'`) === '1' && visible(A, 'feed_formula_version', `id = '${V2}'`) === '1'
   && visible(ADMIN, 'feed_formula_version', `feed_type_id IN ${FT}`) === owner(`SELECT count(*) FROM feed_formula_version WHERE feed_type_id IN ${FT};`), effectiveNow);
 
 // ═══════════════════════════════════════════════════════════════════════════

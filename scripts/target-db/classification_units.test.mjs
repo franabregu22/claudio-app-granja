@@ -127,9 +127,9 @@ try {
   const s1 = json(register(ADMIN, [L('N1', 3, 'MAPLE'), L('XL', 2, 'MAPLE'), L('Sucios', 3, 'UNIDAD')]));
   check('A1 mixed units in one session: N1 3 MAPLE = 90, XL 2 MAPLE = 40, Sucios 3 UNIDAD = 3; total 133',
     linesOf(s1.classification_id) === 'N1:3 MAPLE=90,Sucios:3 UNIDAD=3,XL:2 MAPLE=40' && s1.total_quantity === 133, `${linesOf(s1.classification_id)} ${s1.total_quantity}`);
-  const s2 = json(register(ADMIN, [L('N2', 1, 'MAPLE'), L('N3', 1, 'MAPLE'), L('Rotos', 1, 'MAPLE'), L('Descarte', 1, 'MAPLE'), L('XL', 7, 'UNIDAD')]));
-  check('A2 N2 / N3 / Rotos / Descarte MAPLE = 30 each; XL UNIDAD = 1:1',
-    linesOf(s2.classification_id) === 'Descarte:1 MAPLE=30,N2:1 MAPLE=30,N3:1 MAPLE=30,Rotos:1 MAPLE=30,XL:7 UNIDAD=7' && s2.total_quantity === 127, linesOf(s2.classification_id));
+  const s2 = json(register(ADMIN, [L('N2', 1, 'MAPLE'), L('N3', 1, 'MAPLE'), L('Descarte', 1, 'MAPLE'), L('XL', 7, 'UNIDAD')]));
+  check('A2 N2 / N3 / Descarte MAPLE = 30 each; XL UNIDAD = 1:1 (Rotos is inactive for new entries — section E)',
+    linesOf(s2.classification_id) === 'Descarte:1 MAPLE=30,N2:1 MAPLE=30,N3:1 MAPLE=30,XL:7 UNIDAD=7' && s2.total_quantity === 97, linesOf(s2.classification_id));
   const s3 = json(register(OPER, [L('N1', 5)]));
   check('A3 a line without unit means UNIDAD (pre-ADR-012 meaning), stored as typed', linesOf(s3.classification_id) === 'N1:5 UNIDAD=5', linesOf(s3.classification_id));
   let r = register(ADMIN, [L('N1', 1, 'CAJA')]);
@@ -145,7 +145,7 @@ try {
   section('B', 'Multiple sessions per day (D-CLS-2)');
   const [b0, n0] = before.split('|').map(Number);
   const [b1, n1] = dayTotal().split('|').map(Number);
-  check('B1 three sessions on the same day were appended (none replaced): day_sessions +3, day_total +265', n1 - n0 === 3 && b1 - b0 === 265, `${before} → ${dayTotal()}`);
+  check('B1 three sessions on the same day were appended (none replaced): day_sessions +3, day_total +235', n1 - n0 === 3 && b1 - b0 === 235, `${before} → ${dayTotal()}`);
   check('B2 each session stays individually inspectable (three rows, three line sets)',
     owner(`SELECT count(*) FROM classification WHERE location = '${TAG}' AND classification_date = '${DAY}' AND is_current;`) === '3');
 
@@ -207,6 +207,29 @@ try {
   check('D3 no flock / lote / shed reference introduced (FROZEN Part 14)', flockCols === '0', flockCols);
   const operView = OPER(`SELECT count(*) FROM classification WHERE location = '${TAG}';`);
   check('D4 OPERATOR still reads only its own sessions (both versions of its own rectified session)', operView.ok && operView.out === '2', operView.out || firstErr(operView));
+
+  section('E', 'Grade Rotos merged forward into Descarte (ADR-014 / D-CLS-6)');
+  const grades = owner(`SELECT string_agg(nombre || ':' || activo, ',' ORDER BY nombre) FROM classification_grade WHERE nombre IN ('Rotos','Descarte');`);
+  check('E1 Rotos is inactive and Descarte active; both rows still exist (no hard delete)', grades === 'Descarte:true,Rotos:false', grades);
+  r = register(ADMIN, [L('Rotos', 1, 'UNIDAD')]);
+  check('E2 a new session cannot use the inactive Rotos grade → GRADE_NOT_FOUND', raised(r, 'GRADE_NOT_FOUND'), firstErr(r));
+  // a historical session recorded while Rotos was active (owner fixture of the pre-0065 state)
+  const hist = owner(`INSERT INTO classification (idempotency_key, classification_date, location, created_by)
+    VALUES ('${randomUUID()}', '${DAY}', '${TAG}', '${ADMIN_UID}') RETURNING id;`);
+  owner(`INSERT INTO classification_line (classification_id, classification_grade_id, quantity, entered_quantity, entered_unit)
+    VALUES ('${hist}', '${G.Rotos}', 60, 2, 'MAPLE');`);
+  check('E3 a historical Rotos line stays readable with its grade name and its ADR-012 maple conversion (2 maples = 60)',
+    linesOf(hist) === 'Rotos:2 MAPLE=60', linesOf(hist));
+  const asAdmin = ADMIN(`SELECT g.nombre || ':' || l.quantity FROM classification_line l JOIN classification_grade g ON g.id = l.classification_grade_id WHERE l.classification_id = '${hist}';`);
+  check('E4 ADMIN reads the historical Rotos line through RLS (inactive grade still resolves)', asAdmin.ok && asAdmin.out === 'Rotos:60', asAdmin.out || firstErr(asAdmin));
+  const operGrade = OPER(`SELECT nombre || ':' || activo FROM classification_grade WHERE id = '${G.Rotos}';`);
+  check('E4b OPERATOR can read the inactive grade name for history (0066), still inactive', operGrade.ok && operGrade.out === 'Rotos:false', operGrade.out || firstErr(operGrade));
+  const histDay = owner(`SELECT quantity FROM report_classification_day WHERE business_date = '${DAY}' AND grade_nombre = 'Rotos';`);
+  check('E5 the daily report still shows historical Rotos under its own name (no reassignment to Descarte)', histDay === '60', histDay);
+  const rx3 = json(rectify(ADMIN, hist, [L('Descarte', 2, 'MAPLE')], 'Rotos ya no se usa'));
+  check('E6 a historical Rotos session can be rectified onto active grades; the original line is kept', rx3.total_quantity === 60 && linesOf(hist) === 'Rotos:2 MAPLE=60');
+  const prod = owner(`SELECT column_name FROM information_schema.columns WHERE table_name = 'daily_production' AND column_name = 'eggs_broken';`);
+  check('E7 the Production metric eggs_broken is a separate column, unchanged', prod === 'eggs_broken', prod);
 } finally {
   cleanup();
 }

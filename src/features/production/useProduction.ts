@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { listClassificationDays, listGrades, listSessions, rectifyClassification, registerClassification } from '../../target/classification';
 import {
-  assignFlockFeed, listConsumptionIntervals, listFeedTypes, listFlockFeed, listFormulaComposition, listFormulaVersions, publishFormulaVersion,
+  assignFlockFeed, listConsumptionIntervals, listFeedTypes, listFlockFeed, listFormulaComposition, listFormulaVersions, listManufacturing, listProfileNames, publishFormulaVersion, rectifyFeedManufacturing,
   registerFeedInventoryCount, registerFeedManufacturing, registerFeedMovement,
 } from '../../target/feed';
 import {
@@ -55,6 +55,10 @@ export const useFormulaVersions = () => useQuery({ queryKey: [...FEED, 'formulas
 export const useFormulaComposition = (versionIds: string[]) =>
   useQuery({ queryKey: [...FEED, 'composition', ...versionIds], queryFn: () => listFormulaComposition(supabase, versionIds) });
 export const usePublishFormula = () => useWrite(publishFormulaVersion, [FEED]);
+export const useManufacturing = (from: string, to: string) =>
+  useQuery({ queryKey: [...FEED, 'manufacturing', from, to], queryFn: () => listManufacturing(supabase, from, to) });
+export const useProfileNames = () => useQuery({ queryKey: ['profiles', 'names'], queryFn: () => listProfileNames(supabase) });
+export const useRectifyManufacturing = () => useWrite(rectifyFeedManufacturing, [FEED]);
 export const useFlockFeed = () => useQuery({ queryKey: [...FEED, 'assignments'], queryFn: () => listFlockFeed(supabase) });
 export const useConsumptionIntervals = () => useQuery({ queryKey: [...FEED, 'intervals'], queryFn: () => listConsumptionIntervals(supabase) });
 

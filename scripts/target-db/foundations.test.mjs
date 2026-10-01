@@ -406,6 +406,7 @@ const LATER_PHASE_DEFINERS = [
   'register_flock', 'close_flock',                                                                       // ADR-007 RPCs 44 / 45 (0057)
   'register_bank_tax',                                                                                   // ADR-011 RPC 46 (0062)
   'rectify_classification', 'publish_feed_formula_version',                                              // ADR-012 RPC 47 (0063) / ADR-013 RPC 48 (0064)
+  'rectify_feed_manufacturing',                                                                          // ADR-014 RPC 49 (0065)
   'mp_allocate_to_client', 'mp_apply_transition', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_clear_attribution_flag', 'mp_delivery_transition', 'mp_flag_for_attribution', 'mp_ingest_api_snapshot', 'mp_map_payer_to_client', 'mp_normalize_report_fallback', 'mp_record_balance_check', 'mp_register_delivery', 'mp_request_refetch', 'mp_requeue_config_blocked', 'mp_resolve_chargeback_signal', 'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', // ADR-006 Step 2 (0048)
 ];
 const expectedDefiners = ['assert_period_open', 'current_app_role', ...LATER_PHASE_DEFINERS].sort().join(',');

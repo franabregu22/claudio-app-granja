@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { describeLine, rectifyClassification, registerClassification } from '../../src/target/classification';
 import { DIRECT_WRITES, TARGET_RPCS, writeTable } from '../../src/target/db';
-import { publishFormulaVersion, versionsEffectiveOn, type FormulaVersionRow } from '../../src/target/feed';
+import { publishFormulaVersion, rectifyFeedManufacturing, userLabel, versionsEffectiveOn, type FormulaVersionRow } from '../../src/target/feed';
 
 function rpcStub() {
   const calls: { fn: string; args: Record<string, unknown> }[] = [];
@@ -81,5 +81,25 @@ describe('ADR-013 formula publication and selector', () => {
     expect(TARGET_RPCS).toContain('publish_feed_formula_version');
     expect(TARGET_RPCS).toContain('rectify_classification');
     await expect(writeTable({} as never, 'feed_formula_version' as never, 'insert' as never, {})).rejects.toMatchObject({ code: 'DIRECT_WRITE_NOT_ALLOWED' });
+  });
+});
+
+describe('ADR-014 manufacturing history and rectification', () => {
+  it('author labels stay within the caller\'s permissions', () => {
+    const profiles = new Map([['a', 'admin@x.invalid']]);
+    expect(userLabel('me', 'me', profiles)).toBe('Vos');
+    expect(userLabel('a', 'me', profiles)).toBe('admin@x.invalid');
+    expect(userLabel('other', 'me', profiles)).toBe('Otro usuario');
+    expect(userLabel(null, 'me', profiles)).toBe('Otro usuario');
+  });
+
+  it('rectification is one RPC call with the whole record and the reason (no client-side correction)', async () => {
+    const { client, calls } = rpcStub();
+    await rectifyFeedManufacturing(client, { idempotencyKey: 'k', manufacturingId: 'm1', quantityKg: 50, reason: 'eran 50', batchNumber: 'L-1' });
+    expect(calls).toEqual([{ fn: 'rectify_feed_manufacturing', args: {
+      p_idempotency_key: 'k', p_manufacturing_id: 'm1', p_quantity_kg: 50, p_reason: 'eran 50', p_batch_number: 'L-1', p_formula_version_id: null,
+    } }]);
+    expect(TARGET_RPCS).toContain('rectify_feed_manufacturing');
+    expect(Object.keys(DIRECT_WRITES)).not.toContain('feed_manufacturing');
   });
 });

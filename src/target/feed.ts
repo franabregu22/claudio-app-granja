@@ -115,3 +115,64 @@ export function assignFlockFeed(client: SupabaseClient, p: { flockId: string; fe
     p_flock_id: p.flockId, p_feed_type_id: p.feedTypeId, p_effective_from: p.effectiveFrom, p_reason: reasonOrNull(p.reason),
   });
 }
+
+// ── manufacturing history and rectification (ADR-014) ──────────────────────
+
+export interface ManufacturingVersion {
+  id: string; formula_version_id: string; formula_version: number; feed_type_id: string; feed_type_nombre: string; manufacturing_date: string;
+  quantity_kg: number; batch_number: string | null; created_at: string; created_by: string | null; version_seq: number; is_current: boolean;
+  supersedes_id: string | null; rectification_reason: string | null;
+}
+/** One manufacturing as the user sees it: the current version plus the versions it replaced (newest first). */
+export interface ManufacturingRecord { current: ManufacturingVersion; history: ManufacturingVersion[]; author: string | null }
+
+type RawManufacturing = Omit<ManufacturingVersion, 'formula_version' | 'feed_type_id' | 'feed_type_nombre' | 'quantity_kg'> & {
+  quantity_kg: number | string;
+  feed_formula_version: { version: number; feed_type_id: string; feed_type: { nombre: string } | null } | null;
+};
+
+/**
+ * D-FEED-7: manufacturing in [from, to] (RLS: ADMIN and OPERATOR read every row), each with its version chain. Every
+ * version carries its EXACT stored formula_version_id; the composition is read for that id (never the current recipe).
+ * `author` is the user who started the chain (the one who may rectify as OPERATOR).
+ */
+export async function listManufacturing(client: SupabaseClient, from: string, to: string): Promise<ManufacturingRecord[]> {
+  const rows = await readTable<RawManufacturing>(client, 'feed_manufacturing',
+    (q) => q.gte('manufacturing_date', from).lte('manufacturing_date', to).order('manufacturing_date', { ascending: false }).order('created_at', { ascending: false }),
+    'id, formula_version_id, manufacturing_date, quantity_kg, batch_number, created_at, created_by, version_seq, is_current, supersedes_id, rectification_reason, '
+    + 'feed_formula_version(version, feed_type_id, feed_type(nombre))');
+  const versions = rows.map(({ feed_formula_version: fv, ...m }): ManufacturingVersion => ({
+    ...m, quantity_kg: Number(m.quantity_kg), formula_version: fv?.version ?? 0, feed_type_id: fv?.feed_type_id ?? '', feed_type_nombre: fv?.feed_type?.nombre ?? '—',
+  }));
+  const byId = new Map(versions.map((v) => [v.id, v]));
+  return versions.filter((v) => v.is_current).map((current) => {
+    const history: ManufacturingVersion[] = [];
+    for (let prev = current.supersedes_id ? byId.get(current.supersedes_id) : undefined; prev; prev = prev.supersedes_id ? byId.get(prev.supersedes_id) : undefined) {
+      history.push(prev);
+    }
+    return { current, history, author: (history.at(-1) ?? current).created_by };
+  });
+}
+
+/**
+ * User label within the caller's permissions: profiles the caller can read (ADMIN: all; OPERATOR: only its own, by
+ * RLS) resolve to their email; the caller is "Vos"; anyone else is "Otro usuario". No permission is broadened.
+ */
+export function userLabel(id: string | null, me: string | null, profiles: Map<string, string>): string {
+  if (id && id === me) return 'Vos';
+  return (id && profiles.get(id)) || 'Otro usuario';
+}
+export async function listProfileNames(client: SupabaseClient): Promise<Map<string, string>> {
+  const rows = await readTable<{ id: string; email: string }>(client, 'perfiles', (q) => q, 'id, email');
+  return new Map(rows.map((r) => [r.id, r.email]));
+}
+
+/** ADR-014 RPC 49: a whole-record new version; the reason is mandatory; the date is kept. */
+export function rectifyFeedManufacturing(client: SupabaseClient, p: {
+  idempotencyKey: string; manufacturingId: string; quantityKg: number; reason: string; batchNumber?: string | null; formulaVersionId?: string | null;
+}) {
+  return callRpc<{ manufacturing_id: string; superseded_id: string; version_seq: number; quantity_kg: number }>(client, 'rectify_feed_manufacturing', {
+    p_idempotency_key: p.idempotencyKey, p_manufacturing_id: p.manufacturingId, p_quantity_kg: p.quantityKg, p_reason: p.reason,
+    p_batch_number: reasonOrNull(p.batchNumber), p_formula_version_id: p.formulaVersionId ?? null,
+  });
+}

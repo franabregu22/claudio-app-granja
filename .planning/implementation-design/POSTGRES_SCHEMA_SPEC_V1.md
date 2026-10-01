@@ -5,6 +5,7 @@
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
 **AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — `purchase_attachment.storage_path` refers to an object in the private Storage bucket `purchase-attachments` (migration 0058 creates the bucket and its policies in the `storage` schema). No public-schema change. Amended passage is marked **[ADR-008]**.
 **AMENDMENTS:** ADR-012 (`.planning/adr/ADR-012_CLASSIFICATION_UNITS_RECTIFICATION.md`, ACCEPTED 2026-10-01) — `classification` version chain (`version_seq`, `is_current`, `supersedes_id`, `rectification_reason`) and `classification_line` original entry (`entered_quantity`, `entered_unit classification_entry_unit`) (migration 0063). ADR-013 (`.planning/adr/ADR-013_FEED_FORMULA_PUBLICATION.md`, ACCEPTED 2026-10-01) — `excl_feed_formula_version_no_overlap` (migration 0064). No table added. Amended passages are marked **[ADR-012]** / **[ADR-013]**.
+**AMENDMENTS:** ADR-014 (`.planning/adr/ADR-014_FEED_MANUFACTURING_RECTIFICATION.md`, ACCEPTED 2026-10-01) — `feed_manufacturing` version chain (migration 0065); the seed grade Rotos set inactive (no row removed). Amended passages are marked **[ADR-014]**.
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen). This document translates it; it does not reinterpret it.
@@ -287,6 +288,8 @@ ALTER TABLE expense_category ENABLE ROW LEVEL SECURITY;
 `sales_session_cash_event.expense_category_id` for session expenses.
 
 ### classification_grade
+
+**[ADR-014]** Seed grade `Rotos` is `activo = false` (inactive for new entries, rows and history kept).
 ```sql
 CREATE TABLE classification_grade (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -989,6 +992,8 @@ ALTER TABLE feed_formula_line ENABLE ROW LEVEL SECURITY;
 `feed_formula_line_safe` view (composition without cost) defined in the RLS spec.
 
 ### feed_manufacturing
+
+**[ADR-014]** `+ version_seq INTEGER NOT NULL DEFAULT 0`, `+ is_current BOOLEAN NOT NULL DEFAULT true`, `+ supersedes_id UUID UNIQUE REFERENCES feed_manufacturing(id) ON DELETE RESTRICT`, `+ rectification_reason TEXT`, `chk_feed_manufacturing_version_chain`, partial index `idx_feed_manufacturing_current_date`. Written only by RPCs 26 / 49.
 ```sql
 CREATE TABLE feed_manufacturing (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

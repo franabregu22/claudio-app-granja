@@ -4,6 +4,7 @@ import { FEED_MOVEMENT_TYPES, versionsEffectiveOn, type FeedMovementType } from 
 import { errorMessage } from '../../target/messages';
 import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
+import { FabricacionesHistorial } from './FabricacionesHistorial';
 import {
   useConsumptionIntervals, useFeedMutations, useFeedTypes, useFlockFeed, useFlockOptions, useFormulaVersions,
 } from './useProduction';
@@ -46,6 +47,8 @@ export function AlimentoApp() {
         {rol === 'ADMIN' && <button onClick={() => setAccion('asignacion')} className={`${boton} bg-white border border-[#E4DCC8] hover:bg-stone-50`}>Asignar alimento a un lote</button>}
       </div>
       {error ? <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded text-sm">{errorMessage(error)}</div> : null}
+
+      <FabricacionesHistorial />
 
       <section>
         <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Consumo entre recuentos</p>

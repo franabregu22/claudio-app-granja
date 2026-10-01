@@ -67,6 +67,8 @@ const MESSAGES: Record<string, string> = {
   INVALID_COST: 'Costo no válido.',
   FORMULA_VERSION_DATE_CONFLICT: 'Ya hay una versión que empieza en esa fecha o después. Elegí una fecha posterior.',
   FORMULA_VERSION_USED_AFTER_DATE: 'La versión anterior ya se usó en fabricaciones desde esa fecha. Elegí una fecha posterior.',
+  MANUFACTURING_NOT_FOUND: 'La fabricación no existe o no podés rectificarla.',
+  MANUFACTURING_SUPERSEDED: 'Esa fabricación ya fue rectificada: rectificá la versión vigente.',
   FORMULA_VERSION_EMPTY: 'La fórmula no tiene ingredientes y no se puede fabricar.',
   ATTACHMENT_TYPE_NOT_ALLOWED: 'El comprobante debe ser PDF, JPG, PNG o WebP.',
   ATTACHMENT_TOO_LARGE: 'Cada comprobante puede pesar hasta 10 MB.',

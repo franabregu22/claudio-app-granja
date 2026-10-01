@@ -429,3 +429,13 @@ The ADR-008 Storage-API tests and the real-Storage "Nueva compra" end-to-end tes
 | D-FEED-3 / 4 | Administración → Alimento: Tipos de alimento, Ingredientes, Fórmulas / Recetas (effective version, validity, composition, history, "Nueva versión"). | `AlimentoAdmin.tsx`, `AdminApp.tsx` |
 | D-FEED-5 | Fabricación offers only the versions effective on the chosen date (`<tipo> · vN`); otherwise "No hay fórmula vigente para esta fecha. Cargala en Administración → Alimento." | `AlimentoApp.tsx` |
 | D-FEED-6 | Test feed data is created manually through the UI in the local walkthrough only; no seed and no production. | — |
+
+### 10.2 Block 4 follow-up — Manufacturing history / rectification, grade Rotos (owner D-FEED-7…9, D-CLS-6; 2026-10-01)
+
+| Id | Fix | Where |
+|---|---|---|
+| D-FEED-7 | Alimento → "Fabricaciones": a read-only history with date filter. Row: `dd/mm hh:mm · tipo · vN · kg · autor`. The detail shows the exact stored version and its composition, the batch, the registration time and the author. Authors appear as email for ADMIN and as "Vos" / "Otro usuario" for OPERATOR. | `FabricacionesHistorial.tsx`, `feed.ts` |
+| D-FEED-8 | RPC 49 `rectify_feed_manufacturing`: a whole-record new version with a mandatory reason; the original is kept. ADMIN can rectify any record, OPERATOR only its own chain. The consumption report counts current versions only, and no compensating movement is generated (ADR-014, migration 0065). | 0065 |
+| D-FEED-9 | "Rectificar" appears on current rows when allowed. A row shows "Rectificada", and the detail shows the prior versions and the reason. | `FabricacionesHistorial.tsx` |
+| D-CLS-6 | Classification grade Rotos is inactive for new entries (merged forward into Descarte); history is unchanged. The Production metric "Rotos" is untouched. | 0065 |
+| — | Two OPERATOR read gaps found during implementation and closed. 0066 lets OPERATOR read inactive grade names for history. 0067 lets OPERATOR read historical formula versions (no cost). Both are ADR-014 §1 / §3. | 0066, 0067 |

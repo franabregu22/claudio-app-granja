@@ -131,7 +131,8 @@ const ADR006_19 = ['mp_register_delivery', 'mp_claim_deliveries', 'mp_delivery_t
 const ADR007_2 = ['register_flock', 'close_flock'];
 const ADR011_1 = ['register_bank_tax'];   // ADR-011 RPC 46 (0062, Phase 27 acceptance fixes) → 63
 const ADR012_013 = ['rectify_classification', 'publish_feed_formula_version'];   // ADR-012 RPC 47 (0063) / ADR-013 RPC 48 (0064) → 65
-const DEFINER_65 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013].sort();
+const ADR014_1 = ['rectify_feed_manufacturing'];   // ADR-014 RPC 49 (0065) → 66
+const DEFINER_66 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013, ...ADR014_1].sort();
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 function cleanup() {
@@ -370,9 +371,9 @@ section('S-6', 'evidence-only AUTO attribution');
 section('S-7', 'SECURITY DEFINER inventory + RLS spec §11 verification');
 {
   const got = owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`);
-  check(`S-7a SECURITY DEFINER set = the exact 65-name literal (41 verified baseline + 19 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013; §4)`, got === DEFINER_65.join(','),
-    `extra=${got.split(',').filter((x) => !DEFINER_65.includes(x))} missing=${DEFINER_65.filter((x) => !got.split(',').includes(x))}`);
-  check('S-7b count = 65 (ADR-007 + ADR-011 + ADR-012/013)', got.split(',').length === 65 && DEFINER_65.length === 65);
+  check(`S-7a SECURITY DEFINER set = the exact 66-name literal (41 verified baseline + 19 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013 + 1 ADR-014; §4)`, got === DEFINER_66.join(','),
+    `extra=${got.split(',').filter((x) => !DEFINER_66.includes(x))} missing=${DEFINER_66.filter((x) => !got.split(',').includes(x))}`);
+  check('S-7b count = 66 (ADR-007 + ADR-011 + ADR-012/013 + ADR-014)', got.split(',').length === 66 && DEFINER_66.length === 66);
   check('S-7c every SECURITY DEFINER is owned by postgres', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace AND proowner <> 'postgres'::regrole;`) === '0');
   check('S-7d spec check 6: every SECURITY DEFINER pins search_path = public (0 rows)', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef = true AND pronamespace = 'public'::regnamespace
     AND NOT (COALESCE(proconfig, '{}') @> ARRAY['search_path=public']);`) === '0');
