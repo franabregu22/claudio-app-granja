@@ -2499,7 +2499,7 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 | 49 | rectify_feed_manufacturing **[ADR-014]** | Feed | OPERATOR or ADMIN | yes | manufacturing_date (original) |
 | 50 | register_purchase_with_fiscal_document **[ADR-015]** | Purchases / Fiscal | ADMIN | yes | economic_date |
 
-**TOTAL: 48 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48) · **[ADR-014]** (+ RPC 49) · **[ADR-015]** (+ RPC 50). 45 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
+**TOTAL: 50 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48) · **[ADR-014]** (+ RPC 49) · **[ADR-015]** (+ RPC 50). 45 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
 `cancel_order` (3) and `assign_flock_feed` (29) create no economic fact, and
 `close_management_period` (37) / `reopen_management_period` (38) control periods themselves.
 

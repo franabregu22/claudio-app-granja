@@ -348,6 +348,34 @@ Cutover cleanup already recorded (N-1 / L-1 / D-DEPLOY):
   - `tests/integration/f27d-storage.test.ts` "ADR-008 Storage API": ADMIN upload, authenticated download and delete; unsupported MIME rejected; > 10 MB rejected; signed URL works; public access does not work;
   - `tests/integration/f27d-treasury.test.ts` "Nueva compra": real upload to `purchase-attachments` → `register_purchase` → persisted attachment metadata; cleanup compensation on RPC failure; OPERATOR upload refused without calling the RPC.
 
+## 9c. Pre-cutover technical validation run (2026-10-01, HEAD 4a7b7ed + test/doc fixes)
+
+**Result: PRE-CUTOVER BLOCKED.** Every blocked item depends on the Supabase CLI, which Windows Smart App Control blocks ("Una directiva de Control de aplicaciones bloqueó este archivo"; CodeIntegrity events 3077 / 3118). No workaround was used.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Canonical `supabase db reset` (0001–0068) | BLOCKED | the CLI binary does not start |
+| Backend suites on the local DB (migration runner, 68 migrations) | PASS | 33 runnable suites green when run in series, each after a clean DB. Runs in parallel with the ADR-006 matrix contaminated global-count checks; a series rerun was green |
+| mp_audit_security / mp_scheduler / mp_webhook / mp_worker_http | BLOCKED | `spawn UNKNOWN` (CLI). Their partial fixtures are left behind and were cleaned. mp_webhook also requires `MP_ACCESS_TOKEN` to be absent from the environment |
+| ADR-006 matrix | 12 PASS / X-7 BLOCKED | X-7 needs the anon key from `supabase status` (CLI). X-1 was updated to the 67-function inventory |
+| ADR-008 Storage API + "Nueva compra" real upload (5 tests) | BLOCKED | no Storage container; `/storage/v1` answers 503; starting it needs the CLI |
+| "Nueva compra" without a file (ADR-010) | PASS | integration |
+| Frontend unit / integration / static gate / ADR-006 frontend contract / tsc / safe build | PASS | unit 211/0; integration 108 + 5 skipped (Storage); gate 8/0; contract 28/0; tsc 0 errors; build with 0 findings |
+| JWT `issued at future` | INTERMITTENT | 1 of 3 full parallel runs (f27b, the first write after sign-in); host and containers on the same second; no code change justified |
+| instruments R7 | INTERMITTENT | 3/3 focused PASS |
+| MP parallel interference | NOT REPRODUCED | 3 full integration runs |
+| `dist/` | PENDING | stale 2026-09-23 build (production host, ipify, legacy sync endpoints); not regenerated while prerequisites are blocked |
+
+**Cutover cleanup inventory** (nothing deleted):
+- **already removed (F27-A…I):** frontend legacy MP sync / debug, the hard-coded token and localStorage secret, ipify, and the legacy calculations / screens (legacy baseline 0);
+- **keep until cutover:** `netlify/functions/*` (6 MP functions + `lib/mp-release-identity.ts`), the `netlify.toml` scheduled function `sync-mercadopago-releases`, `src/lib/mercadopago-calculations.ts` and `tests/mercadopago-calculations.test.mjs`, the legacy MP tables, `supabase/migrations/*` (legacy, 12 files);
+- **remove at cutover:** the same items, plus `.netlify/functions-serve` (stale local build) and the legacy MP scripts `scripts/consolidate-mp-duplicates.mjs`, `repair-mp-balance-cache.mjs`, `verify-mp-api.mjs`;
+- **unclear / owner decision:**
+  - legacy `supabase/migrations/001–003` create `mp_source_record` and `mp_financial_movement`, the **same names** as target tables. The cutover must state whether the target goes into a new project or the legacy MP tables are dropped / renamed first;
+  - L-1 (Netlify MP function exposure) stays OPEN.
+
+Feria remains PARTIAL / DEFERRED.
+
 ## 10. Decisions and findings
 
 | Id | Item | Owner of the decision |
