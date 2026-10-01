@@ -461,3 +461,25 @@ Deferred findings:
 | D-FISCAL-8 | Future document recognition: schema compatible, not implemented (ADR-015 §5). | — |
 | D-FIN-1 | "Retiro de socios" lives in Caja → Más acciones; the ADR-004 P&L treatment is unchanged. | `CajaApp.tsx`, `EventoGestionModal.tsx` |
 | D-FIN-2 | "Reserva interna" lives in Finanzas → Más acciones; backend and P&L line unchanged. | `FinanzasApp.tsx` |
+
+### 10.5 Manual acceptance walkthrough — CLOSED (owner, 2026-10-01)
+
+| Block | Result |
+|---|---|
+| 1 — Administration / masters | PASS |
+| 2 — Orders / delivery / collections | PASS |
+| 3 — Treasury / purchases / transfers / freight | PASS |
+| 4 — Production / Classification / Feed | PASS |
+| Fiscal | PASS |
+| Finance | PASS |
+| Mercado Pago | PASS FUNCTIONAL — future UX simplification: reduce technical density, prioritize actionable states, move IDs / technical diagnostics into expandable details |
+| Feria | **PARTIAL / DEFERRED** (§10.3): the session-cash model and the movement history need an owner-approved redesign. Not accepted. |
+
+The local walkthrough dataset was removed with a narrow, explicit cleanup in one transaction (no `db reset`, no production):
+- the `admin.walkthrough` profile and auth user;
+- the business rows it created or that hang from its masters: order, collection, client ledger, transfer, production, mortality, flock and shed, classification sessions, feed type / ingredient / formula / manufacturing, the Feria session, prices / product / client / supplier / category, and its audit rows;
+- the synthetic MP fixture (`node scripts/walkthrough/mp-walkthrough-fixture.mjs cleanup`).
+
+After the cleanup, the previously contaminated checks pass: commercial J3; foundations profiles and flocks.
+
+The pre-cutover checklist (§9b) is **not** complete: the canonical `supabase db reset` rehearsal, cutover, deploy and production artifacts have not been run.
