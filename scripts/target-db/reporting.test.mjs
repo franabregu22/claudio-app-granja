@@ -43,8 +43,8 @@ const ADMIN_ONLY = ['report_sales_line', 'report_balance_period', 'report_mp_mov
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
   + 'close_flock,close_sales_session,current_app_role,deliver_order,'
   + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
-  + 'open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
-  + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
+  + 'open_sales_session,pay_fiscal_obligation,pay_supplier,publish_feed_formula_version,receive_cheque,'
+  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_flock,'
   + 'register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
@@ -264,8 +264,9 @@ rpc(`register_daily_production('${FC}', '2026-05-05', 1, 0, 0)`);
 // feed: FA and FB fed FT from 04-01; counts 05-01 = 1000, 05-03 = 900, 06-01 = 900
 const FTID = okAs(ADMIN, `INSERT INTO feed_type (nombre, feed_category) VALUES ('${TAG} Postura', 'LAYER') RETURNING id;`);
 const ING = okAs(ADMIN, `INSERT INTO feed_ingredient (nombre) VALUES ('${TAG} Maiz') RETURNING id;`);
-const FVID = okAs(ADMIN, `INSERT INTO feed_formula_version (feed_type_id, version, effective_from, created_by) VALUES ('${FTID}', 1, '2026-01-01', '${ADMIN_UID}') RETURNING id;`);
-okAs(ADMIN, `INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg, unit_cost_snapshot) VALUES ('${FVID}', '${ING}', 1000, 55.55);`);
+// [ADR-013] no application write path for formula versions / lines: owner fixture
+const FVID = owner(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from, created_by) VALUES ('${FTID}', 1, '2026-01-01', '${ADMIN_UID}') RETURNING id;`);
+owner(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg, unit_cost_snapshot) VALUES ('${FVID}', '${ING}', 1000, 55.55);`);
 rpc(`assign_flock_feed('${FA}', '${FTID}', '2026-04-01')`);
 rpc(`assign_flock_feed('${FB}', '${FTID}', '2026-04-01')`);
 rpc(`register_feed_inventory_count('${FTID}', '2026-05-01', 1000)`);

@@ -8,8 +8,9 @@ import { ProveedoresAdmin } from './ProveedoresAdmin';
 import { CuentasAdmin } from './CuentasAdmin';
 import { AsignacionesAdmin } from './AsignacionesAdmin';
 import { ProyectosAdmin } from './ProyectosAdmin';
+import { AlimentoAdmin } from './AlimentoAdmin';
 
-type Tab = 'client' | 'product' | 'shed' | 'expense' | 'supplier' | 'account' | 'assignment' | 'project';
+type Tab = 'client' | 'product' | 'shed' | 'expense' | 'supplier' | 'account' | 'assignment' | 'project' | 'feed';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'client', label: 'Clientes' },
@@ -20,6 +21,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'account', label: 'Cuentas' },
   { id: 'assignment', label: 'Asignaciones' },
   { id: 'project', label: 'Proyectos' },
+  { id: 'feed', label: 'Alimento' },
 ];
 
 /** Master data (F27-B). The visibility check is UX only: RLS makes every master ADMIN-only in the database. */
@@ -72,6 +74,7 @@ export function AdminApp() {
           {tab === 'account' && <CuentasAdmin />}
           {tab === 'assignment' && <AsignacionesAdmin />}
           {tab === 'project' && <ProyectosAdmin />}
+          {tab === 'feed' && <AlimentoAdmin />}
         </div>
       </div>
     </div>

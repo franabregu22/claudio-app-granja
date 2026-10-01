@@ -46,8 +46,8 @@ const TAG = 'P19-TEST';
 const KEY_PREFIX = 'd19e0000-0000-4000-8000-';
 const TABLES = ['classification', 'classification_line'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,close_flock,close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
-  + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,publish_feed_formula_version,receive_cheque,'
+  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,register_fiscal_document,register_fiscal_obligation,register_flock,register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
   + 'reject_supplier_instrument,transfer_between_accounts';
 
@@ -227,20 +227,23 @@ try {
 section('A', 'Structure');
 
 const colsOf = (t) => owner(`SELECT string_agg(column_name || ':' || data_type, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = '${t}';`);
-check('A1 classification columns exactly as frozen (idempotency_key is UUID)',
-  colsOf('classification') === 'id:uuid,idempotency_key:uuid,classification_date:date,location:character varying,created_at:timestamp with time zone,created_by:uuid', colsOf('classification'));
-check('A2 classification_line columns exactly as frozen',
-  colsOf('classification_line') === 'id:uuid,classification_id:uuid,classification_grade_id:uuid,quantity:integer,created_at:timestamp with time zone', colsOf('classification_line'));
+check('A1 classification columns exactly as frozen + the ADR-012 version chain (idempotency_key is UUID; no flock)',
+  colsOf('classification') === 'id:uuid,idempotency_key:uuid,classification_date:date,location:character varying,created_at:timestamp with time zone,created_by:uuid,'
+  + 'version_seq:integer,is_current:boolean,supersedes_id:uuid,rectification_reason:text', colsOf('classification'));
+check('A2 classification_line columns exactly as frozen + the ADR-012 original entry (quantity stays the canonical egg count)',
+  colsOf('classification_line') === 'id:uuid,classification_id:uuid,classification_grade_id:uuid,quantity:integer,created_at:timestamp with time zone,'
+  + 'entered_quantity:integer,entered_unit:USER-DEFINED', colsOf('classification_line'));
 const cons = owner(`SELECT string_agg(conname || ':' || contype::TEXT, ',' ORDER BY conname) FROM pg_constraint WHERE conrelid IN ('classification'::regclass, 'classification_line'::regclass) AND contype IN ('u','c');`);
-check('A3 UNIQUE idempotency_key, UNIQUE (session, grade), CHECK quantity >= 0 — nothing else',
-  cons === 'classification_idempotency_key_key:u,classification_line_classification_id_classification_grade__key:u,classification_line_quantity_check:c', cons);
+check('A3 UNIQUE idempotency_key, UNIQUE (session, grade), CHECK quantity >= 0 + the ADR-012 chain / entry checks — nothing else',
+  cons === 'chk_classification_line_entered:c,chk_classification_line_unidad:c,chk_classification_version_chain:c,classification_idempotency_key_key:u,'
+  + 'classification_line_classification_id_classification_grade__key:u,classification_line_quantity_check:c,classification_supersedes_id_key:u,classification_version_seq_check:c', cons);
 check('A4 idx_classification_date on classification_date', owner(`SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_classification_date';`).endsWith('(classification_date)'));
 const fks = owner(`SELECT string_agg(x, ',' ORDER BY x) FROM (
   SELECT c.conrelid::regclass || '.' || a.attname || '>' || c.confrelid::regclass || ':' || c.confdeltype::TEXT AS x
     FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
    WHERE c.contype = 'f' AND c.conrelid IN ('classification'::regclass, 'classification_line'::regclass)) s;`);
-check('A5 FKs: grade → classification_grade (master, not free text), line → session, created_by → perfiles; all RESTRICT',
-  fks === 'classification.created_by>perfiles:r,classification_line.classification_grade_id>classification_grade:r,classification_line.classification_id>classification:r', fks);
+check('A5 FKs: grade → classification_grade (master, not free text), line → session, created_by → perfiles, rectification → prior version (ADR-012); all RESTRICT',
+  fks === 'classification.created_by>perfiles:r,classification.supersedes_id>classification:r,classification_line.classification_grade_id>classification_grade:r,classification_line.classification_id>classification:r', fks);
 check('A6 RLS enabled on both tables', owner(`SELECT count(*) FROM pg_class WHERE relname IN ('classification','classification_line') AND relrowsecurity;`) === '2');
 const dateUnique = owner(`SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid WHERE c.relname = 'classification' AND i.indisunique
   AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum = ANY(i.indkey) AND a.attname IN ('classification_date','location'));`);
@@ -322,10 +325,10 @@ for (const [what, key, date, lines, code] of [
 r = ADMIN(`SELECT ${classCall(null, '2026-05-13', [L(G.XL, 1)])};`);
 check('F NULL idempotency_key → rejected by the frozen NOT NULL column', violates(r, 'idempotency_key'), firstErr(r));
 check('F1 every rejection was atomic: no session, no line, no audit', snapshot() === snap);
-r = raw(`INSERT INTO classification_line (classification_id, classification_grade_id, quantity) VALUES ('${b.classification_id}', '${G.XL}', 1);`);
+r = raw(`INSERT INTO classification_line (classification_id, classification_grade_id, quantity, entered_quantity, entered_unit) VALUES ('${b.classification_id}', '${G.XL}', 1, 1, 'UNIDAD');`);
 check('F2 physical backstop: UNIQUE(classification_id, classification_grade_id) (even for the owner)',
   violates(r, 'classification_line_classification_id_classification_grade__key'), firstErr(r));
-r = raw(`INSERT INTO classification_line (classification_id, classification_grade_id, quantity) VALUES ('${b.classification_id}', '${G.Rotos}', -1);`);
+r = raw(`INSERT INTO classification_line (classification_id, classification_grade_id, quantity, entered_quantity, entered_unit) VALUES ('${b.classification_id}', '${G.Rotos}', -1, 0, 'MAPLE');`);
 check('F3 physical backstop: quantity >= 0 CHECK', violates(r, 'classification_line_quantity_check'), firstErr(r));
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -475,9 +478,9 @@ check('M2 no FK from Phase 19 tables to flocks / sheds / daily_production / popu
 check('M3 no join/allocation table linking classification to flocks or production',
   owner(`SELECT coalesce(string_agg(table_name, ','), '') FROM information_schema.tables WHERE table_schema = 'public'
          AND table_name ~* 'classification' AND table_name NOT IN ('classification','classification_line','classification_grade', ${ADR005_VIEWS});`) === '');
-check('M4 no other table references classification (nothing downstream infers origin)',
+check('M4 no other table references classification (nothing downstream infers origin; the ADR-012 self-reference is the version chain)',
   owner(`SELECT coalesce(string_agg(conrelid::regclass::TEXT, ','), '') FROM pg_constraint WHERE contype = 'f' AND confrelid = 'classification'::regclass
-         AND conrelid <> 'classification_line'::regclass;`) === '');
+         AND conrelid NOT IN ('classification_line'::regclass, 'classification'::regclass);`) === '');
 const mExtra = classify(ADMIN, '2026-05-17', [{ classification_grade_id: G.XL, quantity: 9, flock_id: MISSING_UUID, shed_id: MISSING_UUID }]);
 check('M5 an extra "flock_id" inside a line is not a parameter and is stored nowhere (the session carries no origin)',
   mExtra.line_count === 1 && linesOf(mExtra.classification_id) === 'XL:9'
@@ -514,9 +517,9 @@ check('E4 operator B sees neither', visible(B, 'classification', both) === '0'
   && visible(B, 'classification_line', `classification_id IN ('${e1.classification_id}','${e2.classification_id}')`) === '0');
 check('E5 ADMIN sees both (6 lines)', visible(ADMIN, 'classification', both) === '2'
   && visible(ADMIN, 'classification_line', `classification_id IN ('${e1.classification_id}','${e2.classification_id}')`) === '6');
-check('E6 no flock can be derived or attached: the sessions carry only date, location, author and graded quantities',
+check('E6 no flock can be derived or attached: the sessions carry only date, location, author, graded quantities and the ADR-012 version chain',
   owner(`SELECT string_agg(column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = 'classification';`)
-  === 'id,idempotency_key,classification_date,location,created_at,created_by');
+  === 'id,idempotency_key,classification_date,location,created_at,created_by,version_seq,is_current,supersedes_id,rectification_reason');
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('N', 'No economic effect (whole suite)');

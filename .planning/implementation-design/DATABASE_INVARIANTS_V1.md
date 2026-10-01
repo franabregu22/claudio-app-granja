@@ -437,6 +437,18 @@ waits for it and sees the committed exit date. No write privilege on `flocks` ex
 **Violation:** activity after the exit falls outside `report_flock_day` (which stops at `exit_date`) and describes birds that
 are no longer housed.
 
+## 30. A classification session counts once, in its current version **[ADR-012]**
+
+**Rule:** a session's lines store the entry as typed (`entered_quantity`, `entered_unit`) and the canonical egg count (`quantity`), converted by the backend (UNIDAD = 1; MAPLE = 20 for XL, 30 otherwise). A rectification creates a new version and marks the prior one not current; the prior version is never changed or deleted. Daily totals count `is_current` versions only.
+**Enforced by:** RPC 25 / RPC 47 (conversion, chain), `chk_classification_line_unidad`, `chk_classification_version_chain`, `UNIQUE (supersedes_id)`, no write privilege for API roles, `report_classification_day` filtering `is_current`.
+**Violation:** a rectified session double-counted, or a canonical total that cannot be traced to the entry.
+
+## 31. One effective formula version per feed type **[ADR-013]**
+
+**Rule:** for a feed type, the validity windows of its versions never overlap; versions are created only by RPC 48 (atomic, prior version closed at D − 1); a version without lines is never manufactured; a used version is immutable.
+**Enforced by:** `excl_feed_formula_version_no_overlap`, RPC 48, RPC 26 (`FORMULA_VERSION_EMPTY`), `reject_line_on_used_formula_version`, no INSERT / UPDATE / DELETE for API roles.
+**Violation:** two recipes valid on the same day for the same feed, or manufacturing with an empty or rewritten recipe.
+
 ---
 
 ## COMPLIANCE MATRIX
@@ -472,6 +484,8 @@ are no longer housed.
 | 27 | derived never stored | absent columns | — | — | — |
 | 28 | feria aggregation | is_aggregated_retail | — | RPC 33 | — |
 | 29 | no flock activity after exit **[ADR-007]** | — | no write on flocks | RPC 18–22, 29, 45 (assert_flock_activity_date) | — |
+| 30 | classification counts once, current version **[ADR-012]** | chain / entry CHECKs, UNIQUE supersedes_id | no write on classification | RPC 25, 47 | — |
+| 31 | one effective formula version per feed type **[ADR-013]** | EXCLUDE no_overlap | no write on versions / lines | RPC 48, 26 | reject_line_on_used_formula_version |
 
 ---
 

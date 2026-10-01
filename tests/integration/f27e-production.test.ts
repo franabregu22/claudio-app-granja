@@ -19,8 +19,8 @@ import {
 } from '../../src/target/production';
 import { listClassificationDays, listGrades, registerClassification } from '../../src/target/classification';
 import {
-  assignFlockFeed, listConsumptionIntervals, listFeedTypes, listFlockFeed, listFormulaVersions, registerFeedInventoryCount, registerFeedManufacturing,
-  registerFeedMovement,
+  assignFlockFeed, listConsumptionIntervals, listFeedTypes, listFlockFeed, listFormulaVersions, publishFormulaVersion, registerFeedInventoryCount,
+  registerFeedManufacturing, registerFeedMovement,
 } from '../../src/target/feed';
 
 const LOCAL_URL = 'http://127.0.0.1:54321';
@@ -120,9 +120,8 @@ beforeAll(async () => {
   fx.grade2 = ((await writeTable(admin(), 'classification_grade', 'insert', { nombre: `${TAG} N2` })) as { id: string }[])[0].id;
   fx.feedType = ((await writeTable(admin(), 'feed_type', 'insert', { nombre: `${TAG} postura`, feed_category: 'LAYER' })) as { id: string }[])[0].id;
   const ing = ((await writeTable(admin(), 'feed_ingredient', 'insert', { nombre: `${TAG} maíz` })) as { id: string }[])[0].id;
-  fx.formula = ((await writeTable(admin(), 'feed_formula_version', 'insert',
-    { feed_type_id: fx.feedType, version: 1, effective_from: day(-30), created_by: users.ADMIN.id })) as { id: string }[])[0].id;
-  await writeTable(admin(), 'feed_formula_line', 'insert', { formula_version_id: fx.formula, ingredient_id: ing, quantity_kg: 1000 });
+  // ADR-013: formula versions are published only through RPC 48 (atomic, no direct write path)
+  fx.formula = (await publishFormulaVersion(admin(), { feedTypeId: fx.feedType, effectiveFrom: day(-30), lines: [{ ingredientId: ing, quantityKg: 1000 }] })).formula_version_id;
 });
 
 afterAll(async () => {
@@ -210,22 +209,22 @@ describe('F27-E classification (reference grades, one idempotent session per cal
     expect(grades.map((g) => g.id)).toEqual(expect.arrayContaining([fx.grade1, fx.grade2]));
     const key = randomUUID();
     const r = await registerClassification(operator(), {
-      idempotencyKey: key, date: day(-1), location: `${TAG} sala`, lines: [{ classification_grade_id: fx.grade1, quantity: 300 }, { classification_grade_id: fx.grade2, quantity: 100 }],
+      idempotencyKey: key, date: day(-1), location: `${TAG} sala`, lines: [{ classification_grade_id: fx.grade1, quantity: 300, unit: 'UNIDAD' }, { classification_grade_id: fx.grade2, quantity: 100, unit: 'UNIDAD' }],
     });
     expect(r.total_quantity).toBe(400);
     const rows = (await listClassificationDays(admin(), day(-1), day(-1))).filter((x) => [fx.grade1, fx.grade2].includes(x.classification_grade_id));
     expect(rows.map((x) => x.quantity).sort()).toEqual([100, 300]);
-    const dup = await registerClassification(operator(), { idempotencyKey: key, date: day(-1), lines: [{ classification_grade_id: fx.grade1, quantity: 1 }] }).catch((e) => e);
+    const dup = await registerClassification(operator(), { idempotencyKey: key, date: day(-1), lines: [{ classification_grade_id: fx.grade1, quantity: 1, unit: 'UNIDAD' }] }).catch((e) => e);
     expect(code(dup)).toBe('DUPLICATE_CLASSIFICATION');
     const empty = await registerClassification(operator(), { idempotencyKey: randomUUID(), date: day(-1), lines: [] }).catch((e) => e);
     expect(code(empty)).toBe('EMPTY_LINE_SET');
-    const neg = await registerClassification(operator(), { idempotencyKey: randomUUID(), date: day(-1), lines: [{ classification_grade_id: fx.grade1, quantity: -1 }] }).catch((e) => e);
+    const neg = await registerClassification(operator(), { idempotencyKey: randomUUID(), date: day(-1), lines: [{ classification_grade_id: fx.grade1, quantity: -1, unit: 'UNIDAD' }] }).catch((e) => e);
     expect(code(neg)).toBe('INVALID_QUANTITY');
     const twice = await registerClassification(operator(), {
-      idempotencyKey: randomUUID(), date: day(-1), lines: [{ classification_grade_id: fx.grade1, quantity: 1 }, { classification_grade_id: fx.grade1, quantity: 2 }],
+      idempotencyKey: randomUUID(), date: day(-1), lines: [{ classification_grade_id: fx.grade1, quantity: 1, unit: 'UNIDAD' }, { classification_grade_id: fx.grade1, quantity: 2, unit: 'UNIDAD' }],
     }).catch((e) => e);
     expect(code(twice)).toBe('DUPLICATE_GRADE_IN_SESSION');
-    const unknown = await registerClassification(operator(), { idempotencyKey: randomUUID(), date: day(-1), lines: [{ classification_grade_id: randomUUID(), quantity: 1 }] }).catch((e) => e);
+    const unknown = await registerClassification(operator(), { idempotencyKey: randomUUID(), date: day(-1), lines: [{ classification_grade_id: randomUUID(), quantity: 1, unit: 'UNIDAD' }] }).catch((e) => e);
     expect(code(unknown)).toBe('GRADE_NOT_FOUND');
   });
 });

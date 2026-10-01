@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
-import { FEED_MOVEMENT_TYPES, type FeedMovementType } from '../../target/feed';
+import { FEED_MOVEMENT_TYPES, versionsEffectiveOn, type FeedMovementType } from '../../target/feed';
 import { errorMessage } from '../../target/messages';
 import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
@@ -124,18 +124,25 @@ function FabricacionModal({ onClose }: { onClose: () => void }) {
   const [lote, setLote] = useState('');
   const [clave] = useState(() => `FAB-${crypto.randomUUID()}`);   // idempotency: one per opened form
   const nombre = (id: string) => (tipos.data ?? []).find((t) => t.id === id)?.nombre ?? '—';
+  // D-FEED-5: only the versions effective on the chosen date (ADR-013: at most one per feed type)
+  const vigentes = versionsEffectiveOn(versiones.data ?? [], fecha);
+  const elegida = vigentes.some((v) => v.id === versionId) ? versionId : '';
   return (
-    <Modal titulo="Registrar fabricación" onClose={onClose} puedeGuardar={versionId !== '' && Number(cantidad) > 0 && fecha !== ''}
+    <Modal titulo="Registrar fabricación" onClose={onClose} puedeGuardar={elegida !== '' && Number(cantidad) > 0 && fecha !== ''}
       guardando={manufacturing.isPending} error={manufacturing.error ?? versiones.error}
-      onSubmit={() => manufacturing.mutate({ formulaVersionId: versionId, date: fecha, quantityKg: Number(cantidad), idempotencyKey: clave, batchNumber: lote },
+      onSubmit={() => manufacturing.mutate({ formulaVersionId: elegida, date: fecha, quantityKg: Number(cantidad), idempotencyKey: clave, batchNumber: lote },
         { onSuccess: onClose })}>
-      <label className={etiqueta}>Fórmula
-        <select value={versionId} onChange={(e) => setVersionId(e.target.value)} className={campo}>
-          <option value="">Elegir…</option>
-          {(versiones.data ?? []).map((v) => <option key={v.id} value={v.id}>{nombre(v.feed_type_id)} · versión {v.version} (desde {v.effective_from})</option>)}
-        </select>
-      </label>
       <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
+      {!versiones.isLoading && vigentes.length === 0 ? (
+        <p className="text-sm text-amber-800">No hay fórmula vigente para esta fecha. Cargala en Administración → Alimento.</p>
+      ) : (
+        <label className={etiqueta}>Fórmula
+          <select value={elegida} onChange={(e) => setVersionId(e.target.value)} className={campo}>
+            <option value="">Elegir…</option>
+            {vigentes.map((v) => <option key={v.id} value={v.id}>{nombre(v.feed_type_id)} · v{v.version}</option>)}
+          </select>
+        </label>
+      )}
       <label className={etiqueta}>Cantidad (kg)<input type="number" min="0" step="0.001" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Nº de lote de fabricación (opcional)<input type="text" value={lote} onChange={(e) => setLote(e.target.value)} className={campo} /></label>
     </Modal>

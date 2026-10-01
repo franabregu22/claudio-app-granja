@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { listClassificationDays, listGrades, registerClassification } from '../../target/classification';
+import { listClassificationDays, listGrades, listSessions, rectifyClassification, registerClassification } from '../../target/classification';
 import {
-  assignFlockFeed, listConsumptionIntervals, listFeedTypes, listFlockFeed, listFormulaVersions, registerFeedInventoryCount, registerFeedManufacturing,
-  registerFeedMovement,
+  assignFlockFeed, listConsumptionIntervals, listFeedTypes, listFlockFeed, listFormulaComposition, listFormulaVersions, publishFormulaVersion,
+  registerFeedInventoryCount, registerFeedManufacturing, registerFeedMovement,
 } from '../../target/feed';
 import {
   listFlockDays, listFlockOptions, listMortalityEvents, rectifyDailyProduction, rectifyMortality, registerCountAdjustment,
@@ -45,10 +45,16 @@ export const useGrades = () => useQuery({ queryKey: [...CLASSIFICATION, 'grades'
 export const useClassificationDays = (from: string, to: string) =>
   useQuery({ queryKey: [...CLASSIFICATION, 'days', from, to], queryFn: () => listClassificationDays(supabase, from, to) });
 export const useRegisterClassification = () => useWrite(registerClassification, [CLASSIFICATION]);
+export const useClassificationSessions = (date: string) =>
+  useQuery({ queryKey: [...CLASSIFICATION, 'sessions', date], queryFn: () => listSessions(supabase, date), enabled: date !== '' });
+export const useRectifyClassification = () => useWrite(rectifyClassification, [CLASSIFICATION]);
 
 // ── feed ────────────────────────────────────────────────────────────────────
 export const useFeedTypes = () => useQuery({ queryKey: [...FEED, 'types'], queryFn: () => listFeedTypes(supabase) });
 export const useFormulaVersions = () => useQuery({ queryKey: [...FEED, 'formulas'], queryFn: () => listFormulaVersions(supabase) });
+export const useFormulaComposition = (versionIds: string[]) =>
+  useQuery({ queryKey: [...FEED, 'composition', ...versionIds], queryFn: () => listFormulaComposition(supabase, versionIds) });
+export const usePublishFormula = () => useWrite(publishFormulaVersion, [FEED]);
 export const useFlockFeed = () => useQuery({ queryKey: [...FEED, 'assignments'], queryFn: () => listFlockFeed(supabase) });
 export const useConsumptionIntervals = () => useQuery({ queryKey: [...FEED, 'intervals'], queryFn: () => listConsumptionIntervals(supabase) });
 

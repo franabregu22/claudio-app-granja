@@ -505,18 +505,18 @@ section('P', 'privilege perimeter re-asserted');
   check('P-6 accepted pg_net residual risk still contained: net not exposed by PostgREST (404 / 406) and no public function references net / cron / vault',
     ANON_KEY !== '' && r1.status === 404 && r2.status === 406 && owner(`SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND prosrc ~* '\\m(net|cron|vault)\\.';`) === '0',
     `${r1.status} ${r2.status}`);
-  const DEFINER_63 = ['assert_period_open', 'assign_flock_feed', 'assign_freight_to_purchase', 'cancel_order', 'cancel_supplier_instrument', 'clear_cheque',
+  const DEFINER_65 = ['assert_period_open', 'assign_flock_feed', 'assign_freight_to_purchase', 'cancel_order', 'cancel_supplier_instrument', 'clear_cheque',
     'close_flock', 'close_sales_session', 'current_app_role', 'deliver_order', 'deposit_cheque', 'endorse_cheque', 'issue_supplier_instrument', 'mark_supplier_instrument_debited',
     'mp_allocate_to_client', 'mp_apply_transition', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_clear_attribution_flag',
     'mp_delivery_transition', 'mp_flag_for_attribution', 'mp_ingest_api_snapshot', 'mp_map_payer_to_client', 'mp_normalize_report_fallback', 'mp_normalize_source',
     'mp_reconcile_movement', 'mp_record_balance_check', 'mp_register_delivery', 'mp_request_refetch', 'mp_requeue_config_blocked', 'mp_resolve_chargeback_signal',
-    'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', 'open_sales_session', 'pay_fiscal_obligation', 'pay_supplier', 'receive_cheque',
+    'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', 'open_sales_session', 'pay_fiscal_obligation', 'pay_supplier', 'publish_feed_formula_version', 'receive_cheque', 'rectify_classification',
     'rectify_daily_production', 'rectify_delivered_order', 'rectify_mortality', 'rectify_purchase', 'register_bank_tax', 'register_classification', 'register_collection',
     'register_count_adjustment', 'register_daily_production', 'register_feed_inventory_count', 'register_feed_manufacturing', 'register_feed_movement',
     'register_fiscal_document', 'register_fiscal_obligation', 'register_flock', 'register_freight', 'register_management_event', 'register_mortality', 'register_purchase',
     'register_session_cash_event', 'register_session_movement', 'reject_cheque', 'reject_supplier_instrument', 'transfer_between_accounts'];
-  check('P-7 SECURITY DEFINER set = the exact 63-name literal (60 ADR-006 + 2 ADR-007 + 1 ADR-011); helpers / trigger functions INVOKER and owner-only',
-    owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === DEFINER_63.join(',')
+  check('P-7 SECURITY DEFINER set = the exact 65-name literal (60 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013); helpers / trigger functions INVOKER and owner-only',
+    owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === DEFINER_65.join(',')
       && owner(`SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN ('mp_is_auto_applicable','mp_v4_verified','mp_parse_report_row',
           'mp_claim_report_payment_fallback','mp_delivery_immutable_guard','mp_report_match_guard','mp_source_raw_guard','mp_source_insert_guard')
           AND NOT p.prosecdef AND NOT (has_function_privilege('anon', p.oid, 'EXECUTE') OR has_function_privilege('authenticated', p.oid, 'EXECUTE') OR has_function_privilege('service_role', p.oid, 'EXECUTE'));`) === '8');

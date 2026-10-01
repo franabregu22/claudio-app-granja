@@ -60,8 +60,8 @@ const BIRTH = '2025-10-06';
 const TABLES = ['feed_formula_line', 'feed_formula_version', 'feed_inventory_count', 'feed_manufacturing', 'feed_movement', 'flock_feed_assignment'];
 const FEED_RPCS = ['assign_flock_feed', 'register_feed_inventory_count', 'register_feed_manufacturing', 'register_feed_movement'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,close_flock,close_sales_session,current_app_role,deliver_order,'
-  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
-  + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
+  + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,publish_feed_formula_version,receive_cheque,'
+  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_flock,register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,reject_supplier_instrument,transfer_between_accounts';
 
@@ -125,7 +125,7 @@ async function race(uidA, sqlA, uidB, sqlB, appPrefix, expectWait = true) {
   const pA = session(sessionSql('authenticated', claimsOf(uidA), `${sqlA}\nSELECT pg_sleep(2);`), `${appPrefix}-A`);
   const aIn = await waitFor(`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = '${appPrefix}-A'
     AND state = 'active' AND query LIKE '%pg_sleep%');`);
-  const pB = session(sessionSql('authenticated', claimsOf(uidB), sqlB), `${appPrefix}-B`);
+  const pB = session(uidB === null ? sqlB : sessionSql('authenticated', claimsOf(uidB), sqlB), `${appPrefix}-B`);
   const bWait = expectWait
     ? await waitFor(`SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = '${appPrefix}-B' AND wait_event_type IN ('Lock'));`)
     : null;
@@ -254,9 +254,10 @@ const manufacture = (fn, fv, date, qty, batch = null, reason = null) => {
 const feedType = (name, category = 'LAYER', activo = true) =>
   okAs(ADMIN, `INSERT INTO feed_type (nombre, feed_category, activo) VALUES ('${TAG} ${name}', '${category}', ${activo}) RETURNING id;`);
 const ingredient = (name) => okAs(ADMIN, `INSERT INTO feed_ingredient (nombre) VALUES ('${TAG} ${name}') RETURNING id;`);
-const version = (ft, v, from, to = null) => okAs(ADMIN, `INSERT INTO feed_formula_version (feed_type_id, version, effective_from, effective_to, created_by)
+// [ADR-013] versions / lines have no application write path (RPC 48 only): fixtures are written by the owner
+const version = (ft, v, from, to = null) => owner(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from, effective_to, created_by)
   VALUES ('${ft}', ${v}, '${from}', ${q(to)}, '${ADMIN_UID}') RETURNING id;`);
-const line = (fv, ing, kg, cost = null) => okAs(ADMIN, `INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg, unit_cost_snapshot)
+const line = (fv, ing, kg, cost = null) => owner(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg, unit_cost_snapshot)
   VALUES ('${fv}', '${ing}', ${kg}, ${n(cost)}) RETURNING id;`);
 let shedSeq = 0;
 const flock = (name, initial = 1000, birth = BIRTH, entry = '2025-12-01') => {
@@ -424,21 +425,25 @@ check('A8 safe view feed_formula_line_safe: exactly formula_version_id, ingredie
   viewCols === 'formula_version_id,ingredient_id,ingredient_name,quantity_kg' && viewMeta === 'postgres|security_invoker=false', `${viewCols} / ${viewMeta}`);
 
 // ═══════════════════════════════════════════════════════════════════════════
-section('B', 'Formula versions (ADMIN master path)');
+section('B', 'Formula versions (physical constraints; owner fixtures — ADR-013)');
 
 const V1 = version(T_MAIN, 1, '2026-01-01', '2026-03-31');
 const V2 = version(T_MAIN, 2, '2026-04-01');
-check('B1 ADMIN creates v1 (2026-01-01 → 2026-03-31) and v2 (2026-04-01 → open) for one feed type',
+check('B1 fixture v1 (2026-01-01 → 2026-03-31) and v2 (2026-04-01 → open) for one feed type',
   owner(`SELECT string_agg(version || ':' || effective_from || '→' || coalesce(effective_to::TEXT, 'open'), ',' ORDER BY version) FROM feed_formula_version WHERE feed_type_id = '${T_MAIN}';`)
   === '1:2026-01-01→2026-03-31,2:2026-04-01→open');
-r = ADMIN(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from) VALUES ('${T_MAIN}', 0, '2026-01-01');`);
+r = raw(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from) VALUES ('${T_MAIN}', 0, '2026-01-01');`);
 check('B2 version must be > 0', violates(r, 'feed_formula_version_version_check'), firstErr(r));
-r = ADMIN(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from, effective_to) VALUES ('${T_MAIN}', 9, '2026-05-01', '2026-04-30');`);
+r = raw(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from, effective_to) VALUES ('${T_MAIN}', 9, '2026-05-01', '2026-04-30');`);
 check('B3 effective_to < effective_from rejected (chk_formula_version_range)', violates(r, 'chk_formula_version_range'), firstErr(r));
-r = ADMIN(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from) VALUES ('${T_MAIN}', 2, '2026-06-01');`);
+r = raw(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from) VALUES ('${T_MAIN}', 2, '2026-06-01');`);
 check('B4 UNIQUE(feed_type_id, version)', violates(r, 'feed_formula_version_feed_type_id_version_key'), firstErr(r));
 r = A(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from) VALUES ('${T_MAIN}', 7, '2026-06-01');`);
-check('B5 OPERATOR cannot create a formula version (no INSERT policy for OPERATOR)', rlsDenied(r), firstErr(r));
+check('B5 OPERATOR cannot create a formula version (no INSERT grant — ADR-013)', denied(r), firstErr(r));
+r = ADMIN(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from) VALUES ('${T_MAIN}', 7, '2026-06-01');`);
+check('B5b ADMIN has no direct INSERT on feed_formula_version either (ADR-013: RPC 48 only)', denied(r), firstErr(r));
+r = raw(`INSERT INTO feed_formula_version (feed_type_id, version, effective_from) VALUES ('${T_MAIN}', 7, '2026-03-01');`);
+check('B5c two versions of one feed type can never overlap, even for the owner (excl_feed_formula_version_no_overlap)', violates(r, 'excl_feed_formula_version_no_overlap'), firstErr(r));
 const V_RECRIA = version(T_RECRIA, 1, '2026-01-01');
 const V_EQ = version(T_EQ, 1, '2026-01-01');
 const V_E2E_1 = version(T_E2E, 1, '2026-01-01', '2026-03-31');
@@ -462,14 +467,16 @@ const composition = (fv) => owner(`SELECT string_agg(i.nombre || ':' || l.quanti
 const V1_COMPOSITION = composition(V1);
 check('C1 composition per 100 kg batch stored by ingredient FK, with cost snapshot (NULL allowed)',
   V1_COMPOSITION === `${TAG} Maiz:60.000:150.00,${TAG} Nucleo:10.000:null,${TAG} Soja:30.000:320.50`, V1_COMPOSITION);
-r = ADMIN(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${SOJA}', 0);`);
+r = raw(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${SOJA}', 0);`);
 check('C2 quantity_kg must be > 0', violates(r, 'feed_formula_line_quantity_kg_check'), firstErr(r));
-r = ADMIN(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${MAIZ}', 5);`);
+r = raw(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${MAIZ}', 5);`);
 check('C3 UNIQUE(formula_version_id, ingredient_id)', violates(r, 'feed_formula_line_formula_version_id_ingredient_id_key'), firstErr(r));
-r = ADMIN(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${MISSING_UUID}', 5);`);
+r = raw(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${MISSING_UUID}', 5);`);
 check('C4 ingredient must exist (FK to feed_ingredient)', violates(r, 'feed_formula_line_ingredient_id_fkey'), firstErr(r));
 r = A(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${SOJA}', 5);`);
-check('C5 OPERATOR cannot insert composition (no INSERT policy for OPERATOR)', rlsDenied(r), firstErr(r));
+check('C5 OPERATOR cannot insert composition (no INSERT grant — ADR-013)', denied(r), firstErr(r));
+r = ADMIN(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE}', '${SOJA}', 5);`);
+check('C5b ADMIN has no direct INSERT on feed_formula_line either (ADR-013: RPC 48 only)', denied(r), firstErr(r));
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('D', 'Manufacturing (RPC 26)');
@@ -692,7 +699,7 @@ section('V', 'Formula immutability once used');
 
 check('V0 v1 is used: referenced by manufacturing', owner(`SELECT count(*) > 0 FROM feed_manufacturing WHERE formula_version_id = '${V1}';`) === 't');
 r = ADMIN(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg, unit_cost_snapshot) VALUES ('${V1}', '${CALCIO}', 2, 5);`);
-check('V1 ADMIN master path cannot add composition to a USED version → FORMULA_VERSION_IN_USE', raised(r, 'FORMULA_VERSION_IN_USE'), firstErr(r));
+check('V1 ADMIN has no path to add composition to a USED version (no INSERT grant — ADR-013)', denied(r), firstErr(r));
 r = raw(`INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V1}', '${CALCIO}', 2);`);
 check('V2 the guard holds even for the table owner', raised(r, 'FORMULA_VERSION_IN_USE'), firstErr(r));
 snap = snapshot();
@@ -718,9 +725,9 @@ check('V4 manufacturing cannot be repointed to another version (ADMIN and OPERAT
 r = raw(`BEGIN; DELETE FROM feed_formula_line WHERE formula_version_id = '${V1}'; DELETE FROM feed_formula_version WHERE id = '${V1}'; ROLLBACK;`);
 check('V5 a used version cannot be deleted even by the owner (FK RESTRICT from feed_manufacturing; probe rolled back)',
   violates(r, 'feed_manufacturing_formula_version_id_fkey') && composition(V1) === V1_COMPOSITION, firstErr(r));
-const V_UNUSED = version(T_RACE, 2, '2026-06-01');
+const V_UNUSED = version(feedType('Unused'), 1, '2026-06-01');   // own feed type: versions of one type never overlap (ADR-013)
 line(V_UNUSED, SOJA, 50, 10);
-check('V6 an UNUSED version is still built through the master INSERT path (composition added before first use)',
+check('V6 an UNUSED version still accepts composition before first use (physical guard only fires once used)',
   owner(`SELECT count(*) FROM feed_formula_line WHERE formula_version_id = '${V_UNUSED}';`) === '1');
 check('V7 history exact: the 2026-02-01 manufacturing still points to v1, and v1 composition (incl. cost) is byte-identical',
   mfgRow(d1.manufacturing_id).startsWith(`${V1}|2026-02-01|`) && composition(V1) === V1_COMPOSITION, composition(V1));
@@ -752,9 +759,9 @@ check('H4 deriving wrote nothing (the result is never stored)', snapshot() === s
 check('H5 no stored consumption object: no table or view named *consum* / *consumo* except the reference curve',
   owner(`SELECT coalesce(string_agg(table_name, ','), '') FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(consum|consumo)' AND table_name NOT IN (${ADR005_VIEWS});`)
   === 'genetics_consumption_curve');
-check('H6 no correction / supersede path invented for counts: the only feed functions are RPCs 26–29 and the immutability trigger function',
+check('H6 no correction / supersede path invented for counts: the only feed functions are RPCs 26–29, RPC 48 publish_feed_formula_version (ADR-013) and the immutability trigger function',
   owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname ~* '(feed|formula|consum)';`)
-  === 'assign_flock_feed,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,reject_line_on_used_formula_version');
+  === 'assign_flock_feed,publish_feed_formula_version,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,reject_line_on_used_formula_version');
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('I', 'Theoretical consumption — derived from curve × population × assignment');
@@ -840,18 +847,18 @@ check('K5 no direct INSERT / UPDATE / DELETE / TRUNCATE on the four fact tables 
   direct.every(denied) && snapshot() === snap, direct.map((d) => (denied(d) ? 'd' : 'OPEN')).join(','));
 const acl = owner(`SELECT string_agg(relname || '=' || relacl::TEXT, ' ' ORDER BY relname) FROM pg_class
   WHERE relname IN (${TABLES.map((t) => `'${t}'`).join(',')}, 'feed_formula_line_safe');`);
-check('K6 exact ACLs: authenticated SELECT on facts, SELECT+INSERT on the two formula tables, SELECT on the safe view; nothing else',
-  acl === 'feed_formula_line={postgres=arwdDxtm/postgres,authenticated=ar/postgres} feed_formula_line_safe={postgres=arwdDxtm/postgres,authenticated=r/postgres} '
-  + 'feed_formula_version={postgres=arwdDxtm/postgres,authenticated=ar/postgres} feed_inventory_count={postgres=arwdDxtm/postgres,authenticated=r/postgres} '
+check('K6 exact ACLs: authenticated SELECT on facts, on the two formula tables (ADR-013: no INSERT) and on the safe view; nothing else',
+  acl === 'feed_formula_line={postgres=arwdDxtm/postgres,authenticated=r/postgres} feed_formula_line_safe={postgres=arwdDxtm/postgres,authenticated=r/postgres} '
+  + 'feed_formula_version={postgres=arwdDxtm/postgres,authenticated=r/postgres} feed_inventory_count={postgres=arwdDxtm/postgres,authenticated=r/postgres} '
   + 'feed_manufacturing={postgres=arwdDxtm/postgres,authenticated=r/postgres} feed_movement={postgres=arwdDxtm/postgres,authenticated=r/postgres} '
   + 'flock_feed_assignment={postgres=arwdDxtm/postgres,authenticated=r/postgres}', acl);
 check('K7 sequences feed_movement_id_seq / feed_inventory_count_id_seq grant nothing to application roles',
   owner(`SELECT count(*) FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('s', c.relowner))) a WHERE c.relname IN ('feed_movement_id_seq','feed_inventory_count_id_seq')
          AND a.grantee <> c.relowner;`) === '0');
 const pols = owner(`SELECT string_agg(tablename || ':' || policyname || ':' || cmd, ',' ORDER BY tablename, policyname) FROM pg_policies WHERE tablename IN (${TABLES.map((t) => `'${t}'`).join(',')});`);
-check('K8 policies exactly as frozen RLS §8',
-  pols === 'feed_formula_line:feed_formula_line_admin_insert:INSERT,feed_formula_line:feed_formula_line_admin_select:SELECT,'
-  + 'feed_formula_version:feed_formula_version_admin_insert:INSERT,feed_formula_version:feed_formula_version_admin_select:SELECT,feed_formula_version:feed_formula_version_operator_select:SELECT,'
+check('K8 policies exactly as frozen RLS §8 minus the two formula INSERT policies (ADR-013)',
+  pols === 'feed_formula_line:feed_formula_line_admin_select:SELECT,'
+  + 'feed_formula_version:feed_formula_version_admin_select:SELECT,feed_formula_version:feed_formula_version_operator_select:SELECT,'
   + 'feed_inventory_count:feed_inventory_count_admin_select:SELECT,feed_inventory_count:feed_inventory_count_operator_select:SELECT,'
   + 'feed_manufacturing:feed_manufacturing_admin_select:SELECT,feed_manufacturing:feed_manufacturing_operator_select:SELECT,'
   + 'feed_movement:feed_movement_admin_select:SELECT,'
@@ -982,10 +989,10 @@ check('N4 concurrent reassignments with the SAME effective_from: B waited, then 
   x.aIn && x.bWait && x.ra.ok && violates(x.rb, 'chk_flock_feed_range')
   && history(FR) === `${TAG} Ponedoras:2026-01-01→2026-06-30,${TAG} Recria:2026-07-01→2026-07-31,${TAG} Race:2026-08-01→2026-08-31,${TAG} Ponedoras:2026-09-01→current`,
   `${history(FR)} ${firstErr(x.rb)}`);
-const V_RACE2 = version(T_RACE, 3, '2026-01-01');
+const V_RACE2 = version(feedType('Race2'), 1, '2026-01-01');   // own feed type: no overlap with V_RACE (ADR-013)
 line(V_RACE2, MAIZ, 100, 1);
 x = await race(OPA, `SELECT ${mfgCall(V_RACE2, '2026-07-03', 5, newKey())};`,
-  ADMIN_UID, `INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE2}', '${CALCIO}', 1);`, 'p20-line');
+  null, `INSERT INTO feed_formula_line (formula_version_id, ingredient_id, quantity_kg) VALUES ('${V_RACE2}', '${CALCIO}', 1);`, 'p20-line');
 check('N5 first manufacturing of a version vs a concurrent composition insert: the insert waited, then FORMULA_VERSION_IN_USE; composition unchanged',
   x.aIn && x.bWait && x.ra.ok && raised(x.rb, 'FORMULA_VERSION_IN_USE')
   && owner(`SELECT count(*) FROM feed_formula_line WHERE formula_version_id = '${V_RACE2}';`) === '1', firstErr(x.rb));

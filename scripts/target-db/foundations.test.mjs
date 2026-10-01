@@ -198,7 +198,8 @@ const enumCount = owner(
 );
 // 28 frozen enum types + 2 added by ADR-004 in Phase 24 (expense_cost_class, management_event_type)
 // + 2 added by ADR-006 in 0047 (mp_delivery_status, mp_match_outcome)
-check(`28 frozen + 2 ADR-004 + 2 ADR-006 enum types exist (found ${enumCount})`, enumCount === '32');
+// + 1 added by ADR-012 in 0063 (classification_entry_unit)
+check(`28 frozen + 2 ADR-004 + 2 ADR-006 + 1 ADR-012 enum types exist (found ${enumCount})`, enumCount === '33');
 
 const rolValues = owner(`SELECT string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
   FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='rol_type';`);
@@ -404,6 +405,7 @@ const LATER_PHASE_DEFINERS = [
   'register_management_event',                                                                           // Phase 24 (ADR-004)
   'register_flock', 'close_flock',                                                                       // ADR-007 RPCs 44 / 45 (0057)
   'register_bank_tax',                                                                                   // ADR-011 RPC 46 (0062)
+  'rectify_classification', 'publish_feed_formula_version',                                              // ADR-012 RPC 47 (0063) / ADR-013 RPC 48 (0064)
   'mp_allocate_to_client', 'mp_apply_transition', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_clear_attribution_flag', 'mp_delivery_transition', 'mp_flag_for_attribution', 'mp_ingest_api_snapshot', 'mp_map_payer_to_client', 'mp_normalize_report_fallback', 'mp_record_balance_check', 'mp_register_delivery', 'mp_request_refetch', 'mp_requeue_config_blocked', 'mp_resolve_chargeback_signal', 'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', // ADR-006 Step 2 (0048)
 ];
 const expectedDefiners = ['assert_period_open', 'current_app_role', ...LATER_PHASE_DEFINERS].sort().join(',');

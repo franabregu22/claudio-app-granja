@@ -40,7 +40,8 @@ export interface OperatorAssignmentRow { id: string; operator_id: string; flock_
 export interface ProfileRow { id: string; email: string; rol_type: 'ADMIN' | 'OPERATOR'; activo: boolean }
 
 /** The master tables edited through direct writes in F27-B (all INSERT / UPDATE only). */
-export type MasterTable = 'clients' | 'suppliers' | 'expense_category' | 'financial_account' | 'projects' | 'products' | 'sheds';
+export type MasterTable = 'clients' | 'suppliers' | 'expense_category' | 'financial_account' | 'projects' | 'products' | 'sheds'
+  | 'feed_type' | 'feed_ingredient';   // Administración → Alimento (ADR-013 block 4)
 type Values = Record<string, unknown>;
 
 /** Trim text fields and turn empty strings into NULL; other values pass through unchanged. */

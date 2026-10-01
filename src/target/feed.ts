@@ -36,6 +36,34 @@ export function listFormulaVersions(client: SupabaseClient): Promise<FormulaVers
     'id, feed_type_id, version, effective_from, effective_to');
 }
 
+/** D-FEED-5: the versions usable for manufacturing on `date` (one per feed type by ADR-013), as read. */
+export function versionsEffectiveOn(versions: FormulaVersionRow[], date: string): FormulaVersionRow[] {
+  if (!date) return [];
+  return versions.filter((v) => v.effective_from <= date && (v.effective_to === null || v.effective_to >= date));
+}
+
+export interface FormulaLineRow { formula_version_id: string; ingredient_id: string; ingredient_name: string; quantity_kg: number }
+/** Composition without cost (feed_formula_line_safe), for the given versions. */
+export async function listFormulaComposition(client: SupabaseClient, versionIds: string[]): Promise<FormulaLineRow[]> {
+  if (versionIds.length === 0) return [];
+  const rows = await readView<FormulaLineRow>(client, 'feed_formula_line_safe', (q) => q.in('formula_version_id', versionIds).order('ingredient_name'),
+    'formula_version_id, ingredient_id, ingredient_name, quantity_kg');
+  return rows.map((r) => ({ ...r, quantity_kg: Number(r.quantity_kg) }));
+}
+
+/**
+ * ADR-013 RPC 48 — the only write path for formula versions and their composition. Atomic in the backend:
+ * next version number, prior version closed at effectiveFrom − 1, all lines or nothing.
+ */
+export function publishFormulaVersion(client: SupabaseClient, p: {
+  feedTypeId: string; effectiveFrom: string; lines: { ingredientId: string; quantityKg: number }[]; reason?: string | null;
+}) {
+  return callRpc<{ formula_version_id: string; version: number; line_count: number; closed_version_id: string | null }>(client, 'publish_feed_formula_version', {
+    p_feed_type_id: p.feedTypeId, p_effective_from: p.effectiveFrom,
+    p_lines: p.lines.map((l) => ({ ingredient_id: l.ingredientId, quantity_kg: l.quantityKg })), p_reason: reasonOrNull(p.reason),
+  });
+}
+
 export function listFlockFeed(client: SupabaseClient): Promise<FlockFeedRow[]> {
   return readTable<FlockFeedRow>(client, 'flock_feed_assignment', (q) => q.order('effective_from', { ascending: false }),
     'id, flock_id, feed_type_id, effective_from, effective_to');

@@ -4,7 +4,8 @@
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 **AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — purchase attachment objects: private Storage bucket `purchase-attachments` (10 MB, PDF / JPEG / PNG / WebP) with ADMIN-only SELECT / INSERT / DELETE policies on `storage.objects` (migration 0058). No public-schema change. Amended section is marked **[ADR-008]**.  
-**AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 carries the ADMIN guard (migration 0059); migration 0060 drops the OPERATOR read policies on sales_session / sales_session_movement and removes the Feria entity from audit_events_operator_own, so Feria is completely ADMIN-only in V1, including reads. Amended passages are marked **[ADR-009]**.  
+**AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 carries the ADMIN guard (migration 0059); migration 0060 drops the OPERATOR read policies on sales_session / sales_session_movement and removes the Feria entity from audit_events_operator_own, so Feria is completely ADMIN-only in V1, including reads. Amended passages are marked **[ADR-009]**.
+**AMENDMENTS:** ADR-013 (`.planning/adr/ADR-013_FEED_FORMULA_PUBLICATION.md`, ACCEPTED 2026-10-01) — `feed_formula_version_admin_insert` and `feed_formula_line_admin_insert` are dropped and INSERT on both tables is revoked from `authenticated` (migration 0064): RPC 48 `publish_feed_formula_version` is the only write path. ADR-012 (`.planning/adr/ADR-012_CLASSIFICATION_UNITS_RECTIFICATION.md`) adds RPC 47 `rectify_classification` with no RLS change. Amended passages are marked **[ADR-013]**.
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md Part 2 (frozen)  
@@ -676,8 +677,8 @@ SERVICE_ROLE reaches MP tables and the RPCs that bridge them to `financial_opera
 | temperature_record | S | S assigned sheds | — | RPC 24 only |
 | classification | S | own S | — | RPC 25 only |
 | classification_line | S | own S | — | RPC 25 only |
-| feed_formula_version | S,I | S effective | — | ADMIN |
-| feed_formula_line | S,I | — (safe view) | — | ADMIN |
+| feed_formula_version | S (I removed **[ADR-013]**: RPC 48 only) | S effective | — | ADMIN |
+| feed_formula_line | S (I removed **[ADR-013]**: RPC 48 only) | — (safe view) | — | ADMIN |
 | feed_manufacturing | S | S | — | RPC 26 only |
 | feed_movement | S | — | — | RPC 28 only |
 | feed_inventory_count | S | S | — | RPC 27 only |

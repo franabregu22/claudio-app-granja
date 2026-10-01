@@ -417,3 +417,15 @@ The fixes come from owner decisions D-WALK-1…7 (2026-09-30). This is not a new
 | D-WALK-7 | ADR-011 (migration 0062): RPC 46 `register_bank_tax`, `bank_tax_charge`, `report_bank_tax_period`. The tax is optional in the transfer form; a failure is shown as a partial success and a retry registers only the tax. The history shows the related tax; a tax can be added later. Not in the P&L. | `treasury.ts`, `ResumenSaldos.tsx` |
 
 The ADR-008 Storage-API tests and the real-Storage "Nueva compra" end-to-end test stay **SKIPPED / PRE-CUTOVER REQUIRED** (§9b) for the with-file path.
+
+### 10.1 Block 4 — Classification and Feed (owner D-CLS-1…5, D-FEED-1…6; 2026-10-01)
+
+| Id | Fix | Where |
+|---|---|---|
+| D-CLS-1 | Lines are entered as UNIDAD or MAPLE. The backend converts to eggs (MAPLE = 20 for XL, 30 otherwise) and keeps the entry as typed (ADR-012, migration 0063). | `classification.ts`, `ClasificacionApp.tsx` |
+| D-CLS-2 / 4 | Each save is an independent session. "Sesiones del día" lists them collapsed (`hh:mm · Total N huevos`); the detail shows the exact entry ("N1 — 3 maples (90 huevos)") and, if rectified, the reason and the prior versions. | `ClasificacionApp.tsx` |
+| D-CLS-3 / 5 | RPC 47 `rectify_classification`: a whole-session new version with a mandatory reason; the original is kept. The daily report counts current versions only. | 0063, `ClasificacionApp.tsx` |
+| D-FEED-1 / 2 | RPC 48 `publish_feed_formula_version`: atomic; the prior version closes at D − 1; one effective version per feed type (EXCLUDE). The direct INSERT path on versions and lines is removed. An empty version is not manufacturable (ADR-013, migration 0064). | 0064, `feed.ts`, `db.ts` |
+| D-FEED-3 / 4 | Administración → Alimento: Tipos de alimento, Ingredientes, Fórmulas / Recetas (effective version, validity, composition, history, "Nueva versión"). | `AlimentoAdmin.tsx`, `AdminApp.tsx` |
+| D-FEED-5 | Fabricación offers only the versions effective on the chosen date (`<tipo> · vN`); otherwise "No hay fórmula vigente para esta fecha. Cargala en Administración → Alimento." | `AlimentoApp.tsx` |
+| D-FEED-6 | Test feed data is created manually through the UI in the local walkthrough only; no seed and no production. | — |

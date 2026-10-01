@@ -46,8 +46,6 @@ export const DIRECT_WRITES = {
   classification_grade: ['insert', 'update'],
   feed_type: ['insert', 'update'],
   feed_ingredient: ['insert', 'update'],
-  feed_formula_version: ['insert'],
-  feed_formula_line: ['insert'],
   genetics_consumption_curve: ['insert', 'update'],
   purchase_attachment: ['insert', 'update'],
   pedidos: ['insert', 'update'],
@@ -73,6 +71,7 @@ export const TARGET_RPCS = [
   'mp_map_payer_to_client', 'mp_unmap_payer', 'mp_resolve_match', 'mp_normalize_report_fallback', 'mp_requeue_config_blocked',
   'mp_request_refetch', 'mp_resolve_chargeback_signal',
   'register_bank_tax',   // ADR-011 (RPC 46)
+  'rectify_classification', 'publish_feed_formula_version',   // ADR-012 (RPC 47) / ADR-013 (RPC 48)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 
