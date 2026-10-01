@@ -3,6 +3,7 @@
  * (migration 0058: ADMIN-only SELECT / INSERT / DELETE, 10 MB, PDF / JPEG / PNG / WebP; no public URL).
  *
  * Sequence for a new purchase (ADR-008 §4):
+ *   0. [ADR-010] attachments are optional: with no file, register_purchase is called directly with [];
  *   1. validate the files (UX; the bucket enforces the same limits);
  *   2. upload each under a generated key `<auth-user-id>/<uuid>.<ext>` (the original name is metadata only);
  *   3. call register_purchase (RPC 13) with the object metadata — the backend stays the only accounting authority;
@@ -24,7 +25,6 @@ export interface AttachmentMeta { storage_path: string; file_name: string; conte
 
 /** UX validation, before any request. The bucket refuses the same cases server-side. */
 export function validateAttachments(files: AttachmentFile[]): void {
-  if (files.length === 0) throw new TargetDbError('ATTACHMENT_REQUIRED', 'at least one attachment');
   for (const f of files) {
     if (!ATTACHMENT_TYPES[f.type]) throw new TargetDbError('ATTACHMENT_TYPE_NOT_ALLOWED', f.type || 'unknown');
     if (f.size <= 0 || f.size > MAX_ATTACHMENT_BYTES) throw new TargetDbError('ATTACHMENT_TOO_LARGE', String(f.size));

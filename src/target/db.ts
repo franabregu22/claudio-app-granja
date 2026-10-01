@@ -12,6 +12,7 @@ export const TARGET_VIEWS = [
   'report_sales_line', 'report_balance_period', 'report_mp_movement_status', 'report_feria_session_cash', 'report_flock_day',
   'report_feed_consumption_interval', 'report_classification_day', 'pnl_summary', 'pnl_line_item', 'feed_formula_line_safe',
   'report_mp_receipt_status', 'report_mp_delivery_health', 'report_mp_report_exceptions',
+  'report_bank_tax_period',   // ADR-011
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -27,6 +28,7 @@ export const TARGET_READ_TABLES = [
   'feed_movement', 'feed_inventory_count', 'flock_feed_assignment', 'fiscal_document', 'fiscal_obligation', 'fiscal_obligation_installment',
   'mp_client_allocation', 'mp_payer_client_map', 'mp_webhook_delivery',
   'collections', 'management_event',
+  'financial_operation', 'financial_posting', 'bank_tax_charge',   // Phase 27 acceptance fixes: transfer history (D-WALK-2) + ADR-011
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -70,6 +72,7 @@ export const TARGET_RPCS = [
   'mp_reconcile_movement', 'mp_allocate_to_client', 'mp_reverse_client_allocation', 'mp_flag_for_attribution', 'mp_clear_attribution_flag',
   'mp_map_payer_to_client', 'mp_unmap_payer', 'mp_resolve_match', 'mp_normalize_report_fallback', 'mp_requeue_config_blocked',
   'mp_request_refetch', 'mp_resolve_chargeback_signal',
+  'register_bank_tax',   // ADR-011 (RPC 46)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

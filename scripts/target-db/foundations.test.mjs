@@ -175,6 +175,7 @@ const LATER_PHASE_TABLES = [
   'mp_financial_movement', 'mp_reconciliation', 'mp_source_record',                            // Phase 23 Mercado Pago
   'management_event',                                                                           // Phase 24 P&L (ADR-004)
   'mp_attribution_flag', 'mp_client_allocation', 'mp_payer_client_map', 'mp_report_match', 'mp_transition_identity', 'mp_webhook_delivery', // ADR-006 (0047)
+  'bank_tax_charge',                                                                            // ADR-011 (0062)
 ];
 const foundationFound = tableList.filter((t) => expectedTables.includes(t));
 check(`17 Foundation tables exist (found ${foundationFound.length})`, foundationFound.length === 17, foundationFound.join(','));
@@ -402,6 +403,7 @@ const LATER_PHASE_DEFINERS = [
   'mp_normalize_source', 'mp_reconcile_movement',                                                        // Phase 23
   'register_management_event',                                                                           // Phase 24 (ADR-004)
   'register_flock', 'close_flock',                                                                       // ADR-007 RPCs 44 / 45 (0057)
+  'register_bank_tax',                                                                                   // ADR-011 RPC 46 (0062)
   'mp_allocate_to_client', 'mp_apply_transition', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_clear_attribution_flag', 'mp_delivery_transition', 'mp_flag_for_attribution', 'mp_ingest_api_snapshot', 'mp_map_payer_to_client', 'mp_normalize_report_fallback', 'mp_record_balance_check', 'mp_register_delivery', 'mp_request_refetch', 'mp_requeue_config_blocked', 'mp_resolve_chargeback_signal', 'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', // ADR-006 Step 2 (0048)
 ];
 const expectedDefiners = ['assert_period_open', 'current_app_role', ...LATER_PHASE_DEFINERS].sort().join(',');

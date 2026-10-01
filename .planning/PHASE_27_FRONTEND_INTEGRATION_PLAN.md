@@ -399,3 +399,21 @@ The frontend role type is only `ADMIN | OPERATOR`, from `current_app_role()`. A 
 - The Supabase CLI binary is also blocked since F27-A, so the local keys are read from the running local container.
 - `fast-uri` (a transitive dependency of vite-plugin-pwa → workbox-build → ajv) has a pre-existing high advisory, not addressed in Phase 27 | recorded |
 | N-1 | The legacy Netlify functions (`netlify/functions/*`) and the legacy MP tables stay until cutover (Phase 31). Phase 27 removes only the frontend's dependency on them | — |
+
+---
+
+## 10. Phase 27 acceptance fixes (owner manual walkthrough, block 2/3)
+
+The fixes come from owner decisions D-WALK-1…7 (2026-09-30). This is not a new phase and Phase 28 has not started.
+
+| Id | Fix | Where |
+|---|---|---|
+| D-WALK-1 | The technical `COBRO-<uuid>` collection key is hidden. A receipt the user typed is still shown. No backend change. | `src/features/cobros/ListaSaldosClientes.tsx` |
+| D-WALK-2 | Read-only transfer history in Caja. Origin and destination come from the operation's own postings; no balance is derived. | `src/target/treasury.ts` `listTransfers`; `ResumenSaldos.tsx` |
+| D-WALK-3 | The purchase form shows by default: Proveedor, Fecha, Nº comprobante, Categoría, Total, Notas, Comprobante. "Más datos" holds the nature (default Operativa) and the net. The net equals the total unless typed. The subcategory is hidden. | `Compras.tsx` |
+| D-WALK-4 | "Detalle de ítems (opcional)" is collapsed and zero lines are allowed. A purchase without items is rectified with one default line: "Compra" × 1 at the total. RPC 14 unchanged. | `Compras.tsx` |
+| D-WALK-5 | Attachments are optional (ADR-010, migration 0061). With no file, `register_purchase` is called directly; with a file, the ADR-008 sequence applies. | `attachments.ts`, `Compras.tsx` |
+| D-WALK-6 | Primary action "Nueva compra", secondary "Registrar flete"; "Asignar flete" sits in the purchase detail. No backend change. | `Compras.tsx` |
+| D-WALK-7 | ADR-011 (migration 0062): RPC 46 `register_bank_tax`, `bank_tax_charge`, `report_bank_tax_period`. The tax is optional in the transfer form; a failure is shown as a partial success and a retry registers only the tax. The history shows the related tax; a tax can be added later. Not in the P&L. | `treasury.ts`, `ResumenSaldos.tsx` |
+
+The ADR-008 Storage-API tests and the real-Storage "Nueva compra" end-to-end test stay **SKIPPED / PRE-CUTOVER REQUIRED** (§9b) for the with-file path.

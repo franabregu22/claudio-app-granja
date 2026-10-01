@@ -4,7 +4,7 @@ import { useAuth } from '../../auth/useAuth';
 import { ATTACHMENT_TYPES, validateAttachments } from '../../target/attachments';
 import { UNIT_TYPES, type UnitType } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { PURCHASE_NATURES, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
+import { PURCHASE_NATURES, type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { campo, etiqueta, Modal } from './Modal';
@@ -13,8 +13,9 @@ import { useExpenseCategories, useFreight, usePurchases, useSuppliers, useTreasu
 const NATURALEZA: Record<string, string> = { OPERATING: 'Operativa', REINVESTMENT: 'Reinversión', INVESTMENT: 'Inversión' };
 
 /**
- * Compras y fletes (F27-D). Current purchase versions are read from `purchases`. A new purchase uploads its
- * receipts to the private bucket and then calls register_purchase (ADR-008; compensation on failure); rectification
+ * Compras y fletes (F27-D; Phase 27 acceptance fixes D-WALK-3/4/5/6). Current purchase versions are read from
+ * `purchases`. A new purchase optionally uploads its receipt to the private bucket and then calls register_purchase
+ * (ADR-008 / ADR-010: no file → direct call; compensation on failure); rectification
  * is rectify_purchase; freight is register_freight / assign_freight_to_purchase. The supplier debt they create is
  * booked by the backend.
  */
@@ -36,7 +37,10 @@ export function Compras() {
       <section>
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Compras vigentes</p>
-          <button onClick={() => setNuevaCompra(true)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Nueva compra</button>
+          <span className="flex items-center gap-2">
+            <button onClick={() => setNuevoFlete(true)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Registrar flete</button>
+            <button onClick={() => setNuevaCompra(true)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Nueva compra</button>
+          </span>
         </div>
         {(compras.data ?? []).length === 0 && <p className="text-sm text-[#8A7A5C]">No hay compras registradas.</p>}
         <div className="space-y-2">
@@ -53,9 +57,12 @@ export function Compras() {
               </button>
               {abierta === c.id && (
                 <div className="px-4 pb-3 border-t border-[#E4DCC8] bg-[#FAF6EE] text-xs text-gray-700 space-y-1">
-                  <p className="pt-2">Neto {formatoPesos(c.amount_net)} · {NATURALEZA[c.nature] ?? c.nature}{c.supplier_invoice_number ? ` · Factura ${c.supplier_invoice_number}` : ''}</p>
+                  <p className="pt-2">{NATURALEZA[c.nature] ?? c.nature}{c.amount_net !== c.amount_total ? ` · Neto ${formatoPesos(c.amount_net)}` : ''}{c.supplier_invoice_number ? ` · Comprobante ${c.supplier_invoice_number}` : ''}</p>
                   {c.lineas.map((l) => <p key={l.id}>{l.cantidad} {l.unit_type} · {l.descripcion} · {formatoPesos(l.precio_unitario)} c/u</p>)}
-                  <button onClick={() => setRectificando(c)} className="mt-2 text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Rectificar</button>
+                  <span className="flex gap-2 mt-2">
+                    <button onClick={() => setRectificando(c)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Rectificar</button>
+                    <button onClick={() => setAsignando(c.id)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Asignar flete</button>
+                  </span>
                 </div>
               )}
             </div>
@@ -64,18 +71,12 @@ export function Compras() {
       </section>
 
       <section>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Fletes</p>
-          <button onClick={() => setNuevoFlete(true)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Registrar flete</button>
-        </div>
+        <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Fletes registrados</p>
         {(fletes.data ?? []).length === 0 && <p className="text-sm text-[#8A7A5C]">No hay fletes registrados.</p>}
         {(fletes.data ?? []).map((f) => (
           <div key={f.id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 mb-2 flex items-center justify-between gap-2 text-sm">
             <span>{formatearFechaLocal(f.economic_date)} · {f.supplier_nombre ?? 'Sin proveedor'}{f.document_ref ? ` · ${f.document_ref}` : ''}</span>
-            <span className="flex items-center gap-3">
-              <span className="font-bold">{formatoPesos(f.amount)}</span>
-              <button onClick={() => setAsignando(f.id)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Asignar a compra</button>
-            </span>
+            <span className="font-bold">{formatoPesos(f.amount)}</span>
           </div>
         ))}
       </section>
@@ -83,7 +84,7 @@ export function Compras() {
       {nuevaCompra && <NuevaCompraModal onClose={() => setNuevaCompra(false)} />}
       {rectificando && <RectificarCompraModal compra={rectificando} onClose={() => setRectificando(null)} />}
       {nuevoFlete && <FleteModal onClose={() => setNuevoFlete(false)} />}
-      {asignando && <AsignarFleteModal freightId={asignando} compras={compras.data ?? []} onClose={() => setAsignando(null)} />}
+      {asignando && <AsignarFleteModal purchaseId={asignando} fletes={fletes.data ?? []} onClose={() => setAsignando(null)} />}
     </div>
   );
 }
@@ -99,9 +100,8 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
   const [fecha, setFecha] = useState(getTodayDate());
   const [categoriaId, setCategoriaId] = useState('');
   const [naturaleza, setNaturaleza] = useState<PurchaseNature>('OPERATING');
-  const [subcategoria, setSubcategoria] = useState('');
   const [factura, setFactura] = useState('');
-  const [neto, setNeto] = useState('');
+  const [neto, setNeto] = useState('');   // empty = same as total (D-WALK-3); React never derives total − IVA
   const [total, setTotal] = useState('');
   const [lineas, setLineas] = useState<PurchaseLineInput[]>([]);
   const [archivos, setArchivos] = useState<File[]>([]);
@@ -110,8 +110,7 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
   const [clave] = useState(() => `CMP-${crypto.randomUUID()}`);   // idempotency: one per opened form
   const setLinea = (i: number, patch: Partial<PurchaseLineInput>) => setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const lineasOk = lineas.every((l) => l.descripcion.trim() !== '' && l.cantidad > 0 && l.precio_unitario >= 0);
-  const puede = !!user && proveedorId !== '' && categoriaId !== '' && fecha !== '' && Number(total) > 0 && neto !== ''
-    && archivos.length > 0 && !errorArchivo && lineasOk;
+  const puede = !!user && proveedorId !== '' && categoriaId !== '' && fecha !== '' && Number(total) > 0 && !errorArchivo && lineasOk;
 
   function elegirArchivos(lista: FileList | null) {
     const files = Array.from(lista ?? []);
@@ -123,8 +122,8 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
     <Modal titulo="Nueva compra" onClose={onClose} puedeGuardar={puede} guardando={createPurchase.isPending}
       error={errorArchivo ?? createPurchase.error ?? proveedores.error ?? categorias.error} textoGuardar="Registrar compra"
       onSubmit={() => createPurchase.mutate({
-        userId: user!.id, files: archivos, supplierId: proveedorId, economicDate: fecha, amountNet: Number(neto), amountTotal: Number(total),
-        categoryId: categoriaId, subcategory: subcategoria.trim() || null, nature: naturaleza, lines: lineas.map((l) => ({ ...l, descripcion: l.descripcion.trim() })),
+        userId: user!.id, files: archivos, supplierId: proveedorId, economicDate: fecha, amountNet: neto === '' ? Number(total) : Number(neto),
+        amountTotal: Number(total), categoryId: categoriaId, subcategory: null, nature: naturaleza, lines: lineas.map((l) => ({ ...l, descripcion: l.descripcion.trim() })),
         idempotencyKey: clave, invoiceNumber: factura.trim() || null, reason: notas,
       }, { onSuccess: onClose })}>
       <label className={etiqueta}>Proveedor
@@ -137,38 +136,30 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
         <label className={etiqueta}>Fecha
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
         </label>
-        <label className={etiqueta}>Nº de factura (opcional)
+        <label className={etiqueta}>Nº comprobante (opcional)
           <input type="text" value={factura} onChange={(e) => setFactura(e.target.value)} className={campo} />
         </label>
       </div>
-      <label className={etiqueta}>Categoría de gasto
+      <label className={etiqueta}>Categoría
         <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} className={campo}>
           <option value="">Elegir categoría…</option>
           {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
         </select>
       </label>
-      <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Naturaleza
-          <select value={naturaleza} onChange={(e) => setNaturaleza(e.target.value as PurchaseNature)} className={campo}>
-            {PURCHASE_NATURES.map((n) => <option key={n} value={n}>{NATURALEZA[n]}</option>)}
-          </select>
-        </label>
-        <label className={etiqueta}>Subcategoría (opcional)
-          <input type="text" value={subcategoria} onChange={(e) => setSubcategoria(e.target.value)} className={campo} />
-        </label>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Neto
-          <input type="number" min="0" step="0.01" value={neto} onChange={(e) => setNeto(e.target.value)} className={campo} />
-        </label>
-        <label className={etiqueta}>Total
-          <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
-        </label>
-      </div>
-      <div>
-        <div className="flex items-center justify-between">
-          <p className={etiqueta}>Detalle (opcional)</p>
-          <button type="button" onClick={() => setLineas((ls) => [...ls, LINEA_VACIA])} className="text-xs text-[#A8552E] hover:underline">+ Agregar línea</button>
+      <label className={etiqueta}>Total
+        <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
+      </label>
+      <label className={etiqueta}>Notas (opcional)
+        <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
+      </label>
+      <label className={etiqueta}>Comprobante (opcional)
+        <input type="file" multiple accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => elegirArchivos(e.target.files)} className={campo} />
+        <span className="block text-xs text-gray-500">PDF, JPG, PNG o WebP; hasta 10 MB.</span>
+      </label>
+      <details className="border border-[#E4DCC8] rounded-lg p-2">
+        <summary className="text-sm text-[#8A6A2E] cursor-pointer">Detalle de ítems (opcional)</summary>
+        <div className="flex justify-end">
+          <button type="button" onClick={() => setLineas((ls) => [...ls, LINEA_VACIA])} className="text-xs text-[#A8552E] hover:underline">+ Agregar ítem</button>
         </div>
         {lineas.map((l, i) => (
           <div key={i} className="border border-[#E4DCC8] rounded-lg p-2 mt-2 space-y-1">
@@ -183,22 +174,29 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
             <button type="button" onClick={() => setLineas((ls) => ls.filter((_, j) => j !== i))} className="text-xs text-red-700 hover:underline">Quitar</button>
           </div>
         ))}
-      </div>
-      <label className={etiqueta}>Comprobantes (PDF, JPG, PNG o WebP; hasta 10 MB cada uno)
-        <input type="file" multiple accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => elegirArchivos(e.target.files)} className={campo} />
-      </label>
-      <label className={etiqueta}>Notas (opcional)
-        <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
-      </label>
-      <p className="text-xs text-gray-500">Primero se suben los comprobantes y después se registra la compra. Si el registro falla, los archivos subidos se eliminan.</p>
+      </details>
+      <details className="border border-[#E4DCC8] rounded-lg p-2">
+        <summary className="text-sm text-[#8A6A2E] cursor-pointer">Más datos</summary>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <label className={etiqueta}>Naturaleza
+            <select value={naturaleza} onChange={(e) => setNaturaleza(e.target.value as PurchaseNature)} className={campo}>
+              {PURCHASE_NATURES.map((n) => <option key={n} value={n}>{NATURALEZA[n]}</option>)}
+            </select>
+          </label>
+          <label className={etiqueta}>Neto (si es distinto del total)
+            <input type="number" min="0" step="0.01" value={neto} placeholder={total} onChange={(e) => setNeto(e.target.value)} className={campo} />
+          </label>
+        </div>
+      </details>
     </Modal>
   );
 }
 
 function RectificarCompraModal({ compra, onClose }: { compra: PurchaseRow; onClose: () => void }) {
   const { rectifyPurchase } = useTreasuryMutations();
-  const [neto, setNeto] = useState(String(compra.amount_net));
+  const [neto, setNeto] = useState(compra.amount_net === compra.amount_total ? '' : String(compra.amount_net));   // empty = same as total
   const [total, setTotal] = useState(String(compra.amount_total));
+  const sinLineas = compra.lineas.length === 0;
   const [lineas, setLineas] = useState<PurchaseLineInput[]>(compra.lineas.map((l) => ({
     producto_id: l.producto_id, feed_ingredient_id: l.feed_ingredient_id, descripcion: l.descripcion, cantidad: l.cantidad,
     unit_type: l.unit_type, precio_unitario: l.precio_unitario,
@@ -206,21 +204,25 @@ function RectificarCompraModal({ compra, onClose }: { compra: PurchaseRow; onClo
   const [motivo, setMotivo] = useState('');
   const set = (i: number, k: 'cantidad' | 'precio_unitario', v: string) =>
     setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: Number(v) } : l)));
-  const puede = Number(total) > 0 && neto !== '' && motivo.trim() !== '' && lineas.length > 0;
+  const puede = Number(total) > 0 && motivo.trim() !== '' && (sinLineas || lineas.length > 0);
+  // D-WALK-4: rectify_purchase needs lines; a purchase recorded without items is rectified with one default line
+  const lineasEnvio = (): PurchaseLineInput[] => (sinLineas ? [{ ...LINEA_VACIA, descripcion: 'Compra', cantidad: 1, precio_unitario: Number(total) }] : lineas);
 
   return (
     <Modal titulo={`Rectificar compra — ${compra.supplier_nombre}`} onClose={onClose} puedeGuardar={puede} guardando={rectifyPurchase.isPending}
       error={rectifyPurchase.error} textoGuardar="Rectificar"
-      onSubmit={() => rectifyPurchase.mutate({ purchaseId: compra.id, amountNet: Number(neto), amountTotal: Number(total), lines: lineas, reason: motivo },
+      onSubmit={() => rectifyPurchase.mutate({ purchaseId: compra.id, amountNet: neto === '' ? Number(total) : Number(neto), amountTotal: Number(total), lines: lineasEnvio(), reason: motivo },
         { onSuccess: onClose })}>
-      <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Neto
-          <input type="number" min="0" step="0.01" value={neto} onChange={(e) => setNeto(e.target.value)} className={campo} />
+      <label className={etiqueta}>Total
+        <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
+      </label>
+      <details className="border border-[#E4DCC8] rounded-lg p-2">
+        <summary className="text-sm text-[#8A6A2E] cursor-pointer">Más datos</summary>
+        <label className={etiqueta}>Neto (si es distinto del total)
+          <input type="number" min="0" step="0.01" value={neto} placeholder={total} onChange={(e) => setNeto(e.target.value)} className={campo} />
         </label>
-        <label className={etiqueta}>Total
-          <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
-        </label>
-      </div>
+      </details>
+      {sinLineas && <p className="text-xs text-gray-500">La compra no tiene ítems: se registra como un único ítem "Compra" por el total.</p>}
       {lineas.map((l, i) => (
         <div key={i} className="border border-[#E4DCC8] rounded-lg p-2">
           <p className="text-xs font-medium text-gray-700">{l.descripcion} ({l.unit_type})</p>
@@ -284,20 +286,21 @@ function FleteModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function AsignarFleteModal({ freightId, compras, onClose }: { freightId: string; compras: PurchaseRow[]; onClose: () => void }) {
+function AsignarFleteModal({ purchaseId, fletes, onClose }: { purchaseId: string; fletes: FreightRow[]; onClose: () => void }) {
   const { assignFreight } = useTreasuryMutations();
-  const [compraId, setCompraId] = useState('');
+  const [fleteId, setFleteId] = useState('');
   const [monto, setMonto] = useState('');
-  const puede = compraId !== '' && Number(monto) > 0;
+  const puede = fleteId !== '' && Number(monto) > 0;
 
   return (
-    <Modal titulo="Asignar flete a una compra" onClose={onClose} puedeGuardar={puede} guardando={assignFreight.isPending} error={assignFreight.error}
+    <Modal titulo="Asignar flete a la compra" onClose={onClose} puedeGuardar={puede} guardando={assignFreight.isPending} error={assignFreight.error}
       textoGuardar="Asignar"
-      onSubmit={() => assignFreight.mutate({ freightId, purchaseId: compraId, amount: Number(monto) }, { onSuccess: onClose })}>
-      <label className={etiqueta}>Compra
-        <select value={compraId} onChange={(e) => setCompraId(e.target.value)} className={campo}>
-          <option value="">Elegir compra…</option>
-          {compras.map((c) => <option key={c.id} value={c.id}>{c.supplier_nombre} · {formatearFechaLocal(c.economic_date)} · {formatoPesos(c.amount_total)}</option>)}
+      onSubmit={() => assignFreight.mutate({ freightId: fleteId, purchaseId, amount: Number(monto) }, { onSuccess: onClose })}>
+      {fletes.length === 0 && <p className="text-sm text-[#8A7A5C]">No hay fletes registrados. Usá "Registrar flete" primero.</p>}
+      <label className={etiqueta}>Flete
+        <select value={fleteId} onChange={(e) => setFleteId(e.target.value)} className={campo}>
+          <option value="">Elegir flete…</option>
+          {fletes.map((f) => <option key={f.id} value={f.id}>{formatearFechaLocal(f.economic_date)} · {f.supplier_nombre ?? 'Sin proveedor'} · {formatoPesos(f.amount)}</option>)}
         </select>
       </label>
       <label className={etiqueta}>Monto a asignar

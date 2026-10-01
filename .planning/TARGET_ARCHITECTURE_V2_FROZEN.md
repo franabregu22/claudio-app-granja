@@ -403,6 +403,8 @@ Supplier ledger does NOT require payment assigned to specific invoices.
 
 Attachments per workflow defined.
 
+> **Amendment [ADR-010]** (owner, 2026-09-30): attachments are optional for purchases. A purchase may be recorded with zero attachments; when a real document exists it is stored privately (ADR-008). See `.planning/adr/ADR-010_OPTIONAL_PURCHASE_ATTACHMENTS.md`.
+
 Project optional as analytic dimension.
 
 ### No Hard Delete

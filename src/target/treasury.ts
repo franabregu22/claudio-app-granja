@@ -120,6 +120,76 @@ export function transferBetweenAccounts(client: SupabaseClient, p: {
   });
 }
 
+/** ADR-011 RPC 46. Manual Débitos/Créditos tax on a non-MP account; idempotent by externalRef (an exact replay returns the original). */
+export const BANK_TAX_KIND = 'DEBITOS_CREDITOS';
+export function registerBankTax(client: SupabaseClient, p: {
+  accountId: string; amount: number; effectiveDate: string; externalRef: string; relatedOperationId?: number | string | null; reason?: string | null;
+}) {
+  return callRpc<{ financial_operation_id: number; replayed: boolean }>(client, 'register_bank_tax', {
+    p_account_id: p.accountId, p_amount: p.amount, p_effective_date: p.effectiveDate, p_tax_kind: BANK_TAX_KIND,
+    p_external_ref: p.externalRef, p_related_operation_id: p.relatedOperationId ?? null, p_reason: reasonOrNull(p.reason),
+  });
+}
+
+/**
+ * D-WALK-7: a transfer and its related bank tax are two operations. The transfer runs first (unless
+ * `transferOperationId` says it already succeeded); the tax is then registered against it. A tax failure is
+ * returned as `taxError` (partial success) and never undoes or repeats the transfer; a retry passes the
+ * operation id back and reuses the same idempotency keys.
+ */
+export async function transferWithBankTax(client: SupabaseClient, p: Parameters<typeof transferBetweenAccounts>[1] & {
+  transferOperationId?: number | string | null; tax?: { accountId: string; amount: number } | null;
+}): Promise<{ transferOperationId: number | string; taxError: unknown }> {
+  const { transferOperationId, tax, ...transfer } = p;
+  const opId = transferOperationId ?? (await transferBetweenAccounts(client, transfer)).financial_operation_id;
+  if (!tax || !(tax.amount > 0)) return { transferOperationId: opId, taxError: null };
+  try {
+    await registerBankTax(client, {
+      accountId: tax.accountId, amount: tax.amount, effectiveDate: transfer.effectiveDate, externalRef: `${transfer.externalRef}-IDC`, relatedOperationId: opId,
+    });
+    return { transferOperationId: opId, taxError: null };
+  } catch (err) {
+    return { transferOperationId: opId, taxError: err };
+  }
+}
+
+export interface TransferHistoryRow {
+  id: number; effective_date: string; reason: string | null;
+  origen: { account_id: string; nombre: string } | null; destino: { account_id: string; nombre: string } | null;
+  amount: number; impuestos: { id: number; amount: number; account_id: string }[];
+}
+/**
+ * D-WALK-2: read-only transfer history. Origin / destination come from the operation's own postings
+ * (negative = origin, positive = destination) and the amount is the destination posting as read; related
+ * bank taxes come from bank_tax_charge.related_operation_id. No balance is derived.
+ */
+export async function listTransfers(client: SupabaseClient, limit = 50): Promise<TransferHistoryRow[]> {
+  type Raw = { id: number; effective_date: string; reason: string | null;
+    financial_posting: { financial_account_id: string; signed_amount: number | string; financial_account: { nombre: string } | null }[] };
+  const ops = await readTable<Raw>(client, 'financial_operation',
+    (q) => q.eq('operation_type', 'TRANSFER').order('effective_date', { ascending: false }).order('id', { ascending: false }).limit(limit),
+    'id, effective_date, reason, financial_posting(financial_account_id, signed_amount, financial_account(nombre))');
+  const ids = ops.map((o) => o.id);
+  const taxes = ids.length === 0 ? [] : await readTable<{ financial_operation_id: number; related_operation_id: number; amount: number | string; financial_account_id: string }>(
+    client, 'bank_tax_charge', (q) => q.in('related_operation_id', ids), 'financial_operation_id, related_operation_id, amount, financial_account_id');
+  return ops.map((o) => {
+    const out = o.financial_posting.find((x) => num(x.signed_amount) < 0);
+    const inn = o.financial_posting.find((x) => num(x.signed_amount) > 0);
+    const side = (x?: Raw['financial_posting'][number]) => (x ? { account_id: x.financial_account_id, nombre: x.financial_account?.nombre ?? '—' } : null);
+    return {
+      id: o.id, effective_date: o.effective_date, reason: o.reason, origen: side(out), destino: side(inn), amount: num(inn?.signed_amount),
+      impuestos: taxes.filter((t) => t.related_operation_id === o.id).map((t) => ({ id: t.financial_operation_id, amount: num(t.amount), account_id: t.financial_account_id })),
+    };
+  });
+}
+
+export interface BankTaxPeriodRow { period: string; tax_kind: string; financial_account_id: string; account_name: string; amount_paid: number; charges: number }
+/** ADR-011 report: amount paid per period / kind / account, exactly as report_bank_tax_period returns it. */
+export async function listBankTaxPeriods(client: SupabaseClient, limit = 24): Promise<BankTaxPeriodRow[]> {
+  const rows = await readView<BankTaxPeriodRow>(client, 'report_bank_tax_period', (q) => q.order('period', { ascending: false }).limit(limit));
+  return rows.map((r) => ({ ...r, amount_paid: num(r.amount_paid), charges: num(r.charges) }));
+}
+
 export function paySupplier(client: SupabaseClient, p: {
   supplierId: string; amount: number; effectiveDate: string; method: SupplierPaymentMethod; accountId: string; externalRef: string; reason?: string | null;
 }) {
@@ -133,7 +203,7 @@ export function paySupplier(client: SupabaseClient, p: {
 
 /**
  * RPC 13. `attachments` are the metadata of objects already uploaded to the private `purchase-attachments`
- * bucket (ADR-008); the contract requires at least one (ATTACHMENT_REQUIRED). The screens call it only through
+ * bucket (ADR-008); optional — [] records none (ADR-010). The screens call it only through
  * `createPurchaseWithAttachments` (src/target/attachments.ts), which uploads first and compensates on failure.
  */
 export function registerPurchase(client: SupabaseClient, p: {

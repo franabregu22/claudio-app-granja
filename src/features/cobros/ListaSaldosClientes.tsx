@@ -60,7 +60,7 @@ export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRe
                   <p className="text-xs font-semibold text-[#6B5D45] uppercase mb-1">Cobros</p>
                   {pagos.length === 0 ? <p className="text-xs text-gray-500">Sin cobros registrados</p> : pagos.map((p) => (
                     <p key={p.id} className="text-xs text-gray-700">
-                      {formatearFechaLocal(p.effective_date)} · {formatoPesos(p.amount)} · {METODO[p.payment_method] ?? p.payment_method} · {p.receipt_id}
+                      {formatearFechaLocal(p.effective_date)} · {formatoPesos(p.amount)} · {METODO[p.payment_method] ?? p.payment_method}{comprobanteVisible(p.receipt_id) ? ` · ${p.receipt_id}` : ''}
                     </p>
                   ))}
                 </div>
@@ -76,4 +76,9 @@ export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRe
       })}
     </div>
   );
+}
+
+/** D-WALK-1: the auto-generated idempotency key `COBRO-<uuid>` is technical; only a receipt the user typed is shown. */
+export function comprobanteVisible(receiptId: string | null | undefined): boolean {
+  return !!receiptId && !/^COBRO-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(receiptId);
 }

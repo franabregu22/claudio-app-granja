@@ -347,7 +347,10 @@ A global UNIQUE on `cheque_number` would reject valid data.
 
 ---
 
-## 23. A purchase always has an attachment
+## 23. A purchase always has an attachment — SUPERSEDED **[ADR-010]**
+
+**[ADR-010]** Superseded by owner decision D-WALK-5 (2026-09-30): a purchase may have zero attachments. RPC 13 accepts NULL / `[]` and RPC 14 carries forward whatever exists (migration 0061). The original text is kept below as history.
+
 
 **Rule:** no `purchases` row can exist without at least one `purchase_attachment` row.  
 **Enforced by:** `authenticated` holds no INSERT privilege on `purchases`, so the only creation path is `register_purchase` (RPC 13), which raises `ATTACHMENT_REQUIRED` when `p_attachments` is empty and inserts the purchase plus its attachments in one transaction. `purchase_attachment` has no DELETE policy, so the attachment cannot be removed afterwards. `rectify_purchase` copies attachments to the new version.  
@@ -462,7 +465,7 @@ are no longer housed.
 | 20 | cheque_number not identity | no UNIQUE + CHECKs | — | — | — |
 | 21 | MP raw immutable | column split | no UPDATE | RPC 40/41 | raw guard |
 | 22 | freight no double count | allocation table | no UPDATE | RPC 16/17 | — |
-| 23 | attachment required | — | no INSERT | RPC 13 | — |
+| 23 | ~~attachment required~~ superseded **[ADR-010]** | — | no INSERT | RPC 13 | — |
 | 24 | purchase classification | NOT NULL + FK | — | RPC 13 | — |
 | 25 | invoice unique per supplier | scoped partial index | — | RPC 13 | — |
 | 26 | structural prohibitions | absent tables/columns | no DELETE | — | — |
@@ -537,7 +540,7 @@ SELECT f.id FROM freight f
  WHERE (SELECT COALESCE(SUM(allocated_amount),0) FROM freight_allocation
          WHERE freight_id = f.id) > f.amount;
 
--- 23 every purchase has an attachment (expect 0)
+-- 23 SUPERSEDED [ADR-010]: purchases without attachments are valid (query kept only as information)
 SELECT p.id FROM purchases p
  WHERE NOT EXISTS (SELECT 1 FROM purchase_attachment a WHERE a.purchase_id = p.id);
 

@@ -175,22 +175,24 @@ describe('F27-D purchases, freight and supplier payments (ADMIN)', () => {
       supplierId: fx.supplierId, economicDate: fx.day, amountNet: 1, amountTotal: 1, categoryId: fx.categoryId, nature: 'OPERATING',
       lines: [LINE], attachments: [], idempotencyKey: ref('P2'),
     }).catch((e) => e);
-    expect(code(noAtt)).toBe('ATTACHMENT_REQUIRED');
+    // ADR-010: zero attachments is a valid purchase
+    expect(noAtt).toMatchObject({ attachment_count: 0 });
     const dup = await registerPurchase(admin(), {
       supplierId: fx.supplierId, economicDate: fx.day, amountNet: 1, amountTotal: 1, categoryId: fx.categoryId, nature: 'OPERATING',
       lines: [LINE], attachments: [ATTACHMENT], idempotencyKey: ref('P1'),
     }).catch((e) => e);
     expect(code(dup)).toBe('DUPLICATE_PURCHASE');
-    expect(await balance('SUPPLIER', fx.supplierId)).toBe(1210);
+    expect(await balance('SUPPLIER', fx.supplierId)).toBe(1211);
   });
 
   it('rectify_purchase requires a reason, replaces the current version and the balance follows; the old version is superseded', async () => {
     const noReason = await rectifyPurchase(admin(), { purchaseId, amountNet: 800, amountTotal: 968, lines: [{ ...LINE, cantidad: 8 }], reason: ' ' }).catch((e) => e);
     expect(code(noReason)).toBe('REASON_REQUIRED');
     const r = await rectifyPurchase(admin(), { purchaseId, amountNet: 800, amountTotal: 968, lines: [{ ...LINE, cantidad: 8 }], reason: 'devolución parcial' });
-    expect(await balance('SUPPLIER', fx.supplierId)).toBe(968);
+    expect(await balance('SUPPLIER', fx.supplierId)).toBe(969);
     const current = (await listPurchases(admin())).filter((p) => p.supplier_id === fx.supplierId);
-    expect(current.map((p) => p.id)).toEqual([r.new_purchase_id]);
+    expect(current.map((p) => p.id)).toContain(r.new_purchase_id);
+    expect(current.map((p) => p.id)).not.toContain(purchaseId);
     const again = await rectifyPurchase(admin(), { purchaseId, amountNet: 1, amountTotal: 1, lines: [LINE], reason: 'x' }).catch((e) => e);
     expect(code(again)).toBe('PURCHASE_SUPERSEDED');
     purchaseId = r.new_purchase_id;
@@ -198,7 +200,7 @@ describe('F27-D purchases, freight and supplier payments (ADMIN)', () => {
 
   it('freight is registered (supplier debt) and allocated to the purchase; over-allocation is refused', async () => {
     const f = await registerFreight(admin(), { economicDate: fx.day, amount: 200, categoryId: fx.categoryId, idempotencyKey: ref('F1'), supplierId: fx.supplierId });
-    expect(await balance('SUPPLIER', fx.supplierId)).toBe(1168);
+    expect(await balance('SUPPLIER', fx.supplierId)).toBe(1169);
     expect((await listFreight(admin())).map((x) => x.id)).toContain(f.freight_id);
     const a = await assignFreightToPurchase(admin(), { freightId: f.freight_id, purchaseId, amount: 150 });
     expect(Number(a.freight_remaining)).toBe(50);
@@ -209,7 +211,7 @@ describe('F27-D purchases, freight and supplier payments (ADMIN)', () => {
   it('pay_supplier lowers the supplier debt and the paying account; cheques must go through issue_supplier_instrument', async () => {
     const cashBefore = await balance('ACCOUNT', fx.cash);
     await paySupplier(admin(), { supplierId: fx.supplierId, amount: 500, effectiveDate: fx.day, method: 'CASH', accountId: fx.cash, externalRef: ref('PAY1') });
-    expect(await balance('SUPPLIER', fx.supplierId)).toBe(668);
+    expect(await balance('SUPPLIER', fx.supplierId)).toBe(669);
     expect(await balance('ACCOUNT', fx.cash)).toBe(cashBefore - 500);
     const cheque = await paySupplier(admin(), {
       supplierId: fx.supplierId, amount: 1, effectiveDate: fx.day, method: 'CHEQUE' as never, accountId: fx.cash, externalRef: ref('PAY2'),

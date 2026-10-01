@@ -4,7 +4,7 @@
 **DATE:** 2026-09-30
 **RAISED BY:** Phase 27 slice F27-D. The frontend could not offer "Nueva compra": `register_purchase` requires at least one attachment, whose `storage_path` is a Supabase Storage object, and the target defined no Storage location or access rule.
 **AFFECTS (FROZEN):** RLS_IMPLEMENTATION_SPEC_V1 (new Storage perimeter), RPC_CONTRACTS_V1 (RPC 13 caller sequencing), POSTGRES_SCHEMA_SPEC_V1 (`purchase_attachment.storage_path` refers to the bucket).
-**NOT AFFECTED:** purchases and their accounting authority (`register_purchase` / `rectify_purchase` unchanged, `ATTACHMENT_REQUIRED` unchanged, invariant 23 unchanged); no public table, column, function or grant; the SECURITY DEFINER set stays at 62; DATABASE_INVARIANTS_V1; IMPLEMENTATION_DEPENDENCY_ORDER_V1; TARGET_ARCHITECTURE_V2_FROZEN.
+**NOT AFFECTED:** purchases and their accounting authority (`register_purchase` / `rectify_purchase` unchanged, `ATTACHMENT_REQUIRED` unchanged, invariant 23 unchanged — both later superseded by **[ADR-010]**: attachments are optional); no public table, column, function or grant; the SECURITY DEFINER set stays at 62; DATABASE_INVARIANTS_V1; IMPLEMENTATION_DEPENDENCY_ORDER_V1; TARGET_ARCHITECTURE_V2_FROZEN.
 
 ---
 
@@ -12,7 +12,7 @@
 
 | Source | Text |
 |---|---|
-| `POSTGRES_SCHEMA_SPEC_V1.md` `purchase_attachment` | `storage_path TEXT NOT NULL -- Supabase Storage object path`, `file_name`, `content_type`, `byte_size`; at least one per purchase. |
+| `POSTGRES_SCHEMA_SPEC_V1.md` `purchase_attachment` | `storage_path TEXT NOT NULL -- Supabase Storage object path`, `file_name`, `content_type`, `byte_size`; at least one per purchase (**[ADR-010]**: now optional, zero allowed). |
 | `RPC_CONTRACTS_V1.md` RPC 13 | `p_attachments JSONB -- [{storage_path, file_name, content_type, byte_size}] — at least one REQUIRED`; `ATTACHMENT_REQUIRED` otherwise. |
 | `RLS_IMPLEMENTATION_SPEC_V1.md` §7 | `purchase_attachment` rows: ADMIN SELECT / INSERT. Nothing about the objects themselves. |
 
@@ -46,7 +46,7 @@ VALUES ('purchase-attachments', 'purchase-attachments', false, 10485760,
 
 ## 4. Sequencing: upload → `register_purchase`
 
-1. ADMIN fills the purchase and selects at least one receipt (the form cannot be submitted without one).
+1. ADMIN fills the purchase and, when a real document exists, selects its receipt(s). **[ADR-010]** The attachment is optional: with no file, `register_purchase` is called directly with `p_attachments = []` and steps 2–4 do not apply.
 2. The frontend validates type and size (UX), generates each key (S-4) and uploads each file to the bucket.
 3. The frontend calls RPC 13 `register_purchase` with `p_attachments = [{storage_path, file_name, content_type, byte_size}]` for the uploaded objects. The RPC remains the only authority for the purchase row, lines, attachment rows, supplier ledger and audit. It does not read Storage.
 4. Success: the objects are kept; the purchase screens refresh.
@@ -55,11 +55,11 @@ VALUES ('purchase-attachments', 'purchase-attachments', false, 10485760,
 
 **Compensation when `register_purchase` fails after upload:** the frontend deletes the objects this attempt uploaded, then surfaces the ORIGINAL purchase error (e.g. `DUPLICATE_PURCHASE`, `SUPPLIER_NOT_FOUND_OR_INACTIVE`). If the cleanup itself fails, the original error is still what the user sees, and the failure is reported safely (object keys only, no token or payload). The orphaned object is inert: it is private, ADMIN-only and referenced by no purchase.
 
-`rectify_purchase` carries the attachment rows forward (unchanged, invariant 23); it uploads nothing.
+`rectify_purchase` carries the attachment rows forward, possibly none (**[ADR-010]**); it uploads nothing.
 
 ## 5. Consequences
 
-- "Nueva compra" becomes available in V1 without weakening `ATTACHMENT_REQUIRED`.
+- "Nueva compra" becomes available in V1. **[ADR-010]** `ATTACHMENT_REQUIRED` was later superseded: attachments are optional; the Storage perimeter is unchanged.
 - Storage enforces the MIME and size limits in its service; the access rules are RLS on `storage.objects`, executed by the Storage service with the caller's role and JWT claims.
 - Orphans are possible only when both the purchase and the cleanup fail. They are harmless and can be listed by comparing `storage.objects` in the bucket with `purchase_attachment.storage_path`.
 

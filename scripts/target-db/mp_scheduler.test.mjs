@@ -327,7 +327,7 @@ try {
       anonKey !== '' && rpc.status === 404 && rpcNet.status === 406 && cronRest.status === 406, `${rpc.status} ${rpcNet.status} ${cronRest.status}`);
     check('P-7 no public-schema function references net / cron / vault (no wrapper exposes them)',
       owner(`SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND prosrc ~* '\\m(net|cron|vault)\\.';`) === '0');
-    check('P-8 SECURITY DEFINER set in public unchanged by the scheduler: exactly 62 (60 + ADR-007 RPCs 44 / 45)', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '62');
+    check('P-8 SECURITY DEFINER set in public unchanged by the scheduler: exactly 63 (60 + ADR-007 RPCs 44 / 45 + ADR-011 RPC 46)', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '63');
     check('P-9 no new table / view privilege for application roles on any public MP object (still SELECT / report INSERT only)',
       owner(`SELECT count(*) FROM pg_class c, unnest(ARRAY['anon','authenticated','service_role']) r, unnest(ARRAY['UPDATE','DELETE','TRUNCATE']) p
         WHERE c.relnamespace = 'public'::regnamespace AND (c.relname LIKE 'mp\\_%' OR c.relname LIKE 'report\\_mp\\_%') AND c.relkind IN ('r','v') AND has_table_privilege(r, c.oid, p);`) === '0');

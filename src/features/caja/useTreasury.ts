@@ -5,7 +5,7 @@ import { listMaster, type ClientRow, type ExpenseCategoryRow, type SupplierRow }
 import {
   assignFreightToPurchase, cancelSupplierInstrument, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
   listInstruments, listLedgerBalances, listPnlMonths, listPurchases, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
-  registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts,
+  registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listTransfers, listBankTaxPeriods, transferWithBankTax,
 } from '../../target/treasury';
 
 const TREASURY = ['treasury'];
@@ -31,6 +31,12 @@ export function usePurchases() {
 export function useFreight() {
   return useQuery({ queryKey: FREIGHT, queryFn: () => listFreight(supabase) });
 }
+export function useTransfers() {
+  return useQuery({ queryKey: ['treasury', 'transfers'], queryFn: () => listTransfers(supabase) });
+}
+export function useBankTaxPeriods() {
+  return useQuery({ queryKey: ['treasury', 'bank-tax'], queryFn: () => listBankTaxPeriods(supabase) });
+}
 export function usePnlMonths() {
   return useQuery({ queryKey: ['treasury', 'pnl-months'], queryFn: () => listPnlMonths(supabase) });
 }
@@ -49,6 +55,8 @@ export function useTreasuryMutations() {
   const onSuccess = useRefresh();
   return {
     transfer: useMutation({ mutationFn: (p: Args<typeof transferBetweenAccounts>[0]) => transferBetweenAccounts(supabase, p), onSuccess }),
+    transferWithTax: useMutation({ mutationFn: (p: Args<typeof transferWithBankTax>[0]) => transferWithBankTax(supabase, p), onSuccess }),
+    bankTax: useMutation({ mutationFn: (p: Args<typeof registerBankTax>[0]) => registerBankTax(supabase, p), onSuccess }),
     paySupplier: useMutation({ mutationFn: (p: Args<typeof paySupplier>[0]) => paySupplier(supabase, p), onSuccess }),
     issueInstrument: useMutation({ mutationFn: (p: Args<typeof issueSupplierInstrument>[0]) => issueSupplierInstrument(supabase, p), onSuccess }),
     rectifyPurchase: useMutation({ mutationFn: (p: Args<typeof rectifyPurchase>[0]) => rectifyPurchase(supabase, p), onSuccess }),

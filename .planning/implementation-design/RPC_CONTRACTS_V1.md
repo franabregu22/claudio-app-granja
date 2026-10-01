@@ -6,6 +6,8 @@
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 **AMENDMENTS:** ADR-008 (`.planning/adr/ADR-008_PURCHASE_ATTACHMENT_STORAGE.md`, ACCEPTED 2026-09-30) — RPC 13 `register_purchase`: the attachment objects live in the private Storage bucket `purchase-attachments` and are uploaded by the caller before the call (removed by the caller if the call fails). The RPC itself is unchanged. Amended passage is marked **[ADR-008]**.  
 **AMENDMENTS:** ADR-009 (`.planning/adr/ADR-009_FERIA_ADMIN_ONLY_V1.md`, ACCEPTED 2026-09-30) — Feria is ADMIN-only in V1: RPC 31 `register_session_movement` gets the ADMIN guard (migration 0059); OPERATOR has no Feria capability. Amended passages are marked **[ADR-009]**.  
+**AMENDMENTS:** ADR-010 (`.planning/adr/ADR-010_OPTIONAL_PURCHASE_ATTACHMENTS.md`, ACCEPTED 2026-09-30) — purchase attachments are optional: RPC 13 accepts NULL / `[]` (INVALID_ATTACHMENTS for a non-array), RPC 14 no longer requires an attachment to carry forward (migration 0061). Amended passages are marked **[ADR-010]**.  
+**AMENDMENTS:** ADR-011 (`.planning/adr/ADR-011_BANK_TAX.md`, ACCEPTED 2026-09-30) — RPC 46 `register_bank_tax` (migration 0062); the inventory grows 45 → 46. Amended passages are marked **[ADR-011]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -831,7 +833,7 @@ register_purchase(
   p_amount_net NUMERIC, p_amount_total NUMERIC,
   p_expense_category_id UUID, p_subcategory VARCHAR, p_nature purchase_nature,
   p_lines JSONB,                -- [{producto_id?, feed_ingredient_id?, descripcion, cantidad, unit_type, precio_unitario}]
-  p_attachments JSONB,          -- [{storage_path, file_name, content_type, byte_size}] — at least one REQUIRED
+  p_attachments JSONB,          -- [{storage_path, file_name, content_type, byte_size}] — OPTIONAL: NULL or [] allowed [ADR-010]
   p_idempotency_key VARCHAR,
   p_project_id UUID DEFAULT NULL, p_fiscal_document_id UUID DEFAULT NULL,
   p_supplier_invoice_number VARCHAR DEFAULT NULL, p_flock_id UUID DEFAULT NULL,
@@ -846,8 +848,9 @@ BEGIN
   IF p_amount_total <= 0 RAISE 'INVALID_AMOUNT'
   IF p_nature IS NULL    RAISE 'NATURE_REQUIRED'
   IF p_expense_category_id IS NULL RAISE 'CATEGORY_REQUIRED'
-  IF p_attachments IS NULL OR jsonb_array_length(p_attachments) = 0
-    RAISE 'ATTACHMENT_REQUIRED: a purchase cannot be recorded without at least one attachment'
+  -- [ADR-010] attachments are optional; a supplied value must be an array
+  IF p_attachments IS NOT NULL AND jsonb_typeof(p_attachments) <> 'array'
+    RAISE 'INVALID_ATTACHMENTS: attachments must be an array'
 
   IF NOT EXISTS (SELECT 1 FROM suppliers WHERE id = p_supplier_id AND activo = true)
     RAISE 'SUPPLIER_NOT_FOUND_OR_INACTIVE'
@@ -904,7 +907,7 @@ END
 
 **supplier_ledger:** `+amount_total` PURCHASE. **financial:** none — payment is a separate act (`pay_supplier`). Immediate-payment purchases are two RPC calls, never one netted row.  
 **Idempotency:** `purchases.idempotency_key` UNIQUE.  
-**Errors:** `FORBIDDEN`, `INVALID_AMOUNT`, `NATURE_REQUIRED`, `CATEGORY_REQUIRED`, `ATTACHMENT_REQUIRED`, `SUPPLIER_NOT_FOUND_OR_INACTIVE`, `RESERVED_IDEMPOTENCY_KEY` **[ADR-002]**, `DUPLICATE_PURCHASE`, `DUPLICATE_SUPPLIER_INVOICE`, `PERIOD_NOT_FOUND`, `PERIOD_CLOSED`.  
+**Errors:** `FORBIDDEN`, `INVALID_AMOUNT`, `NATURE_REQUIRED`, `CATEGORY_REQUIRED`, `INVALID_ATTACHMENTS` **[ADR-010]** (was `ATTACHMENT_REQUIRED`), `SUPPLIER_NOT_FOUND_OR_INACTIVE`, `RESERVED_IDEMPOTENCY_KEY` **[ADR-002]**, `DUPLICATE_PURCHASE`, `DUPLICATE_SUPPLIER_INVOICE`, `PERIOD_NOT_FOUND`, `PERIOD_CLOSED`.  
 **Returns:** `{purchase_id, supplier_ledger_id, line_count, attachment_count}`.  
 **Attachment objects [ADR-008]:** each `storage_path` is the key of an object the caller has already uploaded to the private bucket `purchase-attachments` (ADMIN-only, 10 MB, PDF / JPEG / PNG / WebP; key `<auth-user-id>/<uuid>.<ext>`; the original name goes in `file_name`). The RPC does not read Storage and is unchanged. Caller sequencing: upload → call; on an upload failure the RPC is not called; if the call fails the caller deletes the objects it uploaded and reports the RPC's original error.
 
@@ -944,10 +947,7 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM feed_ingredient WHERE id = line.feed_ingredient_id)
       RAISE 'INGREDIENT_NOT_FOUND: %', line.feed_ingredient_id
 
-  -- the replacement must inherit at least one attachment (invariant 23)
-  carried_attachments = SELECT COUNT(*) FROM purchase_attachment WHERE purchase_id = p_purchase_id
-  IF carried_attachments = 0
-    RAISE 'ATTACHMENT_REQUIRED: the current version has no attachment to carry forward'
+  -- [ADR-010] the replacement inherits whatever attachments exist (possibly none); no attachment requirement
 
   -- 3. capture everything needed from the current version BEFORE it is altered
   v_supplier_id          = old.supplier_id
@@ -991,7 +991,7 @@ BEGIN
     VALUES (new_purchase_id, line.producto_id, line.feed_ingredient_id, line.descripcion,
             line.cantidad, line.unit_type, line.precio_unitario)
 
-  -- 7. carry the required attachments forward; the new version is never attachment-less
+  -- 7. carry the existing attachments forward (none is valid) [ADR-010]
   INSERT INTO purchase_attachment (purchase_id, storage_path, file_name, content_type,
          byte_size, uploaded_by)
   SELECT new_purchase_id, storage_path, file_name, content_type, byte_size, auth.uid()
@@ -1039,7 +1039,7 @@ version, without lines, or without an attachment.
 dated at the original `economic_date`, on the global supplier account. No payment, posting or fiscal
 component is created or moved.
 
-**Errors:** `FORBIDDEN`, `REASON_REQUIRED`, `PURCHASE_NOT_FOUND`, `PURCHASE_SUPERSEDED`, `INVALID_AMOUNT`, `EMPTY_LINE_SET`, `INVALID_QUANTITY`, `INVALID_PRICE`, `PRODUCT_NOT_FOUND`, `INGREDIENT_NOT_FOUND`, `ATTACHMENT_REQUIRED`, `PERIOD_NOT_FOUND`, `PERIOD_CLOSED`.  
+**Errors:** `FORBIDDEN`, `REASON_REQUIRED`, `PURCHASE_NOT_FOUND`, `PURCHASE_SUPERSEDED`, `INVALID_AMOUNT`, `EMPTY_LINE_SET`, `INVALID_QUANTITY`, `INVALID_PRICE`, `PRODUCT_NOT_FOUND`, `INGREDIENT_NOT_FOUND`, `PERIOD_NOT_FOUND`, `PERIOD_CLOSED` (`ATTACHMENT_REQUIRED` removed **[ADR-010]**).  
 **Returns:** `{previous_purchase_id, new_purchase_id, version_seq, adjustment}`.
 
 ---
@@ -2377,6 +2377,32 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 
 ---
 
+### 46. register_bank_tax **[ADR-011]**
+
+**Signature:** `register_bank_tax(p_account_id UUID, p_amount NUMERIC, p_effective_date DATE, p_tax_kind tax_kind, p_external_ref VARCHAR, p_related_operation_id BIGINT DEFAULT NULL, p_reason TEXT DEFAULT NULL) RETURNS JSONB`
+**Actor:** ADMIN · **SECURITY DEFINER:** yes · **Period determinant:** effective_date
+**Validation:**
+- `FORBIDDEN`;
+- `INVALID_AMOUNT` (the amount must be > 0 with at most 2 decimals);
+- `INVALID_DATE`;
+- `INVALID_TAX_KIND` (only DEBITOS_CREDITOS);
+- `EXTERNAL_REF_REQUIRED`;
+- idempotency by external_ref: an exact replay returns the original with `replayed: true`; any other use → `DUPLICATE_BANK_TAX`;
+- `ACCOUNT_NOT_FOUND_OR_INACTIVE`;
+- `MP_ACCOUNT_NOT_ALLOWED` (the Mercado Pago account; its account_tax stays V-3);
+- `RELATED_TRANSFER_NOT_FOUND` (when given, the related operation must be a TRANSFER);
+- `ASSERT_PERIOD_OPEN(effective_date)`.
+
+**Atomic steps:**
+- one financial_operation BANK_TAX (source_entity = the related transfer, if any);
+- ONE financial_posting `−amount` on the account;
+- one bank_tax_charge row (tax_kind, account, amount, FK related_operation_id);
+- one audit_events row `BANK_TAX`.
+
+**Consequences:** the account balance decreases. **No P&L effect** (fail-closed). transfer_between_accounts is unchanged; the transfer and the tax are two calls, and the UI reports a partial success.
+**Errors:** `FORBIDDEN`, `INVALID_AMOUNT`, `INVALID_DATE`, `INVALID_TAX_KIND`, `EXTERNAL_REF_REQUIRED`, `DUPLICATE_BANK_TAX`, `ACCOUNT_NOT_FOUND_OR_INACTIVE`, `MP_ACCOUNT_NOT_ALLOWED`, `RELATED_TRANSFER_NOT_FOUND`, `PERIOD_NOT_FOUND`, `PERIOD_CLOSED`.
+**Returns:** `{financial_operation_id, posting_id, replayed}`.
+
 ## RPC INVENTORY (EXACT)
 
 | # | RPC | Domain | Actor | SEC.DEF | Period determinant |
@@ -2426,8 +2452,9 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 | 43 | register_management_event **[ADR-004]** (contract: ADR-004 D9) | P&L | ADMIN | yes | event_date |
 | 44 | register_flock **[ADR-007]** | Production | ADMIN | yes | entry_date |
 | 45 | close_flock **[ADR-007]** | Production | ADMIN | yes | exit_date |
+| 46 | register_bank_tax **[ADR-011]** | Treasury | ADMIN | yes | effective_date |
 
-**TOTAL: 45 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45). 41 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Four are not:
+**TOTAL: 46 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46). 42 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Four are not:
 `cancel_order` (3) and `assign_flock_feed` (29) create no economic fact, and
 `close_management_period` (37) / `reopen_management_period` (38) control periods themselves.
 
@@ -2437,4 +2464,4 @@ consequences, idempotency, errors and return type.
 
 ---
 
-**STATUS: FROZEN — 45 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001; RPC 43 by ADR-004 D9; RPCs 44 / 45 by ADR-007)
+**STATUS: FROZEN — 46 TRANSACTIONAL CONTRACTS SPECIFIED** (RPC 42 by ADR-001; RPC 43 by ADR-004 D9; RPCs 44 / 45 by ADR-007; RPC 46 by ADR-011)

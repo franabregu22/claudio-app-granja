@@ -131,13 +131,21 @@ const PURCHASE = {
 };
 
 describe('ADR-008 purchase attachments: upload → register_purchase with compensation', () => {
-  it('validation happens before any request: no file, a disallowed type or an oversized file', async () => {
-    for (const files of [[], [f('x.exe', 'application/x-msdownload')], [f('big.pdf', 'application/pdf', MAX_ATTACHMENT_BYTES + 1)]]) {
+  it('validation happens before any request: a disallowed type or an oversized file', async () => {
+    for (const files of [[f('x.exe', 'application/x-msdownload')], [f('big.pdf', 'application/pdf', MAX_ATTACHMENT_BYTES + 1)]]) {
       const { client, calls } = storageStub();
       await expect(createPurchaseWithAttachments(client, { ...PURCHASE, files })).rejects.toBeInstanceOf(TargetDbError);
       expect(calls).toEqual([]);
     }
-    expect(() => validateAttachments([])).toThrow(/ATTACHMENT_REQUIRED/);
+    expect(() => validateAttachments([])).not.toThrow();
+  });
+
+  it('ADR-010: with no file, register_purchase is called directly with [] and nothing touches Storage', async () => {
+    const { client, calls } = storageStub();
+    await createPurchaseWithAttachments(client, { ...PURCHASE, files: [] });
+    expect(calls.map((c) => c.kind)).toEqual(['rpc']);
+    expect(calls[0].fn).toBe('register_purchase');
+    expect(calls[0].args.p_attachments).toEqual([]);
   });
 
   it('the object key is generated (<user>/<uuid>.<ext>); the original name is metadata only', () => {

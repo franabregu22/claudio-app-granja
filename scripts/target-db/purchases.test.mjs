@@ -46,7 +46,7 @@ const RPCS = ['assign_freight_to_purchase', 'pay_supplier', 'rectify_purchase', 
 const TABLES = ['freight', 'freight_allocation', 'purchase_attachment', 'purchase_line', 'purchases'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,close_flock,close_sales_session,current_app_role,deliver_order,'
   + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,open_sales_session,pay_fiscal_obligation,pay_supplier,receive_cheque,'
-  + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_classification,register_collection,'
+  + 'rectify_daily_production,rectify_delivered_order,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,register_fiscal_document,register_fiscal_obligation,register_flock,register_freight,register_management_event,register_mortality,register_purchase,register_session_cash_event,register_session_movement,reject_cheque,'
   + 'reject_supplier_instrument,transfer_between_accounts';
 
@@ -382,25 +382,35 @@ const pFlock = purchase({ sup: SUP_B, total: 500, net: 500, flock: FLOCK, nature
 check('B9 optional flock linkage accepted (existing flock; cycle 2 FK)',
   owner(`SELECT flock_id || '|' || nature FROM purchases WHERE id = '${pFlock.purchase_id}';`) === `${FLOCK}|INVESTMENT`);
 const pNoLines = purchase({ sup: SUP_B, total: 1200, net: 1000, lines: [] });
-check('B10 contract as written: a purchase with no lines (e.g. a service) is accepted; attachment still required',
+check('B10 contract as written: a purchase with no lines (e.g. a service) is accepted',
   pNoLines.line_count === 0 && pNoLines.attachment_count === 1);
 
 // ═══════════════════════════════════════════════════════════════════════════
-section('C', 'Attachment required');
+section('C', 'Attachments optional (ADR-010, owner D-WALK-5)');
 
 snap = snapshot();
-for (const [what, atts] of [['NULL attachments', null], ['empty attachment array', []], ['non-array attachments', { storage_path: 'x' }]]) {
-  r = ADMIN(`SELECT ${purchaseCall({ sup: SUP_B, key: uniq('K'), atts })};`);
-  check(`C ${what} → ATTACHMENT_REQUIRED`, raised(r, 'ATTACHMENT_REQUIRED'), firstErr(r));
+r = ADMIN(`SELECT ${purchaseCall({ sup: SUP_B, key: uniq('K'), atts: { storage_path: 'x' } })};`);
+check('C0 non-array attachments → INVALID_ATTACHMENTS', raised(r, 'INVALID_ATTACHMENTS'), firstErr(r));
+check('C1 no purchase, no line, no attachment, no ledger, no audit after that failure', snapshot() === snap);
+const SUP_C = mkSupplier('Proveedor C (sin comprobante)');
+const noAtt = [];
+for (const [what, atts] of [['NULL attachments', null], ['empty attachment array', []]]) {
+  const p = rpc(purchaseCall({ sup: SUP_C, key: uniq('K'), atts }));
+  noAtt.push(p.purchase_id);
+  check(`C ${what} → accepted with 0 attachments and the supplier debt booked`, p.attachment_count === 0 && Number.isInteger(p.supplier_ledger_id), JSON.stringify(p));
 }
-check('C1 no purchase, no line, no attachment, no ledger, no audit after those failures', snapshot() === snap);
+const rNoAtt = rpc(rectifyCall(noAtt[0], 1, 1, [line({ descripcion: 'Compra', cantidad: 1, unit_type: 'UNIT', precio_unitario: 1 })], 'corrección sin comprobante'));
+check('C1b a purchase without attachments can be rectified; the new version carries none (ADR-010)',
+  rNoAtt.version_seq === 1 && owner(`SELECT count(*) FROM purchase_attachment WHERE purchase_id = '${rNoAtt.new_purchase_id}';`) === '0');
+
+snap = snapshot();
 r = ADMIN(`SELECT ${purchaseCall({ sup: SUP_B, key: uniq('K'), atts: [{ file_name: 'x.pdf', content_type: 'application/pdf', byte_size: 1 }] })};`);
 check('C2 attachment missing storage_path fails AFTER the purchase insert → full rollback', !r.ok && /storage_path/.test(r.err) && snapshot() === snap, firstErr(r));
 r = ADMIN(`INSERT INTO purchases (supplier_id, economic_date, amount_net, amount_total, expense_category_id, nature, idempotency_key)
            VALUES ('${SUP_B}', '2026-04-10', 1, 1, '${CAT}', 'OPERATING', 'direct');`);
-check('C3 no application path inserts a purchase directly (so none can exist without attachment)', denied(r), firstErr(r));
-check('C4 every purchase in the database has ≥1 attachment (invariant 23)',
-  owner(`SELECT count(*) FROM purchases p WHERE NOT EXISTS (SELECT 1 FROM purchase_attachment a WHERE a.purchase_id = p.id);`) === '0');
+check('C3 no application path inserts a purchase directly (RPC 13 is the only creation path)', denied(r), firstErr(r));
+check('C4 [ADR-010] invariant 23 superseded: purchases without attachments exist only through RPC 13 (the ones registered above)',
+  owner(`SELECT count(*) FROM purchases p WHERE p.supplier_id = '${SUP_C}' AND NOT EXISTS (SELECT 1 FROM purchase_attachment a WHERE a.purchase_id = p.id);`) === '3');
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('D', 'Purchase validation');
@@ -626,7 +636,8 @@ const pK2 = purchase({ sup: SUP_H });
 owner(`DELETE FROM purchase_attachment WHERE purchase_id = '${pK2.purchase_id}';`);   // owner-only synthetic corruption
 snap = snapshot();
 r = ADMIN(`SELECT ${rectifyCall(pK2.purchase_id, 1, 1, [line()])};`);
-check('K3 a current version without attachment cannot be rectified → ATTACHMENT_REQUIRED', raised(r, 'ATTACHMENT_REQUIRED') && snapshot() === snap, firstErr(r));
+check('K3 [ADR-010] a current version without attachment is rectified; the new version carries none', r.ok
+  && owner(`SELECT count(*) FROM purchase_attachment a JOIN purchases p ON p.id = a.purchase_id WHERE p.supplier_id = '${SUP_H}' AND p.is_current AND p.version_seq = 1 AND p.idempotency_key LIKE 'RECTIFY:${pK2.purchase_id}%';`) === '0', firstErr(r));
 owner(`INSERT INTO purchase_attachment (purchase_id, storage_path, file_name, content_type, byte_size) VALUES ('${pK2.purchase_id}', 'restored.pdf', 'restored.pdf', 'application/pdf', 1);`);
 
 // ═══════════════════════════════════════════════════════════════════════════
