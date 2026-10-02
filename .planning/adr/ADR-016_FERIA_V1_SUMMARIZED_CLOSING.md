@@ -1,6 +1,6 @@
 # ADR-016 — Feria V1 summarized closing
 
-**STATUS:** **ACCEPTED** (owner decisions D-FER-1…5, "OWNER DECISIONS — FERIA V1 SIMPLIFIED CLOSING", 2026-10-01). Implemented by migration `0070_feria_summary_closing.sql`; part of the "Phase 27 acceptance fixes". **The owner has not yet accepted the flow manually**, so CUTOVER_READY is not declared.
+**STATUS:** **ACCEPTED** (owner decisions D-FER-1…5, "OWNER DECISIONS — FERIA V1 SIMPLIFIED CLOSING", 2026-10-01). Implemented by migration `0070_feria_summary_closing.sql`; part of the "Phase 27 acceptance fixes". **FERIA MANUAL ACCEPTANCE: PASS** (owner, 2026-10-01). "Gastos de Feria" stays INDIRECT for V1 (owner decision).
 **DATE:** 2026-10-01
 **RAISED BY:** the owner walkthrough. The product-line Feria flow (dispatch, returns, individual expenses, withdrawals, counts, product-line close) does not match how the Feria is actually run. The paper / spreadsheet worksheet is the detailed record, and the app should keep only the summarized closing.
 

@@ -575,7 +575,7 @@ Deferred findings:
 | Fiscal | PASS |
 | Finance | PASS |
 | Mercado Pago | PASS FUNCTIONAL — future UX simplification: reduce technical density, prioritize actionable states, move IDs / technical diagnostics into expandable details |
-| Feria | **PARTIAL / DEFERRED** (§10.3): the session-cash model and the movement history need an owner-approved redesign. Not accepted. → Superseded by §10.6 (ADR-016 implemented; pending the owner's manual acceptance). |
+| Feria | **PARTIAL / DEFERRED** (§10.3): the session-cash model and the movement history need an owner-approved redesign. Not accepted. → Superseded by §10.6: **FERIA MANUAL ACCEPTANCE: PASS** (owner, 2026-10-01, ADR-016 summarized flow). |
 
 The local walkthrough dataset was removed with a narrow, explicit cleanup in one transaction (no `db reset`, no production):
 - the `admin.walkthrough` profile and auth user;
@@ -586,7 +586,7 @@ After the cleanup, the previously contaminated checks pass: commercial J3; found
 
 The pre-cutover checklist (§9b) is **not** complete: the canonical `supabase db reset` rehearsal, cutover, deploy and production artifacts have not been run.
 
-### 10.6 Feria V1 — summarized closing (owner D-FER-1…5; 2026-10-01; ADR-016) — IMPLEMENTED, PENDING OWNER MANUAL ACCEPTANCE
+### 10.6 Feria V1 — summarized closing (owner D-FER-1…5; 2026-10-01; ADR-016) — IMPLEMENTED, FERIA MANUAL ACCEPTANCE: PASS
 
 This replaces the §10.3 standby. The worksheet is the detailed record; the app keeps one summarized closing per Feria.
 
@@ -618,7 +618,7 @@ This replaces the §10.3 standby. The worksheet is the detailed record; the app 
 
 The granular actions and the product-line closing form are not offered. The system product is hidden from product lists.
 
-**Not CUTOVER_READY** until the owner manually accepts the new Feria flow.
+~~Not CUTOVER_READY until the owner manually accepts the new Feria flow.~~ Accepted; see §10.7.
 
 **Validation (2026-10-01, canonical WSL stack: `supabase db reset` + `apply.mjs` 0001→0070):**
 
@@ -637,3 +637,28 @@ The granular actions and the product-line closing form are not offered. The syst
 - The failing checks changed between three runs (8 → 5 and 5 → 7, different ids).
 - Neither suite touches Feria.
 - They were 17/17 and 33/33 at the §9e GREEN record. They must be re-run green once edge→host networking is stable, before any GREEN claim.
+
+### 10.7 Final pre-cutover readiness — **CUTOVER_READY** (owner, 2026-10-01)
+
+**Owner records:**
+- **FERIA MANUAL ACCEPTANCE: PASS** (summarized V1 flow, ADR-016);
+- **"Gastos de Feria" stays INDIRECT COST for V1** (owner decision).
+
+**Final rerun of the two previously unstable MP suites:**
+- environment: WSL mirrored networking, the local stack restarted before each suite, `MP_ACCESS_TOKEN` unset, local mock only, no real Mercado Pago call;
+- `mp_worker_http`: **17/0**. E-2 asserts exactly one GET `/v1/payments/{id}` to the mock and no other MP endpoint.
+- `mp_scheduler`: **33/0**. C-1 / C-2: a real pg_cron job fired, pg_net POSTed to mp-worker, and the mock saw the worker.
+- In the first attempt of this rerun, `mp_scheduler` was 31/2 (C-1 / C-2: 20 worker responses, fetch not observed). The isolated rerun of the unchanged code passed 33/0. No code was changed.
+
+**CUTOVER_READY means:** all design, manual acceptance and local technical validation required before Phase 31 are complete. It does **not** mean the production cutover has been executed.
+
+**Retained caveats (Phase 31 execution items, not done here):**
+- L-1: the legacy MP runtime is removed at cutover;
+- fresh target Supabase project provisioning;
+- Auth migration preserving UUIDs (D-PC-7);
+- target secrets / configuration;
+- Edge Functions and schedulers;
+- the webhook switch;
+- the rollback window / runbook (D-PC-10);
+- the production build / env;
+- final deployment and smoke checks.

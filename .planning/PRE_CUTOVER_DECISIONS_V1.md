@@ -215,3 +215,7 @@ npx tsc -b && node scripts/regression/phase27-safe-build.mjs
 2. confirm the Windows-started local stack is stopped (one stack per project / ports);
 3. confirm `MP_ACCESS_TOKEN` is absent from the Linux environment;
 4. run the §5 sequence.
+
+## Status update — 2026-10-01
+
+D-PC-6 resolved: Feria was redesigned (ADR-016) and the owner accepted it manually (**FERIA MANUAL ACCEPTANCE: PASS**). "Gastos de Feria" is INDIRECT for V1. With the final MP suite rerun green (`mp_worker_http` 17/0, `mp_scheduler` 33/0), the pre-cutover status is **CUTOVER_READY**. The meaning and the remaining Phase 31 execution items are listed in PHASE_27 §10.7. Production has not been touched.
