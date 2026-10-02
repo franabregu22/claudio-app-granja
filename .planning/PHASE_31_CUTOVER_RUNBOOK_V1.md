@@ -606,3 +606,77 @@ Still missing, all owner values (the template is refused):
 - São Paulo is closer to the primary application users.
 
 **The region alone does not define the application timezone:** business dates, periods, Feria, production and the MP cutover semantics (ADR-017, instant comparison) are unchanged by the choice.
+
+---
+
+## S4. Hosted platform SECURITY DEFINER (`rls_auto_enable`) — verification contract (2026-10-02)
+
+**Finding (real target `ycmkpnunhxluqqtecbyu`, `sa-east-1`, PostgreSQL 17.11, ledger 72/72).** The first `verify` reported raw `definers=70`, `anon_definers=1`. The diagnosis (`scripts/phase31/owner-queries/target-definer-diagnosis.sql`, read-only) identified the 70th function as:
+
+| Attribute | Value |
+|---|---|
+| Identity | `public.rls_auto_enable()` |
+| Owner | `postgres` |
+| Language | `plpgsql` |
+| Returns | `event_trigger` |
+| SECURITY DEFINER | yes |
+| EXECUTE | PUBLIC / anon (platform default privileges) |
+| Bound event trigger | `ensure_rls` on `ddl_command_end` |
+
+This is the hosted Supabase "automatic RLS" machinery. It is **not** an application function, and no target migration creates it.
+
+**Owner decision:**
+- **No migration 0073.**
+- Target migrations never create, alter, revoke or disable `public.rls_auto_enable()` or `ensure_rls`.
+- The frozen application inventory is unchanged.
+
+**Environment distinction:**
+
+| Environment | SECURITY DEFINER functions in `public` |
+|---|---|
+| Local canonical (0001 → 0072) | 69 application definers; no `rls_auto_enable` |
+| Hosted target | the same 69 application definers, plus `public.rls_auto_enable()` and its event trigger `ensure_rls` |
+
+The canonical application schema is identical in both. The **raw** SECURITY DEFINER count is therefore environment-dependent. The authoritative **application** inventory is exactly 69.
+
+**Verification contract** (`provision-target.mjs verify`):
+
+*Application definers (strict):*
+- The exact identities listed in `scripts/phase31/app-definers.json` (69 `regprocedure` identities, through 0072) must all be present.
+- `app_anon_definers` must be 0 (`APP_ANON_DEFINER` otherwise).
+
+*Platform definers (single allowed exception):*
+- `rls_auto_enable()` is accepted only when **all** of these hold:
+  - schema `public`;
+  - owner `postgres`;
+  - returns `event_trigger`;
+  - bound exactly to event trigger `ensure_rls` on `ddl_command_end`.
+- It is reported separately as `platform_definers`. Its anon EXECUTE is reported, not hidden.
+- A function named `rls_auto_enable` with any other identity, owner, return type or binding fails as `PLATFORM_DEFINER_MISMATCH`.
+
+*Anything else fails closed (`UNEXPECTED_DEFINER`):* any other SECURITY DEFINER function in `public`, whoever owns it and whatever it returns.
+
+**Security reasoning:**
+- An `event_trigger` function cannot be called directly. PostgreSQL refuses it outside an event trigger, and PostgREST does not expose functions returning trigger types.
+- The function holds no application data contract.
+- Revoking it would mean our migrations mutating the platform's security machinery, which the owner declined.
+
+**Local rehearsal of the contract:**
+
+| Scenario | Result |
+|---|---|
+| Canonical (no platform function) | PASS, `app_definers=69/69`, `app_anon_definers=0`, `platform_definers=0` |
+| Exact hosted shape (anon-executable) | PASS, `platform_definers=1`, raw total 70 |
+| Platform function without its binding | FAIL `PLATFORM_DEFINER_MISMATCH` |
+| Platform function bound to the wrong event | FAIL `PLATFORM_DEFINER_MISMATCH` |
+| Same name, wrong return type | FAIL `PLATFORM_DEFINER_MISMATCH` |
+| Unknown extra definer | FAIL `UNEXPECTED_DEFINER` |
+| Application definer granted to anon | FAIL `APP_ANON_DEFINER` |
+
+**Real-target verify with the corrected contract:** to be run by the owner (connection in the owner's shell only). Command: §S2-1 step 4, `node $P verify $A`.
+
+Expected result:
+- `ledger=72/72`, `app_definers=69/69`, `app_anon_definers=0`;
+- `platform_definers=1 [rls_auto_enable()…ensure_rls:ddl_command_end]`, raw total 70;
+- all other checks unchanged (enums, tables, views, RLS, table grants, storage policies, timezone, cron, empty Auth / business data, no MP boundary);
+- `schema PASS`, with the Vault entries MISSING until the owner's Vault step.

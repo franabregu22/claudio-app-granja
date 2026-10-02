@@ -29,7 +29,13 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIGRATIONS_DIR = join(REPO, 'supabase', 'target-migrations');
 const FILE_PATTERN = /^(\d{4})_[a-z0-9_]+\.sql$/;
 const TXN_CONTROL = /\b(BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION|SAVEPOINT|RELEASE\s+SAVEPOINT|END\s*;)/i;
-const EXPECTED = { definers: 69, anon_definers: 0, enums: 33, tables: 62, views: 16, storage_policies: 6 };   // through 0072
+const EXPECTED = { enums: 33, tables: 62, views: 16, storage_policies: 6 };   // through 0072
+// APPLICATION SECURITY DEFINER inventory: exact identities (scripts/phase31/app-definers.json, 69 through 0072).
+const APP_DEFINERS = JSON.parse(readFileSync(join(REPO, 'scripts', 'phase31', 'app-definers.json'), 'utf8')).identities;
+// The ONLY allowed hosted-platform SECURITY DEFINER in public (Supabase "automatic RLS"): accepted only when every
+// characteristic matches. Our migrations never create, alter or revoke it (owner decision, Phase 31 Step 2).
+const PLATFORM_DEFINER = { identity: 'rls_auto_enable()', owner: 'postgres', returns: 'event_trigger',
+  event_trigger: 'ensure_rls', event: 'ddl_command_end' };
 const LEGACY_MARKERS = ['clientes', 'movimientos_caja', 'mercadopago_raw', 'mercadopago_movements', 'cuentas_caja', 'pagos', 'lotes', 'producciones'];
 const VAULT_NAMES = ['mp_worker_url', 'mp_worker_invoke_secret'];
 
@@ -190,8 +196,12 @@ function verify() {
   const expectedLines = files.map((m) => `${m.version}|${m.file}|${m.sha}`);
   const ledger = ledgerRows();
   const s = JSON.parse(q(`SELECT json_build_object(
-    'definers', (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace),
-    'anon_definers', (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace AND has_function_privilege('anon', oid, 'EXECUTE')),
+    'definer_list', (SELECT coalesce(json_agg(json_build_object(
+        'identity', p.oid::regprocedure::text, 'owner', pg_get_userbyid(p.proowner), 'returns', pg_get_function_result(p.oid),
+        'anon', has_function_privilege('anon', p.oid, 'EXECUTE'),
+        'event_triggers', (SELECT coalesce(json_agg(evtname || ':' || evtevent ORDER BY evtname), '[]') FROM pg_event_trigger WHERE evtfoid = p.oid))
+        ORDER BY p.oid::regprocedure::text), '[]')
+      FROM pg_proc p WHERE p.prosecdef AND p.pronamespace = 'public'::regnamespace),
     'enums', (SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'public' AND t.typtype = 'e'),
     'tables', (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'),
     'views', (SELECT count(*) FROM information_schema.views WHERE table_schema = 'public'),
@@ -213,6 +223,26 @@ function verify() {
   const f = [];
   if (ledger.join('\n') !== expectedLines.join('\n')) f.push(`LEDGER: ${ledger.length} row(s) vs ${files.length} file(s) (version / filename / sha256)`);
   for (const [k, v] of Object.entries(EXPECTED)) if (s[k] !== v) f.push(`${k}=${s[k]} (expected ${v})`);
+  // SECURITY DEFINER contract: application (exact list, 0 anon) vs the single allowed hosted-platform object
+  const byId = new Map(s.definer_list.map((d) => [d.identity, d]));
+  const app = s.definer_list.filter((d) => APP_DEFINERS.includes(d.identity));
+  const appMissing = APP_DEFINERS.filter((i) => !byId.has(i));
+  const appAnon = app.filter((d) => d.anon).map((d) => d.identity);
+  const extra = s.definer_list.filter((d) => !APP_DEFINERS.includes(d.identity));
+  const platform = [];
+  for (const d of extra) {
+    const pd = PLATFORM_DEFINER;
+    const exact = d.identity === pd.identity && d.owner === pd.owner && d.returns === pd.returns
+      && JSON.stringify(d.event_triggers) === JSON.stringify([`${pd.event_trigger}:${pd.event}`]);
+    if (exact) platform.push(d);
+    else if (/^rls_auto_enable\(/.test(d.identity)) f.push(`PLATFORM_DEFINER_MISMATCH: ${d.identity} owner=${d.owner} returns=${d.returns} event_triggers=${JSON.stringify(d.event_triggers)} (approved: ${JSON.stringify(pd)})`);
+    else f.push(`UNEXPECTED_DEFINER: public.${d.identity} owner=${d.owner} returns=${d.returns} anon=${d.anon}`);
+  }
+  if (appMissing.length) f.push(`APP_DEFINER_MISSING: ${appMissing.join(', ')}`);
+  if (app.length !== APP_DEFINERS.length) f.push(`app_definers=${app.length} (expected ${APP_DEFINERS.length})`);
+  if (appAnon.length) f.push(`APP_ANON_DEFINER: ${appAnon.join(', ')} (application definers must never be executable by anon)`);
+  s.app_definers = app.length; s.app_anon_definers = appAnon.length;
+  s.platform_definers = platform.map((d) => `${d.identity}[anon=${d.anon}; ${d.event_triggers.join(',')}]`);
   if (s.tables_without_rls !== 0) f.push(`tables_without_rls=${s.tables_without_rls}`);
   const buckets = ['feria-worksheets:false:10485760:application/pdf,image/jpeg,image/png,image/webp',
     'purchase-attachments:false:10485760:application/pdf,image/jpeg,image/png,image/webp'];
@@ -224,7 +254,7 @@ function verify() {
   const tzv = timezoneFailures();
   f.push(...tzv.f);
   const vaultMissing = VAULT_NAMES.filter((n) => !s.vault_names.includes(n));
-  log(`verify: ledger=${ledger.length}/${files.length} definers=${s.definers} anon_definers=${s.anon_definers} enums=${s.enums} tables=${s.tables} views=${s.views} `
+  log(`verify: ledger=${ledger.length}/${files.length} app_definers=${s.app_definers}/${APP_DEFINERS.length} app_anon_definers=${s.app_anon_definers} platform_definers=${s.platform_definers.length}${s.platform_definers.length ? ` [${s.platform_definers.join(' ')}]` : ''} raw_total_definers=${s.definer_list.length} enums=${s.enums} tables=${s.tables} views=${s.views} `
     + `rls_missing=${s.tables_without_rls} anon_table_grants=${s.anon_table_privileges} storage_policies=${s.storage_policies} `
     + `timezone=${tzv.tz.session} cron.timezone=${tzv.tz.cron ?? 'n/a'} (mp_worker_every_minute is minute-based)`);
   log(`verify: buckets=${s.buckets.map((b) => b.split(':').slice(0, 3).join(':')).join(' ')} cron=${s.cron_job.join(',') || 'MISSING'} `
