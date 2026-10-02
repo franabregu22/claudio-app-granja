@@ -17,6 +17,7 @@
  *   node scripts/phase31/provision-target.mjs <preflight|apply|verify|smoke> --kind PRODUCTION_TARGET|LOCAL_PROVISION_REHEARSAL
  *        --expected-host <db host> --forbidden-hosts <legacy db host[,…]> --client <psql client container>
  *        [--confirm <expected host>]   (PRODUCTION_TARGET apply only: explicit owner confirmation)
+ *        --auth-phase PRE_RESTORE|RESTORED  (verify only, required: the exact expected Auth state, see verify-state.mjs)
  * Never prints a secret value, an email, a hash or a token.
  */
 import { spawnSync } from 'node:child_process';
@@ -24,6 +25,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { AUTH_PHASES, stateFailures } from './verify-state.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIGRATIONS_DIR = join(REPO, 'supabase', 'target-migrations');
@@ -52,6 +54,7 @@ const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 if (!['preflight', 'apply', 'verify', 'smoke', 'vault-set'].includes(command)) die('USAGE', 'command must be preflight | apply | verify | smoke | vault-set');
 if (!['PRODUCTION_TARGET', 'LOCAL_PROVISION_REHEARSAL'].includes(opt.kind)) die('USAGE', '--kind PRODUCTION_TARGET | LOCAL_PROVISION_REHEARSAL');
 if (!opt['expected-host'] || !opt.client) die('USAGE', '--expected-host and --client are required');
+if (command === 'verify' && !AUTH_PHASES.includes(opt['auth-phase'])) die('USAGE', `verify requires --auth-phase ${AUTH_PHASES.join(' | ')} (PRE_RESTORE before the Step 3 Auth restore; RESTORED after it)`);
 const forbidden = (opt['forbidden-hosts'] || '').split(',').map((s) => s.trim()).filter(Boolean);
 if (opt.kind === 'PRODUCTION_TARGET' && forbidden.length === 0) die('USAGE', 'PRODUCTION_TARGET requires --forbidden-hosts <legacy db host>');
 
@@ -212,6 +215,10 @@ function verify() {
     'cron_job', (SELECT coalesce(json_agg(jobname || ':' || active ORDER BY jobname), '[]') FROM cron.job WHERE jobname = 'mp_worker_every_minute'),
     'vault_names', (SELECT coalesce(json_agg(name ORDER BY name), '[]') FROM vault.secrets WHERE name IN (${VAULT_NAMES.map((n) => `'${n}'`).join(', ')})),
     'auth_users', (SELECT count(*) FROM auth.users),
+    'auth_identities', (SELECT count(*) FROM auth.identities),
+    'auth_providers', (SELECT coalesce(json_agg(DISTINCT provider ORDER BY provider), '[]') FROM auth.identities),
+    'auth_sessions', (SELECT count(*) FROM auth.sessions),
+    'auth_refresh_tokens', (SELECT count(*) FROM auth.refresh_tokens),
     'business_facts', (SELECT count(*) FROM pedidos) + (SELECT count(*) FROM collections) + (SELECT count(*) FROM purchases)
       + (SELECT count(*) FROM perfiles) + (SELECT count(*) FROM client_ledger) + (SELECT count(*) FROM financial_operation)
       + (SELECT count(*) FROM mp_source_record) + (SELECT count(*) FROM mp_webhook_delivery) + (SELECT count(*) FROM sales_session_closing),
@@ -248,9 +255,7 @@ function verify() {
     'purchase-attachments:false:10485760:application/pdf,image/jpeg,image/png,image/webp'];
   if (JSON.stringify(s.buckets) !== JSON.stringify(buckets)) f.push(`buckets=${JSON.stringify(s.buckets)}`);
   if (JSON.stringify(s.cron_job) !== JSON.stringify(['mp_worker_every_minute:true'])) f.push(`cron_job=${JSON.stringify(s.cron_job)}`);
-  if (s.auth_users !== 0) f.push(`auth_users=${s.auth_users} (no Auth data before the rehearsed restore)`);
-  if (s.business_facts !== 0) f.push(`business_facts=${s.business_facts} (the target must stay empty)`);
-  if (s.mp_boundary !== 0) f.push('mp_cutover_boundary is set before the cutover (ADR-017: only the cutover runner writes it)');
+  f.push(...stateFailures(s, opt['auth-phase']));
   const tzv = timezoneFailures();
   f.push(...tzv.f);
   const vaultMissing = VAULT_NAMES.filter((n) => !s.vault_names.includes(n));
@@ -258,7 +263,7 @@ function verify() {
     + `rls_missing=${s.tables_without_rls} anon_table_grants=${s.anon_table_privileges} storage_policies=${s.storage_policies} `
     + `timezone=${tzv.tz.session} cron.timezone=${tzv.tz.cron ?? 'n/a'} (mp_worker_every_minute is minute-based)`);
   log(`verify: buckets=${s.buckets.map((b) => b.split(':').slice(0, 3).join(':')).join(' ')} cron=${s.cron_job.join(',') || 'MISSING'} `
-    + `vault PRESENT=[${s.vault_names.join(', ')}] MISSING=[${vaultMissing.join(', ')}] auth_users=${s.auth_users} business_facts=${s.business_facts} `
+    + `vault PRESENT=[${s.vault_names.join(', ')}] MISSING=[${vaultMissing.join(', ')}] auth_phase=${opt['auth-phase']} auth_users=${s.auth_users} identities=${s.auth_identities} providers=${s.auth_providers.join(',')} sessions=${s.auth_sessions} refresh_tokens=${s.auth_refresh_tokens} business_facts=${s.business_facts} `
     + `mp_boundary=${s.mp_boundary} seeds=${JSON.stringify(s.seeds)}`);
   if (f.length) die('VERIFY', 'the target does not match the provisioning contract', f.join('\n'));
   log(vaultMissing.length ? 'verify: schema PASS; Vault entries MISSING (owner step)' : 'verify: PASS');

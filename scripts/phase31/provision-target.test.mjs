@@ -8,6 +8,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { stateFailures } from './verify-state.mjs';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const P = join(REPO, 'scripts', 'phase31', 'provision-target.mjs');
@@ -57,6 +58,23 @@ out = vaultSet({ dbUrl: `postgresql://postgres.${OTHER}:x@aws-0-sa-east-1.pooler
 check('W11 pooler user of another project ref → refused before any URL check (connection ref guard unchanged)', /connection project ref zyxwvutsrqponmlkjihg differs from --expected-ref/.test(out), out);
 out = vaultSet({ dbUrl: `postgresql://postgres.${LEGACY}:x@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`, host: 'aws-0-sa-east-1.pooler.supabase.com', workerUrl: GOOD });
 check('W12 the legacy project ref is refused', /differs from --expected-ref|LEGACY/.test(out), out);
+
+// ── verify Auth / emptiness state contract (pure) ──
+const RESTORED_OK = { auth_users: 5, auth_identities: 5, auth_providers: ['email'], auth_sessions: 0, auth_refresh_tokens: 0, business_facts: 0, mp_boundary: 0 };
+const sf = (over, phase = 'RESTORED') => stateFailures({ ...RESTORED_OK, ...over }, phase);
+check('V1 RESTORED: 5 users / 5 email identities / 0 sessions / 0 refresh tokens → PASS', sf({}).length === 0, sf({}).join(' | '));
+check('V2 RESTORED: 0 users → FAIL', sf({ auth_users: 0, auth_identities: 0, auth_providers: [] }).some((x) => /^auth_users=0/.test(x)));
+check('V3 RESTORED: 6 users → FAIL', sf({ auth_users: 6 }).some((x) => /^auth_users=6/.test(x)));
+check('V4 RESTORED: business_facts > 0 → FAIL', sf({ business_facts: 1 }).some((x) => /^business_facts=1/.test(x)));
+check('V5 RESTORED: mp_boundary > 0 → FAIL', sf({ mp_boundary: 1 }).some((x) => /mp_cutover_boundary/.test(x)));
+check('V6 RESTORED: a 6th identity / a non-email provider / a live session or refresh token → FAIL',
+  [sf({ auth_identities: 6 }), sf({ auth_providers: ['email', 'google'] }), sf({ auth_sessions: 1 }), sf({ auth_refresh_tokens: 1 })].every((x) => x.length === 1));
+const PRE_OK = { auth_users: 0, auth_identities: 0, auth_providers: [], auth_sessions: 0, auth_refresh_tokens: 0, business_facts: 0, mp_boundary: 0 };
+check('V7 PRE_RESTORE (historical provisioning): 0 Auth rows → PASS', stateFailures(PRE_OK, 'PRE_RESTORE').length === 0);
+check('V8 PRE_RESTORE: 5 users → FAIL', stateFailures(RESTORED_OK, 'PRE_RESTORE').some((x) => /^auth_users=5/.test(x)));
+check('V9 unknown / missing auth phase → FAIL', stateFailures(RESTORED_OK, undefined).length === 1);
+const vr = spawnSync(process.execPath, [P, 'verify', '--kind', 'PRODUCTION_TARGET', '--expected-host', 'h', '--client', 'c'], { encoding: 'utf8', env: { ...process.env, CUTOVER_TARGET_DB_URL: '' } });
+check('V10 verify without --auth-phase is refused before any connection', /verify requires --auth-phase/.test(`${vr.stdout}${vr.stderr}`), vr.stderr);
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

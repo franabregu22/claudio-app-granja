@@ -490,7 +490,7 @@ Run from a WSL shell at the repository root. Values are typed privately and neve
    A="--kind PRODUCTION_TARGET --expected-host <db host> --expected-ref <new ref> --forbidden-hosts db.<legacy ref>.supabase.co --forbidden-refs <legacy ref> --client supabase_db_Claudio_app_Granja"
    node $P preflight $A
    node $P apply $A --confirm <db host>
-   node $P verify $A
+   node $P verify $A --auth-phase PRE_RESTORE
    ```
 5. **Edge Functions** (target only).
    - Never run `supabase link`: it would repoint `supabase/.temp/project-ref`.
@@ -519,7 +519,7 @@ Run from a WSL shell at the repository root. Values are typed privately and neve
    ```bash
    ( set -a; . ~/granja-phase31-private/target-edge.env; set +a
      node $P vault-set $A --worker-url https://<new ref>.supabase.co/functions/v1/mp-worker )
-   node $P verify $A                                    # Vault PRESENT=[mp_worker_invoke_secret, mp_worker_url]
+   node $P verify $A --auth-phase PRE_RESTORE           # Vault PRESENT=[mp_worker_invoke_secret, mp_worker_url]
    ```
 8. **Smoke** (public values only; the anon/publishable key is public):
    ```bash
@@ -799,7 +799,7 @@ node $A fingerprint $TGT --out $PRIV/target-auth.json
 node $A compare --a $PRIV/legacy-auth.json --b $PRIV/target-auth.json     # IDENTICAL
 node $A inventory $TGT                                                    # sessions 0, refresh_tokens 0, users_example_invalid 0
 ```
-After this step, `provision-target.mjs verify` reports `auth_users > 0` by design: its empty-Auth check applies only before the restore. The authoritative post-restore Auth evidence is the IDENTICAL `compare` above.
+After this step, `provision-target.mjs verify` must run with `--auth-phase RESTORED`. It then requires exactly the restored V1 Auth set: 5 users, 5 identities, providers `[email]`, 0 sessions, 0 refresh tokens. `PRE_RESTORE` (0 Auth rows) applies only before the restore. `--auth-phase` is mandatory: there is no default. The authoritative credential evidence remains the IDENTICAL `compare` above.
 
 **G. Login acceptance:**
 
@@ -907,7 +907,7 @@ The local stack now holds real Auth users and real master data. Discard them wit
 | P5 [NF] | Snapshot reader validity. Block A has `VALID UNTIL '2026-10-31 23:59:59+00'`: **if T0 is after 2026-10-31, the final cycle needs a new dated copy of Block A**. That is a new file, and it needs **[OA]**. Also confirm that Block C ran after the rehearsal snapshot (`reader_role = 0`, `reader_policies = 0`, the §Phase 26 read-only check). | STOP if the reader still exists, or if the expiry precedes T0 without an approved copy |
 | P6 [NF] | Production config prepared outside the repository from the rehearsal config, with: `target.kind = PRODUCTION_TARGET`; `expected_host` = the target DB host; `forbidden_hosts` = the legacy host; a new `import_batch` `P31-<date>-CUTOVER1`; the real `cutover_at`; `source.*` left empty (filled at F4); real balances left as placeholders; **no** `SYNTHETIC` evidence (the gate refuses it); `population.expected = {}`. | GO when the template fields are complete except the T0 values |
 | P7 [NF] | Prepared L-1 branch `phase31-l1-legacy-mp-removal` (`256b76d`) rebased or checked on top of the release branch. Tests, gate and build green. **Not merged.** | STOP if anything is red |
-| P8 [NF] | Target health: `provision-target.mjs verify` and `smoke` PASS. Auth is expected to be > 0 now (§S5): `verify` reports `auth_users > 0` by design, and the Auth evidence is the drift gate. Vault complete, cron healthy, `mp_cutover_boundary` empty, 0 business facts. | STOP on any failure |
+| P8 [NF] | Target health: `provision-target.mjs verify` and `smoke` PASS. `verify --auth-phase RESTORED` (§S5): exactly 5 users / 5 email identities / 0 sessions / 0 refresh tokens; the credential evidence is the drift gate. Vault complete, cron healthy, `mp_cutover_boundary` empty, 0 business facts. | STOP on any failure |
 | P9 [NF] | Netlify release prepared, not deployed: target `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` ready; a build against the target (`dist` host check); the previous deploy id recorded for rollback B. | GO when the build is verified |
 
 **Phase F: freeze and T0**
@@ -1002,7 +1002,7 @@ PA="--kind PRODUCTION_TARGET --expected-host aws-0-sa-east-1.pooler.supabase.com
 
 **Before the freeze (P8, P9):**
 ```bash
-node $P verify $PA      # schema PASS; app_definers 69/69; platform rls_auto_enable; auth_users = 5 by design (Auth restored); business_facts 0; mp_boundary 0
+node $P verify $PA --auth-phase RESTORED   # schema PASS; app_definers 69/69; platform rls_auto_enable; auth 5 users / 5 email identities / 0 sessions / 0 refresh; business_facts 0; mp_boundary 0
 export TARGET_API_URL=https://ycmkpnunhxluqqtecbyu.supabase.co; read -rs TARGET_ANON_KEY && export TARGET_ANON_KEY
 node $P smoke $PA       # signup disabled, providers [email], webhook/worker 401, legacy fns 404, storage not public, cron OK
 # frontend build check from the release state (L-1 test-merged on a temporary branch, then deleted)
