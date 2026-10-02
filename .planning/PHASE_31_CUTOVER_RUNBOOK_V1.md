@@ -680,3 +680,135 @@ Expected result:
 - `platform_definers=1 [rls_auto_enable()…ensure_rls:ddl_command_end]`, raw total 70;
 - all other checks unchanged (enums, tables, views, RLS, table grants, storage policies, timezone, cron, empty Auth / business data, no MP boundary);
 - `schema PASS`, with the Vault entries MISSING until the owner's Vault step.
+
+---
+
+## S5. Phase 31 Step 3 — Auth inventory, local rehearsal, target restore (prepared 2026-10-02)
+
+**Tool:** `scripts/phase31/auth-restore.mjs`.
+- Commands: `inventory`, `fingerprint`, `check-dump`, `restore`, `compare`.
+- Output: counts and sha256 fingerprints only — never an email, a hash, a token or a UUID list.
+- UUID lists, fingerprints and the dump go only to private files outside the repository.
+- Connections come from environment variables named by `--db-env`, passed as libpq variables. Guards:
+
+| Kind | Rule |
+|---|---|
+| `LEGACY_READONLY` | read-only transactions; `restore` is refused |
+| `PRODUCTION_TARGET` | the ref is checked against the direct host or the pooler user; the legacy ref is refused; `--confirm <ref>` is required for restore |
+| `LOCAL_REHEARSAL` | loopback only |
+
+**Synthetic local rehearsal of the mechanism (PASS, no real data):**
+- 3 users were created through the Auth admin API (real bcrypt hashes), plus 1 session and 1 refresh token.
+- Official `supabase db dump --data-only --use-copy --schema auth -x <every auth table except users, identities>`. `check-dump` PASS.
+- A full Auth dump (with sessions, OAuth, …) was **refused**.
+- Restore into a fresh stack:
+  - fingerprint IDENTICAL (counts, providers, ordered UUID set, identity pairs);
+  - sessions 0 and refresh tokens 0 after the restore;
+  - **login with the original password 200**, wrong password 400.
+- A second restore into a non-empty Auth → `NOT_EMPTY`.
+- A tampered expectation → `AUTH_RESTORE_MISMATCH` inside the transaction, so nothing was written (users = 0 after the rollback).
+- Guards PASS. The log contained 0 emails, 0 passwords and 0 UUIDs.
+
+### Owner procedure (WSL shell, repository root; the legacy and target URLs never leave the owner's shell)
+
+```bash
+umask 077; mkdir -p ~/granja-phase31-private; PRIV=~/granja-phase31-private
+A=scripts/phase31/auth-restore.mjs
+C=supabase_db_Claudio_app_Granja                     # local psql client container (supabase start)
+read -rs LEGACY_DB_URL && export LEGACY_DB_URL       # LEGACY project connection (owner only)
+LEG="--db-env LEGACY_DB_URL --kind LEGACY_READONLY --expected-ref <legacy ref> --client $C"
+```
+
+**A. Legacy Auth inventory** (read-only, aggregate):
+```bash
+node $A inventory $LEG
+```
+Expected output is one JSON line of counts:
+- `auth_users`, `auth_identities`, `identities_by_provider` (expected `email` only);
+- `mfa_factors` (expected 0), `sessions`, `refresh_tokens` (informational, never migrated);
+- unconfirmed / deleted / anonymous / SSO users, `users_example_invalid` (expected 0);
+- `auth_schema_version`.
+
+**B. Legacy fingerprint and id list** (private files):
+```bash
+node $A fingerprint $LEG --out $PRIV/legacy-auth.json --ids-out $PRIV/legacy-auth-ids.txt
+```
+The output shows counts, providers and the first 16 hex characters of the two sha256 fingerprints (ordered user ids; ordered `user_id|provider` pairs). Nothing needs to be pasted into chat beyond that line.
+
+**C. Auth dump** (official CLI; sensitive file, outside the repository, mode 600, never committed, never printed):
+```bash
+EXCL=auth.audit_log_entries,auth.custom_oauth_providers,auth.flow_state,auth.instances,auth.mfa_amr_claims,auth.mfa_challenges,auth.mfa_factors,auth.oauth_authorizations,auth.oauth_client_states,auth.oauth_clients,auth.oauth_consents,auth.one_time_tokens,auth.refresh_tokens,auth.saml_providers,auth.saml_relay_states,auth.schema_migrations,auth.sessions,auth.sso_domains,auth.sso_providers,auth.webauthn_challenges,auth.webauthn_credentials
+supabase db dump --db-url "$LEGACY_DB_URL" --data-only --use-copy --schema auth -x "$EXCL" -f $PRIV/auth_data.sql
+chmod 600 $PRIV/auth_data.sql
+node $A check-dump --dump $PRIV/auth_data.sql
+```
+
+| Rule | Detail |
+|---|---|
+| Included | `auth.users`, `auth.identities` |
+| Conditional | `auth.mfa_factors`, **only** if the inventory shows `mfa_factors > 0`: remove it from `EXCL` and run `check-dump … --allow-mfa yes` |
+| Excluded | sessions, refresh tokens, flow state, one-time tokens, instances, schema_migrations, audit log, MFA challenges / AMR claims, OAuth / SAML / SSO / WebAuthn |
+| Unknown legacy tables | If legacy has an Auth table not in `EXCL`, `check-dump` refuses (fail closed): add it to `EXCL` and dump again |
+| `--db-url` | Puts the URL on the local command line of the owner's machine only. Run it in a non-recorded shell. |
+
+**D. Local rehearsal FIRST:**
+```bash
+supabase db reset && TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres node scripts/target-db/apply.mjs   # 0001 → 0072
+export LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres
+LOC="--db-env LOCAL_DB_URL --kind LOCAL_REHEARSAL --client $C"
+node $A restore $LOC --dump $PRIV/auth_data.sql --expect $PRIV/legacy-auth.json
+node $A fingerprint $LOC --out $PRIV/local-auth.json
+node $A compare --a $PRIV/legacy-auth.json --b $PRIV/local-auth.json     # IDENTICAL
+node $A inventory $LOC                                                    # sessions 0, refresh_tokens 0, users_example_invalid 0
+```
+Then a local login check per user, without exposing the password (local stack, anon key from `supabase status`):
+```bash
+ANON=$(supabase status -o env | grep '^ANON_KEY=' | cut -d= -f2- | tr -d '"')
+read -r EMAIL; read -rs PW; curl -s -o /dev/null -w '%{http_code}\n' -X POST 'http://127.0.0.1:54321/auth/v1/token?grant_type=password' \
+  -H "apikey: $ANON" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}"; unset PW
+```
+Expected `200`. Afterwards run `supabase db reset` (local) to discard the real Auth copy.
+
+**PASS criteria:**
+- the restore commits;
+- `compare` is IDENTICAL;
+- sessions and refresh tokens are 0;
+- no `@example.invalid` user and no user that is not in legacy (the UUID set is equal);
+- the intended users' local login returns 200.
+
+**If anything fails: STOP. Do not touch the target.**
+
+**E. Target restore** (only after D passes; target Auth must be empty):
+```bash
+read -rs CUTOVER_TARGET_DB_URL && export CUTOVER_TARGET_DB_URL
+TGT="--db-env CUTOVER_TARGET_DB_URL --kind PRODUCTION_TARGET --expected-ref ycmkpnunhxluqqtecbyu --forbidden-refs <legacy ref> --client $C"
+node $A restore $TGT --dump $PRIV/auth_data.sql --expect $PRIV/legacy-auth.json --confirm ycmkpnunhxluqqtecbyu
+```
+**Transaction:**
+- `BEGIN`, then `SET LOCAL session_replication_role = replica`, then the dump's `COPY auth.users` / `auth.identities`;
+- an in-transaction fingerprint check (counts, ordered UUID set, identity pairs) and a check that there are 0 sessions;
+- then `COMMIT`.
+
+Any mismatch or error rolls back everything.
+
+**Preflight:** the target Auth must hold 0 users, identities, MFA factors, sessions and refresh tokens (`NOT_EMPTY` otherwise). No Admin API user creation, no new UUID.
+
+**F. Target reconciliation:**
+```bash
+node $A fingerprint $TGT --out $PRIV/target-auth.json
+node $A compare --a $PRIV/legacy-auth.json --b $PRIV/target-auth.json     # IDENTICAL
+node $A inventory $TGT                                                    # sessions 0, refresh_tokens 0, users_example_invalid 0
+```
+After this step, `provision-target.mjs verify` reports `auth_users > 0` by design: its empty-Auth check applies only before the restore. The authoritative post-restore Auth evidence is the IDENTICAL `compare` above.
+
+**G. Login acceptance:**
+
+| Level | What the owner tests | When |
+|---|---|---|
+| AUTH LOGIN PASS | Each intended V1 user, with their **current** password, against the target Auth endpoint: the same `curl` as in D, using `https://ycmkpnunhxluqqtecbyu.supabase.co` and the target anon key. Expected `200`. No password in chat. | after E / F |
+| APP PROFILE / ROLE PASS | Login in the application with the correct ADMIN / OPERATOR role | **deferred**: `public.perfiles` is loaded by the business migration (cutover runner `load`). Until then a user can authenticate but has no app profile or role. |
+
+**H. Target state after the Auth restore:**
+- no business data and no `mp_cutover_boundary`;
+- the MP webhook and the frontend stay on legacy;
+- no real user traffic on the target.
