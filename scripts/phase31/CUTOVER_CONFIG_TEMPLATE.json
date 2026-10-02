@@ -1,0 +1,109 @@
+{
+  "config_id": "P31-CUTOVER",
+  "config_version": 1,
+  "mode_allowed": "CUTOVER",
+  "description": "TEMPLATE ONLY. Copy OUTSIDE the repository (e.g. C:\\Users\\<owner>\\GranjaSnapshots\\phase31\\cutover-config.json), fill every owner value, remove every REQUIRES_FINAL_CUTOVER_VALUE flag. No secret ever goes here: the target connection is the CUTOVER_TARGET_DB_URL environment variable.",
+
+  "source": {
+    "snapshot_id": "<final snapshot id, e.g. 2026MMDDTHHMMSSZ>",
+    "snapshot_dir": "<absolute path of the final snapshot directory (holds manifest.json)>",
+    "manifest_sha256": "<sha256 of the final snapshot manifest.json>",
+    "legacy_copy_container": "granja-legacy-copy",
+    "legacy_copy_database": "postgres",
+    "source_system": "legacy_supabase",
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "target": {
+    "kind": "PRODUCTION_TARGET",
+    "expected_host": "<db host of the NEW project, e.g. db.<new-ref>.supabase.co>",
+    "forbidden_hosts": ["<db host of the LEGACY project>"],
+    "psql_client_container": "granja-legacy-copy",
+    "staging_schema": "phase26_migration",
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "import_batch": "P31-<YYYYMMDD>-CUTOVER1",
+
+  "cutover_boundary": {
+    "cutover_at": "<exact cutover instant with offset, e.g. 2026-11-01T00:00:00-03:00>",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "evidence_ref": "<reference to the owner record of the boundary instant (freeze start / MP Account Money capture)>",
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "clients": {
+    "migrate_master": true,
+    "opening_balance_method": "OWNER_VALIDATED",
+    "evidence_ref": "<owner validation reference of the client balances at the boundary>",
+    "opening_balances": { "<client uuid (one entry for EVERY migrated client; \"0.00\" allowed)>": "<signed amount, 2 decimals, positive = the client owes>" },
+    "historical_pedidos_migrated": false,
+    "historical_pagos_migrated": false,
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "suppliers": { "opening_balances": "NONE", "outstanding_obligations": "NONE", "evidence_ref": "<owner confirmation: no supplier balance / obligation at cutover>", "REQUIRES_FINAL_CUTOVER_VALUE": true },
+  "instruments": { "open_instruments": "NONE", "excluded_test_rows": [11530, 11531, 11532], "evidence_ref": "<owner confirmation: no open cheque / instrument at cutover>", "REQUIRES_FINAL_CUTOVER_VALUE": true },
+
+  "treasury": {
+    "account_map": { "Caja Chica": "Caja chica", "MercadoPago": "Mercado Pago", "BNA": "BNA", "(seed only)": "Patagonia" },
+    "opening_balance_method": "OWNER_VALIDATED",
+    "evidence_ref": "<cash count sheet + MP Account Money balance at cutover_at + BNA / Patagonia statements>",
+    "opening_balances": { "BNA": "<amount>", "Caja chica": "<amount>", "Mercado Pago": "<amount: MP Account Money at cutover_at, measured on the ADR-006 basis (ADR-017 §5)>", "Patagonia": "<amount>" },
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "population": {
+    "method": "P-b",
+    "evidence_ref": "<physical count sheet reference>",
+    "counts": { "<ACTIVE flock uuid>": "<integer physical count>" },
+    "expected": { "<flock uuid>": { "code": "<target code>", "initial": 0, "mortality_events": 0, "mortality_total": 0, "population": 0 } },
+    "expected_totals": { "mortality_events": 0, "mortality_total": 0 },
+    "owner_acceptance_ref": "<required only for method P-a>",
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "flocks": {
+    "owner_overrides": {
+      "1167d99b-00db-4eee-8256-597e0678bee1": { "galpon": "Galpón 1", "target_code": "G01-2501", "target_estado": "ACTIVE", "exit_date": null, "legacy_estado": "Retirado", "ruling": "B-1: still present in Galpón 1" },
+      "909f2e1f-9d11-406b-a5e2-889c33b4b0a3": { "galpon": "Galpón 4", "target_code": "G04-2607", "legacy_code": "G02-2607", "target_estado": "ACTIVE", "exit_date": null, "legacy_estado": "Retirado", "ruling": "B-1 + owner: code corrected, still present in Galpón 4" }
+    },
+    "estado_map": { "Activo": "ACTIVE", "Retirado": "RETIRED" }
+  },
+
+  "users": {
+    "role_map": { "dueño": "ADMIN", "colaborador": "OPERATOR", "repartidor": "OPERATOR" },
+    "email_policy": { "mode": "REAL", "source": "auth.users of the restored Auth data (D-PC-7); never planned, never synthetic" },
+    "migration_actor": "the lowest migrated ADMIN profile id executes the population RPCs",
+    "operator_assignments": { "assignments": [{ "operator_id": "<OPERATOR profile uuid>", "flock_id": "<ACTIVE flock uuid>" }], "REQUIRES_FINAL_CUTOVER_VALUE": true }
+  },
+
+  "auth": {
+    "required_identity_provider": "email",
+    "allowed_extra_user_ids": [],
+    "evidence_ref": "<reference of the owner-run Auth counts export>",
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "products": {
+    "type_by_legacy_categoria": { "huevos": "VENDIBLE", "alimento": "BOTH", "expeller": "BOTH", "maiz": "BOTH", "guano": "VENDIBLE" },
+    "unit_map": { "kg": "KG", "maple": "CARTON", "docena": "UNIT" }
+  },
+
+  "expense_categories": {
+    "migrate_master": true,
+    "nombre_from": "subcategoria",
+    "description_from": "categoria_tecnica / categoria_analisis",
+    "class_policy": "OWNER_MAPPED",
+    "class_map": { "<legacy categorias_finanzas id>": "DIRECT | INDIRECT (every migrated category)" },
+    "class_map_evidence_ref": "<owner approval reference>",
+    "REQUIRES_FINAL_CUTOVER_VALUE": true
+  },
+
+  "evidence_only_sources": [
+    "precios_historial", "pedidos", "pedido_lineas", "pagos", "pago_en_caja", "movimientos_caja", "arqueos_caja",
+    "cheques", "comisiones", "recuentos_lote", "mercadopago_raw", "mercadopago_movements", "mp_source_record",
+    "mp_financial_movement", "mp_movement_source_link", "mp_source_link_resolution", "monthly_reconciliation",
+    "reconciliation_snapshot", "import_period_coverage"
+  ]
+}

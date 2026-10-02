@@ -344,9 +344,9 @@ check('A2 every report view is security_invoker = true and owned by postgres',
 check('A3 exact grants: SELECT for authenticated only (no anon, no service_role, no PUBLIC)',
   owner(`SELECT count(DISTINCT relacl::TEXT) || ':' || min(relacl::TEXT) FROM pg_class WHERE relname IN (${VIEWS.map(q).join(',')});`)
   === '1:{postgres=arwdDxtm/postgres,authenticated=r/postgres}');
-check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) + bank_tax_charge (0062) + sales_session_closing (0070) = 61',
+check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) + bank_tax_charge (0062) + sales_session_closing (0070) + mp_cutover_boundary (0071) = 62',
   owner(`SELECT count(*) FROM pg_matviews WHERE schemaname = 'public';`) === '0'
-  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '61');
+  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '62');
 check('A5 no SECURITY DEFINER reporting function: the definer inventory is the 41 baseline + the 16 ADR-006 Step-2 definers (0048) + the Step-6 definer mp_ingest_api_snapshot (0050) + the Step-7 definers mp_apply_transition / mp_normalize_report_fallback (0051), and no report_* function exists',
   owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === ALL_DEFINERS
   && owner(`SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'report%';`) === '0');

@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { assertSafeDestructiveTarget } from '../test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 
 function resolveDockerBin() {
   const onPath = spawnSync('docker', ['--version'], { encoding: 'utf8' });
@@ -65,6 +66,7 @@ const section = (n, t) => console.log(`\n  ── ${n}. ${t} ${'─'.repeat(Math
 
 // ── guard, container ─────────────────────────────────────────────────────────
 const target = assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 container = (spawnSync(DOCKER, ['ps', '--filter', 'name=supabase_db', '--format', '{{.Names}}'], { encoding: 'utf8' }).stdout || '').trim().split('\n').filter(Boolean)[0];
 if (!container) { console.error('  no running supabase_db container'); process.exit(1); }
 const mapping = (spawnSync(DOCKER, ['port', container, '5432/tcp'], { encoding: 'utf8' }).stdout || '').trim();

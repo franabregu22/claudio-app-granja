@@ -61,7 +61,8 @@ const LATER_PHASE_TABLES = ['financial_instrument', 'financial_instrument_event'
   'management_event',                                                                               // Phase 24
   'mp_attribution_flag', 'mp_client_allocation', 'mp_payer_client_map', 'mp_report_match', 'mp_transition_identity', 'mp_webhook_delivery',  // ADR-006 (0047)
   'bank_tax_charge',                                                                                // ADR-011 (0062)
-  'sales_session_closing'];                                                                         // ADR-016 (0070)
+  'sales_session_closing',                                                                          // ADR-016 (0070)
+  'mp_cutover_boundary'];                                                                            // ADR-017 (0071)
 
 let container;
 let pass = 0;

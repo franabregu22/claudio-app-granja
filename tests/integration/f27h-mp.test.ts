@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertNoProductionCredentials, assertSafeDestructiveTarget } from '../../scripts/test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../../scripts/test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 import { TargetDbError } from '../../src/target/db';
 import { createMaster } from '../../src/target/masters';
 import {
@@ -22,6 +23,7 @@ import {
 const LOCAL_URL = 'http://127.0.0.1:54321';
 assertNoProductionCredentials(process.env);
 assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 
 function localKeys(): { anon: string; service: string } {
   const c = (spawnSync('docker', ['ps', '--filter', 'name=supabase_edge_runtime', '--format', '{{.Names}}'], { encoding: 'utf8' }).stdout || '')

@@ -593,6 +593,12 @@ A can be fully complete while B is absent. No report-matching step reads or requ
   4. no `FAILED_PERMANENT` delivery, no unresolved `DISCREPANCY` and no ERROR source after the boundary;
   5. the Account Money parser (V-3) is accepted, or the interim Liberaciones completeness is explicitly accepted by the owner for the first period.
 
+> **Amendment [ADR-017]** (2026-10-02, migration 0071, cross-reference; this contract is not otherwise rewritten):
+> - RPC 40 first requires the Phase 31 cutover boundary (`mp_cutover_boundary`, `CUTOVER_BOUNDARY_MISSING` otherwise).
+> - It classifies a pre-boundary approved payment (no refund evidence) or report row as `IGNORED / PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE` with no movement.
+> - Gate 4's "after the boundary" refers to `cutover_at`.
+> - See `.planning/adr/ADR-017_MP_CUTOVER_BOUNDARY.md`.
+
 ## 12. Verification items (classification ratified 2026-09-27)
 
 These are technical items, resolved mechanically during implementation. They are **not** owner decisions.

@@ -5,6 +5,7 @@
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 **AMENDMENTS:** ADR-016 (`.planning/adr/ADR-016_FERIA_V1_SUMMARIZED_CLOSING.md`, ACCEPTED 2026-10-01) — new invariant 33 (a Feria closing counts once, in its current version).
+**AMENDMENTS:** ADR-017 (`.planning/adr/ADR-017_MP_CUTOVER_BOUNDARY.md`, ACCEPTED 2026-10-02) — new invariant 34 (pre-cutover MP activity is never applied again in the target).
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -470,6 +471,12 @@ are no longer housed.
 **Enforced by:** RPCs 51 / 52, `chk_feria_closing_version_chain`, `UNIQUE (supersedes_id)`, `uq_feria_closing_current`, no write privilege, `pnl_line_item` / `report_feria_closing` filtering `is_current`.
 **Violation:** a rectified Feria double-counted in sales, expenses, difference or treasury, or an MP sale collected twice.
 
+
+## 34. Pre-cutover Mercado Pago activity is never applied again **[ADR-017]**
+
+**Rule:** the owner-validated MP opening balance is the authority for everything before `mp_cutover_boundary.cutover_at`. An approved payment (`date_approved`) or a report row (`occurred_at`) strictly before the boundary creates no movement and no posting in the target; at or after the boundary it is processed normally. Without a boundary, no MP source is normalized. Refund / chargeback evidence is never classified as pre-cutover.
+**Enforced by:** RPC 40 guard (0071), the singleton owner-only `mp_cutover_boundary`, the cutover runner (written once, validate C25).
+**Violation:** pre-cutover money counted twice (opening + receipt), or a post-cutover adverse event discarded as pre-cutover.
 ---
 
 ## COMPLIANCE MATRIX
@@ -509,6 +516,7 @@ are no longer housed.
 | 32 | manufacturing counts once, current version **[ADR-014]** | chain CHECK, UNIQUE supersedes_id | no write on feed_manufacturing | RPC 26, 49 | — |
 | 31 | one effective formula version per feed type **[ADR-013]** | EXCLUDE no_overlap | no write on versions / lines | RPC 48, 26 | reject_line_on_used_formula_version |
 | 33 | Feria closing counts once, current version **[ADR-016]** | chain CHECK, UNIQUE supersedes_id, partial unique current | no write on sales_session_closing | RPC 51, 52 | — |
+| 34 | pre-cutover MP activity never reapplied **[ADR-017]** | singleton boundary, no default | no API privilege on the boundary | RPC 40 | — |
 
 ---
 

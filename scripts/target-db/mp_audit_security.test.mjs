@@ -30,6 +30,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { assertSafeDestructiveTarget, assertSafeCliOperation, assertNoProductionCredentials } from '../test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const ADMIN_UID = '11111111-1111-1111-1111-111111111111';
@@ -178,6 +179,7 @@ DELETE FROM clients WHERE id IN (SELECT id FROM _cl);`);
 // ═════════════════════════════════════════════════════════════════════════════
 assertNoProductionCredentials(process.env);
 assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 if (!container) { console.error('  no running supabase_db container'); process.exit(1); }
 cleanup();
 owner(`

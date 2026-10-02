@@ -19,6 +19,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { assertSafeDestructiveTarget, assertNoProductionCredentials } from '../test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const DOC = readFileSync(join(REPO, '.planning', 'implementation-design', 'ADR006_PHASE27_MP_FRONTEND_CONTRACT_V1.md'), 'utf8');
@@ -46,6 +47,7 @@ function resolveBin(name, candidates) {
 const DOCKER = resolveBin('docker', [resolve(process.env.LOCALAPPDATA ?? '', 'Programs', 'DockerDesktop', 'resources', 'bin', 'docker.exe')]);
 assertNoProductionCredentials(process.env);
 assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 const container = (spawnSync(DOCKER, ['ps', '--filter', 'name=supabase_db', '--format', '{{.Names}}'], { encoding: 'utf8' }).stdout || '').trim().split('\n').filter(Boolean)[0];
 function owner(s) {
   const r = spawnSync(DOCKER, ['exec', '-i', container, 'psql', '-U', 'postgres', '-d', 'postgres', '-t', '-A', '-q', '-v', 'ON_ERROR_STOP=1', '-f', '-'], { encoding: 'utf8', input: s });

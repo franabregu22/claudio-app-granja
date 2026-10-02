@@ -32,3 +32,12 @@ dist-ssr
 data/mercadopago/
 outputs/mp-reconciliation/
 mercadopago-balance-audit.json
+
+# Phase 31 cutover: real owner config, plans, Auth dumps and id lists live OUTSIDE the repository.
+# These patterns are a second line of defence if one is ever copied in by mistake.
+cutover-config*.json
+!scripts/phase31/CUTOVER_CONFIG_TEMPLATE.json
+auth_data*.sql
+*auth-dump*
+legacy-auth-ids*.txt
+phase31-private/

@@ -1,6 +1,6 @@
 # PHASE 31 — CUTOVER RUNBOOK V1 (Step 0: plan only)
 
-**STATUS:** STEP 0 PLAN — **nothing here has been executed.**
+**STATUS:** STEP 0 PLAN + **STEP 1 IMPLEMENTED** (S1-1 cutover runner, G-7 / ADR-017 boundary, L-1 release branch prepared; see §S1). **Nothing was executed against production.**
 - No production project was contacted, created or changed.
 - No deploy, no push, no webhook change.
 - Phase 28 not started.
@@ -50,7 +50,7 @@ See 0B.
 | Gates | Runner design §6 (28 refusals today), plus: no `@example.invalid` email, and no rehearsal batch in `phase26_migration.lineage`. |
 | Reconciliation | `validate-clean-cutover.sql` C01–C24 on the target, with the client / treasury openings equal to the owner-validated values. |
 
-**Blocker S1-1 (code, Phase 31 Step 1).** Cutover mode is disabled by design, and the D-PC-7 runner changes are **not implemented**:
+**~~Blocker S1-1~~ — RESOLVED in Step 1 (§S1-1).** Original finding: Cutover mode is disabled by design, and the D-PC-7 runner changes are **not implemented**:
 - skip the `auth.users` scaffold;
 - verify that the migrated Auth users exist, failing closed;
 - email policy `REAL`.
@@ -68,7 +68,7 @@ The cutover config values (`REQUIRES_FINAL_CUTOVER_VALUE`) are owner inputs: ope
 | Legacy removal boundary | L-1: the 6 Netlify MP functions, `lib/mp-release-identity.ts`, the scheduled `sync-mercadopago-releases` and `src/lib/mercadopago-calculations.ts` are removed in the **release that switches the app** (D-PC-5). |
 | Dual-processing risk | Two different databases, so no shared-state race. The risk is economic: the same payment counted in legacy and target, or a pre-boundary payment counted twice against the MP opening. Controls in 0E. |
 
-**Gap G-7 (owner decision required).**
+**~~Gap G-7~~ — RESOLVED in Step 1 by ADR-017 (backend boundary, §S1-G7).** Original finding:
 - The target MP pipeline has **no cutover-boundary guard**: `0047`–`0056` and `mp-worker-core.ts` contain no boundary date.
 - A notification that arrives at the target **after** the switch, for a payment whose money was **already inside** the validated MP opening balance, would be posted again (double count against the opening). Example: an MP retry, or a late notification of a payment approved or released before the boundary.
 - ADR-006 gate 4 mentions "after the boundary" but defines no enforcement. No approved mechanism exists.
@@ -223,7 +223,7 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 - one URL at a time;
 - the legacy writer is removed in the same release;
 - target idempotency (source identity, delivery dedup, `external_ref` uniqueness) for MP retries reaching the target;
-- G-7 for pre-boundary payments reaching the target (owner decision).
+- G-7: the ADR-017 backend boundary classifies pre-boundary payments / report rows as `PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE` (no movement).
 
 ---
 
@@ -253,7 +253,7 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 6. The Netlify release build uses the target URL / key (check `dist` for the target host and the absence of the legacy host). The legacy functions and the schedule are absent from the release.
 7. Pre-switch smoke on the target, using a deploy preview or local build against the target: each V1 user logs in, gets the right role, and reads every module.
 8. The rollback path is intact: legacy project untouched, previous Netlify deploy available, legacy webhook URL recorded.
-9. G-7 is decided by the owner.
+9. `mp_cutover_boundary` holds the config `cutover_at` (validate C25) — ADR-017.
 10. S1-1 is implemented and rehearsed locally (runner cutover mode + Auth verify).
 
 **NO-GO (immediate stop → rollback A):**
@@ -264,7 +264,7 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 - a missing secret or Vault entry, or worker runs failing;
 - a build pointing to the legacy project, or legacy MP functions present in the release;
 - `@example.invalid` present;
-- G-7 undecided.
+- `mp_cutover_boundary` missing, different from the config, or the `LOCAL-TEST-FIXTURE` row present.
 
 ---
 
@@ -287,7 +287,7 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 | 13 | T+SWITCH | owner | MP panel webhook URL → target `mp-webhook` (same session as 12); regenerate the webhook secret if rotating | MP panel saved | restore the legacy URL (B) | yes (B) |
 | 14 | POST-SWITCH | owner | Production smoke: login × 5, roles, module reads; ADR-006 gate 2 (one real payment `POSTED`); gate 4 | evidence | rollback B (before writes) | B, then C |
 | 15 | POST-SWITCH | owner | Declare the target authoritative; first real business write closes the B-window | timestamp | — | C only |
-| 16 | ROLLBACK WINDOW | owner | Legacy read-only ≥ 30 days (proposed); monitor G-7 (pre-boundary MP movements on the target) | daily check | case C | — |
+| 16 | ROLLBACK WINDOW | owner | Legacy read-only ≥ 30 days (proposed); monitor `PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE` sources (expected, no money) and any REVIEW_REQUIRED | daily check | case C | — |
 | 17 | END | owner | After the window: remove `sync-mercadopago` / `check-rate-limit` from legacy; revoke the legacy tokens / keys; close L-1 | L-1 CLOSED | — | no |
 
 ---
@@ -300,7 +300,128 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 4. Run the read-only legacy Storage bucket inventory (closes D-PC-8 class D).
 5. Supply the cutover config values: client openings; treasury openings (cash count, MP Account Money, BNA, Patagonia); expense category DIRECT / INDIRECT map (`OWNER_MAPPED`); population method; real emails.
 6. Generate and set the Edge secrets and Vault entries (0C); decide on MP credential / webhook-secret rotation.
-7. Decide G-7: how pre-boundary MP notifications reaching the target are handled.
+7. ~~Decide G-7~~ decided (ADR-017). Measure the MP opening on the ADR-006 basis: every payment approved before `cutover_at`, released or not (ADR-017 §3).
 8. Update the Netlify env vars, approve the release merge / deploy, and change the MP webhook URL at the SWITCH.
 9. Approve the rollback window, the B-window close criterion and who authorises a rollback (D-PC-10).
 10. Approve go-live (GO checklist) and the post-window cleanup.
+
+---
+
+## S1. Phase 31 Step 1 — implementation (2026-10-02; local only)
+
+### S1-1 Cutover runner — `scripts/phase31/migrate-cutover.mjs`
+
+- **New runner.** The Phase 26 runner (`scripts/phase26/migrate-clean-cutover.mjs`) is **unchanged**: it is historical evidence and stays the CT contract's rehearsal loader.
+- **Gates.**
+  - The Phase 26 gate list is carried verbatim: 28 refusals on the rehearsal config, regression K2.
+  - The Phase 31 contract is added (`scripts/phase31/cutover-config.mjs`).
+  - Any refusal stops every command.
+- **Users:**
+  - **no** `auth.users` write;
+  - **no** synthetic UUID or email;
+  - profiles are created only for the **restored** Auth users;
+  - `perfiles.email` is read from `auth.users`;
+  - UUIDs are the legacy profile ids.
+- **Load fails closed** (nothing written) on any of:
+  - `AUTH_USER_MISSING`, `AUTH_EMAIL_INVALID` (including `@example.invalid`), `AUTH_IDENTITY_MISSING` (provider `email`), `AUTH_UNEXPECTED_USER`, `AUTH_TRIGGER_PRESENT`;
+  - a ledger different from the migration files (version / filename / sha256);
+  - a target already in use: business facts, foreign profiles, foreign ledger / treasury rows, or another batch's lineage;
+  - an existing different boundary, or the `LOCAL-TEST-FIXTURE` boundary.
+- **Writes**, idempotent, rerun = 0 new rows:
+  - masters;
+  - P-a mortality history, plus P-b `COUNT_ADJUSTMENT` on the cutover date, through the frozen RPCs;
+  - client `OPENING_BALANCE` rows, one per non-zero client;
+  - treasury `ADJUSTMENT` + posting, one per non-zero account, with `external_ref` `PHASE31-OPENING:<batch>:<account>`;
+  - the MP cutover boundary, audited `PHASE31_BOUNDARY`.
+  All openings are dated on the cutover business date (`America/Argentina/Buenos_Aires`).
+- **Validation:** `scripts/phase31/validate-cutover.sql`, C01–C26.
+  - C04: real Auth emails = profile emails.
+  - C13 / C14: openings exactly as configured.
+  - C16: no history, ADR-006 / ADR-016 tables included.
+  - C25: boundary.
+  - C26: no unexpected Auth user.
+- **Target connection:**
+  - `CUTOVER_TARGET_DB_URL`, exported by the owner in their own shell;
+  - passed to `psql` as libpq environment variables, never in argv, a file or a log;
+  - the host must equal `target.expected_host` and must not be in `target.forbidden_hosts`;
+  - `PRODUCTION_TARGET` also requires `PHASE31_CUTOVER_CONFIRM=<import_batch>`.
+- **Regression:** `scripts/target-db/cutover_runner.test.mjs`, with synthetic data only.
+
+### S1-2 Cutover config contract
+
+| Item | Rule |
+|---|---|
+| Template (committed) | `scripts/phase31/CUTOVER_CONFIG_TEMPLATE.json`. It is refused by the gates: `REQUIRES_FINAL_CUTOVER_VALUE` placeholders. |
+| Real file | **outside the repository**, e.g. `C:\Users\<owner>\GranjaSnapshots\phase31\cutover-config.json`. The runner refuses `--config` / `--out` inside the repository. `.gitignore` also blocks `cutover-config*.json`, `auth_data*.sql`, `*auth-dump*`, `legacy-auth-ids*.txt`, `phase31-private/`. |
+| Secrets | none in the config. The DB URL comes from the environment only. |
+| Required owner values | `cutover_boundary.cutover_at` (ISO-8601 **with offset**); `clients.opening_balances` (**one entry per migrated client**, `"0.00"` allowed, decimal strings ≤ 2 decimals, positive = the client owes); `treasury.opening_balances` (exactly BNA, Caja chica, Mercado Pago, Patagonia); `population` (P-a with `owner_acceptance_ref`, or P-b with `counts` per ACTIVE flock; `expected` arithmetic of the final snapshot); `users.operator_assignments.assignments`; `expense_categories.class_map` (every migrated category DIRECT / INDIRECT); `auth.evidence_ref`, `auth.allowed_extra_user_ids`; `source.*` of the final snapshot; `target.expected_host` / `forbidden_hosts`; every `evidence_ref`. |
+| Fail closed | missing / unknown keys, malformed money or timestamp, a client without an opening entry, unknown client ids, population arithmetic ≠ expectation, `SYNTHETIC` evidence on a `PRODUCTION_TARGET` |
+
+**How the owner supplies it** (T-FREEZE step 7):
+1. Copy the template outside the repository.
+2. Fill the values.
+3. Delete every `REQUIRES_FINAL_CUTOVER_VALUE`.
+4. Run `node scripts/phase31/migrate-cutover.mjs gates --config <file> --out <dir outside repo>` until it prints "all gates pass".
+
+The population `expected` block is the arithmetic of the final snapshot: run `extract`, and on an ARITHMETIC refusal the runner prints the computed values for the owner to validate.
+
+### S1-G7 MP cutover boundary — ADR-017 (migration 0071)
+
+- **Authority:** `mp_cutover_boundary`.
+  - Singleton, `cutover_at timestamptz` with no default.
+  - No API role privilege (owner-only).
+  - Written once by `migrate-cutover.mjs load` from the config.
+  - **There is no other command to set it**, and none is needed.
+- **Check:**
+  ```sql
+  SELECT cutover_at, import_batch FROM mp_cutover_boundary;
+  ```
+  as the DB owner; validate C25.
+- **Rule:**
+  - an approved + accredited payment's `date_approved`, or a report row's `occurred_at`, **< cutover_at** → `IGNORED / PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE`, no movement;
+  - **>= cutover_at** → normal ADR-006 processing.
+- **Not classified:** refund / chargeback evidence (fail-closed ADR-006 path) and malformed timestamps (`DATE_MISMATCH`).
+- **Missing boundary:** `CUTOVER_BOUNDARY_MISSING`. The evidence is kept, the source stays PENDING and the worker retries.
+- **Order at cutover:** the boundary is written at T0-MIGRATE (runner `load`), **before** the webhook switch. Until the switch, legacy still receives the notifications.
+
+### S1-A Auth rehearsal procedure (no real dump needed to finish the code)
+
+1. Owner, read-only on the legacy project: the Auth counts export (§0B step 1), plus the sorted list of `auth.users.id` saved **outside the repository** as `legacy-auth-ids.txt` (ids only).
+2. Owner: the Auth data dump (§0B step 2). It is **sensitive** (password hashes): stored only outside the repository, e.g. `C:\Users\<owner>\GranjaSnapshots\phase31\private\auth_data.sql`, never committed, never pasted, deleted after the rollback window.
+3. Local rehearsal:
+   - `supabase db reset`, then `apply.mjs` (0001 → 0071);
+   - restore `auth_data.sql` (§0B step 4) into the local stack;
+   - run `migrate-cutover.mjs auth-check --legacy-auth-ids <file>`;
+   - then `extract` / `load` / `validate` with a `LOCAL_CUTOVER_REHEARSAL` config.
+   `auth-check` prints counts and providers only (no email, hash or token) and refuses:
+   - a UUID list mismatch (`AUTH_UUID_MISMATCH`);
+   - a missing user, email or identity;
+   - an unexpected user;
+   - copied sessions or refresh tokens (`AUTH_SESSIONS_PRESENT`);
+   - `@example.invalid`.
+4. Production (T0): the same restore, then `auth-check`, then `load`, then `validate`, against the new project (`PRODUCTION_TARGET`).
+
+### S1-L1 Legacy MP runtime removal — prepared, NOT activated
+
+| Where | What | When |
+|---|---|---|
+| Branch `phase31-l1-legacy-mp-removal` (one commit, not merged, not pushed) | removes from the repository / new release: the 6 Netlify MP functions + `lib/mp-release-identity.ts`; the `[[scheduled_functions]] sync-mercadopago-releases` and the `functions` entry of `netlify.toml`; `src/lib/mercadopago-calculations.ts` + its test; `tests/mp-release-identity.test.mjs`; the 3 legacy MP scripts; `supabase/functions/sync-mercadopago` and `check-rate-limit` (never deployed to the target). | merged into the release at **SWITCH** (0H step 12), together with Phase 27 |
+| Legacy Netlify deploy history | the previous deploy keeps the legacy functions | rollback B = restore that deploy |
+| Legacy Supabase project | `sync-mercadopago` / `check-rate-limit` stay deployed in the **legacy** project | **physically deleted only after the rollback window** (0H step 17), never at SWITCH |
+
+### S1-R Remaining owner inputs (operational values / actions, no architecture)
+
+1. Cutover date / instant (`cutover_at` with offset) and approval of the full write freeze.
+2. The new Supabase project: region, DB password, Auth settings (sign-ups disabled, owner decision 2026-10-02), `site_url`.
+3. Auth counts export, legacy id list, Auth dump (sensitive), and authorisation of the restore.
+4. Final legacy snapshot (manifest hash) at the freeze.
+5. Client openings (every migrated client), treasury openings (4 accounts; MP on the ADR-017 §3 basis), category class map, population counts (P-b) or P-a acceptance, operator assignments.
+6. Secrets / Vault:
+   - `WORKER_INVOKE_SECRET`: **new** for the target;
+   - `MP_ACCESS_TOKEN` / `MP_COLLECTOR_ID`: **not rotated** at cutover (owner decision; rotation after the window);
+   - `MP_WEBHOOK_SECRET`: not rotated for its own sake. If Mercado Pago issues an endpoint-specific secret when the URL changes, it is set as the target `mp-webhook` secret in the same SWITCH session, and the old one is kept for rollback B.
+7. Netlify env, release merge (Phase 27 + the L-1 branch), MP webhook URL change at SWITCH.
+8. Rollback model, **approved:**
+   - legacy intact and read-only for ≥ 30 days;
+   - B valid until the first real target write or the end of the first production day, whichever comes first;
+   - afterwards, rollback requires target-write reconciliation.

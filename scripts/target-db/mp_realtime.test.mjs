@@ -25,6 +25,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertSafeDestructiveTarget } from '../test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 
 function resolveDockerBin() {
   if (process.env.DOCKER_BIN) return process.env.DOCKER_BIN;
@@ -145,6 +146,7 @@ function section(n, title) {
 
 // ── guard, container ───────────────────────────────────────────────────────
 const target = assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 container = (dockerRun(['ps', '--filter', 'name=supabase_db', '--format', '{{.Names}}']).stdout || '')
   .trim().split('\n').filter(Boolean)[0];
 if (!container) {

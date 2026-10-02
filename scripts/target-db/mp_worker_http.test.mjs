@@ -19,6 +19,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { assertSafeDestructiveTarget, assertSafeCliOperation, assertNoProductionCredentials } from '../test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const SECRET = 'mp-worker-local-test-invoke-secret';
@@ -132,6 +133,7 @@ async function startServe(envPath) {
 
 assertNoProductionCredentials(process.env);
 assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 cleanup();
 CLIENT = owner(`INSERT INTO clients (nombre, activo) VALUES ('${CLIENT_NAME}', true) RETURNING id;`);
 payload.external_reference = `GST:C:${CLIENT}`;

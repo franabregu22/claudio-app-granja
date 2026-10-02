@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash, createHmac } from 'node:crypto';
 import { assertSafeDestructiveTarget, assertSafeCliOperation, assertNoProductionCredentials } from '../test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 import { handleMpWebhook, MAX_BODY_BYTES } from '../../supabase/functions/mp-webhook/handler.ts';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
@@ -383,6 +384,7 @@ async function integration() {
 assertNoProductionCredentials(process.env);
 if ('MP_ACCESS_TOKEN' in process.env) throw new Error('MP_ACCESS_TOKEN must not be present for this suite');
 assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 cleanup();
 try {
   await unit();

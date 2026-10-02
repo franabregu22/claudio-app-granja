@@ -18,6 +18,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { assertSafeDestructiveTarget } from '../test-env/guard.mjs';
+import { ensureLocalMpBoundary } from '../test-env/mp-boundary-fixture.mjs';   // ADR-017: RPC 40 needs the cutover boundary (fail safe)
 import {
   runWorker, classify, parseRetryAfter, localParts, dbErrorCode, WORKER_INVOKE_HEADER, BUDGET_MS, ITEM_RESERVE_MS,
 } from '../../supabase/functions/_shared/mp-worker-core.ts';
@@ -59,6 +60,7 @@ const section = (n, t) => console.log(`\n  ── ${n}. ${t} ${'─'.repeat(Math
 
 // ── guard, container ─────────────────────────────────────────────────────────
 const target = assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+ensureLocalMpBoundary();
 container = (spawnSync(DOCKER, ['ps', '--filter', 'name=supabase_db', '--format', '{{.Names}}'], { encoding: 'utf8' }).stdout || '').trim().split('\n').filter(Boolean)[0];
 if (!container) { console.error('  no running supabase_db container'); process.exit(1); }
 const mapping = (spawnSync(DOCKER, ['port', container, '5432/tcp'], { encoding: 'utf8' }).stdout || '').trim();

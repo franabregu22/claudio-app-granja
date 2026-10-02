@@ -828,7 +828,9 @@ check('K5 no stored variance / cash-reconciliation object exists (only the froze
   owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* '(reconcil|variance|arqueo|mp_)'
     AND table_name NOT IN ('mp_source_record', 'mp_financial_movement', 'mp_reconciliation',
       'mp_attribution_flag', 'mp_client_allocation', 'mp_payer_client_map', 'mp_report_match', 'mp_transition_identity', 'mp_webhook_delivery', ${ADR005_VIEWS},
-      'report_mp_receipt_status', 'report_mp_delivery_health', 'report_mp_report_exceptions');`) === '0'   // + ADR-006 derived views (0055), proven by mp_views.test.mjs
+      'report_mp_receipt_status', 'report_mp_delivery_health', 'report_mp_report_exceptions',
+      'mp_cutover_boundary');`) === '0'   // + ADR-017 (0071) cutover boundary: an instant, not a variance or reconciliation
+      // + ADR-006 derived views (0055), proven by mp_views.test.mjs
   && snapshot() === snap);
 
 // ═══════════════════════════════════════════════════════════════════════════
