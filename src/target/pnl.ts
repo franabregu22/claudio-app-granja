@@ -16,6 +16,7 @@ export const PNL_LINES = [
   ['ventas_netas_devengadas', 'Ventas netas devengadas'],
   ['costos_directos', 'Costos directos'],
   ['costos_indirectos', 'Costos indirectos'],
+  ['diferencia_caja', 'Diferencia de caja'],   // ADR-016: Feria counted − expected (shortage < 0, overage > 0)
   ['resultado_operativo', 'Resultado operativo'],
   ['otros_ingresos_financieros', 'Otros ingresos financieros'],
   ['resultado_antes_de_reinversion', 'Resultado antes de reinversión'],

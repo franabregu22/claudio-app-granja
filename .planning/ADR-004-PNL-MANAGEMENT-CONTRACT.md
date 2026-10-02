@@ -51,6 +51,13 @@ Ventas netas devengadas
 = Resultado post-inversiones
 ```
 
+> **Amendment [ADR-016]** (2026-10-01, migration 0070):
+> - **"Diferencia de caja"** is a P&L line between "Costos indirectos" and "Resultado operativo": `+ Diferencia de caja` (negative = shortage, positive = overage).
+> - It is the Feria `counted − expected cash` of the current summarized closing. It is never sales, an ordinary expense or a withdrawal.
+> - `pnl_summary` appends the column `diferencia_caja` and includes it in `resultado_operativo` and every later subtotal.
+> - The aggregate **"Gastos de Feria"** (category of that name, INDIRECT) enters once, from the current closing, under its category's class.
+> - The opening float has no P&L effect.
+
 The P&L is derived and never stored. There is no manual results table, no stored subtotal, no materialised result and no editable result.
 
 ## 3. Decisions

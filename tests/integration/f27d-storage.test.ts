@@ -126,7 +126,9 @@ describe('ADR-008 bucket configuration (migration 0058)', () => {
   it('exactly three storage policies exist: all for authenticated, confined to this bucket, ADMIN via current_app_role(); none for UPDATE or anon', () => {
     const rows = owner(`SELECT tablename || '|' || policyname || '|' || cmd || '|' || array_to_string(roles, ',') || '|' ||
       (coalesce(qual, '') || coalesce(with_check, '') LIKE '%purchase-attachments%' AND coalesce(qual, '') || coalesce(with_check, '') LIKE '%current_app_role()%ADMIN%')
-      FROM pg_policies WHERE schemaname = 'storage' ORDER BY policyname;`).split('\n');
+      FROM pg_policies WHERE schemaname = 'storage' AND policyname NOT LIKE 'feria_worksheets_%' ORDER BY policyname;`).split('\n');
+    // ADR-016 (0070) adds the three feria-worksheets policies; they are proven by adr016-feria.test.ts
+    expect(owner(`SELECT count(*) FROM pg_policies WHERE schemaname = 'storage';`)).toBe('6');
     expect(rows).toEqual([
       'objects|purchase_attachments_admin_delete|DELETE|authenticated|true',
       'objects|purchase_attachments_admin_insert|INSERT|authenticated|true',

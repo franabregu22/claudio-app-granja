@@ -41,10 +41,10 @@ const VIEWS = ['report_balance_period', 'report_classification_day', 'report_fee
   'report_flock_day', 'report_mp_movement_status', 'report_sales_line'];
 const ADMIN_ONLY = ['report_sales_line', 'report_balance_period', 'report_mp_movement_status', 'report_feria_session_cash', 'report_feed_consumption_interval'];
 const ALL_DEFINERS = 'assert_period_open,assign_flock_feed,assign_freight_to_purchase,cancel_order,cancel_supplier_instrument,clear_cheque,'
-  + 'close_flock,close_sales_session,current_app_role,deliver_order,'
+  + 'close_feria_summary,close_flock,close_sales_session,current_app_role,deliver_order,'
   + 'deposit_cheque,endorse_cheque,issue_supplier_instrument,mark_supplier_instrument_debited,mp_allocate_to_client,mp_apply_transition,mp_auto_allocate,mp_check_report_coverage,mp_claim_deliveries,mp_clear_attribution_flag,mp_delivery_transition,mp_flag_for_attribution,mp_ingest_api_snapshot,mp_map_payer_to_client,mp_normalize_report_fallback,mp_normalize_source,mp_reconcile_movement,mp_record_balance_check,mp_register_delivery,mp_request_refetch,mp_requeue_config_blocked,mp_resolve_chargeback_signal,mp_resolve_match,mp_reverse_client_allocation,mp_unmap_payer,'
   + 'open_sales_session,pay_fiscal_obligation,pay_supplier,publish_feed_formula_version,receive_cheque,'
-  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_feed_manufacturing,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
+  + 'rectify_classification,rectify_daily_production,rectify_delivered_order,rectify_feed_manufacturing,rectify_feria_closing,rectify_mortality,rectify_purchase,register_bank_tax,register_classification,register_collection,'
   + 'register_count_adjustment,register_daily_production,register_feed_inventory_count,register_feed_manufacturing,register_feed_movement,'
   + 'register_fiscal_document,register_fiscal_obligation,register_flock,'
   + 'register_freight,register_management_event,register_mortality,register_purchase,register_purchase_with_fiscal_document,register_session_cash_event,register_session_movement,reject_cheque,'
@@ -333,7 +333,8 @@ section('A', 'Structure: seven derived views, nothing stored');
 
 // ADR-006 Step 10 (0055) adds three derived MP views; they are proven by mp_views.test.mjs, not by this suite
 const ADR006_VIEWS = ['report_mp_delivery_health', 'report_mp_receipt_status', 'report_mp_report_exceptions'];
-const ADR011_VIEWS = ['report_bank_tax_period', 'report_fiscal_period'];   // ADR-011 (0062) / ADR-015 (0068), proven by bank_tax / fiscal_report suites
+const ADR011_VIEWS = ['report_bank_tax_period', 'report_feria_closing', 'report_fiscal_period'];   // + ADR-016 (0070), proven by feria_summary
+// (ADR-011 / ADR-015 views)   // ADR-011 (0062) / ADR-015 (0068), proven by bank_tax / fiscal_report suites
 check('A1 exactly the seven ADR-005 report_* views plus the three ADR-006 views and the ADR-011 / ADR-015 views exist, and no other report object',
   owner(`SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.views WHERE table_schema = 'public' AND table_name LIKE 'report%';`) === [...VIEWS, ...ADR006_VIEWS, ...ADR011_VIEWS].sort().join(',')
   && owner(`SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname LIKE 'report%' AND relkind <> 'v';`) === '0');
@@ -343,9 +344,9 @@ check('A2 every report view is security_invoker = true and owned by postgres',
 check('A3 exact grants: SELECT for authenticated only (no anon, no service_role, no PUBLIC)',
   owner(`SELECT count(DISTINCT relacl::TEXT) || ':' || min(relacl::TEXT) FROM pg_class WHERE relname IN (${VIEWS.map(q).join(',')});`)
   === '1:{postgres=arwdDxtm/postgres,authenticated=r/postgres}');
-check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) + bank_tax_charge (0062) = 60',
+check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) + bank_tax_charge (0062) + sales_session_closing (0070) = 61',
   owner(`SELECT count(*) FROM pg_matviews WHERE schemaname = 'public';`) === '0'
-  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '60');
+  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '61');
 check('A5 no SECURITY DEFINER reporting function: the definer inventory is the 41 baseline + the 16 ADR-006 Step-2 definers (0048) + the Step-6 definer mp_ingest_api_snapshot (0050) + the Step-7 definers mp_apply_transition / mp_normalize_report_fallback (0051), and no report_* function exists',
   owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === ALL_DEFINERS
   && owner(`SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'report%';`) === '0');

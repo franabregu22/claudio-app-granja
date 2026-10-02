@@ -30,7 +30,8 @@ describe('F27-G P&L data layer', () => {
     const [r] = await listPnlSummary(client, '2026-07-01', '2026-09-01');
     expect(calls[0]).toMatchObject({ table: 'pnl_summary', filters: [['gte', 'period', '2026-07-01'], ['lte', 'period', '2026-09-01']] });
     PNL_LINES.forEach(([c], i) => expect(r[c]).toBe(i * 10));
-    expect(PNL_LINES).toHaveLength(14);
+    expect(PNL_LINES).toHaveLength(15);
+    expect(PNL_LINES.map(([c]) => c).slice(2, 5)).toEqual(['costos_indirectos', 'diferencia_caja', 'resultado_operativo']);   // ADR-016
   });
 
   it('the drill-down is pnl_line_item of one period', async () => {

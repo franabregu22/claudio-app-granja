@@ -4,6 +4,7 @@
 **AMENDMENTS:** ADR-001 (`.planning/adr/ADR-001_ISSUED_INSTRUMENT_CANCELLATION.md`, ACCEPTED 2026-09-25) — issued-instrument cancellation: RPC 42 `cancel_supplier_instrument`, `financial_instrument.cancelled_date`, `chk_instrument_cancelled_coherent`. Amended passages are marked **[ADR-001]**. Nothing else changed.  
 **AMENDMENTS:** ADR-002 (`.planning/adr/ADR-002_PURCHASE_RECTIFICATION_VERSION_KEY.md`, ACCEPTED 2026-09-25) — bounded rectified-purchase version key (`'RECTIFY:' || <predecessor purchase id> || ':v' || version`) and the reserved `RECTIFY:` idempotency-key prefix. Amended passages are marked **[ADR-002]**. Nothing else changed.  
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
+**AMENDMENTS:** ADR-016 (`.planning/adr/ADR-016_FERIA_V1_SUMMARIZED_CLOSING.md`, ACCEPTED 2026-10-01) — new invariant 33 (a Feria closing counts once, in its current version).
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -455,6 +456,20 @@ are no longer housed.
 **Enforced by:** RPC 49, `chk_feed_manufacturing_version_chain`, `UNIQUE (supersedes_id)`, no write privilege for API roles, `report_feed_consumption_interval` filtering `is_current`.
 **Violation:** a corrected manufacturing double-counted, or a historical record rewritten.
 
+## 33. A Feria closing counts once, in its current version **[ADR-016]**
+
+**Rule:**
+- A summarized Feria closing is corrected only by a new version (RPC 52); the prior version is never changed (except `is_current`) or deleted.
+- Its treasury effects are compensated by new rows (client_ledger REVERSAL, opposite postings).
+- Sales count once, through the single aggregated pedido (corrected by RPC 2).
+- "Gastos de Feria" and "Diferencia de caja" count once, from the current version.
+- MP sales are never collected manually (ADR-006 is the only MP money authority).
+- The opening float is never revenue and has no posting.
+- Total, expected cash and difference are never stored.
+
+**Enforced by:** RPCs 51 / 52, `chk_feria_closing_version_chain`, `UNIQUE (supersedes_id)`, `uq_feria_closing_current`, no write privilege, `pnl_line_item` / `report_feria_closing` filtering `is_current`.
+**Violation:** a rectified Feria double-counted in sales, expenses, difference or treasury, or an MP sale collected twice.
+
 ---
 
 ## COMPLIANCE MATRIX
@@ -493,6 +508,7 @@ are no longer housed.
 | 30 | classification counts once, current version **[ADR-012]** | chain / entry CHECKs, UNIQUE supersedes_id | no write on classification | RPC 25, 47 | — |
 | 32 | manufacturing counts once, current version **[ADR-014]** | chain CHECK, UNIQUE supersedes_id | no write on feed_manufacturing | RPC 26, 49 | — |
 | 31 | one effective formula version per feed type **[ADR-013]** | EXCLUDE no_overlap | no write on versions / lines | RPC 48, 26 | reject_line_on_used_formula_version |
+| 33 | Feria closing counts once, current version **[ADR-016]** | chain CHECK, UNIQUE supersedes_id, partial unique current | no write on sales_session_closing | RPC 51, 52 | — |
 
 ---
 

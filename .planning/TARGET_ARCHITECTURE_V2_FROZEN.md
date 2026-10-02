@@ -666,6 +666,17 @@ MP reconciled without inventing correspondence.
 
 ---
 
+> **Amendment [ADR-016]** (owner D-FER-1…5, 2026-10-01): **Feria V1 is a summarized closing.**
+> - The paper / spreadsheet worksheet is the detailed record. The app stores cash / Mercado Pago / transfer sales, the opening float, one aggregate "Gastos de Feria" amount, the counted cash, merma, notes and an optional worksheet (private bucket `feria-worksheets`).
+> - The backend derives total sales, expected cash (`float + cash sales − expenses`) and the cash difference (`counted − expected`). The difference is the dedicated P&L line "Diferencia de caja".
+> - Sales: one aggregated CONSUMIDOR FINAL pedido with an internal system product line.
+> - Money:
+>   - cash and transfer are collected into their selected accounts;
+>   - MP is settled only by ADR-006;
+>   - the physical destination ends at the counted cash.
+> - Closings are versioned and rectified through RPC 52. RPC 51 / 52 are ADMIN-only (ADR-009).
+> - The product-line flow (RPCs 30–33) stays in the backend and its history stays readable, but is not offered in the V1 primary UI.
+
 ## PART 17: PROJECTS
 
 Optional analytic dimension.

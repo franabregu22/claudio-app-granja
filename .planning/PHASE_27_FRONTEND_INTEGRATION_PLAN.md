@@ -575,7 +575,7 @@ Deferred findings:
 | Fiscal | PASS |
 | Finance | PASS |
 | Mercado Pago | PASS FUNCTIONAL — future UX simplification: reduce technical density, prioritize actionable states, move IDs / technical diagnostics into expandable details |
-| Feria | **PARTIAL / DEFERRED** (§10.3): the session-cash model and the movement history need an owner-approved redesign. Not accepted. |
+| Feria | **PARTIAL / DEFERRED** (§10.3): the session-cash model and the movement history need an owner-approved redesign. Not accepted. → Superseded by §10.6 (ADR-016 implemented; pending the owner's manual acceptance). |
 
 The local walkthrough dataset was removed with a narrow, explicit cleanup in one transaction (no `db reset`, no production):
 - the `admin.walkthrough` profile and auth user;
@@ -585,3 +585,55 @@ The local walkthrough dataset was removed with a narrow, explicit cleanup in one
 After the cleanup, the previously contaminated checks pass: commercial J3; foundations profiles and flocks.
 
 The pre-cutover checklist (§9b) is **not** complete: the canonical `supabase db reset` rehearsal, cutover, deploy and production artifacts have not been run.
+
+### 10.6 Feria V1 — summarized closing (owner D-FER-1…5; 2026-10-01; ADR-016) — IMPLEMENTED, PENDING OWNER MANUAL ACCEPTANCE
+
+This replaces the §10.3 standby. The worksheet is the detailed record; the app keeps one summarized closing per Feria.
+
+**Backend (migration `0070_feria_summary_closing.sql`):**
+- `sales_session_closing`, versioned;
+- `products.is_system` with the system product "Venta Feria (resumen)";
+- the category "Gastos de Feria";
+- RPC 51 `close_feria_summary` and RPC 52 `rectify_feria_closing`;
+- `report_feria_closing`;
+- P&L: "Gastos de Feria" and the new line "Diferencia de caja" (`pnl_summary.diferencia_caja`);
+- private bucket `feria-worksheets`.
+
+**Inventory after 0070:**
+
+| Item | Count |
+|---|---|
+| Ledger | 70 |
+| SECURITY DEFINER | 69 |
+| Tables | 61 |
+| Views | 16 |
+| RPC_CONTRACTS | 52 |
+
+**Frontend:**
+- "Cierre de Feria" form (main fields, "Más datos", planilla);
+- backend-returned total / expected / difference;
+- history with versions and rectification;
+- open sessions closable;
+- detailed-mode sessions read-only.
+
+The granular actions and the product-line closing form are not offered. The system product is hidden from product lists.
+
+**Not CUTOVER_READY** until the owner manually accepts the new Feria flow.
+
+**Validation (2026-10-01, canonical WSL stack: `supabase db reset` + `apply.mjs` 0001→0070):**
+
+| Check | Result |
+|---|---|
+| Ledger / checksum | 70 = files; version / filename / sha256 IDENTICAL; definers 69, enums 33, tables 61, views 16, anon-executable definers 0 |
+| Clean-cutover CT-1…CT-5 | 21/0. The current-target validator excludes the two 0070 reference rows ("Venta Feria (resumen)", "Gastos de Feria"), following the CONSUMIDOR FINAL precedent; the derivation transform records it. |
+| Backend suites | every suite PASS, including `feria_summary` 45/0, `feria` 146/0 and `mp_webhook` 41/0 / `mp_audit_security` 66/0, **except `mp_worker_http` and `mp_scheduler`** (see below) |
+| ADR-006 matrix | 13/0 |
+| Frontend unit / integration | 228/0 / 119/119 (14 files, including `adr016-feria` against the real Storage API) |
+| Static gate / ADR-006 frontend contract / tsc / build | 8/0 / 28/0 / 0 errors / OK |
+| Secret / PII scan of new files | clean (only `@example.invalid`) |
+
+**OPEN (environment):** `mp_worker_http` and `mp_scheduler` fail on this run.
+- The mock MP host is not reached from the edge runtime: E-2 records no call; the results show `FAILED_RETRYABLE` / `auth_circuit`.
+- The failing checks changed between three runs (8 → 5 and 5 → 7, different ids).
+- Neither suite touches Feria.
+- They were 17/17 and 33/33 at the §9e GREEN record. They must be re-run green once edge→host networking is stable, before any GREEN claim.

@@ -65,3 +65,7 @@ Unchanged: `authenticated` keeps SELECT privilege on the three Feria tables (RLS
 - `scripts/target-db/feria.test.mjs` after 0060: G1 / G2 OPERATOR sees no session and no movement; G3b `report_feria_session_cash` returns no row to OPERATOR; G6 exact Feria policies (ADMIN only); G9b the OPERATOR audit policy lists no Feria entity; O1 ADMIN-only visibility during the session.
 - `tests/integration/f27f-feria-fiscal.test.ts`: ADMIN opens, moves goods, records cash events, counts and closes. OPERATOR is refused on RPCs 30–33 and on every fiscal RPC, and reads no session, movement or reconciliation row. OPERATOR still reads no product and no price.
 - `tests/unit/f27f-feria-fiscal.test.ts` and `target-foundation.test.ts`: the Feria and Fiscal modules are not exposed to OPERATOR.
+
+## 7. Amendment [ADR-016] (2026-10-01)
+
+The summarized closing (RPC 51 `close_feria_summary`, RPC 52 `rectify_feria_closing`), `sales_session_closing`, `report_feria_closing` and the bucket `feria-worksheets` are ADMIN-only too, reads included. OPERATOR has no Feria capability (proven by `feria_summary.test.mjs` S1–S5 / ST4–ST5 and `adr016-feria.test.ts`).

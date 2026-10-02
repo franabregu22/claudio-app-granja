@@ -14,6 +14,7 @@ export const TARGET_VIEWS = [
   'report_mp_receipt_status', 'report_mp_delivery_health', 'report_mp_report_exceptions',
   'report_bank_tax_period',   // ADR-011
   'report_fiscal_period',   // ADR-015
+  'report_feria_closing',   // ADR-016
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -75,6 +76,7 @@ export const TARGET_RPCS = [
   'rectify_classification', 'publish_feed_formula_version',   // ADR-012 (RPC 47) / ADR-013 (RPC 48)
   'rectify_feed_manufacturing',   // ADR-014 (RPC 49)
   'register_purchase_with_fiscal_document',   // ADR-015 (RPC 50)
+  'close_feria_summary', 'rectify_feria_closing',   // ADR-016 (RPC 51 / 52)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

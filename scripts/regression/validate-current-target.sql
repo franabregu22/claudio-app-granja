@@ -6,6 +6,8 @@
 --   C01  ledger = the number of migration files present (psql variable :expected_migrations,
 --        derived at run time by scripts/regression/clean-cutover-current-target.mjs; not hard-coded)
 --   C16  extended with the six ADR-006 tables (mp_webhook_delivery, mp_transition_identity, mp_report_match, mp_client_allocation, mp_payer_client_map, mp_attribution_flag) = 0 rows
+--   [ADR-016] products / expense_category are read without the two rows seeded by 0070
+--        ("Venta Feria (resumen)", is_system; "Gastos de Feria"), so the migrated state compares as in Phase 26
 -- Every other check (C02–C24) and the canonical DIGEST query are identical to the historical file.
 -- Emits CHECK|<id>|PASS or FAIL|<detail> and DIGEST|<table>|<md5>|<rows>, exactly as Phase 26.
 -- ============================================================================
@@ -38,23 +40,23 @@ chk(id, ok, detail) AS (
      AND EXISTS (SELECT 1 FROM clients WHERE nombre = 'CONSUMIDOR FINAL'),
          'clients=' || (SELECT count(*) FROM clients) || ' (migrated + seeded CONSUMIDOR FINAL)'
   UNION ALL SELECT 'C06_products_and_types',
-         (SELECT count(*) FROM products) = ((SELECT c FROM e)->>'products')::int
-     AND NOT EXISTS (SELECT 1 FROM products p WHERE p.product_type::text IS DISTINCT FROM (SELECT pt FROM e)->>(p.id::text)),
-         'products=' || (SELECT count(*) FROM products)
+         (SELECT count(*) FROM (SELECT * FROM products WHERE NOT is_system) products) = ((SELECT c FROM e)->>'products')::int
+     AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM products WHERE NOT is_system) p WHERE p.product_type::text IS DISTINCT FROM (SELECT pt FROM e)->>(p.id::text)),
+         'products=' || (SELECT count(*) FROM (SELECT * FROM products WHERE NOT is_system) products)
   UNION ALL SELECT 'C07_expense_categories',
-         (SELECT count(*) FROM expense_category) = ((SELECT c FROM e)->>'categories')::int
-     AND (SELECT count(*) FROM expense_category x JOIN lin ON lin.target_entity = 'expense_category' AND lin.target_key = x.id::text)
+         (SELECT count(*) FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') expense_category) = ((SELECT c FROM e)->>'categories')::int
+     AND (SELECT count(*) FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') x JOIN lin ON lin.target_entity = 'expense_category' AND lin.target_key = x.id::text)
            = ((SELECT c FROM e)->>'categories')::int
-     AND NOT EXISTS (SELECT 1 FROM expense_category WHERE pnl_cost_class IS NULL)
+     AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') expense_category WHERE pnl_cost_class IS NULL)
      AND (SELECT count(*) FROM jsonb_object_keys((SELECT cc FROM e)->'by_id')) = ((SELECT c FROM e)->>'categories')::int
-     AND NOT EXISTS (SELECT 1 FROM expense_category x
+     AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') x
                       WHERE x.pnl_cost_class::text IS DISTINCT FROM (SELECT cc FROM e)->'by_id'->>(x.id::text))
      AND ((SELECT cc FROM e)->>'policy' <> 'REHEARSAL_ALL_INDIRECT'
           OR ((SELECT cc FROM e)->>'rehearsal_class' = 'INDIRECT'
-              AND NOT EXISTS (SELECT 1 FROM expense_category WHERE pnl_cost_class <> 'INDIRECT'))),
-         'categories=' || (SELECT count(*) FROM expense_category) || ' policy=' || coalesce((SELECT cc FROM e)->>'policy', 'NULL')
+              AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') expense_category WHERE pnl_cost_class <> 'INDIRECT'))),
+         'categories=' || (SELECT count(*) FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') expense_category) || ' policy=' || coalesce((SELECT cc FROM e)->>'policy', 'NULL')
          || ' ' || coalesce((SELECT string_agg(pnl_cost_class || '=' || n, ',' ORDER BY pnl_cost_class)
-                               FROM (SELECT pnl_cost_class::text, count(*) n FROM expense_category GROUP BY 1) z), 'none')
+                               FROM (SELECT pnl_cost_class::text, count(*) n FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') expense_category GROUP BY 1) z), 'none')
   UNION ALL SELECT 'C08_sheds_flocks_active',
          (SELECT count(*) FROM sheds) = ((SELECT c FROM e)->>'sheds')::int
      AND (SELECT count(*) FROM flocks) = ((SELECT c FROM e)->>'flocks')::int
@@ -155,8 +157,8 @@ SELECT 'CHECK', id, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END, detail FROM chk OR
 SELECT 'DIGEST', t, md5(coalesce(string_agg(r, E'\n' ORDER BY r), '')), count(*) FROM (
   SELECT 'perfiles' AS t, concat_ws('|', id, email, rol_type, activo) AS r FROM perfiles
   UNION ALL SELECT 'clients', concat_ws('|', CASE WHEN nombre = 'CONSUMIDOR FINAL' THEN 'seed' ELSE id::text END, nombre, activo) FROM clients
-  UNION ALL SELECT 'products', concat_ws('|', id, nombre, product_type, unit_type, activo) FROM products
-  UNION ALL SELECT 'expense_category', concat_ws('|', id, nombre, description, activo, pnl_cost_class) FROM expense_category
+  UNION ALL SELECT 'products', concat_ws('|', id, nombre, product_type, unit_type, activo) FROM (SELECT * FROM products WHERE NOT is_system) products
+  UNION ALL SELECT 'expense_category', concat_ws('|', id, nombre, description, activo, pnl_cost_class) FROM (SELECT * FROM expense_category WHERE nombre <> 'Gastos de Feria') expense_category
   UNION ALL SELECT 'sheds', concat_ws('|', id, nombre, capacidad, activo) FROM sheds
   UNION ALL SELECT 'flocks', concat_ws('|', id, shed_id, estado, genetics_line, birth_date, entry_date, initial_population, exit_date, created_by) FROM flocks
   UNION ALL SELECT 'operator_assignments', concat_ws('|', id, operator_id, flock_id, activo, assigned_by) FROM operator_assignments

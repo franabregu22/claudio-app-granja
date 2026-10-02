@@ -13,7 +13,8 @@
  *   - There is no rectification RPC for sessions: a closed session cannot receive movements or cash events.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { callRpc, readTable, readView } from './db';
+import type { AttachmentMeta } from './attachments';
+import { callRpc, readTable, readView, TargetDbError } from './db';
 
 export const SESSION_MOVEMENT_TYPES = ['DISPATCH', 'RETURN', 'LOSS', 'ADJUSTMENT'] as const;
 export type SessionMovementType = (typeof SESSION_MOVEMENT_TYPES)[number];
@@ -105,4 +106,79 @@ export function closeSalesSession(client: SupabaseClient, p: { sessionId: string
     p_aggregated_lines: p.lines.map((l) => ({ producto_id: l.producto_id, cantidad: l.cantidad, precio_unitario: l.precio_unitario })),
     p_reason: reasonOrNull(p.reason),
   });
+}
+
+// ── ADR-016: Feria V1 summarized closing (RPCs 51–52, report_feria_closing, bucket `feria-worksheets`) ──────────
+// The worksheet (paper / spreadsheet) stays the detailed record. The app sends only the summary amounts; every
+// derived value (total sales, expected cash, cash difference) and every accounting / treasury effect is the
+// backend's. React never computes an authoritative figure.
+
+/** One version of a summarized closing, as report_feria_closing reports it (derived values computed by the view). */
+export interface FeriaClosingRow {
+  closing_id: string; sales_session_id: string; closing_date: string; location: string | null; version_seq: number; is_current: boolean;
+  supersedes_id: string | null; rectification_reason: string | null;
+  cash_sales: number; mp_sales: number; transfer_sales: number; total_sales: number; opening_float: number; expenses: number;
+  expected_cash: number; counted_cash: number; cash_difference: number;
+  cash_account_id: string; cash_account_name: string; transfer_account_id: string | null; transfer_account_name: string | null;
+  merma: number | null; notes: string | null; has_worksheet: boolean; worksheet_path: string | null; worksheet_file_name: string | null;
+  created_at: string;
+}
+
+/** Summary inputs of a closing (stored as entered; nothing derived). */
+export interface FeriaClosingInput {
+  cashSales: number; mpSales: number; transferSales: number; expenses: number; countedCash: number;
+  cashAccountId: string; transferAccountId?: string | null; openingFloat?: number; merma?: number | null; notes?: string | null;
+}
+
+export async function listFeriaClosings(client: SupabaseClient, from: string, to: string): Promise<FeriaClosingRow[]> {
+  const rows = await readView<FeriaClosingRow>(client, 'report_feria_closing',
+    (q) => q.gte('closing_date', from).lte('closing_date', to).order('closing_date', { ascending: false }).order('version_seq', { ascending: false }));
+  return rows.map((r) => ({
+    ...r, cash_sales: num(r.cash_sales), mp_sales: num(r.mp_sales), transfer_sales: num(r.transfer_sales), total_sales: num(r.total_sales),
+    opening_float: num(r.opening_float), expenses: num(r.expenses), expected_cash: num(r.expected_cash), counted_cash: num(r.counted_cash),
+    cash_difference: num(r.cash_difference), merma: numOrNull(r.merma),
+  }));
+}
+
+const closingArgs = (p: FeriaClosingInput, worksheet: AttachmentMeta | null) => ({
+  p_cash_sales: p.cashSales, p_mp_sales: p.mpSales, p_transfer_sales: p.transferSales, p_expenses: p.expenses, p_counted_cash: p.countedCash,
+  p_cash_account_id: p.cashAccountId, p_transfer_account_id: p.transferSales > 0 ? (p.transferAccountId ?? null) : null,
+  p_opening_float: p.openingFloat ?? 0, p_merma: p.merma ?? null, p_notes: reasonOrNull(p.notes), p_worksheet: worksheet,
+});
+
+type ClosingResult = { closing_id: string; total_sales: number; expected_cash: number; cash_difference: number };
+
+/** RPC 51 (ADMIN) on an OPEN session. */
+export function closeFeriaSummary(client: SupabaseClient, p: FeriaClosingInput & { sessionId: string; worksheet?: AttachmentMeta | null }) {
+  return callRpc<ClosingResult & { aggregated_pedido_id: string | null }>(client, 'close_feria_summary',
+    { p_session_id: p.sessionId, ...closingArgs(p, p.worksheet ?? null) });
+}
+
+/** RPC 52 (ADMIN): replaces the current version; the original stays immutable. keepWorksheet carries the previous file. */
+export function rectifyFeriaClosing(client: SupabaseClient, p: FeriaClosingInput & {
+  closingId: string; reason: string; worksheet?: AttachmentMeta | null; keepWorksheet?: boolean;
+}) {
+  return callRpc<ClosingResult & { superseded_id: string; version_seq: number }>(client, 'rectify_feria_closing', {
+    p_closing_id: p.closingId, p_reason: p.reason, ...closingArgs(p, p.worksheet ?? null), p_keep_worksheet: p.keepWorksheet ?? true,
+  });
+}
+
+/**
+ * "Cierre de Feria" in one step for a new date: opens the session (RPC 30, no opening-fund event: the float is a
+ * closing input) and closes it summarized (RPC 51). Retrying with the same idempotency key reuses the session the
+ * failed attempt opened (DUPLICATE_SESSION → look it up), so a failed close never leaves a second session.
+ */
+export async function openAndCloseFeria(client: SupabaseClient, p: FeriaClosingInput & {
+  date: string; location: string; idempotencyKey: string; worksheet: AttachmentMeta | null;
+}) {
+  let sessionId: string;
+  try {
+    sessionId = (await openSalesSession(client, { date: p.date, location: p.location, idempotencyKey: p.idempotencyKey })).session_id;
+  } catch (err) {
+    if (!(err instanceof TargetDbError) || err.code !== 'DUPLICATE_SESSION') throw err;
+    const rows = await readTable<{ id: string }>(client, 'sales_session', (q) => q.eq('idempotency_key', p.idempotencyKey).limit(1), 'id');
+    if (!rows[0]) throw err;
+    sessionId = rows[0].id;
+  }
+  return closeFeriaSummary(client, { ...p, sessionId });
 }

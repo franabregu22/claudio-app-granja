@@ -543,3 +543,16 @@ Supabase local was stopped at the end.
 | Exposes no cost data to OPERATOR | **MET** | X2, Y1–Y4, O4 |
 
 **PHASE 25 — DASHBOARD / REPORTS: COMPLETE** on mechanical evidence. MASTER_ROADMAP.md stays **CURRENT** for Phase 25 until external review.
+
+### V9 `report_feria_closing` **[ADR-016]** (2026-10-01, migration 0070)
+
+`security_invoker`, ADMIN-only. One row per `sales_session_closing` version (current and superseded).
+
+Columns:
+- the inputs;
+- `total_sales`, `expected_cash`, `cash_difference`, computed in the view and never stored;
+- the account names;
+- `has_worksheet`;
+- the version chain and reason.
+
+The Feria history in the UI reads it as reported.

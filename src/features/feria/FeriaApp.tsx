@@ -1,34 +1,36 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
-import { currentPrice } from '../../target/commercial';
-import { SESSION_MOVEMENT_TYPES, type AggregatedLine, type SessionCashEventType, type SessionCashRow, type SessionMovementType, type SessionRow } from '../../target/feria';
+import { ATTACHMENT_TYPES, type AttachmentFile } from '../../target/attachments';
+import { type FeriaClosingRow, type SessionCashRow, type SessionRow } from '../../target/feria';
+import { worksheetSignedUrl } from '../../target/feriaWorksheet';
 import { errorMessage } from '../../target/messages';
 import { shiftDate } from '../../target/production';
 import { getTodayDate } from '../../utils/dateUtils';
+import { supabase } from '../../lib/supabase';
 import { campo, etiqueta, Modal } from '../caja/Modal';
-import { useExpenseCategories } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
-import { useFinancialAccounts, useOrderCatalog } from '../pedidos/useCommercial';
-import { useFeriaMutations, useSessionCash, useSessionMovements, useSessions } from './useFeriaFiscal';
+import { useFinancialAccounts } from '../pedidos/useCommercial';
+import { useFeriaClosingMutations, useFeriaClosings, useSessionCash, useSessionMovements, useSessions } from './useFeriaFiscal';
 
-const DIAS = 60;
-const MOVIMIENTO: Record<SessionMovementType, string> = { DISPATCH: 'Despacho', RETURN: 'Devolución', LOSS: 'Pérdida', ADJUSTMENT: 'Ajuste' };
-const EVENTO: Record<Exclude<SessionCashEventType, 'COUNT'>, string> = { EXPENSE: 'Gasto', WITHDRAWAL: 'Retiro', TRANSFER_OUT: 'Transferencia' };
+const DIAS = 365;
+const MOVIMIENTO = { DISPATCH: 'Despacho', RETURN: 'Devolución', LOSS: 'Pérdida', ADJUSTMENT: 'Ajuste' } as const;
 
 /**
- * Feria (F27-F, ADMIN). Sessions are opened, fed with goods movements and cash events, counted and closed only
- * through RPCs 30–33. The cash reconciliation (expected cash and each count's variance) is report_feria_session_cash
- * as reported: a variance stays visible and is never corrected here. This is the Feria session count, not the
- * retired general cash count (P27-D1).
+ * Feria V1 (ADR-016, ADMIN). The paper / spreadsheet worksheet stays the detailed record; the app keeps one
+ * summarized closing per Feria (RPC 51) and its rectified versions (RPC 52). Every derived figure shown here
+ * (total sales, expected cash, cash difference) comes from the backend — the RPC result or report_feria_closing.
+ * Sessions closed with the earlier detailed flow stay readable below (no actions).
  */
 export function FeriaApp() {
   const { rol } = useAuth();
   const hoy = getTodayDate();
+  const desde = shiftDate(hoy, -DIAS);
   const sesiones = useSessions();
-  const caja = useSessionCash(shiftDate(hoy, -DIAS), hoy);
-  const [abriendo, setAbriendo] = useState(false);
-  const [abierta, setAbierta] = useState<string | null>(null);
+  const cierres = useFeriaClosings(desde, hoy);
+  const caja = useSessionCash(desde, hoy);
+  const [cerrando, setCerrando] = useState<{ session?: SessionRow } | null>(null);
+  const [abierto, setAbierto] = useState<string | null>(null);
 
   if (rol !== 'ADMIN') {
     return (
@@ -40,7 +42,12 @@ export function FeriaApp() {
       </div>
     );
   }
-  const error = sesiones.error ?? caja.error;
+  const error = sesiones.error ?? cierres.error ?? caja.error;
+  const versiones = new Map<string, FeriaClosingRow[]>();
+  for (const c of cierres.data ?? []) versiones.set(c.sales_session_id, [...(versiones.get(c.sales_session_id) ?? []), c]);
+  const vigentes = (cierres.data ?? []).filter((c) => c.is_current);
+  const abiertas = (sesiones.data ?? []).filter((s) => s.estado === 'OPEN');
+  const anteriores = (sesiones.data ?? []).filter((s) => s.estado === 'CLOSED' && !versiones.has(s.id));
   const cajaPorSesion = new Map<string, SessionCashRow[]>();
   for (const r of caja.data ?? []) cajaPorSesion.set(r.sales_session_id, [...(cajaPorSesion.get(r.sales_session_id) ?? []), r]);
 
@@ -51,218 +58,236 @@ export function FeriaApp() {
           <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
           <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Feria</h1>
         </div>
-        <button onClick={() => setAbriendo(true)} className="text-sm px-4 py-2 bg-[#A8552E] text-white rounded-lg hover:bg-[#8B4423]">Abrir feria</button>
+        <button onClick={() => setCerrando({})} className="text-sm px-4 py-2 bg-[#A8552E] text-white rounded-lg hover:bg-[#8B4423]">Cierre de Feria</button>
       </div>
       {error ? <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded text-sm">{errorMessage(error)}</div> : null}
-      {sesiones.isLoading ? <p className="text-sm text-gray-500">Cargando ferias…</p> : (sesiones.data ?? []).length === 0 ? (
-        <p className="text-sm text-[#8A7A5C]">No hay ferias registradas.</p>
-      ) : (
-        <div className="space-y-2">
-          {(sesiones.data ?? []).map((s) => (
-            <Sesion key={s.id} sesion={s} caja={cajaPorSesion.get(s.id) ?? []} abierta={abierta === s.id} onToggle={() => setAbierta(abierta === s.id ? null : s.id)} />
+
+      {abiertas.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-[#6B5D45] uppercase">Ferias abiertas sin cierre</h2>
+          {abiertas.map((s) => (
+            <div key={s.id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 flex items-center justify-between text-sm">
+              <span className="font-semibold text-amber-900">{s.session_date} · {s.location ?? '—'}</span>
+              <button onClick={() => setCerrando({ session: s })} className="text-xs px-2 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8B4423]">Cerrar</button>
+            </div>
           ))}
-        </div>
+        </section>
       )}
-      {abriendo && <AbrirModal onClose={() => setAbriendo(false)} />}
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold text-[#6B5D45] uppercase">Cierres</h2>
+        {cierres.isLoading ? <p className="text-sm text-gray-500">Cargando cierres…</p> : vigentes.length === 0 ? (
+          <p className="text-sm text-[#8A7A5C]">No hay cierres de feria registrados.</p>
+        ) : vigentes.map((c) => (
+          <Cierre key={c.closing_id} cierre={c} versiones={versiones.get(c.sales_session_id) ?? [c]}
+            abierto={abierto === c.closing_id} onToggle={() => setAbierto(abierto === c.closing_id ? null : c.closing_id)} />
+        ))}
+      </section>
+
+      {anteriores.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold text-[#6B5D45] uppercase">Ferias anteriores (modo detallado, solo lectura)</h2>
+          {anteriores.map((s) => (
+            <SesionAnterior key={s.id} sesion={s} caja={cajaPorSesion.get(s.id) ?? []} abierta={abierto === s.id}
+              onToggle={() => setAbierto(abierto === s.id ? null : s.id)} />
+          ))}
+        </section>
+      )}
+      {cerrando && <CierreModal session={cerrando.session} onClose={() => setCerrando(null)} />}
     </div>
   );
 }
 
-function Sesion({ sesion, caja, abierta, onToggle }: { sesion: SessionRow; caja: SessionCashRow[]; abierta: boolean; onToggle: () => void }) {
+const Dato = ({ label, valor, fuerte }: { label: string; valor: string; fuerte?: boolean }) => (
+  <p className="text-xs text-[#6B5D45]">{label} <b className={fuerte ? 'text-[#2C2419]' : ''}>{valor}</b></p>
+);
+const diferenciaTexto = (d: number) => (d === 0 ? 'sin diferencia' : d < 0 ? `faltante ${formatoPesos(-d)}` : `sobrante ${formatoPesos(d)}`);
+
+function Cierre({ cierre: c, versiones, abierto, onToggle }: { cierre: FeriaClosingRow; versiones: FeriaClosingRow[]; abierto: boolean; onToggle: () => void }) {
+  const [rectificando, setRectificando] = useState(false);
+  const anteriores = versiones.filter((v) => !v.is_current);
+  return (
+    <div className="bg-white rounded-lg border border-[#E4DCC8]">
+      <button onClick={onToggle} className="w-full flex items-center justify-between gap-2 p-3 text-left text-sm">
+        <span className="flex items-center gap-2">
+          <ChevronDown className={`w-4 h-4 transition ${abierto ? 'rotate-180' : ''}`} />
+          <span className="font-semibold text-amber-900">{c.closing_date} · {c.location ?? '—'}</span>
+          {c.version_seq > 0 && <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-900">Rectificado (v{c.version_seq})</span>}
+        </span>
+        <span className="text-[#6B5D45]">Ventas {formatoPesos(c.total_sales)} · <span className={c.cash_difference === 0 ? 'text-green-700' : 'text-red-700'}>{diferenciaTexto(c.cash_difference)}</span></span>
+      </button>
+      {abierto && (
+        <div className="px-4 pb-4 border-t border-[#E4DCC8] bg-[#FAF6EE] space-y-3 text-sm">
+          <Detalle c={c} />
+          {anteriores.length > 0 && (
+            <div className="text-xs space-y-1">
+              <p className="font-semibold text-[#6B5D45] uppercase">Versiones anteriores</p>
+              {anteriores.map((v) => (
+                <p key={v.closing_id} className="text-gray-600">v{v.version_seq} ({v.created_at.slice(0, 10)}): ventas {formatoPesos(v.total_sales)} · contado {formatoPesos(v.counted_cash)} · {diferenciaTexto(v.cash_difference)}{v.has_worksheet ? ' · con planilla' : ''}{v.rectification_reason ? ` · motivo: ${v.rectification_reason}` : ''}</p>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setRectificando(true)} className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-900 hover:bg-amber-200">Rectificar</button>
+        </div>
+      )}
+      {rectificando && <CierreModal rectificar={c} onClose={() => setRectificando(false)} />}
+    </div>
+  );
+}
+
+function Detalle({ c }: { c: FeriaClosingRow }) {
+  const [error, setError] = useState<unknown>(null);
+  const ver = async () => {
+    setError(null);
+    try { window.open(await worksheetSignedUrl(supabase, c.worksheet_path ?? ''), '_blank', 'noopener'); } catch (e) { setError(e); }
+  };
+  return (
+    <div className="pt-3 space-y-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <Dato label="Ventas totales" valor={formatoPesos(c.total_sales)} fuerte />
+        <Dato label="Efectivo" valor={formatoPesos(c.cash_sales)} />
+        <Dato label="Mercado Pago" valor={formatoPesos(c.mp_sales)} />
+        <Dato label="Transferencia" valor={formatoPesos(c.transfer_sales)} />
+        <Dato label="Fondo inicial" valor={formatoPesos(c.opening_float)} />
+        <Dato label="Gastos de Feria" valor={formatoPesos(c.expenses)} />
+        <Dato label="Efectivo esperado" valor={formatoPesos(c.expected_cash)} fuerte />
+        <Dato label="Efectivo contado" valor={formatoPesos(c.counted_cash)} fuerte />
+        <Dato label="Diferencia de caja" valor={`${formatoPesos(c.cash_difference)} (${diferenciaTexto(c.cash_difference)})`} fuerte />
+        <Dato label="Efectivo a" valor={c.cash_account_name} />
+        {c.transfer_account_name && <Dato label="Transferencias a" valor={c.transfer_account_name} />}
+        {c.merma !== null && <Dato label="Merma" valor={String(c.merma)} />}
+      </div>
+      {c.notes && <p className="text-xs text-gray-600">Notas: {c.notes}</p>}
+      {c.rectification_reason && <p className="text-xs text-gray-600">Motivo de la rectificación: {c.rectification_reason}</p>}
+      <p className="text-xs text-gray-600">Planilla: {c.has_worksheet
+        ? <button onClick={ver} className="underline text-amber-900">{c.worksheet_file_name ?? 'ver'}</button>
+        : 'no adjunta'}</p>
+      {error ? <p className="text-xs text-red-700">{errorMessage(error)}</p> : null}
+    </div>
+  );
+}
+
+/** "Cierre de Feria" (new date, or an open session) and its rectification share one form; the backend derives everything. */
+function CierreModal({ session, rectificar, onClose }: { session?: SessionRow; rectificar?: FeriaClosingRow; onClose: () => void }) {
+  const { user } = useAuth();
+  const { close, rectify } = useFeriaClosingMutations();
+  const cuentas = useFinancialAccounts();
+  const fisicas = (cuentas.data ?? []).filter((a) => a.account_type !== 'EXTERNAL_SERVICE');
+  const cajaChica = fisicas.find((a) => a.account_type === 'CASH' && /caja\s*chica/i.test(a.nombre));
+  const r = rectificar;
+  const txt = (n: number | null | undefined) => (n === null || n === undefined || n === 0 ? '' : String(n));
+  const [fecha, setFecha] = useState(getTodayDate());
+  const [lugar, setLugar] = useState('Feria');
+  const [efectivo, setEfectivo] = useState(txt(r?.cash_sales));
+  const [mp, setMp] = useState(txt(r?.mp_sales));
+  const [transferencia, setTransferencia] = useState(txt(r?.transfer_sales));
+  const [gastos, setGastos] = useState(txt(r?.expenses));
+  const [contado, setContado] = useState(r ? String(r.counted_cash) : '');
+  const [fondo, setFondo] = useState(txt(r?.opening_float));
+  const [merma, setMerma] = useState(r?.merma === null || r?.merma === undefined ? '' : String(r.merma));
+  const [notas, setNotas] = useState(r?.notes ?? '');
+  const [cuentaElegida, setCuentaElegida] = useState<string | null>(r?.cash_account_id ?? null);
+  const [cuentaTrf, setCuentaTrf] = useState(r?.transfer_account_id ?? '');
+  const [archivo, setArchivo] = useState<(AttachmentFile & Blob) | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const [masDatos, setMasDatos] = useState(Boolean(r && (r.opening_float || r.merma !== null || r.notes)));
+  const [clave] = useState(() => `FERIA-${crypto.randomUUID()}`);   // idempotency: one session per submitted form
+  const [resultado, setResultado] = useState<{ total_sales: number; expected_cash: number; cash_difference: number } | null>(null);
+  const cuentaId = cuentaElegida ?? cajaChica?.id ?? '';
+  const n = (v: string) => (v.trim() === '' ? 0 : Number(v));
+  const montosOk = [efectivo, mp, transferencia, gastos, fondo].every((v) => v.trim() === '' || Number(v) >= 0) && contado.trim() !== '' && Number(contado) >= 0;
+  const puede = montosOk && cuentaId !== '' && (n(transferencia) === 0 || cuentaTrf !== '') && (!r || motivo.trim() !== '') && (Boolean(session) || Boolean(r) || fecha !== '');
+  const mutation = r ? rectify : close;
+
+  if (resultado) {
+    return (
+      <Modal titulo="Cierre registrado" onClose={onClose} puedeGuardar guardando={false} textoGuardar="Listo" onSubmit={onClose}>
+        <Dato label="Ventas totales" valor={formatoPesos(resultado.total_sales)} fuerte />
+        <Dato label="Efectivo esperado" valor={formatoPesos(resultado.expected_cash)} fuerte />
+        <Dato label="Efectivo contado" valor={formatoPesos(n(contado))} fuerte />
+        <Dato label="Diferencia de caja" valor={`${formatoPesos(resultado.cash_difference)} (${diferenciaTexto(resultado.cash_difference)})`} fuerte />
+      </Modal>
+    );
+  }
+  const enviar = () => {
+    const base = {
+      userId: user!.id, file: archivo, cashSales: n(efectivo), mpSales: n(mp), transferSales: n(transferencia), expenses: n(gastos),
+      countedCash: n(contado), cashAccountId: cuentaId, transferAccountId: n(transferencia) > 0 ? cuentaTrf : null, openingFloat: n(fondo),
+      merma: merma.trim() === '' ? null : Number(merma), notes: notas,
+    };
+    const onSuccess = (res: unknown) => setResultado(res as { total_sales: number; expected_cash: number; cash_difference: number });
+    if (r) rectify.mutate({ ...base, closingId: r.closing_id, reason: motivo.trim(), keepWorksheet: true }, { onSuccess });
+    else if (session) close.mutate({ ...base, sessionId: session.id }, { onSuccess });
+    else close.mutate({ ...base, date: fecha, location: lugar.trim() || 'Feria', idempotencyKey: clave }, { onSuccess });
+  };
+  const titulo = r ? `Rectificar cierre — ${r.closing_date}` : session ? `Cierre de Feria — ${session.session_date}` : 'Cierre de Feria';
+  const montoInput = (label: string, v: string, set: (s: string) => void) => (
+    <label className={etiqueta}>{label}<input type="number" min="0" step="0.01" inputMode="decimal" value={v} onChange={(e) => set(e.target.value)} className={campo} /></label>
+  );
+  return (
+    <Modal titulo={titulo} onClose={onClose} puedeGuardar={puede} guardando={mutation.isPending} error={mutation.error ?? cuentas.error}
+      textoGuardar={r ? 'Rectificar' : 'Cerrar feria'} onSubmit={enviar}>
+      {!session && !r && <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>}
+      {montoInput('Ventas en efectivo', efectivo, setEfectivo)}
+      {montoInput('Ventas Mercado Pago', mp, setMp)}
+      {montoInput('Ventas por transferencia', transferencia, setTransferencia)}
+      {montoInput('Gastos de Feria', gastos, setGastos)}
+      {montoInput('Efectivo contado', contado, setContado)}
+      <label className={etiqueta}>Destino del efectivo
+        <select value={cuentaId} onChange={(e) => setCuentaElegida(e.target.value)} className={campo}>
+          <option value="">Elegir caja o cuenta…</option>
+          {fisicas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+        </select>
+      </label>
+      {n(transferencia) > 0 && (
+        <label className={etiqueta}>Cuenta de las transferencias
+          <select value={cuentaTrf} onChange={(e) => setCuentaTrf(e.target.value)} className={campo}>
+            <option value="">Elegir cuenta…</option>
+            {fisicas.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+          </select>
+        </label>
+      )}
+      <label className={etiqueta}>Planilla (foto o PDF, opcional)
+        <input type="file" accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => setArchivo((e.target.files?.[0] as (AttachmentFile & Blob) | undefined) ?? null)} className={campo} />
+      </label>
+      {r?.has_worksheet && !archivo && <p className="text-xs text-gray-500">Se mantiene la planilla adjunta ({r.worksheet_file_name}).</p>}
+      {!archivo && !r?.has_worksheet && <p className="text-xs text-gray-500">Recomendado: adjuntá la planilla de la feria.</p>}
+      <button type="button" onClick={() => setMasDatos(!masDatos)} className="text-xs text-amber-900 underline">{masDatos ? 'Menos datos' : 'Más datos'}</button>
+      {masDatos && (
+        <>
+          {!session && !r && <label className={etiqueta}>Lugar<input type="text" value={lugar} onChange={(e) => setLugar(e.target.value)} className={campo} /></label>}
+          {montoInput('Fondo inicial', fondo, setFondo)}
+          {montoInput('Merma (opcional)', merma, setMerma)}
+          <label className={etiqueta}>Notas<input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} /></label>
+        </>
+      )}
+      {r && <label className={etiqueta}>Motivo de la rectificación<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>}
+      <p className="text-xs text-gray-500">El sistema calcula las ventas totales, el efectivo esperado y la diferencia de caja al registrar el cierre.</p>
+    </Modal>
+  );
+}
+
+/** A session closed with the earlier detailed flow: readable, no actions (ADR-016 keeps backend and history). */
+function SesionAnterior({ sesion, caja, abierta, onToggle }: { sesion: SessionRow; caja: SessionCashRow[]; abierta: boolean; onToggle: () => void }) {
   const movs = useSessionMovements(abierta ? sesion.id : '');
-  const [accion, setAccion] = useState<'movimiento' | 'conteo' | 'cerrar' | Exclude<SessionCashEventType, 'COUNT'> | null>(null);
   const r = caja[0];
   const conteos = caja.filter((c) => c.count_event_id !== null);
-  const esAbierta = sesion.estado === 'OPEN';
-  const boton = 'text-xs px-2 py-1 rounded bg-amber-100 text-amber-900 hover:bg-amber-200';
-
   return (
     <div className="bg-white rounded-lg border border-[#E4DCC8]">
       <button onClick={onToggle} className="w-full flex items-center justify-between gap-2 p-3 text-left text-sm">
         <span className="flex items-center gap-2">
           <ChevronDown className={`w-4 h-4 transition ${abierta ? 'rotate-180' : ''}`} />
           <span className="font-semibold text-amber-900">{sesion.session_date} · {sesion.location ?? '—'}</span>
-          <span className={`text-xs px-2 py-0.5 rounded ${esAbierta ? 'bg-green-100 text-green-800' : 'bg-stone-200 text-stone-700'}`}>{esAbierta ? 'Abierta' : 'Cerrada'}</span>
         </span>
         {r && <span className="text-[#6B5D45]">Esperado en caja {formatoPesos(r.expected_cash)}</span>}
       </button>
       {abierta && (
-        <div className="px-4 pb-4 border-t border-[#E4DCC8] bg-[#FAF6EE] space-y-3 text-sm">
-          {r && (
-            <div className="pt-3 grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
-              <p>Fondo inicial <b>{formatoPesos(r.opening_fund)}</b></p>
-              <p>Gastos <b>{formatoPesos(r.expenses)}</b></p>
-              <p>Retiros <b>{formatoPesos(r.withdrawals)}</b></p>
-              <p>Transferencias <b>{formatoPesos(r.transfers_out)}</b></p>
-              <p>Esperado <b>{formatoPesos(r.expected_cash)}</b></p>
-            </div>
-          )}
-          {conteos.length > 0 && (
-            <div className="text-xs space-y-1">
-              {conteos.map((c) => (
-                <p key={c.count_event_id}>Conteo {c.count_date}: contado {formatoPesos(c.counted_cash ?? 0)} ·{' '}
-                  <span className={(c.variance ?? 0) === 0 ? 'text-green-700' : 'text-red-700 font-semibold'}>diferencia {formatoPesos(c.variance ?? 0)}</span>
-                </p>
-              ))}
-            </div>
-          )}
-          <div>
-            <p className="text-xs font-semibold text-[#6B5D45] uppercase mb-1">Movimientos de mercadería</p>
-            {movs.isLoading ? <p className="text-xs text-gray-500">Cargando…</p> : (movs.data ?? []).length === 0 ? <p className="text-xs text-gray-500">Sin movimientos.</p> : (
-              (movs.data ?? []).map((m) => <p key={m.id} className="text-xs text-gray-700">{MOVIMIENTO[m.movement_type]} · {m.cantidad} {m.producto_nombre}{m.reason ? ` · ${m.reason}` : ''}</p>)
-            )}
-          </div>
-          {esAbierta && (
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => setAccion('movimiento')} className={boton}>Movimiento</button>
-              {(['EXPENSE', 'WITHDRAWAL', 'TRANSFER_OUT'] as const).map((t) => <button key={t} onClick={() => setAccion(t)} className={boton}>{EVENTO[t]}</button>)}
-              <button onClick={() => setAccion('conteo')} className={boton}>Conteo de caja</button>
-              <button onClick={() => setAccion('cerrar')} className="text-xs px-2 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8B4423]">Cerrar feria</button>
-            </div>
-          )}
+        <div className="px-4 pb-4 border-t border-[#E4DCC8] bg-[#FAF6EE] space-y-2 text-xs pt-3">
+          {r && <p>Fondo inicial {formatoPesos(r.opening_fund)} · Gastos {formatoPesos(r.expenses)} · Retiros {formatoPesos(r.withdrawals)} · Transferencias {formatoPesos(r.transfers_out)}</p>}
+          {conteos.map((c) => <p key={c.count_event_id}>Conteo {c.count_date}: contado {formatoPesos(c.counted_cash ?? 0)} · diferencia {formatoPesos(c.variance ?? 0)}</p>)}
+          {(movs.data ?? []).map((m) => <p key={m.id} className="text-gray-700">{MOVIMIENTO[m.movement_type]} · {m.cantidad} {m.producto_nombre}{m.reason ? ` · ${m.reason}` : ''}</p>)}
         </div>
       )}
-      {accion === 'movimiento' && <MovimientoModal sessionId={sesion.id} onClose={() => setAccion(null)} />}
-      {(accion === 'EXPENSE' || accion === 'WITHDRAWAL' || accion === 'TRANSFER_OUT') && <CajaModal sessionId={sesion.id} tipo={accion} onClose={() => setAccion(null)} />}
-      {accion === 'conteo' && <CajaModal sessionId={sesion.id} tipo="COUNT" onClose={() => setAccion(null)} />}
-      {accion === 'cerrar' && <CerrarModal sesion={sesion} onClose={() => setAccion(null)} />}
     </div>
-  );
-}
-
-function CuentaSelect({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  const cuentas = useFinancialAccounts();
-  return (
-    <label className={etiqueta}>{label}
-      <select value={value} onChange={(e) => onChange(e.target.value)} className={campo}>
-        <option value="">Elegir cuenta…</option>
-        {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function AbrirModal({ onClose }: { onClose: () => void }) {
-  const { open } = useFeriaMutations();
-  const [fecha, setFecha] = useState(getTodayDate());
-  const [lugar, setLugar] = useState('');
-  const [fondo, setFondo] = useState('');
-  const [cuentaId, setCuentaId] = useState('');
-  const [clave] = useState(() => `FERIA-${crypto.randomUUID()}`);   // idempotency: one per opened form
-  const conFondo = Number(fondo) > 0;
-  return (
-    <Modal titulo="Abrir feria" onClose={onClose} puedeGuardar={fecha !== '' && lugar.trim() !== '' && (!conFondo || cuentaId !== '')}
-      guardando={open.isPending} error={open.error} textoGuardar="Abrir"
-      onSubmit={() => open.mutate({ date: fecha, location: lugar.trim(), idempotencyKey: clave, openingFund: Number(fondo || 0), cashAccountId: cuentaId || null },
-        { onSuccess: onClose })}>
-      <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
-      <label className={etiqueta}>Lugar<input type="text" value={lugar} onChange={(e) => setLugar(e.target.value)} className={campo} /></label>
-      <label className={etiqueta}>Fondo inicial (opcional)<input type="number" min="0" step="0.01" value={fondo} onChange={(e) => setFondo(e.target.value)} className={campo} /></label>
-      {conFondo && <CuentaSelect label="Cuenta de la que sale el fondo" value={cuentaId} onChange={setCuentaId} />}
-    </Modal>
-  );
-}
-
-function ProductoSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const { products } = useOrderCatalog();
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={campo}>
-      <option value="">Elegir producto…</option>
-      {products.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-    </select>
-  );
-}
-
-function MovimientoModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
-  const { movement } = useFeriaMutations();
-  const [tipo, setTipo] = useState<SessionMovementType>('DISPATCH');
-  const [productoId, setProductoId] = useState('');
-  const [cantidad, setCantidad] = useState('');
-  const [motivo, setMotivo] = useState('');
-  return (
-    <Modal titulo="Movimiento de mercadería" onClose={onClose} puedeGuardar={productoId !== '' && Number(cantidad) > 0}
-      guardando={movement.isPending} error={movement.error}
-      onSubmit={() => movement.mutate({ sessionId, type: tipo, productoId, cantidad: Number(cantidad), reason: motivo }, { onSuccess: onClose })}>
-      <label className={etiqueta}>Tipo
-        <select value={tipo} onChange={(e) => setTipo(e.target.value as SessionMovementType)} className={campo}>
-          {SESSION_MOVEMENT_TYPES.map((t) => <option key={t} value={t}>{MOVIMIENTO[t]}</option>)}
-        </select>
-      </label>
-      <label className={etiqueta}>Producto<ProductoSelect value={productoId} onChange={setProductoId} /></label>
-      <label className={etiqueta}>Cantidad<input type="number" min="0" step="0.01" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className={campo} /></label>
-      <label className={etiqueta}>{tipo === 'LOSS' || tipo === 'ADJUSTMENT' ? 'Motivo' : 'Notas (opcional)'}
-        <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} />
-      </label>
-    </Modal>
-  );
-}
-
-function CajaModal({ sessionId, tipo, onClose }: { sessionId: string; tipo: SessionCashEventType; onClose: () => void }) {
-  const { cashEvent } = useFeriaMutations();
-  const categorias = useExpenseCategories();
-  const [monto, setMonto] = useState('');
-  const [cuentaId, setCuentaId] = useState('');
-  const [destinoId, setDestinoId] = useState('');
-  const [categoriaId, setCategoriaId] = useState('');
-  const [motivo, setMotivo] = useState('');
-  const esConteo = tipo === 'COUNT';
-  const puede = Number(monto) > 0 && (esConteo || cuentaId !== '') && (tipo !== 'EXPENSE' || categoriaId !== '') && (tipo !== 'TRANSFER_OUT' || destinoId !== '');
-  return (
-    <Modal titulo={esConteo ? 'Conteo de caja de la feria' : EVENTO[tipo as Exclude<SessionCashEventType, 'COUNT'>]} onClose={onClose}
-      puedeGuardar={puede} guardando={cashEvent.isPending} error={cashEvent.error ?? categorias.error}
-      onSubmit={() => cashEvent.mutate({
-        sessionId, type: tipo, amount: Number(monto), accountId: esConteo ? null : cuentaId, categoryId: tipo === 'EXPENSE' ? categoriaId : null,
-        destinationAccountId: tipo === 'TRANSFER_OUT' ? destinoId : null, reason: motivo,
-      }, { onSuccess: onClose })}>
-      <label className={etiqueta}>{esConteo ? 'Efectivo contado' : 'Monto'}
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
-      </label>
-      {!esConteo && <CuentaSelect label="Cuenta" value={cuentaId} onChange={setCuentaId} />}
-      {tipo === 'TRANSFER_OUT' && <CuentaSelect label="Cuenta de destino" value={destinoId} onChange={setDestinoId} />}
-      {tipo === 'EXPENSE' && (
-        <label className={etiqueta}>Categoría de gasto
-          <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} className={campo}>
-            <option value="">Elegir categoría…</option>
-            {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-        </label>
-      )}
-      <label className={etiqueta}>Notas (opcional)<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
-      {esConteo && <p className="text-xs text-gray-500">El conteo es una observación: no mueve dinero. El sistema muestra la diferencia contra lo esperado.</p>}
-    </Modal>
-  );
-}
-
-function CerrarModal({ sesion, onClose }: { sesion: SessionRow; onClose: () => void }) {
-  const { close } = useFeriaMutations();
-  const { products, prices } = useOrderCatalog();
-  const [lineas, setLineas] = useState<AggregatedLine[]>([]);
-  const [productoId, setProductoId] = useState('');
-  const [motivo, setMotivo] = useState('');
-  const agregar = () => {
-    if (!productoId || lineas.some((l) => l.producto_id === productoId)) return;
-    setLineas((ls) => [...ls, { producto_id: productoId, cantidad: 1, precio_unitario: currentPrice(prices, productoId, 'MINORISTA') ?? 0 }]);
-    setProductoId('');
-  };
-  const set = (i: number, k: 'cantidad' | 'precio_unitario', v: string) => setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: Number(v) } : l)));
-  const nombre = (id: string) => products.find((p) => p.id === id)?.nombre ?? '—';
-  return (
-    <Modal titulo={`Cerrar feria — ${sesion.session_date} ${sesion.location ?? ''}`} onClose={onClose} puedeGuardar guardando={close.isPending} error={close.error}
-      textoGuardar="Cerrar feria" onSubmit={() => close.mutate({ sessionId: sesion.id, lines: lineas, reason: motivo }, { onSuccess: onClose })}>
-      <p className="text-sm text-gray-600">Venta minorista de la feria (se registra como un pedido de CONSUMIDOR FINAL). Dejala vacía si no hubo venta minorista.</p>
-      <div className="flex gap-2">
-        <div className="flex-1"><ProductoSelect value={productoId} onChange={setProductoId} /></div>
-        <button type="button" onClick={agregar} className="px-3 mt-1 bg-amber-100 text-amber-900 rounded-lg text-sm">Agregar</button>
-      </div>
-      {lineas.map((l, i) => (
-        <div key={l.producto_id} className="grid grid-cols-3 gap-2 items-end">
-          <p className="text-sm text-gray-700 pb-2">{nombre(l.producto_id)}</p>
-          <label className="text-xs text-gray-600">Cantidad<input type="number" min="0" value={l.cantidad} onChange={(e) => set(i, 'cantidad', e.target.value)} className={campo} /></label>
-          <label className="text-xs text-gray-600">Precio<input type="number" min="0" step="0.01" value={l.precio_unitario} onChange={(e) => set(i, 'precio_unitario', e.target.value)} className={campo} /></label>
-        </div>
-      ))}
-      <label className={etiqueta}>Notas (opcional)<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
-      <p className="text-xs text-gray-500">Una feria cerrada no admite más movimientos ni eventos de caja.</p>
-    </Modal>
   );
 }

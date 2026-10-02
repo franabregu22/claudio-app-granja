@@ -20,7 +20,7 @@ const periodoAtras = (date: string, n: number) => {
   return d.toISOString().slice(0, 10);
 };
 const BUCKET: Record<string, string> = {
-  VENTAS_NETAS: 'Ventas netas', COSTOS_DIRECTOS: 'Costos directos', COSTOS_INDIRECTOS: 'Costos indirectos',
+  VENTAS_NETAS: 'Ventas netas', COSTOS_DIRECTOS: 'Costos directos', COSTOS_INDIRECTOS: 'Costos indirectos', DIFERENCIA_CAJA: 'Diferencia de caja',
   OTROS_INGRESOS_FINANCIEROS: 'Otros ingresos financieros', REINVERSION: 'Reinversión', RETIROS: 'Retiros de socios',
   RESERVAS_INTERNAS: 'Reservas internas', INVERSIONES: 'Inversiones',
 };

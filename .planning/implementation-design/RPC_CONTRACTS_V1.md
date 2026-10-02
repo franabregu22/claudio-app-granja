@@ -11,6 +11,7 @@
 **AMENDMENTS:** ADR-012 (`.planning/adr/ADR-012_CLASSIFICATION_UNITS_RECTIFICATION.md`, ACCEPTED 2026-10-01) — RPC 25 line format `{classification_grade_id, quantity, unit}` with backend MAPLE conversion; RPC 47 `rectify_classification` (migration 0063). ADR-013 (`.planning/adr/ADR-013_FEED_FORMULA_PUBLICATION.md`, ACCEPTED 2026-10-01) — RPC 48 `publish_feed_formula_version`; RPC 26 refuses an empty version (migration 0064). The inventory grows 46 → 48. Amended passages are marked **[ADR-012]** / **[ADR-013]**.
 **AMENDMENTS:** ADR-014 (`.planning/adr/ADR-014_FEED_MANUFACTURING_RECTIFICATION.md`, ACCEPTED 2026-10-01) — RPC 49 `rectify_feed_manufacturing` (migration 0065); classification grade Rotos inactive for new entries (RPCs 25 / 47 refuse it as any inactive grade). The inventory grows 48 → 49. Amended passages are marked **[ADR-014]**.
 **AMENDMENTS:** ADR-015 (`.planning/adr/ADR-015_FISCAL_POSITION_AND_PURCHASE_FISCAL.md`, ACCEPTED 2026-10-01) — RPC 50 `register_purchase_with_fiscal_document` (migration 0068): RPC 34 + RPC 13 in one transaction; RPCs 13 / 34 unchanged. The inventory grows 49 → 50. Amended passages are marked **[ADR-015]**.  
+**AMENDMENTS:** ADR-016 (`.planning/adr/ADR-016_FERIA_V1_SUMMARIZED_CLOSING.md`, ACCEPTED 2026-10-01) — Feria V1 summarized closing: RPC 51 `close_feria_summary` and RPC 52 `rectify_feria_closing` (migration 0070); the inventory grows 50 → 52. RPCs 30–33 unchanged. Amended passages are marked **[ADR-016]**.  
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -2444,6 +2445,41 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 **Atomic steps:** RPC 34 `register_fiscal_document` (CREDITO, the purchase supplier, document date = economic date, number = supplier invoice number); RPC 13 `register_purchase` with the new `fiscal_document_id`. One transaction: an error in either rolls back both. Amounts stored as typed; nothing derived.
 **Returns:** RPC 13's result plus `{fiscal_document_id, component_count}`.
 
+### 51. close_feria_summary **[ADR-016]**
+
+**Signature:** `close_feria_summary(p_session_id UUID, p_cash_sales NUMERIC, p_mp_sales NUMERIC, p_transfer_sales NUMERIC, p_expenses NUMERIC, p_counted_cash NUMERIC, p_cash_account_id UUID, p_transfer_account_id UUID DEFAULT NULL, p_opening_float NUMERIC DEFAULT 0, p_merma NUMERIC DEFAULT NULL, p_notes TEXT DEFAULT NULL, p_worksheet JSONB DEFAULT NULL) RETURNS JSONB`
+**Actor:** ADMIN · **SECURITY DEFINER:** yes · **Period determinant:** `sales_session.session_date`
+**Validation:** `FORBIDDEN` · `INVALID_AMOUNT` (NULL, negative, more than 2 decimals) · `SESSION_NOT_FOUND` · `SESSION_ALREADY_CLOSED` · `LEGACY_CASH_EVENTS_PRESENT` (the session has granular cash events) · `CASH_ACCOUNT_INVALID` (inactive, or the Mercado Pago account) · `TRANSFER_ACCOUNT_REQUIRED` / `TRANSFER_ACCOUNT_INVALID` (only when transfer > 0) · `INVALID_WORKSHEET` (`{storage_path, file_name, content_type ∈ PDF/JPEG/PNG/WebP, byte_size 1..10 MB}`) · `ASSERT_PERIOD_OPEN` · `CONSUMIDOR_FINAL_MISSING` · `FERIA_REFERENCE_DATA_MISSING`.
+**Atomic steps:**
+1. If total > 0: an aggregated CONSUMIDOR FINAL pedido with one line of the system product "Venta Feria (resumen)" (quantity 1, price = total), delivered through RPC 1 at the session date, 12:00 local.
+2. Cash > 0: RPC 4, CASH, into `p_cash_account_id` (receipt `FERIA:<closing>:CASH`).
+3. Transfer > 0: RPC 4, TRANSFER, into `p_transfer_account_id` (`FERIA:<closing>:TRF`).
+4. Expenses > 0: a SESSION_CASH operation `FERIA:<closing>:EXP` with a −expenses posting on the cash account.
+5. Difference ≠ 0: an ADJUSTMENT operation `FERIA:<closing>:DIFF` with a ±difference posting on the cash account.
+6. Insert `sales_session_closing` (version 0), set the session CLOSED (with `aggregated_pedido_id`), and write the audit `CLOSE`.
+
+MP sales: no collection (ADR-006 settles the receivable). Opening float: no posting.
+**Returns:** `{closing_id, total_sales, expected_cash, cash_difference, aggregated_pedido_id}`.
+
+### 52. rectify_feria_closing **[ADR-016]**
+
+**Signature:** `rectify_feria_closing(p_closing_id UUID, p_reason TEXT, <the RPC 51 amounts and accounts>, p_merma, p_notes, p_worksheet JSONB DEFAULT NULL, p_keep_worksheet BOOLEAN DEFAULT true) RETURNS JSONB`
+**Actor:** ADMIN · **SECURITY DEFINER:** yes · **Period determinant:** `closing_date` (original)
+**Validation:** `FORBIDDEN` · `REASON_REQUIRED` · `INVALID_AMOUNT` · `CLOSING_NOT_FOUND` · `CLOSING_SUPERSEDED` · the RPC 51 account and worksheet checks · `ASSERT_PERIOD_OPEN`.
+**Atomic steps:**
+1. Compensate the previous version:
+   - each collection with a `client_ledger` REVERSAL (`reversal_of_id`) plus an ADJUSTMENT posting of −amount on its account;
+   - the expense with +expenses;
+   - the difference with −difference.
+2. Sales:
+   - if the total changed, RPC 2 with one system line at the new total;
+   - if there was no pedido and the new total is > 0, create and deliver one.
+3. Apply the new effects as RPC 51 steps 2–5.
+4. Mark the previous row `is_current = false` (its only change) and insert the new version (`version_seq + 1`, `supersedes_id`, `rectification_reason`). The worksheet is the new one, or the previous one when `p_keep_worksheet`.
+5. Write the audit `RECTIFY`.
+
+**Returns:** `{closing_id, superseded_id, version_seq, total_sales, expected_cash, cash_difference}`.
+
 ## RPC INVENTORY (EXACT)
 
 | # | RPC | Domain | Actor | SEC.DEF | Period determinant |
@@ -2498,8 +2534,10 @@ A movement may legitimately remain unreconciled — no correspondence is invente
 | 48 | publish_feed_formula_version **[ADR-013]** | Feed | ADMIN | yes | none (master data) |
 | 49 | rectify_feed_manufacturing **[ADR-014]** | Feed | OPERATOR or ADMIN | yes | manufacturing_date (original) |
 | 50 | register_purchase_with_fiscal_document **[ADR-015]** | Purchases / Fiscal | ADMIN | yes | economic_date |
+| 51 | close_feria_summary **[ADR-016]** | Feria | ADMIN | yes | session_date |
+| 52 | rectify_feria_closing **[ADR-016]** | Feria | ADMIN | yes | closing_date (original) |
 
-**TOTAL: 50 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48) · **[ADR-014]** (+ RPC 49) · **[ADR-015]** (+ RPC 50). 45 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
+**TOTAL: 52 RPCs** **[ADR-001]** (41 + RPC 42) · RPC 43 by ADR-004 · **[ADR-007]** (+ RPCs 44 / 45) · **[ADR-011]** (+ RPC 46) · **[ADR-012]** (+ RPC 47) · **[ADR-013]** (+ RPC 48) · **[ADR-014]** (+ RPC 49) · **[ADR-015]** (+ RPC 50) · **[ADR-016]** (+ RPCs 51 / 52). 47 are period-sensitive and call `ASSERT_PERIOD_OPEN`. Five are not (the four below, and `publish_feed_formula_version` (48), which writes master data):
 `cancel_order` (3) and `assign_flock_feed` (29) create no economic fact, and
 `close_management_period` (37) / `reopen_management_period` (38) control periods themselves.
 

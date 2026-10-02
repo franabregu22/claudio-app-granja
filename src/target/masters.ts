@@ -54,7 +54,8 @@ export function cleanValues(values: Values): Values {
 }
 
 export function listMaster<Row>(client: SupabaseClient, table: MasterTable, order = 'nombre'): Promise<Row[]> {
-  return readTable<Row>(client, table, (q) => q.order(order));
+  // ADR-016: the internal system product ("Venta Feria (resumen)") is never offered to the owner
+  return readTable<Row>(client, table, (q) => (table === 'products' ? q.eq('is_system', false) : q).order(order));
 }
 
 export async function createMaster<Row>(client: SupabaseClient, table: MasterTable, values: Values): Promise<Row> {

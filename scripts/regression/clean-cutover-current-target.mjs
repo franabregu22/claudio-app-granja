@@ -158,7 +158,7 @@ try {
   console.log(`      ${loadLog}`);
 
   section('CT-3', 'current-schema business validation');
-  check('CT-3a validate-current-target.sql = the historical validator with exactly the C01 / C16 substitutions (every other check and the DIGEST query verbatim)',
+  check('CT-3a validate-current-target.sql = the historical validator with exactly the C01 / C16 substitutions and the ADR-016 seed exclusion (every other check and the DIGEST query verbatim)',
     readFileSync(CURRENT_VALIDATOR, 'utf8').replace(/\r\n/g, '\n') === deriveCurrentValidator(readFileSync(HIST_VALIDATOR, 'utf8')));
   const v = runValidator(files.length);
   const histChecks = readFileSync(join(RUN1, 'validation.txt'), 'utf8').split(/\r?\n/).filter((l) => l.startsWith('CHECK|')).map((l) => l.split('|')[1]);

@@ -183,7 +183,7 @@ section('V', 'definitions and privileges');
     owner(`SELECT count(*) FROM pg_views WHERE viewname IN (${VIEWS.map(q).join(',')})
       AND (definition ~ 'CLIENT_[A-Z_]+''::text[^,]*review' OR definition ~* 'CLIENT_(RECONCILED|UNRECONCILED|PENDING)');`) === '0');
   check('V-5 SECURITY DEFINER set unchanged by the views: exactly 67 (60 + ADR-007 RPCs 44 / 45 + ADR-011 RPC 46 + ADR-012/013 RPCs 47 / 48 + ADR-014 RPC 49 + ADR-015 RPC 50; no function added for the views)',
-    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '67');
+    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '69');
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
