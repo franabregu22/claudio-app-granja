@@ -425,3 +425,165 @@ The population `expected` block is the arithmetic of the final snapshot: run `ex
    - legacy intact and read-only for ≥ 30 days;
    - B valid until the first real target write or the end of the first production day, whichever comes first;
    - afterwards, rollback requires target-write reconciliation.
+
+---
+
+## S2. Phase 31 Step 2 — target project provisioning (prepared 2026-10-02)
+
+**Status: OWNER ACTION REQUIRED.** The new project does not exist yet; no ref or host was supplied. Everything below was rehearsed on the guarded local stack. Nothing touched any remote project.
+
+### S2-0 Tooling — `scripts/phase31/provision-target.mjs` (rehearsed locally)
+
+| Command | What it does | Local rehearsal |
+|---|---|---|
+| `preflight` | Fails closed unless the target is fresh and not legacy: no legacy tables (`clientes`, `movimientos_caja`, `mercadopago_raw`, …), no `auth.users`, no Storage object, `pg_cron` / `pg_net` / `supabase_vault` available, ledger empty or a consistent prefix | PASS on a reset DB; refused a forbidden host and a DB with a legacy table |
+| `apply` | 0001 → 0071, same semantics as `apply.mjs`: one transaction per file with its ledger row, advisory lock, sha256 immutability, no transaction control. `PRODUCTION_TARGET` needs `--confirm <host>`. | 71 applied |
+| `verify` | ledger = files; 69 definers, 0 anon, 33 enums, 62 tables, 16 views; RLS on every public table; 0 anon table grants; 2 private buckets (10 MB, PDF/JPEG/PNG/WebP); 6 storage policies; cron job active; 0 Auth users; 0 business facts; no MP boundary. Vault entries are reported by NAME only. | PASS |
+| `vault-set` | Creates or updates `mp_worker_url` and `mp_worker_invoke_secret`. The secret is read from the exported `WORKER_INVOKE_SECRET` through psql `\getenv`; it never appears in argv, in a file or in the output. | create and update PASS; 0 occurrences of the value in the output |
+| `smoke` | Read-only HTTP probes: Auth `disable_signup = true` and no provider except email; `mp-webhook` unsigned → 401 (500 = fail-closed, secrets not loaded); `mp-worker` without the invoke secret → 401; legacy functions → 404; public Storage URL ≠ 200; cron runs and the last pg_net responses. No business write, no MP call. | Flagged, as designed: local sign-up enabled, legacy functions served locally, webhook secret missing |
+
+**Local `verify` result:**
+
+| Item | Value |
+|---|---|
+| Ledger | 71/71 |
+| Definers | 69 |
+| Anon-executable definers | 0 |
+| Enums / tables / views | 33 / 62 / 16 |
+| Tables without RLS | 0 |
+| Anon table grants | 0 |
+| Storage policies | 6 |
+| Buckets | both private, 10 MB |
+| Cron job | active |
+| Auth users / business facts / MP boundary | 0 / 0 / 0 |
+| Seeds | 1 client (CONSUMIDOR FINAL), 4 accounts, 1 system product, categories, periods |
+
+**Guards:**
+- The connection comes only from `CUTOVER_TARGET_DB_URL`, passed as libpq environment variables.
+- The host must equal `--expected-host` and must not be in `--forbidden-hosts`.
+- `PRODUCTION_TARGET` also requires the project ref. `--expected-ref` must match the ref in `db.<ref>.supabase.co` or in the pooler user `postgres.<ref>`, and `--forbidden-refs <legacy ref>` is refused.
+- The ref check exists because pooler hosts are shared across projects, so the host alone cannot tell the projects apart.
+- The ref guards were tested offline.
+
+### S2-1 Owner procedure
+
+Run from a WSL shell at the repository root. Values are typed privately and never pasted into chat.
+
+1. **Create the project.**
+   - In the Supabase dashboard: same organisation, **same region as legacy**.
+   - Generate the DB password and keep it in the password manager.
+   - Record these non-secret values here: project ref, region, API URL `https://<ref>.supabase.co`, DB host (pooler or direct).
+2. **Auth settings** (dashboard; record here when done):
+   - Sign In / Providers: **"Allow new users to sign up" = OFF**.
+   - Email provider ON (password). Every other provider OFF: no OAuth, no phone/OTP, no anonymous sign-ins.
+   - URL Configuration: Site URL = the production Netlify URL; Redirect URLs = only that URL.
+   - SMTP: none. The app sends no email (no sign-up, reset, OTP or magic link).
+   - Do **not** create users.
+3. **Connection** (own shell):
+   ```bash
+   read -rs CUTOVER_TARGET_DB_URL && export CUTOVER_TARGET_DB_URL
+   ```
+   Take the URL from "Connect". Use the session pooler if the direct host is IPv6-only from Docker.
+4. **Preflight, apply and verify:**
+   ```bash
+   P=scripts/phase31/provision-target.mjs
+   A="--kind PRODUCTION_TARGET --expected-host <db host> --expected-ref <new ref> --forbidden-hosts db.<legacy ref>.supabase.co --forbidden-refs <legacy ref> --client supabase_db_Claudio_app_Granja"
+   node $P preflight $A
+   node $P apply $A --confirm <db host>
+   node $P verify $A
+   ```
+5. **Edge Functions** (target only).
+   - Never run `supabase link`: it would repoint `supabase/.temp/project-ref`.
+   ```bash
+   supabase functions deploy mp-webhook --project-ref <new ref> --no-verify-jwt
+   supabase functions deploy mp-worker  --project-ref <new ref> --no-verify-jwt
+   supabase functions list --project-ref <new ref>     # exactly mp-webhook, mp-worker
+   ```
+   - Do not deploy `sync-mercadopago` or `check-rate-limit`.
+6. **Edge secrets** (private file outside the repository, `chmod 600`):
+   ```bash
+   umask 077; mkdir -p ~/granja-phase31-private
+   printf 'WORKER_INVOKE_SECRET=%s\n' "$(openssl rand -hex 32)" >> ~/granja-phase31-private/target-edge.env   # NEW value for the target
+   ```
+   Then add with an editor, from their current sources:
+   - `MP_ACCESS_TOKEN=`, `MP_COLLECTOR_ID=`: current values, **not rotated**.
+   - `MP_WEBHOOK_SECRET=`: current strategy. Only a new endpoint-specific secret if Mercado Pago issues one at the SWITCH.
+   - `MP_API_BASE_URL=https://api.mercadopago.com`
+
+   Then:
+   ```bash
+   supabase secrets set --project-ref <new ref> --env-file ~/granja-phase31-private/target-edge.env
+   supabase secrets list --project-ref <new ref>       # NAMES (+ digests) only
+   ```
+7. **Vault** (same shell; the value is never echoed):
+   ```bash
+   ( set -a; . ~/granja-phase31-private/target-edge.env; set +a
+     node $P vault-set $A --worker-url https://<new ref>.supabase.co/functions/v1/mp-worker )
+   node $P verify $A                                    # Vault PRESENT=[mp_worker_invoke_secret, mp_worker_url]
+   ```
+8. **Smoke** (public values only; the anon/publishable key is public):
+   ```bash
+   export TARGET_API_URL=https://<new ref>.supabase.co
+   read -rs TARGET_ANON_KEY && export TARGET_ANON_KEY
+   node $P smoke $A
+   ```
+   Expected result:
+   - `disable_signup=true`, providers `[email]`;
+   - `mp-webhook` 401 and `mp-worker` 401;
+   - legacy functions 404;
+   - Storage public ≠ 200;
+   - cron runs succeeded, with the last pg_net responses 200. An empty delivery queue means the worker claims nothing and calls nothing.
+
+**ADR-017 in this state:**
+- `mp_cutover_boundary` stays **empty**. Only the cutover runner writes it; `cutover_at` is not invented.
+- The MP webhook still points at legacy, so the target receives no notification.
+- If one ever arrived, RPC 40 refuses with `CUTOVER_BOUNDARY_MISSING`: no money is applied and the evidence is kept.
+
+### S2-2 Secrets / Vault matrix (names only)
+
+| Name | Destination | Status now | Note |
+|---|---|---|---|
+| `MP_WEBHOOK_SECRET` | Edge (`mp-webhook`) | MISSING (project not created) | current strategy, not rotated for its own sake |
+| `MP_COLLECTOR_ID` | Edge (both) | MISSING | current value, not rotated |
+| `MP_ACCESS_TOKEN` | Edge (`mp-worker`) | MISSING | current value, not rotated |
+| `MP_API_BASE_URL` | Edge (`mp-worker`) | MISSING | non-secret |
+| `WORKER_INVOKE_SECRET` | Edge (both) | MISSING | **new** value, generated in S2-1 step 6 |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Edge (platform-injected) | provided by the platform | never handled by the owner |
+| Vault `mp_worker_url` | target DB | MISSING | `https://<new ref>.supabase.co/functions/v1/mp-worker` |
+| Vault `mp_worker_invoke_secret` | target DB | MISSING | = `WORKER_INVOKE_SECRET` |
+
+### S2-3 Legacy read-only inventories (owner-run, counts only)
+
+- **Auth:** `scripts/phase31/owner-queries/legacy-auth-counts.sql`.
+  - Reports: users; unconfirmed, deleted, banned, anonymous, SSO and passwordless users; identities per provider; MFA factors; users ↔ perfiles mismatches; perfiles per role; sessions (informational); Auth schema version.
+  - Prints no email, hash, token or id.
+  - Syntax validated locally.
+- **Auth id list:** `scripts/phase31/owner-queries/legacy-auth-ids.sql` (ids only, nothing sensitive). Save it outside the repository as `legacy-auth-ids.txt`.
+- **Storage:** `scripts/phase31/owner-queries/legacy-storage-counts.sql`.
+  - Reports: buckets, public flag, object counts, total bytes. No object names.
+  - Syntax validated locally.
+
+### S2-4 Auth rehearsal — next steps (not executed)
+
+1. Legacy counts (S2-3) and the legacy id list.
+2. The Auth data dump (§0B step 2, `--dry-run` first). Keep it outside the repository in `~/granja-phase31-private/` and treat it as sensitive.
+3. **Local rehearsal first:**
+   - `supabase db reset` + `apply.mjs`;
+   - restore with `session_replication_role = replica`;
+   - `migrate-cutover.mjs auth-check --legacy-auth-ids …`;
+   - then `extract` / `load` / `validate` with a `LOCAL_CUTOVER_REHEARSAL` config.
+4. Restore into the target only after the local rehearsal passes, at T0-MIGRATE.
+5. UUID / identity reconciliation with `auth-check` on the target.
+
+### S2-5 Cutover config status
+
+Still missing, all owner values (the template is refused):
+- `cutover_at`;
+- the final snapshot manifest hash;
+- client openings (every client);
+- the four treasury openings;
+- the category class map;
+- population (P-b counts or P-a acceptance) and the expected arithmetic;
+- operator assignments;
+- the target `expected_host` and `forbidden_hosts`;
+- the evidence references.
