@@ -867,3 +867,95 @@ node $A compare --a $PRIV/legacy-auth-t0.json --b $PRIV/target-auth-t0.json    #
 2. The local copy.
 3. `migrate-cutover.mjs` `gates` / `extract` / `load` / `validate` against the local stack (`LOCAL_CUTOVER_REHEARSAL`, real Auth restored locally).
 4. Then the owner values (§S2-5) for the real config.
+
+---
+
+## S7. LOCAL_CUTOVER_REHEARSAL — COMPLETE / PASS (2026-10-02) and the pre-T0 checklist for the REAL cutover
+
+### S7-1 Rehearsal evidence (local only; reported by the owner)
+
+| Item | Value |
+|---|---|
+| Snapshot | `20261002T225147Z` (manifest sha256 `66d42f7c…9602`), restored into `granja-legacy-copy`, RECONCILED 26/26 |
+| Config | `P31-REHEARSAL-20261002T225147Z` v1 (private, outside the repository: `C:\Users\Franabregu\GranjaSnapshots\phase31\rehearsal-20261002T225147Z\`) |
+| Synthetic values (owner-approved, **rehearsal only, never production**) | 48 client openings `0.00`; BNA / Caja chica / Mercado Pago / Patagonia `0.00`; all evidence `SYNTHETIC-REHEARSAL` |
+| Owner-approved, reusable for production | `class_map` (24 DIRECT, 27 INDIRECT); P-a; the operator on the 4 flocks; overrides G01-2501 (Galpón 1) and legacy G02-2607 → G04-2607 (Galpón 4). **Population values must be re-derived from the final snapshot.** |
+| Population derived by `extract` (this snapshot) | G01-2501 281 / 13 / 15 / 266; G02-2509 2652 / 92 / 122 / 2530; G03-2501 2113 / 85 / 151 / 1962; G04-2607 3880 / 0 / 0 / 3880; totals 190 events / 288 deaths |
+| Plan | `c9254652…f029`: 5 users, 48 clients, 9 products, 51 categories, 4 flocks, 190 events |
+| Results | `gates` PASS; local Auth restore + credentials-inclusive `compare` IDENTICAL; `auth-check` PASS; `load` PASS; `validate` **26 checks, 0 failed** |
+| Final state digest | `2506e389908777137da81a1a61f847a75a9e9213c50f2d4437fc0ad133189198` |
+
+The local stack now holds real Auth users and real master data. Discard them with `supabase db reset` before any other local work.
+
+### S7-2 Pre-T0 checklist for the REAL cutover (mechanical order)
+
+**Legend:**
+- **[NF]** can be done before T0, without the business freeze.
+- **[F]** requires the freeze.
+- **[IRR]** irreversible, or materially harder to roll back.
+- **[OA]** owner approval point.
+- **STOP** = do not continue. **GO** = the condition to continue.
+
+**Phase P: preparation, no freeze**
+
+| # | Step | Gate |
+|---|---|---|
+| P1 [NF][OA] | Owner decides the cutover date, `cutover_at` (ISO with offset) and the freeze window: start, end, who stops writing. | STOP until decided |
+| P2 [NF][OA] | Owner prepares the evidence **method** for the boundary balances (values are taken at P-F2): the cash count sheet for **Caja chica**; the **Mercado Pago** Account Money balance at `cutover_at` on the ADR-017 §3 basis (every payment approved before `cutover_at`, released or not); **BNA** and **Patagonia** statements at `cutover_at` (Patagonia has no legacy source: opening only); the basis of the per-client balance for **each of the 48 clients**. | STOP if any account or client has no evidence source |
+| P3 [NF][OA] | Owner decides the final population method for the 4 ACTIVE flocks: **P-b** (physical count per flock on the cutover day, preferred) or **P-a** (owner acceptance of the re-derived arithmetic). | STOP until decided |
+| P4 [NF][OA] | Owner confirms that the rehearsal decisions carry into production unchanged: `class_map` 24 / 27, the operator on the 4 flocks, the 2 flock overrides. | GO when confirmed |
+| P5 [NF] | Snapshot reader validity. Block A has `VALID UNTIL '2026-10-31 23:59:59+00'`: **if T0 is after 2026-10-31, the final cycle needs a new dated copy of Block A**. That is a new file, and it needs **[OA]**. Also confirm that Block C ran after the rehearsal snapshot (`reader_role = 0`, `reader_policies = 0`, the §Phase 26 read-only check). | STOP if the reader still exists, or if the expiry precedes T0 without an approved copy |
+| P6 [NF] | Production config prepared outside the repository from the rehearsal config, with: `target.kind = PRODUCTION_TARGET`; `expected_host` = the target DB host; `forbidden_hosts` = the legacy host; a new `import_batch` `P31-<date>-CUTOVER1`; the real `cutover_at`; `source.*` left empty (filled at F4); real balances left as placeholders; **no** `SYNTHETIC` evidence (the gate refuses it); `population.expected = {}`. | GO when the template fields are complete except the T0 values |
+| P7 [NF] | Prepared L-1 branch `phase31-l1-legacy-mp-removal` (`256b76d`) rebased or checked on top of the release branch. Tests, gate and build green. **Not merged.** | STOP if anything is red |
+| P8 [NF] | Target health: `provision-target.mjs verify` and `smoke` PASS. Auth is expected to be > 0 now (§S5): `verify` reports `auth_users > 0` by design, and the Auth evidence is the drift gate. Vault complete, cron healthy, `mp_cutover_boundary` empty, 0 business facts. | STOP on any failure |
+| P9 [NF] | Netlify release prepared, not deployed: target `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` ready; a build against the target (`dist` host check); the previous deploy id recorded for rollback B. | GO when the build is verified |
+
+**Phase F: freeze and T0**
+
+| # | Step | Gate |
+|---|---|---|
+| F1 [F][OA] | Owner starts the freeze: users stop writing to legacy. The legacy MP webhook keeps receiving. | GO when the owner confirms that writing has stopped |
+| F2 [F][OA] | Owner captures the boundary balances at `cutover_at`: the cash count, MP Account Money (ADR-017 §3 basis), BNA and Patagonia statements, the 48 client balances; and, with P-b, the physical count of the 4 flocks. Fills the production config with the values and evidence references. | STOP if any value lacks evidence |
+| F3 [F] | **Pre-T0 Auth drift gate (§S6):** `fingerprint` legacy (read-only) and target, then `compare`. It must be **IDENTICAL including `credentials_sha256`**. | **STOP and escalate** on any difference; no resync is invented |
+| F4 [F][OA][IRR-light] | Final snapshot cycle (owner as `postgres`, approved production DDL): **A** (reader + `\password` + `.env.test` update) → `VERIFY` 1–2 → **B** (19 policies; the RLS count must still be 19, otherwise STOP) → `take-legacy-snapshot.ps1` → `restore-legacy-copy.ps1` → RECONCILED 26/26 → **C** (0 / 0 / 0). The A/B DDL is temporary technical catalog state; C removes it. | STOP on any VERIFY failure or a count ≠ 26/26; GO after C reports 0 / 0 / 0 |
+| F5 [F] | Production config `source.*` = the final snapshot (id, dir, manifest sha256). `extract`, repeated per ARITHMETIC refusal: derive `population.expected` / `expected_totals` (P-a); with P-b, the counts drive the COUNT_ADJUSTMENT rows. | — |
+| F6 [F][OA] | **Production `gates` + `extract` review:** 0 refusals; the plan counts (users 5, clients 48, products, categories 51, flocks 4, events, client / treasury openings = the non-zero values); the owner reviews and approves the plan summary. | STOP until the owner approves the plan |
+| F7 [F][OA] | `auth-check` against the target (`PRODUCTION_TARGET`, `PHASE31_CUTOVER_CONFIRM=<import_batch>`): 0 sessions or refresh tokens, no unexpected user. | STOP on any failure |
+| **F8 [F][OA][IRR]** | **Production target `load` is allowed HERE, and only here.** It writes masters, profiles, population, openings and the **MP cutover boundary** (ADR-017). After it, the target is no longer "empty": a rollback means discarding or reprovisioning the target, not undoing the load. | GO only after F1–F7 are all GO and the owner gives explicit approval |
+| F9 [F] | Production `validate`: **26 checks, 0 failed**; the digest is recorded. | STOP → rollback A (legacy untouched; the target is discarded or reprovisioned) |
+| F10 [F][OA] | Pre-switch smoke against the target (preview build): each V1 user logs in (AUTH LOGIN) and now has the right **APP PROFILE / ROLE** (4 ADMIN, 1 OPERATOR); read every module. | STOP → rollback A |
+
+**Phase S: switch**
+
+| # | Step | Gate |
+|---|---|---|
+| **S1 [OA][IRR-B]** | In **one session**: Netlify env → target, merge the release (Phase 27 + the **L-1 branch, activated here**) and deploy (S1a); **then immediately** the Mercado Pago panel webhook URL → the target `mp-webhook` (S1b). Keep the same `MP_WEBHOOK_SECRET` (rollback B stays simple); a new endpoint-specific secret only if MP forces it, set in the same session. **The target becomes authoritative here.** | GO only with F10 PASS |
+| S2 [OA] | Production smoke: logins, roles, module reads; ADR-006 gate 2 (one real payment reaches `POSTED` on the target); gate 4 (no `FAILED_PERMANENT`, no unresolved `DISCREPANCY`, no ERROR source after the boundary); pre-boundary MP notifications show as `PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE` (expected, no money). | STOP → rollback B, **only before the first real business write** |
+
+**Phase R: rollback window and close**
+
+| # | Step | Gate |
+|---|---|---|
+| R1 | **Rollback boundary (approved model):** B (restore the previous Netlify deploy, the legacy webhook URL, legacy logins) is valid **until the first real target write or the end of the first production day, whichever comes first**. After that only C: target-write reconciliation, no reverse sync. Legacy stays intact and read-only for **≥ 30 days**. | — |
+| R2 | First-day monitoring: `report_mp_delivery_health` / receipt status; worker runs (cron); any REVIEW_REQUIRED; the logins of all V1 users; the first real orders and collections. | escalate on any anomaly |
+| R3 [OA] | Close the B-window explicitly (record when and why). | — |
+| R4 [OA][IRR] | **Only after the ≥ 30-day rollback window closes:** physically delete the legacy Supabase functions `sync-mercadopago` and `check-rate-limit` and the legacy Netlify MP runtime (they are already absent from the release since S1); revoke / rotate the legacy tokens (`SYNC_MERCADOPAGO_TOKEN`, the legacy service-role key, optionally the MP credentials); post-cutover master cleanup (deactivate categories 19–21, 39–43, 44: separate owner-approved action); L-1 CLOSED. | — |
+
+### S7-3 Owner approval points
+
+1. P1: the cutover date, `cutover_at` and the freeze window.
+2. P2: the balance evidence method.
+3. P3: the population method.
+4. P4: confirmation of the rehearsal decisions.
+5. P5: a new dated Block A copy, only if T0 is after 2026-10-31.
+6. F1: freeze start.
+7. F2: the real balances and their evidence.
+8. F4: the production DDL cycle A → B → C.
+9. F6: the plan review.
+10. F7: Auth check.
+11. **F8: production target `load`.**
+12. F10: pre-switch smoke acceptance.
+13. **S1: the Netlify + MP webhook switch, with L-1 activation.**
+14. S2: production smoke acceptance.
+15. R3: B-window close.
+16. R4: physical deletion and credential revocation after the window, and the master cleanup.
