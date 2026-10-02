@@ -6,6 +6,7 @@
 **AMENDMENTS:** ADR-007 (`.planning/adr/ADR-007_FLOCK_LIFECYCLE.md`, ACCEPTED 2026-09-29) — V1 flock lifecycle: RPC 44 `register_flock`, RPC 45 `close_flock` (ADMIN, SECURITY DEFINER; the SECURITY DEFINER set 60 → 62) and invariant 29 (no dated flock activity after `flocks.exit_date`, enforced in RPCs 18–22, 29 and 45). No schema change. Amended sections are marked **[ADR-007]**.  
 **AMENDMENTS:** ADR-016 (`.planning/adr/ADR-016_FERIA_V1_SUMMARIZED_CLOSING.md`, ACCEPTED 2026-10-01) — new invariant 33 (a Feria closing counts once, in its current version).
 **AMENDMENTS:** ADR-017 (`.planning/adr/ADR-017_MP_CUTOVER_BOUNDARY.md`, ACCEPTED 2026-10-02) — new invariant 34 (pre-cutover MP activity is never applied again in the target).
+**AMENDMENTS:** Timezone hardening (migration 0072, 2026-10-02) — new invariant 35 (business "today" is the Buenos Aires calendar date; the database stays UTC).
 Changes from here require an explicit ADR, as with the target architecture.  
 **DATE:** 2026-09-24  
 **AUTHORITY:** TARGET_ARCHITECTURE_V2_FROZEN.md (frozen)  
@@ -477,6 +478,12 @@ are no longer housed.
 **Rule:** the owner-validated MP opening balance is the authority for everything before `mp_cutover_boundary.cutover_at`. An approved payment (`date_approved`) or a report row (`occurred_at`) strictly before the boundary creates no movement and no posting in the target; at or after the boundary it is processed normally. Without a boundary, no MP source is normalized. Refund / chargeback evidence is never classified as pre-cutover.
 **Enforced by:** RPC 40 guard (0071), the singleton owner-only `mp_cutover_boundary`, the cutover runner (written once, validate C25).
 **Violation:** pre-cutover money counted twice (opening + receipt), or a post-cutover adverse event discarded as pre-cutover.
+
+## 35. Business "today" is the Buenos Aires calendar date; the database is UTC **[0072]**
+
+**Rule:** the database session timezone is UTC. Instants are `timestamptz`. Every business date derived from "now" or from an instant uses `(… AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE`. `CURRENT_DATE`, the UTC calendar date, which is already "tomorrow" in Argentina from 21:00 to 24:00, is never used as business today by a view, policy or function. The frontend default date (`getTodayDate`) is the Buenos Aires date, whatever the device timezone. Infrastructure region does not define any of this.
+**Enforced by:** 0072, which re-creates `report_flock_day` and asserts that no public view, policy or function uses `CURRENT_DATE`; `timezone_contract.test.mjs` (Z1–Z7); `tests/unit/date-utils-ba.test.ts`; target provisioning (`provision-target.mjs` refuses a non-UTC database).
+**Violation:** a business date, period or report bound that changes with the database or device timezone.
 ---
 
 ## COMPLIANCE MATRIX
@@ -517,6 +524,7 @@ are no longer housed.
 | 31 | one effective formula version per feed type **[ADR-013]** | EXCLUDE no_overlap | no write on versions / lines | RPC 48, 26 | reject_line_on_used_formula_version |
 | 33 | Feria closing counts once, current version **[ADR-016]** | chain CHECK, UNIQUE supersedes_id, partial unique current | no write on sales_session_closing | RPC 51, 52 | — |
 | 34 | pre-cutover MP activity never reapplied **[ADR-017]** | singleton boundary, no default | no API privilege on the boundary | RPC 40 | — |
+| 35 | business today = Buenos Aires date; database UTC **[0072]** | — | — | every RPC / view deriving a business date | — |
 
 ---
 

@@ -556,3 +556,5 @@ Columns:
 - the version chain and reason.
 
 The Feria history in the UI reads it as reported.
+
+> **Amendment (migration 0072, 2026-10-02):** V6 `report_flock_day` bounds an open flock's calculated series with the Buenos Aires business date, `(now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE`, instead of `CURRENT_DATE`, which is the UTC date. That removes the extra calculated day between 21:00 and 24:00 Argentina time. Columns, owner, grants and `security_invoker` are unchanged.

@@ -29,7 +29,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIGRATIONS_DIR = join(REPO, 'supabase', 'target-migrations');
 const FILE_PATTERN = /^(\d{4})_[a-z0-9_]+\.sql$/;
 const TXN_CONTROL = /\b(BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION|SAVEPOINT|RELEASE\s+SAVEPOINT|END\s*;)/i;
-const EXPECTED = { definers: 69, anon_definers: 0, enums: 33, tables: 62, views: 16, storage_policies: 6 };
+const EXPECTED = { definers: 69, anon_definers: 0, enums: 33, tables: 62, views: 16, storage_policies: 6 };   // through 0072
 const LEGACY_MARKERS = ['clientes', 'movimientos_caja', 'mercadopago_raw', 'mercadopago_movements', 'cuentas_caja', 'pagos', 'lotes', 'producciones'];
 const VAULT_NAMES = ['mp_worker_url', 'mp_worker_invoke_secret'];
 
@@ -103,6 +103,19 @@ const ledgerRows = () => {
   return q(`SELECT version || '|' || filename || '|' || sha256 FROM migration_ledger.applied ORDER BY version;`).split('\n').filter(Boolean);
 };
 
+// ── timezone contract: the database is UTC; business dates are converted explicitly to Buenos Aires ──
+function timezoneFailures() {
+  const tz = JSON.parse(q(`SELECT json_build_object(
+    'session', current_setting('TimeZone'),
+    'database_default', (SELECT coalesce(string_agg(cfg, ','), '') FROM pg_db_role_setting s CROSS JOIN LATERAL unnest(s.setconfig) cfg
+                          WHERE cfg ILIKE 'timezone=%' AND s.setdatabase IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))),
+    'cron', (SELECT setting FROM pg_settings WHERE name = 'cron.timezone'))::text;`));
+  const f = [];
+  if (tz.session !== 'UTC') f.push(`DATABASE_TIMEZONE: SHOW timezone = ${tz.session} (expected UTC; not changed by this tool)`);
+  if (tz.database_default && !/^timezone=UTC$/i.test(tz.database_default)) f.push(`DATABASE_TIMEZONE: a database/role default sets ${tz.database_default}`);
+  return { tz, f };
+}
+
 // ── preflight ───────────────────────────────────────────────────────────────
 function preflight() {
   const files = migrationFiles();
@@ -122,6 +135,8 @@ function preflight() {
   if (info.storage_objects > 0) f.push(`NOT_FRESH: storage.objects holds ${info.storage_objects} object(s)`);
   for (const e of ['pg_cron', 'pg_net', 'supabase_vault']) if (!info.ext_available.includes(e)) f.push(`EXTENSION_UNAVAILABLE: ${e}`);
   if (info.vault_installed !== 1) f.push('VAULT_NOT_INSTALLED: supabase_vault must be installed by the platform');
+  const tzr = timezoneFailures();
+  f.push(...tzr.f);
   const ledger = ledgerRows();
   const expectedLines = files.map((m) => `${m.version}|${m.file}|${m.sha}`);
   if (ledger.length === 0) {
@@ -130,7 +145,8 @@ function preflight() {
     f.push('LEDGER_CONFLICT: the existing ledger is not a prefix of the repository migrations (version / filename / sha256)');
   }
   log(`preflight: host=${host} server=${info.server_version} public_tables=${info.public_tables} ledger=${ledger.length}/${files.length} `
-    + `auth_users=${info.auth_users} storage_objects=${info.storage_objects} extensions=${info.ext_available.join(',')}`);
+    + `auth_users=${info.auth_users} storage_objects=${info.storage_objects} extensions=${info.ext_available.join(',')} `
+    + `timezone=${tzr.tz.session} cron.timezone=${tzr.tz.cron ?? 'n/a'}`);
   if (f.length) die('PREFLIGHT', 'the target is not a fresh, non-legacy project', f.join('\n'));
   log('preflight: PASS (fresh, not legacy, extensions available, ledger empty or a consistent prefix)');
 }
@@ -205,9 +221,12 @@ function verify() {
   if (s.auth_users !== 0) f.push(`auth_users=${s.auth_users} (no Auth data before the rehearsed restore)`);
   if (s.business_facts !== 0) f.push(`business_facts=${s.business_facts} (the target must stay empty)`);
   if (s.mp_boundary !== 0) f.push('mp_cutover_boundary is set before the cutover (ADR-017: only the cutover runner writes it)');
+  const tzv = timezoneFailures();
+  f.push(...tzv.f);
   const vaultMissing = VAULT_NAMES.filter((n) => !s.vault_names.includes(n));
   log(`verify: ledger=${ledger.length}/${files.length} definers=${s.definers} anon_definers=${s.anon_definers} enums=${s.enums} tables=${s.tables} views=${s.views} `
-    + `rls_missing=${s.tables_without_rls} anon_table_grants=${s.anon_table_privileges} storage_policies=${s.storage_policies}`);
+    + `rls_missing=${s.tables_without_rls} anon_table_grants=${s.anon_table_privileges} storage_policies=${s.storage_policies} `
+    + `timezone=${tzv.tz.session} cron.timezone=${tzv.tz.cron ?? 'n/a'} (mp_worker_every_minute is minute-based)`);
   log(`verify: buckets=${s.buckets.map((b) => b.split(':').slice(0, 3).join(':')).join(' ')} cron=${s.cron_job.join(',') || 'MISSING'} `
     + `vault PRESENT=[${s.vault_names.join(', ')}] MISSING=[${vaultMissing.join(', ')}] auth_users=${s.auth_users} business_facts=${s.business_facts} `
     + `mp_boundary=${s.mp_boundary} seeds=${JSON.stringify(s.seeds)}`);

@@ -1,10 +1,8 @@
-// Get today's date in YYYY-MM-DD format using local browser timezone
-export function getTodayDate(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+// Business "today" (YYYY-MM-DD) is ALWAYS the calendar date in America/Argentina/Buenos_Aires, whatever the
+// device / browser timezone (Phase 31 timezone contract; mirrors the backend's
+// (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE). It is only a default: callers keep the field editable.
+export function getTodayDate(now: Date = new Date()): string {
+  return obtenerHoyBA(now);
 }
 
 // Parse a date string (YYYY-MM-DD) to formatted string without timezone conversion
@@ -39,23 +37,15 @@ export function agregarDiasAFecha(fechaString: string, dias: number): string {
 const BUENOS_AIRES_TZ = 'America/Argentina/Buenos_Aires';
 
 /**
- * Obtiene la fecha actual en zona horaria de Buenos Aires (YYYY-MM-DD)
+ * Obtiene la fecha actual en zona horaria de Buenos Aires (YYYY-MM-DD). Única implementación de "hoy":
+ * getTodayDate() la usa. Lee las partes numéricas de formatToParts (no parsea texto dependiente del locale).
  */
-export function obtenerHoyBA(): string {
-  const ahora = new Date();
-  const formatter = new Intl.DateTimeFormat('es-AR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: BUENOS_AIRES_TZ,
-  });
-
-  const parts = formatter.formatToParts(ahora);
-  const año = parts.find(p => p.type === 'year')?.value;
-  const mes = parts.find(p => p.type === 'month')?.value;
-  const día = parts.find(p => p.type === 'day')?.value;
-
-  return `${año}-${mes}-${día}`;
+export function obtenerHoyBA(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: BUENOS_AIRES_TZ,
+  }).formatToParts(now);
+  const part = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
 /**

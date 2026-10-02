@@ -2,7 +2,7 @@
 /**
  * PHASE 31 Step 1 — S1-1 cutover runner regression (scripts/phase31/migrate-cutover.mjs). LOCAL TEST DATABASE ONLY.
  *
- * Synthetic data only: synthetic legacy extract (no real names), synthetic Auth users (@rehearsal.test), synthetic
+ * Synthetic data only: synthetic legacy extract (no real names), synthetic Auth users (@test.local), synthetic
  * openings. The target is the guarded local stack in LOCAL_CUTOVER_REHEARSAL mode. The suite resets the local
  * stack (guarded `supabase db reset` + apply.mjs) at the start and at the end, like the CT contract.
  *
@@ -104,7 +104,7 @@ function runner(cmd, dir, env = {}, extra = []) {
   return { ok: r.status === 0, out: `${r.stdout || ''}${r.stderr || ''}` };
 }
 const authUsers = (emails = {}) => `INSERT INTO auth.users (id, email, is_sso_user, is_anonymous) VALUES
-  ('${ADMIN}', '${emails.admin ?? 's1-admin@rehearsal.test'}', false, false), ('${OPER}', '${emails.oper ?? 's1-oper@rehearsal.test'}', false, false);
+  ('${ADMIN}', '${emails.admin ?? 's1-admin@test.local'}', false, false), ('${OPER}', '${emails.oper ?? 's1-oper@test.local'}', false, false);
 INSERT INTO auth.identities (user_id, provider, provider_id, identity_data) VALUES
   ('${ADMIN}', 'email', '${ADMIN}', '{"sub":"${ADMIN}"}'::jsonb), ('${OPER}', 'email', '${OPER}', '{"sub":"${OPER}"}'::jsonb);`;
 
@@ -138,8 +138,8 @@ try {
   psql(authUsers({ admin: 'legacy-x@example.invalid' }));
   r = runner('load', dir);
   check('L2 a synthetic @example.invalid Auth email is refused', !r.ok && /AUTH_EMAIL_INVALID/.test(r.out) && psql('SELECT count(*) FROM perfiles;') === '0', r.out.slice(-300));
-  psql(`UPDATE auth.users SET email = 's1-admin@rehearsal.test' WHERE id = '${ADMIN}';
-INSERT INTO auth.users (id, email, is_sso_user, is_anonymous) VALUES ('${U(99)}', 's1-extra@rehearsal.test', false, false);`);
+  psql(`UPDATE auth.users SET email = 's1-admin@test.local' WHERE id = '${ADMIN}';
+INSERT INTO auth.users (id, email, is_sso_user, is_anonymous) VALUES ('${U(99)}', 's1-extra@test.local', false, false);`);
   r = runner('load', dir);
   check('L3 an unexpected auth user (not planned, not allowed) is refused', !r.ok && /AUTH_UNEXPECTED_USER/.test(r.out), r.out.slice(-300));
   psql(`DELETE FROM auth.users WHERE id = '${U(99)}';
@@ -180,7 +180,7 @@ INSERT INTO mp_cutover_boundary (cutover_at, import_batch, evidence_ref) VALUES 
   writeFileSync(join(dir, 'legacy-ids.txt'), `${OPER}\n${ADMIN}\n`);
   r = runner('auth-check', dir, {}, ['--legacy-auth-ids', join(dir, 'legacy-ids.txt')]);
   check('A1 auth-check PASS: identical sorted UUID lists, email identities present, no session rows', r.ok && /id lists are identical \(2\)/.test(r.out) && /PASS/.test(r.out), r.out.slice(-400));
-  check('A2 auth-check prints no email, hash or token', !/@rehearsal\.test|encrypted_password|\$2[aby]\$/.test(r.out));
+  check('A2 auth-check prints no email, hash or token', !/@test\.local|encrypted_password|\$2[aby]\$/.test(r.out));
   writeFileSync(join(dir, 'legacy-ids2.txt'), `${ADMIN}\n${U(77)}\n`);
   r = runner('auth-check', dir, {}, ['--legacy-auth-ids', join(dir, 'legacy-ids2.txt')]);
   check('A3 a differing legacy id list → AUTH_UUID_MISMATCH', !r.ok && /AUTH_UUID_MISMATCH/.test(r.out), r.out.slice(-300));
