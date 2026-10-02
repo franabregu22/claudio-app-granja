@@ -959,3 +959,141 @@ The local stack now holds real Auth users and real master data. Discard them wit
 14. S2: production smoke acceptance.
 15. R3: B-window close.
 16. R4: physical deletion and credential revocation after the window, and the master cleanup.
+
+---
+
+## S8. P1 confirmed — REAL cutover boundary and T0 preparation (2026-10-03)
+
+### S8-1 Owner decision P1 (REAL production boundary)
+
+| Item | Value |
+|---|---|
+| Business timezone | `America/Argentina/Buenos_Aires` |
+| **Freeze starts** | **2026-10-03T23:30:00-03:00** |
+| **Authoritative `cutover_at`** | **2026-10-04T00:00:00-03:00**; cutover date **Sunday 2026-10-04** |
+| Snapshot reader | the existing Phase 26 Block A (`VALID UNTIL '2026-10-31'`) is sufficient; **no new Block A variant** |
+| Rehearsal Block C | completed after RECONCILED 26/26. No temporary reader or policies stay active between the rehearsal and T0. |
+
+### S8-2 Prepared before the freeze (no production business write)
+
+| Item | State |
+|---|---|
+| Runner project-ref guard | `migrate-cutover.mjs` / `cutover-config.mjs` now require `target.expected_ref` and `target.forbidden_refs` for `PRODUCTION_TARGET`, checked against the direct host or the pooler user (`postgres.<ref>`). Session-pooler hosts are shared across projects, so the host alone is not identity. Regression: `scripts/phase31/migrate-cutover.test.mjs` 9/0. Template updated. |
+| Production config skeleton (private) | `C:\Users\Franabregu\GranjaSnapshots\phase31\production-20261004\config.json`: kind `PRODUCTION_TARGET`; target pooler host plus ref `ycmkpnunhxluqqtecbyu`; legacy pooler host, direct host and ref forbidden; import batch `P31-20261004-CUTOVER1`; `cutover_at` 2026-10-04T00:00:00-03:00 with the P1 evidence; class_map 51 (24 / 27); the 2 flock overrides; the operator on the 4 flocks; P-a. **No synthetic value or evidence.** Every T0 section is flagged `REQUIRES_FINAL_CUTOVER_VALUE`, so the gates refuse the file until T0 (59 refusals now, by design). |
+| T0 capture templates (private) | `T0-client-balances.csv` (48 clients: id, name, active, balance, evidence) and `T0-treasury-capture.md` (Caja chica count, BNA, Patagonia, Mercado Pago on the ADR-017 §3 basis). Same directory. |
+| L-1 branch | `phase31-l1-legacy-mp-removal` (`256b76d`) merges **cleanly** on the current release (8 newer commits). It was test-merged on a temporary branch that was then deleted: tsc OK, unit 237/0, build OK, 0 legacy MP references in `dist`, static gate 8/0. **Not merged.** |
+| Netlify rollback B target | site `santotomasapp` (`85b1a905-8e01-4b7e-9744-c20457ceb076`); **published production deploy `6abc496b282b9c00088b8b6c`**, `ready`, branch `main`, commit `623045736d2b182e3ea5533782617c238c6e6301`, published 2026-09-29T23:28:05Z. **Netlify builds from `main` (git integration):** the release is published by the push to `main`, so the Netlify env must change **before** that push, and **no push to `main` may happen before S1**. |
+| Target `verify` / `smoke` | owner-run before the freeze (S8-3 step P8). Read-only. |
+| Production frontend build check | owner-run before the freeze (S8-3 step P9). Local build against the target with a `dist` host check; no deploy. |
+
+### S8-3 Exact T0 command sequence (NOT executed)
+
+**Common setup** (owner, WSL shell at the repository root; secrets typed privately, never pasted into chat):
+```bash
+PRIV=~/granja-phase31-private; A=scripts/phase31/auth-restore.mjs; C=supabase_db_Claudio_app_Granja
+D='/mnt/c/Users/Franabregu/GranjaSnapshots/phase31/production-20261004'
+read -rs LEGACY_DB_URL && export LEGACY_DB_URL
+read -rs CUTOVER_TARGET_DB_URL && export CUTOVER_TARGET_DB_URL
+LEG="--db-env LEGACY_DB_URL --kind LEGACY_READONLY --expected-ref <legacy ref> --client $C"
+TGT="--db-env CUTOVER_TARGET_DB_URL --kind PRODUCTION_TARGET --expected-ref ycmkpnunhxluqqtecbyu --forbidden-refs <legacy ref> --client $C"
+P=scripts/phase31/provision-target.mjs
+PA="--kind PRODUCTION_TARGET --expected-host aws-0-sa-east-1.pooler.supabase.com --expected-ref ycmkpnunhxluqqtecbyu --forbidden-hosts aws-0-us-east-2.pooler.supabase.com --forbidden-refs <legacy ref> --client $C"
+```
+
+**Before the freeze (P8, P9):**
+```bash
+node $P verify $PA      # schema PASS; app_definers 69/69; platform rls_auto_enable; auth_users = 5 by design (Auth restored); business_facts 0; mp_boundary 0
+export TARGET_API_URL=https://ycmkpnunhxluqqtecbyu.supabase.co; read -rs TARGET_ANON_KEY && export TARGET_ANON_KEY
+node $P smoke $PA       # signup disabled, providers [email], webhook/worker 401, legacy fns 404, storage not public, cron OK
+# frontend build check from the release state (L-1 test-merged on a temporary branch, then deleted)
+git switch -c tmp-release-check && git merge --no-ff --no-edit phase31-l1-legacy-mp-removal
+VITE_SUPABASE_URL=$TARGET_API_URL VITE_SUPABASE_ANON_KEY=$TARGET_ANON_KEY npx vite build --outDir /tmp/dist-target --emptyOutDir
+grep -rl "ycmkpnunhxluqqtecbyu.supabase.co" /tmp/dist-target | head -1    # target host present
+grep -rlE "<legacy ref>|sync-mercadopago|\.netlify/functions" /tmp/dist-target | wc -l    # expected 0
+git switch phase27-frontend && git branch -D tmp-release-check
+```
+
+**F1 (23:30, owner):** announce the freeze; users stop writing to legacy.
+
+**F2 (owner):**
+- capture the boundary values into `T0-client-balances.csv` and `T0-treasury-capture.md`;
+- copy them into `config.json`, with evidence references, and remove the matching `REQUIRES_FINAL_CUTOVER_VALUE` flags;
+- confirm suppliers and instruments are NONE, and remove those flags.
+
+**F3 (Auth drift gate):**
+```bash
+node $A fingerprint $LEG --out $PRIV/legacy-auth-t0.json
+node $A fingerprint $TGT --out $PRIV/target-auth-t0.json
+node $A compare --a $PRIV/legacy-auth-t0.json --b $PRIV/target-auth-t0.json    # IDENTICAL incl. credentials → GO; otherwise STOP and escalate
+```
+
+**F4 (final snapshot cycle; owner as `postgres`, approved temporary DDL):**
+1. Block A: create the reader and set `\password`.
+2. Update `LEGACY_READONLY_DATABASE_URL` in `.env.test`.
+3. `VERIFY` parts 1–2.
+4. Block B (19 policies).
+5. In Windows PowerShell:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\phase26\take-legacy-snapshot.ps1
+   powershell -ExecutionPolicy Bypass -File scripts\phase26\restore-legacy-copy.ps1 -Snapshot <UTC>     # RECONCILED 26/26
+   ```
+6. Block C (expected 0 / 0 / 0).
+
+**F5 (extract):**
+- set `source.snapshot_id`, `source.snapshot_dir` and `source.manifest_sha256` to the final snapshot, and remove the flag;
+- run
+  ```bash
+  node scripts/phase31/migrate-cutover.mjs extract --config "$D/config.json" --out "$D/out"
+  ```
+  repeatedly. Copy each ARITHMETIC `computed` into `population.expected` (and then `expected_totals`), exactly as in the rehearsal;
+- the owner sets the P-a `owner_acceptance_ref` and removes the population flag.
+
+**F6 (owner review):**
+- `gates`: 0 refusals;
+- `extract`: PASS;
+- the owner reviews the plan line (users 5, clients N, products, categories 51, flocks 4, events, client / treasury openings) and approves it.
+
+**F7:**
+```bash
+export PHASE31_CUTOVER_CONFIRM=P31-20261004-CUTOVER1
+node scripts/phase31/migrate-cutover.mjs auth-check --config "$D/config.json" --out "$D/out"
+```
+
+**F8 (IRREVERSIBLE for the target; explicit owner GO):**
+```bash
+node scripts/phase31/migrate-cutover.mjs load --config "$D/config.json" --out "$D/out"
+```
+This writes the masters, profiles, population, openings and the production `mp_cutover_boundary` (2026-10-04T00:00:00-03:00).
+
+**F9:**
+```bash
+node scripts/phase31/migrate-cutover.mjs validate --config "$D/config.json" --out "$D/out"
+```
+Expected: 26 checks, 0 failed. Record the digest.
+
+**F10 (owner):** with the preview build, each V1 user logs in and has the right role (4 ADMIN, 1 OPERATOR), and every module reads.
+
+**S1 (owner, one session):**
+1. Netlify env: `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` → the target. Remove the legacy MP / sync / service-role variables.
+2. Merge `phase27-frontend` and the L-1 branch into `main`, then push. Netlify publishes. Record the new deploy id.
+3. Immediately afterwards, in the Mercado Pago panel, set the webhook URL to `https://ycmkpnunhxluqqtecbyu.supabase.co/functions/v1/mp-webhook`. Keep the same signing secret, unless MP forces a new one; in that case `supabase secrets set` it in the same session.
+
+**S2:** production smoke (logins, roles, modules); ADR-006 gates 2 and 4; pre-boundary MP notifications show `PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE`.
+
+**Rollback B:**
+- until the first real target write, or the end of 2026-10-04, whichever comes first;
+- restore Netlify deploy `6abc496b282b9c00088b8b6c` and the previous env;
+- set the MP webhook URL back to the legacy function.
+
+### S8-4 Owner data still required before / at the freeze
+
+| When | Item |
+|---|---|
+| Before 23:30 | `<legacy ref>` written into the owner shell variables (non-secret; also in `supabase/.temp/project-ref`) |
+| Before 23:30 | P8 `verify` / `smoke` and the P9 build check run by the owner |
+| Before 23:30 | The current webhook signing secret confirmed (reused) |
+| Before 23:30 | The Netlify env values for the target ready (anon / publishable key) |
+| At F2 | The 48 client balances |
+| At F2 | The Caja chica physical count; BNA and Patagonia statements; MP Account Money on the ADR-017 §3 basis; evidence references |
+| At F2 | Owner confirmation: no supplier balance / obligation and no open instrument |
+| At F5 | P-a acceptance of the final-snapshot arithmetic (or a switch to P-b with physical counts) |

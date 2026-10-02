@@ -103,6 +103,11 @@ function target() {
     assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
     if (!/^supabase_db/.test(t.psql_client_container)) die('TARGET', 'a local rehearsal must use the local supabase_db container as psql client');
   } else if (t.kind === 'PRODUCTION_TARGET') {
+    // project identity: the ref is carried by the direct host (db.<ref>.supabase.co) or the pooler user (postgres.<ref>)
+    const user = decodeURIComponent(u.username || '');
+    const ref = (host.match(/^db\.([a-z0-9]{20})\.supabase\.co$/) || [])[1] || (user.match(/^postgres\.([a-z0-9]{20})$/) || [])[1] || null;
+    if (ref !== t.expected_ref) die('TARGET', `connection project ref ${ref ?? 'UNKNOWN'} differs from config target.expected_ref`);
+    if ((t.forbidden_refs || []).includes(ref)) die('TARGET', 'the connection is the LEGACY project ref: refusing');
     if (process.env.PHASE31_CUTOVER_CONFIRM !== CONFIG.import_batch) die('TARGET', 'PHASE31_CUTOVER_CONFIRM must equal the config import_batch (explicit owner confirmation)');
   } else die('TARGET', 'unknown target.kind');
   if (!running(t.psql_client_container)) die('TARGET', `psql client container ${t.psql_client_container} is not running`);

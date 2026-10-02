@@ -22,7 +22,7 @@ const TOP_KEYS = ['config_id', 'config_version', 'mode_allowed', 'description', 
   'partially_used_sources', 'explicit_exclusions_inside_evidence', 'impuesto_cheque', 'cutover_gates'];
 const SECTION_KEYS = {
   source: ['snapshot_id', 'snapshot_dir', 'manifest_sha256', 'legacy_copy_container', 'legacy_copy_database', 'source_system', 'notes'],
-  target: ['kind', 'expected_host', 'forbidden_hosts', 'psql_client_container', 'staging_schema', 'notes'],
+  target: ['kind', 'expected_host', 'expected_ref', 'forbidden_hosts', 'forbidden_refs', 'psql_client_container', 'staging_schema', 'notes'],
   cutover_boundary: ['cutover_at', 'timezone', 'evidence_ref', 'notes'],
   clients: ['migrate_master', 'opening_balance_method', 'evidence_ref', 'opening_balances', 'historical_pedidos_migrated', 'historical_pagos_migrated', 'notes'],
   treasury: ['account_map', 'opening_balance_method', 'evidence_ref', 'opening_balances', 'notes'],
@@ -81,6 +81,11 @@ export function phase31ContractFailures(cfg) {
   if (!ref(t.psql_client_container)) f.push('target.psql_client_container is required');
   if (!Array.isArray(t.forbidden_hosts)) f.push('target.forbidden_hosts must be an array');
   if (t.kind === 'PRODUCTION_TARGET' && (!Array.isArray(t.forbidden_hosts) || t.forbidden_hosts.length === 0)) f.push('PRODUCTION_TARGET requires the legacy project host in target.forbidden_hosts');
+  // Session-pooler hosts are shared across projects: PRODUCTION_TARGET is identified by its project ref as well
+  if (t.kind === 'PRODUCTION_TARGET' && !/^[a-z0-9]{20}$/.test(t.expected_ref || '')) f.push('PRODUCTION_TARGET requires target.expected_ref (the 20-char target project ref)');
+  if (t.kind === 'PRODUCTION_TARGET' && (!Array.isArray(t.forbidden_refs) || t.forbidden_refs.length === 0 || t.forbidden_refs.some((r) => !/^[a-z0-9]{20}$/.test(r))))
+    f.push('PRODUCTION_TARGET requires target.forbidden_refs (the legacy project ref)');
+  if (t.kind === 'PRODUCTION_TARGET' && Array.isArray(t.forbidden_refs) && t.forbidden_refs.includes(t.expected_ref)) f.push('target.expected_ref is a forbidden (legacy) ref');
   if (t.kind === 'PRODUCTION_TARGET' && Array.isArray(t.forbidden_hosts) && t.forbidden_hosts.includes(t.expected_host)) f.push('target.expected_host is a forbidden host');
   if (t.kind === 'PRODUCTION_TARGET' && ['127.0.0.1', 'localhost'].includes(t.expected_host)) f.push('PRODUCTION_TARGET cannot be a loopback host');
   if (t.kind === 'LOCAL_CUTOVER_REHEARSAL' && !['127.0.0.1', 'localhost'].includes(t.expected_host)) f.push('LOCAL_CUTOVER_REHEARSAL must be a loopback host');

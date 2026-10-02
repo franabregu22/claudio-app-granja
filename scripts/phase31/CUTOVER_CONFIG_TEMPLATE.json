@@ -16,8 +16,10 @@
 
   "target": {
     "kind": "PRODUCTION_TARGET",
-    "expected_host": "<db host of the NEW project, e.g. db.<new-ref>.supabase.co>",
-    "forbidden_hosts": ["<db host of the LEGACY project>"],
+    "expected_host": "<db host of the NEW project: db.<new-ref>.supabase.co or the session pooler host>",
+    "expected_ref": "<20-char NEW project ref (checked against the host or the pooler user postgres.<ref>)>",
+    "forbidden_hosts": ["<db / pooler host of the LEGACY project>"],
+    "forbidden_refs": ["<20-char LEGACY project ref>"],
     "psql_client_container": "granja-legacy-copy",
     "staging_schema": "phase26_migration",
     "REQUIRES_FINAL_CUTOVER_VALUE": true
