@@ -7,6 +7,9 @@
  *   inventory    counts (users, identities per provider, MFA factors, sessions, refresh tokens, …) — READ ONLY
  *   fingerprint  counts + sha256 of the ordered auth.users ids and of the ordered (user_id, provider) identity pairs
  *                → --out <private json> ; optional --ids-out <private txt> (ordered ids, one per line)   — READ ONLY
+ *   exclusions   READ ONLY: prints the -x value for `supabase db dump` = EVERY auth base table of the source database
+ *                except the allowed ones (users, identities[, mfa_factors with --allow-mfa yes]). Built from the live
+ *                catalog, so tables added by future Supabase Auth versions are excluded automatically.
  *   check-dump   --dump <file>: only COPY blocks of the allowed auth tables (users, identities[, mfa_factors]) plus
  *                pg_dump session settings; anything else refuses (prints statement kinds, never data)
  *   restore      --dump <file> --expect <fingerprint json of the source>: target must have 0 Auth rows; ONE
@@ -41,7 +44,7 @@ const die = (code, msg, detail) => {
 const log = (s) => console.log(`[phase31-auth] ${s}`);
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 const outsideRepo = (p) => !resolve(p).toLowerCase().startsWith(REPO.toLowerCase());
-if (!['inventory', 'fingerprint', 'check-dump', 'restore', 'compare'].includes(command)) die('USAGE', 'command must be inventory | fingerprint | check-dump | restore | compare');
+if (!['inventory', 'fingerprint', 'exclusions', 'check-dump', 'restore', 'compare'].includes(command)) die('USAGE', 'command must be inventory | fingerprint | exclusions | check-dump | restore | compare');
 
 // ── dump check (no database) ────────────────────────────────────────────────
 function checkDump(file, { allowMfa }) {
@@ -156,6 +159,18 @@ function fingerprint() {
   log(`fingerprint (${conn.kind}${conn.ref ? ` ${conn.ref}` : ''}): users=${fp.users} identities=${fp.identities} mfa=${fp.mfa_factors} `
     + `providers=${JSON.stringify(fp.providers)} user_ids_sha256=${fp.user_ids_sha256.slice(0, 16)}… identity_pairs_sha256=${fp.identity_pairs_sha256.slice(0, 16)}… → ${opt.out}`);
 }
+function exclusions() {
+  const conn = connection();
+  const allowed = opt['allow-mfa'] === 'yes' ? ['users', 'identities', 'mfa_factors'] : ['users', 'identities'];
+  const r = psql(conn, READ_ONLY(`SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables
+    WHERE table_schema = 'auth' AND table_type = 'BASE TABLE';`));
+  if (!r.ok) die('SQL', 'auth table listing failed', r.err);
+  const all = (r.out.split('\n').filter(Boolean).pop() || '').split(',').filter(Boolean);
+  for (const t of allowed) if (!all.includes(t)) die('SCHEMA', `auth.${t} does not exist on the source`);
+  const excl = all.filter((t) => !allowed.includes(t)).map((t) => `auth.${t}`);
+  console.error(`[phase31-auth] exclusions (${conn.kind}${conn.ref ? ` ${conn.ref}` : ''}): ${all.length} auth tables; allowed=${allowed.join(',')}; excluded=${excl.length}`);
+  console.log(excl.join(','));   // stdout = the -x value only (table names; no data)
+}
 function compare() {
   if (!opt.a || !opt.b) die('USAGE', '--a <fingerprint json> --b <fingerprint json>');
   const a = JSON.parse(readFileSync(opt.a, 'utf8')); const b = JSON.parse(readFileSync(opt.b, 'utf8'));
@@ -213,6 +228,7 @@ if (command === 'check-dump') {
   if (bad.length) die('DUMP', 'the dump contains statements outside the allowed Auth tables', bad.join('\n'));
   log('check-dump: PASS (only allowed Auth tables; pg_dump session settings)');
 }
+if (command === 'exclusions') exclusions();
 if (command === 'inventory') inventory();
 if (command === 'fingerprint') fingerprint();
 if (command === 'compare') compare();

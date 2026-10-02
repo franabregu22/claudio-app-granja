@@ -737,7 +737,7 @@ The output shows counts, providers and the first 16 hex characters of the two sh
 
 **C. Auth dump** (official CLI; sensitive file, outside the repository, mode 600, never committed, never printed):
 ```bash
-EXCL=auth.audit_log_entries,auth.custom_oauth_providers,auth.flow_state,auth.instances,auth.mfa_amr_claims,auth.mfa_challenges,auth.mfa_factors,auth.oauth_authorizations,auth.oauth_client_states,auth.oauth_clients,auth.oauth_consents,auth.one_time_tokens,auth.refresh_tokens,auth.saml_providers,auth.saml_relay_states,auth.schema_migrations,auth.sessions,auth.sso_domains,auth.sso_providers,auth.webauthn_challenges,auth.webauthn_credentials
+EXCL=$(node $A exclusions $LEG)        # READ ONLY: every auth table of LEGACY except users, identities (from the live catalog)
 supabase db dump --db-url "$LEGACY_DB_URL" --data-only --use-copy --schema auth -x "$EXCL" -f $PRIV/auth_data.sql
 chmod 600 $PRIV/auth_data.sql
 node $A check-dump --dump $PRIV/auth_data.sql
@@ -746,9 +746,9 @@ node $A check-dump --dump $PRIV/auth_data.sql
 | Rule | Detail |
 |---|---|
 | Included | `auth.users`, `auth.identities` |
-| Conditional | `auth.mfa_factors`, **only** if the inventory shows `mfa_factors > 0`: remove it from `EXCL` and run `check-dump … --allow-mfa yes` |
-| Excluded | sessions, refresh tokens, flow state, one-time tokens, instances, schema_migrations, audit log, MFA challenges / AMR claims, OAuth / SAML / SSO / WebAuthn |
-| Unknown legacy tables | If legacy has an Auth table not in `EXCL`, `check-dump` refuses (fail closed): add it to `EXCL` and dump again |
+| Conditional | `auth.mfa_factors`, **only** if the inventory shows `mfa_factors > 0`: `EXCL=$(node $A exclusions $LEG --allow-mfa yes)`, then `check-dump … --allow-mfa yes`. Legacy has `mfa_factors = 0`, so it stays excluded. |
+| Excluded | everything else in `auth`: sessions, refresh tokens, flow state, one-time tokens, instances, schema_migrations, audit log, MFA factors / challenges / AMR claims / recovery codes, OAuth / SAML / SSO / SCIM / WebAuthn, and any future table |
+| Unknown / new legacy tables | `exclusions` builds `-x` from the legacy catalog, so tables added by the hosted Auth version are excluded automatically. Observed 2026-10-02: `auth.mfa_recovery_code_sets`, `auth.mfa_recovery_codes`, `auth.scim_tokens`, `auth.scim_users`. `check-dump` is still an ALLOW-list (only `COPY auth.users` / `auth.identities`, plus `auth.mfa_factors` with `--allow-mfa yes`): any other auth table refuses. Never edit the generated dump by hand. |
 | `--db-url` | Puts the URL on the local command line of the owner's machine only. Run it in a non-recorded shell. |
 
 **D. Local rehearsal FIRST:**
@@ -812,3 +812,12 @@ After this step, `provision-target.mjs verify` reports `auth_users > 0` by desig
 - no business data and no `mp_cutover_boundary`;
 - the MP webhook and the frontend stay on legacy;
 - no real user traffic on the target.
+
+**Schema drift (2026-10-02).**
+- Real legacy inventory: users 5, identities 5, providers email only, MFA factors 0, SSO 0, anonymous 0.
+- The first real `check-dump` refused 4 hosted Auth tables missing from the static exclusion list: `mfa_recovery_code_sets`, `mfa_recovery_codes`, `scim_tokens`, `scim_users`.
+- **Owner decision:** they are not part of the V1 Auth migration; SCIM is unused.
+- **Fix:** catalog-driven `exclusions` command; `check-dump` unchanged (allow-list).
+- **Regression:** `scripts/phase31/auth-restore.test.mjs`, 19/0.
+  - D1–D15 (offline `check-dump`): the 4 hosted tables, an unknown future table, MFA with and without the flag, sessions, non-COPY statements, a missing identities block, an unterminated COPY, another schema, a path inside the repository, no row data in refusals.
+  - E0–E3 (local catalog): probe tables simulating the hosted additions are excluded automatically.
