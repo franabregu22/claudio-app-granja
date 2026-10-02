@@ -123,6 +123,11 @@ const INVENTORY_SQL = `SELECT json_build_object(
   'users_example_invalid', (SELECT count(*) FROM auth.users WHERE email ILIKE '%@example.invalid'),
   'auth_schema_version', (SELECT max(version) FROM auth.schema_migrations)
 )::text;`;
+// Credentials fingerprint: ONE aggregate sha256 over the ordered users using only stable credential identity fields
+// (user id, normalized email, encrypted_password). No timestamp, sign-in, session or token field takes part, so a login
+// never changes it; an email or password-hash change always does. Only the aggregate (or a prefix) is ever printed.
+const CREDENTIALS_EXPR = `'credentials_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(
+    id::text || '|' || lower(btrim(coalesce(email, ''))) || '|' || coalesce(encrypted_password, ''), E'\\n' ORDER BY id) FROM auth.users), ''), 'UTF8')), 'hex')`;
 const FINGERPRINT_SQL = `SELECT json_build_object(
   'users', (SELECT count(*) FROM auth.users),
   'identities', (SELECT count(*) FROM auth.identities),
@@ -130,7 +135,8 @@ const FINGERPRINT_SQL = `SELECT json_build_object(
   'providers', (SELECT coalesce(json_object_agg(provider, n ORDER BY provider), '{}') FROM (SELECT provider, count(*) n FROM auth.identities GROUP BY provider) x),
   'user_ids_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(id::text, E'\\n' ORDER BY id) FROM auth.users), ''), 'UTF8')), 'hex'),
   'identity_pairs_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(user_id::text || '|' || provider, E'\\n' ORDER BY user_id, provider) FROM auth.identities), ''), 'UTF8')), 'hex'),
-  'mfa_pairs_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(user_id::text || '|' || factor_type::text, E'\\n' ORDER BY user_id, factor_type::text) FROM auth.mfa_factors), ''), 'UTF8')), 'hex')
+  'mfa_pairs_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(user_id::text || '|' || factor_type::text, E'\\n' ORDER BY user_id, factor_type::text) FROM auth.mfa_factors), ''), 'UTF8')), 'hex'),
+  ${CREDENTIALS_EXPR}
 )::text;`;
 
 function inventory() {
@@ -157,7 +163,7 @@ function fingerprint() {
   }
   try { chmodSync(opt.out, 0o600); } catch { /* Windows */ }
   log(`fingerprint (${conn.kind}${conn.ref ? ` ${conn.ref}` : ''}): users=${fp.users} identities=${fp.identities} mfa=${fp.mfa_factors} `
-    + `providers=${JSON.stringify(fp.providers)} user_ids_sha256=${fp.user_ids_sha256.slice(0, 16)}… identity_pairs_sha256=${fp.identity_pairs_sha256.slice(0, 16)}… → ${opt.out}`);
+    + `providers=${JSON.stringify(fp.providers)} user_ids_sha256=${fp.user_ids_sha256.slice(0, 16)}… identity_pairs_sha256=${fp.identity_pairs_sha256.slice(0, 16)}… credentials_sha256=${fp.credentials_sha256.slice(0, 16)}… → ${opt.out}`);
 }
 function exclusions() {
   const conn = connection();
@@ -174,11 +180,13 @@ function exclusions() {
 function compare() {
   if (!opt.a || !opt.b) die('USAGE', '--a <fingerprint json> --b <fingerprint json>');
   const a = JSON.parse(readFileSync(opt.a, 'utf8')); const b = JSON.parse(readFileSync(opt.b, 'utf8'));
-  const keys = ['users', 'identities', 'mfa_factors', 'providers', 'user_ids_sha256', 'identity_pairs_sha256', 'mfa_pairs_sha256'];
+  const keys = ['users', 'identities', 'mfa_factors', 'providers', 'user_ids_sha256', 'identity_pairs_sha256', 'mfa_pairs_sha256', 'credentials_sha256'];
+  // a fingerprint taken before the credentials fingerprint existed cannot prove the absence of drift: fail closed
+  for (const [n, f] of [['a', a], ['b', b]]) if (!/^[0-9a-f]{64}$/.test(f.credentials_sha256 || '')) die('MISMATCH', `--${n} has no credentials_sha256: recompute it with this version of fingerprint`);
   const diff = keys.filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
   log(`compare: users ${a.users}/${b.users} identities ${a.identities}/${b.identities} mfa ${a.mfa_factors}/${b.mfa_factors} providers ${JSON.stringify(a.providers)} / ${JSON.stringify(b.providers)}`);
   if (diff.length) die('MISMATCH', `fingerprints differ in: ${diff.join(', ')}`);
-  log('compare: IDENTICAL (counts, providers, ordered UUID set, identity relationships, MFA)');
+  log('compare: IDENTICAL (counts, providers, ordered UUID set, identity relationships, MFA, credentials)');
 }
 function restore() {
   const conn = connection();
@@ -204,11 +212,13 @@ DO $$ DECLARE fp jsonb; BEGIN
   SELECT jsonb_build_object('users', (SELECT count(*) FROM auth.users), 'identities', (SELECT count(*) FROM auth.identities),
     'mfa_factors', (SELECT count(*) FROM auth.mfa_factors),
     'user_ids_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(id::text, E'\\n' ORDER BY id) FROM auth.users), ''), 'UTF8')), 'hex'),
-    'identity_pairs_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(user_id::text || '|' || provider, E'\\n' ORDER BY user_id, provider) FROM auth.identities), ''), 'UTF8')), 'hex'))
+    'identity_pairs_sha256', encode(sha256(convert_to(coalesce((SELECT string_agg(user_id::text || '|' || provider, E'\\n' ORDER BY user_id, provider) FROM auth.identities), ''), 'UTF8')), 'hex'),
+    ${CREDENTIALS_EXPR})
     INTO fp;
   IF fp->>'users' <> '${Number(exp.users)}' OR fp->>'identities' <> '${Number(exp.identities)}' OR fp->>'mfa_factors' <> '${Number(exp.mfa_factors)}'
      OR fp->>'user_ids_sha256' <> '${String(exp.user_ids_sha256).replace(/[^0-9a-f]/g, '')}'
-     OR fp->>'identity_pairs_sha256' <> '${String(exp.identity_pairs_sha256).replace(/[^0-9a-f]/g, '')}' THEN
+     OR fp->>'identity_pairs_sha256' <> '${String(exp.identity_pairs_sha256).replace(/[^0-9a-f]/g, '')}'
+     OR fp->>'credentials_sha256' <> '${String(exp.credentials_sha256 || '').replace(/[^0-9a-f]/g, '')}' THEN
     RAISE EXCEPTION 'AUTH_RESTORE_MISMATCH: restored Auth differs from the source fingerprint; rolling back';
   END IF;
   IF (SELECT count(*) FROM auth.sessions) + (SELECT count(*) FROM auth.refresh_tokens) > 0 THEN

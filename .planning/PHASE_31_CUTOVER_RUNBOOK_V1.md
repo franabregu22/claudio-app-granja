@@ -119,7 +119,7 @@ The cutover config values (`REQUIRES_FINAL_CUTOVER_VALUE`) are owner inputs: ope
 
 **Order:**
 1. Fresh project.
-2. `target-migrations` 0001→0070 (ledger = files).
+2. `target-migrations` 0001→0072 (ledger = files).
 3. Auth restore.
 4. Phase 26 runner, cutover mode (`perfiles` with the same ids, then business data).
 5. Verify.
@@ -132,7 +132,7 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 2. **Export.** Check the generated script first with `--dry-run`:
    `supabase db dump --db-url "<LEGACY_DB_URL>" --data-only --use-copy --schema auth -x auth.sessions,auth.refresh_tokens,auth.flow_state,auth.one_time_tokens,auth.mfa_amr_claims,auth.mfa_challenges,auth.audit_log_entries,auth.oauth_authorizations,auth.oauth_client_states,auth.oauth_clients,auth.oauth_consents,auth.custom_oauth_providers,auth.saml_providers,auth.saml_relay_states,auth.sso_domains,auth.sso_providers,auth.webauthn_challenges,auth.webauthn_credentials,auth.instances,auth.schema_migrations -f auth_data.sql`
    (If MFA count = 0, also exclude `auth.mfa_factors`.)
-3. **Rehearsal first.** Restore into the **local** stack after `db reset` + 0001→0070. Then: the counts match step 1; every legacy id is present; a login with a known test credential works. Only then go to production.
+3. **Rehearsal first.** Restore into the **local** stack after `db reset` + 0001→0072. Then: the counts match step 1; every legacy id is present; a login with a known test credential works. Only then go to production.
 4. **Restore into the target:**
    `psql "<TARGET_DB_URL>" -v ON_ERROR_STOP=1 --single-transaction -c "SET session_replication_role = replica" -f auth_data.sql`
    Run as the `postgres` role of the new project. If the platform refuses `session_replication_role` for that role, stop: that is an owner / support action, not a workaround.
@@ -245,8 +245,8 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 ## 0G. GO / NO-GO checklist (strict: any unchecked line = NO-GO)
 
 **GO only if:**
-1. The new project shows the 0001→0070 ledger = files, every sha256 = file, definers = 69, anon-executable definers = 0. The target-side suite subset (the non-destructive checks of `foundations` / `privileges_anon`) passes.
-2. Auth: user count and id list equal to legacy; identities per provider equal; 0 session rows copied.
+1. The new project shows the 0001→0072 ledger = files, every sha256 = file, application definers = 69 (exact list), application anon-executable definers = 0 (hosted platform `rls_auto_enable()` reported separately, §S4). The target-side suite subset (the non-destructive checks of `foundations` / `privileges_anon`) passes.
+2. Auth (**pre-T0 Auth drift gate**, §S6): legacy and target fingerprints recomputed at T0 and `compare` IDENTICAL, **including `credentials_sha256`**; 0 session / refresh-token rows on the target. Any difference blocks the cutover.
 3. Runner cutover gates: 0 refusals. Validation C01–C24 PASS. Openings = the owner-validated values (client: 8 non-zero / 36 zero, or the final list; treasury: the 4 accounts). No `@example.invalid`. No rehearsal lineage.
 4. Storage: both buckets private, 10 MB, MIME allowlist, 3 + 3 policies.
 5. `mp-webhook` / `mp-worker` deployed; Edge secrets set; Vault set; the cron job is active and its runs succeed.
@@ -274,13 +274,13 @@ The target has no trigger on `auth.users` / `auth.identities` and no public FK t
 |---|---|---|---|---|---|---|
 | 1 | T-PREP | Claude | Implement S1-1 (runner cutover mode, Auth verify) and the L-1 removal commit on a branch; local rehearsal with an owner-supplied Auth dump | suites green, rehearsal log | fix; no cutover | yes |
 | 2 | T-PREP | owner | Create the new project (region, DB password); disable sign-ups; set `site_url` | project ref | retry | yes |
-| 3 | T-PREP | owner + Claude | Apply 0001→0070 to the new project (`apply.mjs` with `<TARGET_DB_URL>` in the owner shell) | ledger 70, checksums | drop the project, recreate | yes |
+| 3 | T-PREP | owner + Claude | Apply 0001→0072 to the new project (`provision-target.mjs apply`, connection in the owner shell) — **DONE 2026-10-02** | ledger 72, checksums, `verify` PASS | drop the project, recreate | yes |
 | 4 | T-PREP | owner | Edge secrets, Vault, deploy `mp-webhook` / `mp-worker` | 0D steps 1–2 checks | fix | yes |
 | 5 | T-PREP | owner | Auth counts export; Auth dump (sensitive) | counts | NO-GO | yes |
 | 6 | T-FREEZE | owner | Announce the freeze; users stop writing to legacy | confirmation | delay | yes |
 | 7 | T-FREEZE | owner | Capture the boundary balances (cash count, MP Account Money, bank statements, client balances); fill the cutover config | signed values | delay | yes |
 | 8 | T-FREEZE | owner + Claude | Final legacy snapshot → `granja-legacy-copy` | manifest hash | retake | yes |
-| 9 | T0-MIGRATE | owner | Auth restore into the target (0B step 4) | UUID / count equality | NO-GO → A | yes (discard target) |
+| 9 | T0-MIGRATE | owner | ~~Auth restore into the target~~ **COMPLETE 2026-10-02** (done early, §S5 / §S6): legacy vs target fingerprint IDENTICAL, real-password login 200. At T0 only the **pre-T0 Auth drift gate** (§S6) runs. | credentials fingerprint IDENTICAL | NO-GO → A (stop and escalate) | yes |
 | 10 | T0-MIGRATE | owner + Claude | Runner `gates --mode cutover` then the load, against the target | 0 refusals; C01–C24 PASS | NO-GO → A | yes |
 | 11 | T0-MIGRATE | owner | Pre-switch smoke against the target (preview build) | logins + reads | NO-GO → A | yes |
 | 12 | T+SWITCH | owner | Netlify env → target; merge the release (phase27 + L-1 removal); deploy | deploy id; `dist` host check | restore the previous deploy (B) | yes (B) |
@@ -821,3 +821,49 @@ After this step, `provision-target.mjs verify` reports `auth_users > 0` by desig
 - **Regression:** `scripts/phase31/auth-restore.test.mjs`, 19/0.
   - D1–D15 (offline `check-dump`): the 4 hosted tables, an unknown future table, MFA with and without the flag, sessions, non-COPY statements, a missing identities block, an unterminated COPY, another schema, a path inside the repository, no row data in refusals.
   - E0–E3 (local catalog): probe tables simulating the hosted additions are excluded automatically.
+
+---
+
+## S6. Auth migration COMPLETE + pre-T0 Auth drift gate (2026-10-02)
+
+**Status: COMPLETE, externally validated by the owner.**
+
+| Check | Result |
+|---|---|
+| Legacy inventory | users 5, identities 5, `email` 5, MFA 0 |
+| Local rehearsal | restore PASS; legacy vs local fingerprint IDENTICAL; sessions 0, refresh tokens 0; real-password login 200 |
+| Target `ycmkpnunhxluqqtecbyu` | restore PASS; legacy vs target fingerprint IDENTICAL; users 5, identities 5, `email` 5, MFA 0, sessions 0, refresh tokens 0; no invalid or `@example.invalid` user; real-password login 200 |
+
+UUIDs and password hashes are preserved. Auth is not modified further.
+
+**Credentials fingerprint** (`auth-restore.mjs`, added after the restore):
+- One aggregate SHA-256 over the ordered users of `id | lower(trim(email)) | encrypted_password`.
+- It ignores `updated_at`, `last_sign_in_at`, sessions, refresh tokens and every other volatile or login-derived field.
+- Only the aggregate prefix is printed.
+- `compare` fails closed on any difference, or when a fingerprint lacks it (a pre-feature file must be recomputed).
+- `restore` also checks it inside its transaction.
+- Regression C0–C7 in `auth-restore.test.mjs`:
+  - same credentials → IDENTICAL;
+  - login / session / timestamp changes → IDENTICAL;
+  - changed email → mismatch;
+  - email case / spaces normalized;
+  - changed password hash → mismatch;
+  - old fingerprint → fail closed;
+  - nothing sensitive printed.
+
+**Rule:** there is **no requirement to freeze Auth now**. The requirement is that **no undetected Auth drift may exist at T0**.
+
+**Pre-T0 Auth drift gate** (T0-MIGRATE, before the business-data `load`; owner shell):
+```bash
+node $A fingerprint $LEG --out $PRIV/legacy-auth-t0.json
+node $A fingerprint $TGT --out $PRIV/target-auth-t0.json
+node $A compare --a $PRIV/legacy-auth-t0.json --b $PRIV/target-auth-t0.json    # must be IDENTICAL, credentials included
+```
+
+**If the fingerprints differ** (an email or password change, or a user added or removed in legacy after the restore): **STOP and escalate to the owner.** There is no resync procedure: none is approved, and none is invented here.
+
+**Next block: business / profile migration** (local rehearsal with real data first; nothing written to the target):
+1. A rehearsal legacy snapshot (read-only).
+2. The local copy.
+3. `migrate-cutover.mjs` `gates` / `extract` / `load` / `validate` against the local stack (`LOCAL_CUTOVER_REHEARSAL`, real Auth restored locally).
+4. Then the owner values (§S2-5) for the real config.

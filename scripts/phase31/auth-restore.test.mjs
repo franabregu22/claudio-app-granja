@@ -10,7 +10,7 @@
  * Usage: node scripts/phase31/auth-restore.test.mjs   (E* needs the local stack; skipped with a note otherwise)
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -82,6 +82,57 @@ try {
       check('E3 stdout is only the -x value (comma-separated auth.* names)', /^auth\.[a-z_]+(,auth\.[a-z_]+)*$/.test(r.stdout), r.stdout);
     } finally {
       for (const t of created) psql(`DROP TABLE IF EXISTS auth.${t};`);
+    }
+
+    console.log('\n  [credentials fingerprint (local stack, synthetic users)]');
+    const sql = (q) => spawnSync('docker', ['exec', '-i', container, 'psql', '-U', 'postgres', '-d', 'postgres', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-f', '-'], { encoding: 'utf8', input: q });
+    const U1 = 'c4ed0000-0000-4000-8000-000000000001'; const U2 = 'c4ed0000-0000-4000-8000-000000000002';
+    const HASH1 = '$2a$10$syntheticSYNTHETICsyntheticSYNTHETICsyntheticSYNTHE1';
+    const HASH2 = '$2a$10$syntheticSYNTHETICsyntheticSYNTHETICsyntheticSYNTHE2';
+    const cleanup = () => sql(`DELETE FROM auth.sessions WHERE user_id IN ('${U1}', '${U2}'); DELETE FROM auth.identities WHERE user_id IN ('${U1}', '${U2}'); DELETE FROM auth.users WHERE id IN ('${U1}', '${U2}');`);
+    cleanup();
+    const seed = sql(`INSERT INTO auth.users (id, email, encrypted_password, is_sso_user, is_anonymous, updated_at) VALUES
+      ('${U1}', 'c4-one@test.local', '${HASH1}', false, false, now()), ('${U2}', 'c4-two@test.local', '${HASH2}', false, false, now());
+      INSERT INTO auth.identities (user_id, provider, provider_id, identity_data) VALUES
+      ('${U1}', 'email', '${U1}', '{}'::jsonb), ('${U2}', 'email', '${U2}', '{}'::jsonb);`);
+    try {
+      check('C0 synthetic credential fixtures inserted', seed.status === 0, seed.stderr);
+      const env = { LOCAL_DB_URL: 'postgresql://postgres:postgres@127.0.0.1:5432/postgres' };
+      const base = ['--db-env', 'LOCAL_DB_URL', '--kind', 'LOCAL_REHEARSAL', '--client', container];
+      const outputs = [];
+      const fp = (name) => { const f = join(dir, `${name}.json`); const x = run(['fingerprint', ...base, '--out', f], env); outputs.push(x.out); return { f, x }; };
+      const cmp = (a, b) => { const x = run(['compare', '--a', a.f, '--b', b.f]); outputs.push(x.out); return x; };
+      const A = fp('a'); const B = fp('b');
+      let c = cmp(A, B);
+      check('C1 same credentials → IDENTICAL (credentials included)', A.x.ok && c.ok && /IDENTICAL .*credentials/.test(c.out), c.out);
+      sql(`UPDATE auth.users SET last_sign_in_at = now(), updated_at = now() + interval '1 day', confirmed_at = coalesce(confirmed_at, now()) WHERE id IN ('${U1}', '${U2}');
+           INSERT INTO auth.sessions (id, user_id) VALUES (gen_random_uuid(), '${U1}');`);
+      const V = fp('volatile');
+      c = cmp(A, V);
+      check('C2 login / session / timestamp changes do NOT change the credentials fingerprint',
+        JSON.parse(readFileSync(A.f, 'utf8')).credentials_sha256 === JSON.parse(readFileSync(V.f, 'utf8')).credentials_sha256 && c.ok, c.out);
+      sql(`UPDATE auth.users SET email = 'c4-changed@test.local' WHERE id = '${U1}';`);
+      const E = fp('email');
+      c = cmp(A, E);
+      check('C3 changed email → MISMATCH on credentials_sha256 only', !c.ok && /fingerprints differ in: credentials_sha256$/m.test(c.out), c.out);
+      sql(`UPDATE auth.users SET email = 'C4-One@Test.Local ' WHERE id = '${U1}';`);
+      const N = fp('normalized');
+      c = cmp(A, N);
+      check('C4 email case / surrounding spaces are normalized (same address → IDENTICAL)', c.ok, c.out);
+      sql(`UPDATE auth.users SET email = 'c4-one@test.local', encrypted_password = '${HASH2}' WHERE id = '${U1}';`);
+      const P = fp('password');
+      c = cmp(A, P);
+      check('C5 changed encrypted_password → MISMATCH on credentials_sha256 only', !c.ok && /fingerprints differ in: credentials_sha256$/m.test(c.out), c.out);
+      const legacyFile = join(dir, 'old.json');
+      const old = JSON.parse(readFileSync(A.f, 'utf8')); delete old.credentials_sha256; writeFileSync(legacyFile, JSON.stringify(old));
+      c = run(['compare', '--a', legacyFile, '--b', A.f]); outputs.push(c.out);
+      check('C6 a fingerprint without credentials_sha256 (older version) → fail closed', !c.ok && /has no credentials_sha256/.test(c.out), c.out);
+      const all = outputs.join('\n');
+      check('C7 no email, UUID, password hash or full credential hash is printed',
+        !/@test\.local|@Test\.Local/i.test(all) && !/c4ed0000-/.test(all) && !/\$2a\$/.test(all)
+        && !all.includes(JSON.parse(readFileSync(A.f, 'utf8')).credentials_sha256), 'sensitive value in output');
+    } finally {
+      cleanup();
     }
   }
 } finally {
