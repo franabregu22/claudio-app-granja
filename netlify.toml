@@ -1,13 +1,11 @@
 [build]
   command = "npm run build"
   publish = "dist"
-  functions = "netlify/functions"
+  # L-1 (Phase 31 SWITCH): the legacy Mercado Pago Netlify functions and the scheduled
+  # sync-mercadopago-releases are removed. Mercado Pago runs only in the target Supabase project
+  # (mp-webhook / mp-worker, ADR-006); rollback B restores the previous Netlify deploy.
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-
-[[scheduled_functions]]
-  name = "sync-mercadopago-releases"
-  schedule = "0 2 * * *"

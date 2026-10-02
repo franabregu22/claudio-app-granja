@@ -12,8 +12,8 @@ const walk = (dir: string): string[] => readdirSync(resolve(ROOT, dir), { withFi
 const FILES = walk('src');
 const code = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '');
 const SRC = Object.fromEntries(FILES.map((f) => [f, code(readFileSync(resolve(ROOT, f), 'utf8'))]));
-/** N-1 (plan): kept until cutover because the legacy Netlify release-status function imports it; no frontend import. */
-const N1_RETAINED = ['src/lib/mercadopago-calculations.ts'];
+/** N-1: removed at cutover with the legacy Netlify MP runtime (L-1, Phase 31); nothing is retained. */
+const N1_RETAINED: string[] = [];
 
 const LEGACY_RELATIONS = ['clientes', 'productos', 'pagos', 'pago_en_caja', 'movimientos_caja', 'cheques', 'comisiones', 'facturas', 'arqueos_caja',
   'cuentas_caja', 'categorias_finanzas', 'lotes', 'producciones', 'recuentos_lote', 'precios_actuales', 'precios_historial', 'ledger_entry',
