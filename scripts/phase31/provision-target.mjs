@@ -305,8 +305,15 @@ async function smoke() {
 // ── vault-set: the two approved Vault entries (values never in argv, files of the repo, or output) ──
 function vaultSet() {
   const url = opt['worker-url'];
-  if (!url || !/^https?:\/\/[^\s'"]+\/functions\/v1\/mp-worker$/.test(url)) die('USAGE', '--worker-url https://<target-ref>.supabase.co/functions/v1/mp-worker is required');
-  if (opt.kind === 'PRODUCTION_TARGET' && !url.startsWith(`https://${opt['expected-host'].replace(/^db\./, '')}/`)) die('USAGE', '--worker-url must be the target project (same ref as --expected-host)');
+  if (!url) die('USAGE', '--worker-url https://<target-ref>.supabase.co/functions/v1/mp-worker is required');
+  if (opt.kind === 'PRODUCTION_TARGET') {
+    // The API host is derived ONLY from the already-validated --expected-ref, never from the DB host: a Session
+    // Pooler host (aws-0-<region>.pooler.supabase.com) is shared across projects and carries no ref.
+    const expectedUrl = `https://${opt['expected-ref']}.supabase.co/functions/v1/mp-worker`;
+    if (url !== expectedUrl) die('USAGE', `--worker-url must be exactly ${expectedUrl} (the --expected-ref project, https, mp-worker path, nothing appended)`);
+  } else if (!/^https?:\/\/(127\.0\.0\.1|localhost):\d+\/functions\/v1\/mp-worker$/.test(url)) {
+    die('USAGE', '--worker-url for a local rehearsal must be http(s)://127.0.0.1:<port>/functions/v1/mp-worker');
+  }
   if (!process.env.WORKER_INVOKE_SECRET || process.env.WORKER_INVOKE_SECRET.length < 32) die('SECRET', 'WORKER_INVOKE_SECRET (>= 32 chars) must be exported in this shell (never pasted anywhere)');
   const r = spawnSync('docker', ['exec', '-i', '-e', 'PGHOST', '-e', 'PGPORT', '-e', 'PGUSER', '-e', 'PGPASSWORD', '-e', 'PGDATABASE', '-e', 'PGSSLMODE',
     '-e', 'WORKER_INVOKE_SECRET', opt.client, 'psql', '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-v', `wurl=${url}`, '-f', '-'],
