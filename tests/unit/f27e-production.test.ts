@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { modulesFor } from '../../src/target/roles';
+import { canSeeModule, modulesFor, resolveModule } from '../../src/target/roles';
 import {
   latestPerFlock, listFlockDays, rectifyDailyProduction, rectifyMortality, registerCountAdjustment, registerDailyProduction, registerMortality, shiftDate,
   type FlockDay,
@@ -85,9 +85,27 @@ describe('F27-E classification and feed data layer', () => {
     expect([...FEED_MOVEMENT_TYPES]).toEqual(['EXTERNAL_SALE', 'LOSS', 'ADJUSTMENT_POSITIVE', 'ADJUSTMENT_NEGATIVE']);
   });
 
-  it('OPERATOR working set: production dashboard, production, classification and feed only', () => {
-    expect(modulesFor('OPERATOR')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento']);
-    expect(modulesFor('ADMIN')).toEqual(expect.arrayContaining(['clasificacion', 'alimento']));
+  it('OPERATOR working set: production, classification and feed only (no Dashboard, owner decision 2026-10-04)', () => {
+    expect(modulesFor('OPERATOR')).toEqual(['produccion', 'clasificacion', 'alimento']);
+    expect(canSeeModule('OPERATOR', 'dashboard_produccion')).toBe(false);
+    expect(modulesFor('ADMIN')).toEqual(expect.arrayContaining(['dashboard_produccion', 'clasificacion', 'alimento']));
+  });
+
+  it('module access control: an OPERATOR request for the Dashboard resolves to an allowed module; ADMIN unchanged', () => {
+    expect(resolveModule('OPERATOR', 'dashboard_produccion')).toBe('produccion');
+    expect(resolveModule('OPERATOR', 'admin')).toBe('produccion');
+    expect(resolveModule('OPERATOR', 'pedidos')).toBe('produccion');
+    expect(resolveModule('OPERATOR', 'alimento')).toBe('alimento');
+    expect(resolveModule('ADMIN', 'dashboard_produccion')).toBe('dashboard_produccion');
+    expect(resolveModule('ADMIN', 'pedidos')).toBe('pedidos');
+    expect(resolveModule(null, 'dashboard_produccion')).toBeNull();
+  });
+
+  it('App renders modules only through resolveModule (no direct tab render path)', () => {
+    const app = readFileSync(resolve(__dirname, '../../src/App.tsx'), 'utf8');
+    expect(app).toMatch(/const currentTab = resolveModule\(rol, tab\)/);
+    expect(app).not.toMatch(/tab === 'dashboard_produccion'/);
+    expect(app).toMatch(/currentTab === 'dashboard_produccion' && <ProductionDashboard \/>/);
   });
 });
 

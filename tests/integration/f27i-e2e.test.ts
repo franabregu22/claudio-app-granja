@@ -205,7 +205,7 @@ describe('F27-I role matrix (frontend UX mirrors the backend)', () => {
     expect(await resolveTargetRole(operator())).toBe('OPERATOR');
     expect(await resolveTargetRole(users.NOPROFILE.client!)).toBeNull();
     expect(modulesFor('ADMIN')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'feria', 'fiscal', 'mercadopago', 'finanzas', 'admin']);
-    expect(modulesFor('OPERATOR')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento']);
+    expect(modulesFor('OPERATOR')).toEqual(['produccion', 'clasificacion', 'alimento']);
     expect(modulesFor(null)).toEqual([]);
   });
 

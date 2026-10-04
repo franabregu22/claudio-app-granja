@@ -10,7 +10,7 @@ describe('role model (P27-D3)', () => {
   });
   it('ADMIN sees every module; OPERATOR only the production working set; no role sees nothing', () => {
     expect(modulesFor('ADMIN')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'feria', 'fiscal', 'mercadopago', 'finanzas', 'admin']);
-    expect(modulesFor('OPERATOR')).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento']);   // F27-E working set
+    expect(modulesFor('OPERATOR')).toEqual(['produccion', 'clasificacion', 'alimento']);   // owner decision 2026-10-04: no Dashboard
     expect(modulesFor(null)).toEqual([]);
   });
   it('OPERATOR never gets an ADMIN-only module', () => {

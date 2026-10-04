@@ -15,7 +15,7 @@ import { FeriaApp } from './features/feria/FeriaApp';
 import { FiscalApp } from './features/fiscal/FiscalApp';
 import { LogOut, ShoppingCart, DollarSign, Wallet, BarChart3, Settings, Menu, X, Table, TrendingUp, CreditCard, Egg, Wheat, Store, Landmark } from 'lucide-react';
 import { MercadoPagoApp } from './features/mercadopago/MercadoPagoApp';
-import { modulesFor, ROLE_LABEL, type ModuleId } from './target/roles';
+import { modulesFor, resolveModule, ROLE_LABEL, type ModuleId } from './target/roles';
 
 type Tab = ModuleId;
 
@@ -98,9 +98,9 @@ function App() {
     );
   }
 
-  // Si el tab actual no está disponible, ir al primer módulo disponible
-  const isTabAvailable = modules.some(m => m.id === tab);
-  const currentTab = isTabAvailable ? tab : (modules[0]?.id || 'pedidos');
+  // Access control of the rendered module: a module outside the role's set is never mounted (falls back to the
+  // role's first module). UX layer; RLS and the in-body RPC checks remain the authority.
+  const currentTab = resolveModule(rol, tab) ?? modules[0].id;
 
   return (
     <div className="min-h-screen bg-stone-100 flex">

@@ -29,9 +29,10 @@ export type ModuleId =
   | 'admin';
 
 const ADMIN_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'clasificacion', 'alimento', 'pedidos', 'cobros', 'caja', 'feria', 'fiscal', 'mercadopago', 'finanzas', 'admin'];
-// OPERATOR working set (RLS_IMPLEMENTATION_SPEC_V1 §8, assigned flocks): production dashboard, production,
-// classification and feed. Feria and fiscal are ADMIN-only in V1 (ADR-009; RPC 31 enforces it in the backend).
-const OPERATOR_MODULES: readonly ModuleId[] = ['dashboard_produccion', 'produccion', 'clasificacion', 'alimento'];
+// OPERATOR working set (RLS_IMPLEMENTATION_SPEC_V1 §8, assigned flocks): production, classification and feed.
+// Owner decision 2026-10-04 (post-cutover acceptance): no Dashboard for OPERATOR. Feria and fiscal are ADMIN-only
+// in V1 (ADR-009; RPC 31 enforces it in the backend).
+const OPERATOR_MODULES: readonly ModuleId[] = ['produccion', 'clasificacion', 'alimento'];
 
 /** Modules visible to a role. No role (no active profile, or a former repartidor) → no business module. */
 export function modulesFor(role: AppRole | null): ModuleId[] {
@@ -42,6 +43,16 @@ export function modulesFor(role: AppRole | null): ModuleId[] {
 
 export function canSeeModule(role: AppRole | null, module: ModuleId): boolean {
   return modulesFor(role).includes(module);
+}
+
+/**
+ * The module actually rendered for a requested one: the request when the role may see it, otherwise the role's first
+ * module (null when the role has none). Every render goes through this, so a module outside the role's set (e.g. a
+ * stale or forced Dashboard request by an OPERATOR) is never mounted.
+ */
+export function resolveModule(role: AppRole | null, requested: ModuleId): ModuleId | null {
+  const allowed = modulesFor(role);
+  return allowed.includes(requested) ? requested : (allowed[0] ?? null);
 }
 
 export const ROLE_LABEL: Record<AppRole, string> = { ADMIN: 'Administrador', OPERATOR: 'Operador' };

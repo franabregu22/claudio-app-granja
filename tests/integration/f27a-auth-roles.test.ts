@@ -86,7 +86,7 @@ describe('F27-A target auth / role perimeter (local stack)', () => {
   it('OPERATOR login resolves OPERATOR and gets only the production working set', async () => {
     const role = await resolveTargetRole(users.OPERATOR.client!);
     expect(role).toBe('OPERATOR');
-    expect(modulesFor(role)).toEqual(['dashboard_produccion', 'produccion', 'clasificacion', 'alimento']);   // F27-E working set
+    expect(modulesFor(role)).toEqual(['produccion', 'clasificacion', 'alimento']);   // F27-E working set
   });
 
   it('OPERATOR cannot obtain an ADMIN-only surface: the database refuses it (RLS / in-body check), not the frontend', async () => {
