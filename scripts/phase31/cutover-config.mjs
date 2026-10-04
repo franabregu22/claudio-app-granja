@@ -27,7 +27,7 @@ const SECTION_KEYS = {
   clients: ['migrate_master', 'opening_balance_method', 'evidence_ref', 'opening_balances', 'historical_pedidos_migrated', 'historical_pagos_migrated', 'notes'],
   treasury: ['account_map', 'opening_balance_method', 'evidence_ref', 'opening_balances', 'notes'],
   suppliers: ['opening_balances', 'outstanding_obligations', 'evidence_ref', 'notes'],
-  instruments: ['open_instruments', 'excluded_test_rows', 'evidence_ref', 'notes', 'owner_decision_ref', 'client_opening_balance_basis', 'post_cutover_task'],
+  instruments: ['open_instruments', 'excluded_test_rows', 'evidence_ref', 'notes', 'owner_decision_ref', 'instrument_type', 'post_cutover_task'],
   population: ['method', 'owner_acceptance_ref', 'expected', 'expected_totals', 'counts', 'evidence_ref', 'rule', 'write_path', 'notes'],
   users: ['role_map', 'email_policy', 'migration_actor', 'operator_assignments', 'notes'],
   auth: ['required_identity_provider', 'allowed_extra_user_ids', 'evidence_ref', 'notes'],
@@ -117,14 +117,14 @@ export function phase31ContractFailures(cfg) {
   }
   // suppliers / instruments: the clean cutover carries none; the owner confirms it with evidence
   if (cfg.suppliers?.opening_balances !== 'NONE' || cfg.suppliers?.outstanding_obligations !== 'NONE' || !ref(cfg.suppliers?.evidence_ref)) f.push('suppliers must be NONE / NONE with evidence_ref');
-  // Open instruments are either NONE, or EXCLUDED by an explicit owner decision for post-cutover manual entry. The cutover
-  // never loads instruments (validate C15 = 0). Manual entry uses receive_cheque, which posts CHEQUE_RECEIVED (-amount) to
-  // the client ledger, so the client openings must be captured BEFORE the open cheques (the cheque debt still owed);
-  // otherwise the manual entry would count the payment twice.
+  // Open instruments are either NONE, or EXCLUDED by an explicit owner decision for post-cutover manual entry. The only
+  // excluded kind approved is SUPPLIER_PAYMENT_CHECKS (cheques issued by the farm to suppliers): they never touch the client
+  // ledger. The cutover never loads instruments (validate C15 = 0); they are entered after S2 (issue_supplier_instrument,
+  // then mark_supplier_instrument_debited when the bank debits them).
   const ins = cfg.instruments || {};
   if (ins.open_instruments === 'EXCLUDED_POST_CUTOVER_MANUAL_ENTRY') {
+    if (ins.instrument_type !== 'SUPPLIER_PAYMENT_CHECKS') f.push('instruments EXCLUDED_POST_CUTOVER_MANUAL_ENTRY requires instrument_type = SUPPLIER_PAYMENT_CHECKS');
     if (!ref(ins.evidence_ref) || !ref(ins.owner_decision_ref) || !ref(ins.post_cutover_task)) f.push('instruments EXCLUDED_POST_CUTOVER_MANUAL_ENTRY requires evidence_ref, owner_decision_ref and post_cutover_task');
-    if (ins.client_opening_balance_basis !== 'BEFORE_OPEN_CHEQUES') f.push('instruments EXCLUDED_POST_CUTOVER_MANUAL_ENTRY requires client_opening_balance_basis = BEFORE_OPEN_CHEQUES (receive_cheque posts the client credit at manual entry)');
   } else if (ins.open_instruments !== 'NONE' || !ref(ins.evidence_ref)) f.push('instruments.open_instruments must be NONE or EXCLUDED_POST_CUTOVER_MANUAL_ENTRY, with evidence_ref');
   // population
   const p = cfg.population || {};

@@ -1137,10 +1137,10 @@ The S8-3 sequence applies in the same order (P8/P9 before the freeze, F1–F10, 
 
 The S8-3 sequence (F2–F10, S1, S2) applies with these values (`D=.../production-20261004T1900`).
 
-### S10-1 Open cheques / instruments (owner decision 2026-10-04)
+### S10-1 Open cheques / instruments (owner decision 2026-10-04, clarified)
 
-- Open cheques / instruments **exist** at `cutover_at`. They are **not migrated** and **not** declared NONE.
-- Config: `instruments.open_instruments = "EXCLUDED_POST_CUTOVER_MANUAL_ENTRY"` with `owner_decision_ref`, `evidence_ref` (the open-cheque list exported from legacy at the freeze), `post_cutover_task`, and `client_opening_balance_basis = "BEFORE_OPEN_CHEQUES"`. The contract (`cutover-config.mjs`) refuses any other combination.
-- Accounting invariant: manual entry uses `receive_cheque`, which posts `CHEQUE_RECEIVED (-amount)` to the client ledger. The client opening balance must therefore still include the debt covered by each open cheque; otherwise the payment is counted twice.
-- The load never writes instruments; `validate` C15 (instrument rows = 0) stays as is and runs before the manual entry.
-- Post-cutover task (after S2): enter every listed cheque with `receive_cheque`; reconcile count and sum against the evidence list; record the result.
+- Open instruments **exist** at `cutover_at`; they are **only cheques issued by Granja Santo Tomás to pay suppliers** (no customer-received cheque). They are **not migrated** and **not** declared NONE.
+- Config: `instruments.open_instruments = "EXCLUDED_POST_CUTOVER_MANUAL_ENTRY"`, `instrument_type = "SUPPLIER_PAYMENT_CHECKS"`, with `owner_decision_ref`, `evidence_ref` (the open supplier-cheque list exported from legacy at the freeze) and `post_cutover_task`. The contract (`cutover-config.mjs`) refuses any other combination. No client opening balance depends on it.
+- Treasury: the BNA / Patagonia openings are the bank balances at 19:00, before these cheques are debited; each debit after cutover reduces the drawn account through `mark_supplier_instrument_debited`.
+- The load never writes instruments; `validate` C15 (supplier / instrument rows = 0) runs before the manual entry.
+- Post-cutover task (after S2): create the needed supplier masters; `issue_supplier_instrument` per listed cheque (it requires an active supplier and posts `INSTRUMENT_ISSUED (-amount)` to the supplier ledger); `mark_supplier_instrument_debited` when the bank debits it; reconcile count and sum against the evidence list.
