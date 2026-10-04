@@ -964,6 +964,8 @@ The local stack now holds real Auth users and real master data. Discard them wit
 
 ## S8. P1 confirmed — REAL cutover boundary and T0 preparation (2026-10-03)
 
+> **SUPERSEDED TIMING (2026-10-04):** the S8-1 boundary below was abandoned before the freeze. The authoritative boundary is §S9. The S8-2 / S8-3 folder and batch now use the §S9 values (`production-20261005`, `P31-20261005-CUTOVER1`).
+
 ### S8-1 Owner decision P1 (REAL production boundary)
 
 | Item | Value |
@@ -979,7 +981,7 @@ The local stack now holds real Auth users and real master data. Discard them wit
 | Item | State |
 |---|---|
 | Runner project-ref guard | `migrate-cutover.mjs` / `cutover-config.mjs` now require `target.expected_ref` and `target.forbidden_refs` for `PRODUCTION_TARGET`, checked against the direct host or the pooler user (`postgres.<ref>`). Session-pooler hosts are shared across projects, so the host alone is not identity. Regression: `scripts/phase31/migrate-cutover.test.mjs` 9/0. Template updated. |
-| Production config skeleton (private) | `C:\Users\Franabregu\GranjaSnapshots\phase31\production-20261004\config.json`: kind `PRODUCTION_TARGET`; target pooler host plus ref `ycmkpnunhxluqqtecbyu`; legacy pooler host, direct host and ref forbidden; import batch `P31-20261004-CUTOVER1`; `cutover_at` 2026-10-04T00:00:00-03:00 with the P1 evidence; class_map 51 (24 / 27); the 2 flock overrides; the operator on the 4 flocks; P-a. **No synthetic value or evidence.** Every T0 section is flagged `REQUIRES_FINAL_CUTOVER_VALUE`, so the gates refuse the file until T0 (59 refusals now, by design). |
+| Production config skeleton (private) | `C:\Users\Franabregu\GranjaSnapshots\phase31\production-20261005\config.json`: kind `PRODUCTION_TARGET`; target pooler host plus ref `ycmkpnunhxluqqtecbyu`; legacy pooler host, direct host and ref forbidden; import batch `P31-20261005-CUTOVER1`; `cutover_at` 2026-10-04T00:00:00-03:00 with the P1 evidence; class_map 51 (24 / 27); the 2 flock overrides; the operator on the 4 flocks; P-a. **No synthetic value or evidence.** Every T0 section is flagged `REQUIRES_FINAL_CUTOVER_VALUE`, so the gates refuse the file until T0 (59 refusals now, by design). |
 | T0 capture templates (private) | `T0-client-balances.csv` (48 clients: id, name, active, balance, evidence) and `T0-treasury-capture.md` (Caja chica count, BNA, Patagonia, Mercado Pago on the ADR-017 §3 basis). Same directory. |
 | L-1 branch | `phase31-l1-legacy-mp-removal` (`256b76d`) merges **cleanly** on the current release (8 newer commits). It was test-merged on a temporary branch that was then deleted: tsc OK, unit 237/0, build OK, 0 legacy MP references in `dist`, static gate 8/0. **Not merged.** |
 | Netlify rollback B target | site `santotomasapp` (`85b1a905-8e01-4b7e-9744-c20457ceb076`); **published production deploy `6abc496b282b9c00088b8b6c`**, `ready`, branch `main`, commit `623045736d2b182e3ea5533782617c238c6e6301`, published 2026-09-29T23:28:05Z. **Netlify builds from `main` (git integration):** the release is published by the push to `main`, so the Netlify env must change **before** that push, and **no push to `main` may happen before S1**. |
@@ -991,7 +993,7 @@ The local stack now holds real Auth users and real master data. Discard them wit
 **Common setup** (owner, WSL shell at the repository root; secrets typed privately, never pasted into chat):
 ```bash
 PRIV=~/granja-phase31-private; A=scripts/phase31/auth-restore.mjs; C=supabase_db_Claudio_app_Granja
-D='/mnt/c/Users/Franabregu/GranjaSnapshots/phase31/production-20261004'
+D='/mnt/c/Users/Franabregu/GranjaSnapshots/phase31/production-20261005'
 read -rs LEGACY_DB_URL && export LEGACY_DB_URL
 read -rs CUTOVER_TARGET_DB_URL && export CUTOVER_TARGET_DB_URL
 LEG="--db-env LEGACY_DB_URL --kind LEGACY_READONLY --expected-ref <legacy ref> --client $C"
@@ -1055,7 +1057,7 @@ node $A compare --a $PRIV/legacy-auth-t0.json --b $PRIV/target-auth-t0.json    #
 
 **F7:**
 ```bash
-export PHASE31_CUTOVER_CONFIRM=P31-20261004-CUTOVER1
+export PHASE31_CUTOVER_CONFIRM=P31-20261005-CUTOVER1
 node scripts/phase31/migrate-cutover.mjs auth-check --config "$D/config.json" --out "$D/out"
 ```
 
@@ -1063,7 +1065,7 @@ node scripts/phase31/migrate-cutover.mjs auth-check --config "$D/config.json" --
 ```bash
 node scripts/phase31/migrate-cutover.mjs load --config "$D/config.json" --out "$D/out"
 ```
-This writes the masters, profiles, population, openings and the production `mp_cutover_boundary` (2026-10-04T00:00:00-03:00).
+This writes the masters, profiles, population, openings and the production `mp_cutover_boundary` (2026-10-05T00:00:00-03:00).
 
 **F9:**
 ```bash
@@ -1081,7 +1083,7 @@ Expected: 26 checks, 0 failed. Record the digest.
 **S2:** production smoke (logins, roles, modules); ADR-006 gates 2 and 4; pre-boundary MP notifications show `PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE`.
 
 **Rollback B:**
-- until the first real target write, or the end of 2026-10-04, whichever comes first;
+- until the first real target write, or the end of 2026-10-05, whichever comes first;
 - restore Netlify deploy `6abc496b282b9c00088b8b6c` and the previous env;
 - set the MP webhook URL back to the legacy function.
 
@@ -1097,3 +1099,20 @@ Expected: 26 checks, 0 failed. Record the digest.
 | At F2 | The Caja chica physical count; BNA and Patagonia statements; MP Account Money on the ADR-017 §3 basis; evidence references |
 | At F2 | Owner confirmation: no supplier balance / obligation and no open instrument |
 | At F5 | P-a acceptance of the final-snapshot arithmetic (or a switch to P-b with physical counts) |
+
+---
+
+## S9. FINAL production cutover window (owner decision 2026-10-04) — supersedes S8-1
+
+| Item | Value |
+|---|---|
+| Business timezone | `America/Argentina/Buenos_Aires` |
+| **Freeze starts** | **2026-10-04T23:30:00-03:00** |
+| **Authoritative `cutover_at`** | **2026-10-05T00:00:00-03:00**; cutover date **2026-10-05** |
+| Abandoned boundary | 2026-10-04T00:00:00-03:00 (S8-1). No final balance, snapshot or evidence was captured for it; nothing tied to it is reused. |
+| Private folder | `C:\Users\Franabregu\GranjaSnapshots\phase31\production-20261005\` (config `P31-CUTOVER-20261005`, import batch `P31-20261005-CUTOVER1`). The old `production-20261004` folder is marked `ABANDONED.txt`. |
+| Unchanged | class_map 51 (24 / 27), the 2 flock overrides, the operator on the 4 flocks, the treasury account map, P-a method, target / forbidden refs, Auth evidence. |
+| Snapshot reader | the existing Block A (`VALID UNTIL '2026-10-31'`) remains valid; no new variant. |
+| Rollback B window | until the first real target write or the end of 2026-10-05. |
+
+The S8-3 sequence applies in the same order (P8/P9 before the freeze, F1–F10, S1, S2) with these values. No production write, no `mp_cutover_boundary`, no final snapshot and no Netlify / MP switch before the steps that own them.
