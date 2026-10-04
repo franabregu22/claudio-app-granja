@@ -1136,3 +1136,11 @@ The S8-3 sequence applies in the same order (P8/P9 before the freeze, F1–F10, 
 | Rollback B window | until the first real target write or the end of 2026-10-04. |
 
 The S8-3 sequence (F2–F10, S1, S2) applies with these values (`D=.../production-20261004T1900`).
+
+### S10-1 Open cheques / instruments (owner decision 2026-10-04)
+
+- Open cheques / instruments **exist** at `cutover_at`. They are **not migrated** and **not** declared NONE.
+- Config: `instruments.open_instruments = "EXCLUDED_POST_CUTOVER_MANUAL_ENTRY"` with `owner_decision_ref`, `evidence_ref` (the open-cheque list exported from legacy at the freeze), `post_cutover_task`, and `client_opening_balance_basis = "BEFORE_OPEN_CHEQUES"`. The contract (`cutover-config.mjs`) refuses any other combination.
+- Accounting invariant: manual entry uses `receive_cheque`, which posts `CHEQUE_RECEIVED (-amount)` to the client ledger. The client opening balance must therefore still include the debt covered by each open cheque; otherwise the payment is counted twice.
+- The load never writes instruments; `validate` C15 (instrument rows = 0) stays as is and runs before the manual entry.
+- Post-cutover task (after S2): enter every listed cheque with `receive_cheque`; reconcile count and sum against the evidence list; record the result.

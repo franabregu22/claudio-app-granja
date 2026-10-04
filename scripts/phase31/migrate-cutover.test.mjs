@@ -54,6 +54,12 @@ try {
   check('R1 a complete PRODUCTION_TARGET config with expected_ref / forbidden_refs passes the contract', cutoverGateFailures(prodConfig()).length === 0, cutoverGateFailures(prodConfig()).join(' | '));
   check('R2 PRODUCTION_TARGET without target.expected_ref → refused', cutoverGateFailures(prodConfig({ expected_ref: undefined })).some((x) => /expected_ref/.test(x)));
   check('R3 PRODUCTION_TARGET without target.forbidden_refs → refused', cutoverGateFailures(prodConfig({ forbidden_refs: [] })).some((x) => /forbidden_refs/.test(x)));
+  const EXC = { open_instruments: 'EXCLUDED_POST_CUTOVER_MANUAL_ENTRY', evidence_ref: 'e', owner_decision_ref: 'd', post_cutover_task: 't', client_opening_balance_basis: 'BEFORE_OPEN_CHEQUES' };
+  const insF = (ins) => cutoverGateFailures({ ...prodConfig(), instruments: ins }).filter((x) => /instruments/.test(x));
+  check('I1 instruments EXCLUDED_POST_CUTOVER_MANUAL_ENTRY with decision / evidence / task / basis → accepted', insF(EXC).length === 0, insF(EXC).join(' | '));
+  check('I2 EXCLUDED without owner_decision_ref → refused', insF({ ...EXC, owner_decision_ref: '' }).length === 1);
+  check('I3 EXCLUDED with basis AFTER_OPEN_CHEQUES (double count on manual entry) → refused', insF({ ...EXC, client_opening_balance_basis: 'AFTER_OPEN_CHEQUES' }).length === 1);
+  check('I4 any other open_instruments value → refused', insF({ open_instruments: 'SOME', evidence_ref: 'e' }).length === 1);
   check('R4 expected_ref equal to a forbidden (legacy) ref → refused', cutoverGateFailures(prodConfig({ expected_ref: LEGACY })).some((x) => /forbidden \(legacy\) ref/.test(x)));
 
   const cfg = prodConfig(); const text = JSON.stringify(cfg);
