@@ -964,7 +964,7 @@ The local stack now holds real Auth users and real master data. Discard them wit
 
 ## S8. P1 confirmed — REAL cutover boundary and T0 preparation (2026-10-03)
 
-> **SUPERSEDED TIMING (2026-10-04):** the S8-1 boundary below was abandoned before the freeze. The authoritative boundary is §S9. The S8-2 / S8-3 folder and batch now use the §S9 values (`production-20261005`, `P31-20261005-CUTOVER1`).
+> **SUPERSEDED TIMING (2026-10-04, twice; authority = §S10):** the S8-1 boundary below was abandoned before the freeze. The authoritative boundary is §S9. The S8-2 / S8-3 folder and batch now use the §S9 values (`production-20261005`, `P31-20261005-CUTOVER1`).
 
 ### S8-1 Owner decision P1 (REAL production boundary)
 
@@ -993,7 +993,7 @@ The local stack now holds real Auth users and real master data. Discard them wit
 **Common setup** (owner, WSL shell at the repository root; secrets typed privately, never pasted into chat):
 ```bash
 PRIV=~/granja-phase31-private; A=scripts/phase31/auth-restore.mjs; C=supabase_db_Claudio_app_Granja
-D='/mnt/c/Users/Franabregu/GranjaSnapshots/phase31/production-20261005'
+D='/mnt/c/Users/Franabregu/GranjaSnapshots/phase31/production-20261004T1900'
 read -rs LEGACY_DB_URL && export LEGACY_DB_URL
 read -rs CUTOVER_TARGET_DB_URL && export CUTOVER_TARGET_DB_URL
 LEG="--db-env LEGACY_DB_URL --kind LEGACY_READONLY --expected-ref <legacy ref> --client $C"
@@ -1057,7 +1057,7 @@ node $A compare --a $PRIV/legacy-auth-t0.json --b $PRIV/target-auth-t0.json    #
 
 **F7:**
 ```bash
-export PHASE31_CUTOVER_CONFIRM=P31-20261005-CUTOVER1
+export PHASE31_CUTOVER_CONFIRM=P31-20261004T1900-CUTOVER1
 node scripts/phase31/migrate-cutover.mjs auth-check --config "$D/config.json" --out "$D/out"
 ```
 
@@ -1065,7 +1065,7 @@ node scripts/phase31/migrate-cutover.mjs auth-check --config "$D/config.json" --
 ```bash
 node scripts/phase31/migrate-cutover.mjs load --config "$D/config.json" --out "$D/out"
 ```
-This writes the masters, profiles, population, openings and the production `mp_cutover_boundary` (2026-10-05T00:00:00-03:00).
+This writes the masters, profiles, population, openings and the production `mp_cutover_boundary` (2026-10-04T19:00:00-03:00).
 
 **F9:**
 ```bash
@@ -1083,7 +1083,7 @@ Expected: 26 checks, 0 failed. Record the digest.
 **S2:** production smoke (logins, roles, modules); ADR-006 gates 2 and 4; pre-boundary MP notifications show `PRE_CUTOVER_INCLUDED_IN_OPENING_BALANCE`.
 
 **Rollback B:**
-- until the first real target write, or the end of 2026-10-05, whichever comes first;
+- until the first real target write, or the end of 2026-10-04, whichever comes first;
 - restore Netlify deploy `6abc496b282b9c00088b8b6c` and the previous env;
 - set the MP webhook URL back to the legacy function.
 
@@ -1104,6 +1104,8 @@ Expected: 26 checks, 0 failed. Record the digest.
 
 ## S9. FINAL production cutover window (owner decision 2026-10-04) — supersedes S8-1
 
+> **SUPERSEDED (2026-10-04): see §S10.**
+
 | Item | Value |
 |---|---|
 | Business timezone | `America/Argentina/Buenos_Aires` |
@@ -1116,3 +1118,21 @@ Expected: 26 checks, 0 failed. Record the digest.
 | Rollback B window | until the first real target write or the end of 2026-10-05. |
 
 The S8-3 sequence applies in the same order (P8/P9 before the freeze, F1–F10, S1, S2) with these values. No production write, no `mp_cutover_boundary`, no final snapshot and no Netlify / MP switch before the steps that own them.
+
+---
+
+## S10. CUTOVER MOVED FORWARD (owner decision 2026-10-04) — supersedes S8-1 and S9
+
+| Item | Value |
+|---|---|
+| Business timezone | `America/Argentina/Buenos_Aires` |
+| **Freeze effective** | **2026-10-04T18:23:00-03:00** (no legacy business write from then on) |
+| **Authoritative `cutover_at`** | **2026-10-04T19:00:00-03:00**; cutover date **2026-10-04** |
+| Superseded | 2026-10-05T00:00:00-03:00 (S9) and 2026-10-04T00:00:00-03:00 (S8-1). No final value or evidence from either is reused; both private folders are marked `ABANDONED.txt`. |
+| Private folder | `C:\Users\Franabregu\GranjaSnapshots\phase31\production-20261004T1900\` — config `P31-CUTOVER-20261004T1900`, import batch **`P31-20261004T1900-CUTOVER1`** (also `PHASE31_CUTOVER_CONFIRM`). |
+| Legacy ref | owner-confirmed `aplbsutpzgemexayldct` is in `target.forbidden_refs` / `forbidden_hosts`, and is the `--expected-ref` of every LEGACY_READONLY command. |
+| Unchanged | class_map 51, the 4 flocks, the 2 overrides, the operator on the 4 flocks, P-a, the account map, the target ref / host. |
+| Treasury | final values for the 19:00 boundary (Caja chica physical count, BNA, Patagonia, Mercado Pago on the ADR-017 basis: approved before 19:00, released or not). |
+| Rollback B window | until the first real target write or the end of 2026-10-04. |
+
+The S8-3 sequence (F2–F10, S1, S2) applies with these values (`D=.../production-20261004T1900`).
