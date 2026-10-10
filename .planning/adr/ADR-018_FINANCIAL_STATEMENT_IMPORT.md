@@ -167,6 +167,11 @@ Whether a bank line was absorbed by the opening balance is a property of **our c
 | Rules | written by ADMIN through a dedicated, audited function (`audit_events`), recording the owner decision and its evidence; never edited in place (a correction supersedes the active row); `cutover_at` 2026-10-04 19:00 -03:00 is **not** assumed to be the bank cut; known opening balances: BNA 335 713, Patagonia 1 994 |
 | Represents | the evidence-backed anchor separating lines included in the opening balance from lines the target must reconcile |
 
+**Anchor balance rule (owner, K-4):**
+- `opening_balance` must equal exactly the `running_balance` of `cutoff_statement_line_id`.
+- A line with `running_balance` NULL cannot be the anchor.
+- If no line carries the required opening balance, no anchor is registered, the global `cutover_at` is never used as a fallback, and G-3 stays OPEN pending further evidence.
+
 **Derived classification** (view/query; never mutates `fin_statement_line`):
 
 | Condition | Classification |
@@ -225,12 +230,24 @@ Distinctions:
 
 **Common canonicalisation (both adapters):**
 - `value_date_iso`: `YYYY-MM-DD` (two-digit years read as 20YY; a one-digit day is accepted where the adapter says so).
-- `description_norm`: NFKD → ASCII → uppercase → collapse whitespace → trim.
-- `bank_reference`: preserved as printed text (no zero-stripping); empty string when absent.
+- `description_norm`: NFKD → ASCII → uppercase → collapse whitespace → trim, exactly as defined below.
+- `bank_reference`: preserved as printed text (no zero-stripping); empty string when absent. It must consist only of printable ASCII (U+0020–U+007E) and must have no leading or trailing U+0020; otherwise the row is unclassifiable.
 - Amounts and balances: canonical decimal with exactly 2 decimals, `.` as decimal separator, leading `-` for negatives, no thousands separator. Source format: `1.234,56`, with a trailing `-` for negatives; a separate `$` token is ignored.
 - Debit → `signed_amount < 0`; credit → `signed_amount > 0`; exactly one of DEBITOS / CREDITOS per economic row, non-zero, unsigned in its column.
 - Fingerprint = `sha256` of the fields joined with `\x1f`, in the order the adapter defines. It contains no ordinal, page, row number, `format_code` or `parser_version`.
 - Duplicate fingerprint inside the same statement → run `REJECTED` (adapter-specific code below). No ordinal is ever added and no row is chosen arbitrarily.
+
+**Row-level `INVALID` vs adapter contract (precedence).** The generic outcome `INVALID` (§6.3, §17) applies only to adapters whose frozen contract expressly allows it. `BNA_MONTHLY_PDF_V1` and `PATAGONIA_STATEMENT_PDF_V1` do not: any economic or non-control row they cannot classify rejects the whole run (`REJECTED`). `INVALID` remains available to future adapters that allow it explicitly.
+
+**Exact `description_norm`.** The single production authority is the PostgreSQL function `fin_norm_description`; any other implementation (parser, tooling, tests) is non-authoritative and must match it byte for byte. `unaccent` is not used.
+1. Apply Unicode NFKD.
+2. After NFKD, if any code point in U+0000–U+0008, U+000E–U+001F or U+007F (DEL) is present → the row is unclassifiable (`DESCRIPTION_CONTROL_CHAR`). The only whitespace allowed is U+0009 TAB, U+000A LF, U+000B VT, U+000C FF, U+000D CR and U+0020 SPACE.
+3. Remove every code point above U+007F.
+4. Map `a`–`z` to `A`–`Z` (ASCII only, locale-independent).
+5. Replace every run of the allowed whitespace (U+0009, U+000A, U+000B, U+000C, U+000D, U+0020) with one U+0020 SPACE.
+6. Remove leading and trailing U+0020.
+
+**Fingerprint hashing.** PostgreSQL built-in `sha256(bytea)` over the UTF-8 bytes of the canonical string, hex-encoded (lowercase). The canonical string joins the adapter's fields with U+001F; dates as `YYYY-MM-DD`; amounts and balances as `NUMERIC(15,2)` text (2 decimals, `.`, leading `-`); absent values as the empty string. The fingerprint is computed by the database, never by the browser or the parser.
 
 ### 7.2 `BNA_MONTHLY_PDF_V1` (frozen — G-1)
 
@@ -267,9 +284,25 @@ Evidence: 4 official statements (cuts 28/11/25, 27/02/26, 30/06/26, 30/09/26; 6 
 - **Ordering:** between dates, `value_date`. Within one day the physical order is kept as appearance evidence but is **not** asserted as a verifiable economic order. If a bank cut would need to fall between two movements of the same day and no evidence determines their order, resolution of the cut fails closed. This never blocks import.
 - **Fail closed (run `REJECTED`):** any detection signal missing; account/CBU mismatch; text not extractable; any structure not supported by V1 (another account or product section with movements, movement table across pages, unclassifiable row, FECHA VALOR not a date); chain mismatch; `DUPLICATE_CONTENT_IN_STATEMENT`.
 
-### 7.4 Implementation note — expected bank identifiers
+### 7.4 Expected bank identifiers (decided — K-1)
 
-Both adapters validate the account number / CBU printed on the statement against identifiers expected for the selected `financial_account`. Where those identifiers are stored is **not** decided here: before building the adapters, inspect the real schema of `financial_account` and choose the minimal place for them. No new column is assumed and no schema is changed by this amendment.
+Both adapters validate the account number / CBU printed on the statement against identifiers expected for the selected `financial_account`. The real schema of `financial_account` has no field for them (`id`, `nombre`, `account_type`, `activo`, `created_at`), so `financial_account` is not altered.
+
+**Decision (owner, K-1):** identifiers live in a new table `fin_statement_account_config`, one row per bank `financial_account` (`format_code`, `expected_account_number`, `expected_cbu`, `expected_extra`), seeded by migration with these owner-approved values:
+
+| Account | `format_code` | `expected_account_number` | `expected_cbu` | `expected_extra` |
+|---|---|---|---|---|
+| BNA | `BNA_MONTHLY_PDF_V1` | `5460109893` | `0110546920054601098937` | — |
+| Patagonia | `PATAGONIA_STATEMENT_PDF_V1` | `299038195` | `0340299500299038195002` | `subcta = "0"`, `suc = "299"` |
+
+Adapters receive these values as configuration of the selected account and contain none of them.
+
+### 7.5 Implementation gates — PDF extraction and fixtures
+
+- **PDF library:** `unpdf`, pinned to an exact version, subject to a mandatory local parity spike **before** the production parsers are written. The spike runs over every available real statement and must reproduce: BNA 314 and Patagonia 6 economic lines, the same canonical fields, balance chains, fingerprints, and expected rejections / warnings. Without parity, only the text / position reconstruction may be adjusted — never the fingerprint or the frozen contract; if robust parity cannot be reached → STOP.
+- **No OCR.**
+- **Initial implementation limits** (operational, not part of any fingerprint or contract): 10 MB per file, 20 pages, 10 s extraction timeout. Exceeding a limit → run `REJECTED`.
+- **Fixtures:** real bank PDFs are never versioned. Versioned fixtures are only sanitized extracted text items with positions (CUIT, account, CBU, names and other identifiers replaced; geometry and structure preserved). Parity tests over real PDFs run only locally, from a path outside git.
 
 ## 8. Bank reconciliation
 
@@ -446,7 +479,9 @@ Read-only views/queries (no change to the MP state machine):
 | caller not ADMIN | `FORBIDDEN`; nothing stored |
 | unknown bank format / header mismatch | run `REJECTED` with reason, `format_code` NULL and the detector's non-null `parser_version`; bytes kept; no lines; reprocessable when a compatible parser exists |
 | `parser_version` missing | refused; no run written |
-| single row unparseable | appearance `INVALID` with `raw_row`; other rows proceed; the run surfaces the count |
+| single row unparseable | adapters whose contract allows it: appearance `INVALID` with `raw_row`, other rows proceed, the run surfaces the count; `BNA_MONTHLY_PDF_V1` / `PATAGONIA_STATEMENT_PDF_V1`: run `REJECTED` (§7.1–§7.3) |
+| description with a forbidden control character after NFKD (`DESCRIPTION_CONTROL_CHAR`) or `bank_reference` not printable ASCII | row unclassifiable → handled as the row above |
+| anchor whose `running_balance` is NULL or differs from `opening_balance` | cut registration refused; G-3 stays OPEN |
 | file for the wrong bank (format not registered for the account's bank) | `REJECTED` |
 | DB function fails mid-import | the whole transaction rolls back (no run, lines or appearances); stored bytes are re-used on retry (same hash path) |
 | reprocess requested over a `PARSED` `NORMAL` run | refused (`ALREADY_PROCESSED`) |
@@ -485,7 +520,7 @@ Read-only views/queries (no change to the MP state machine):
 ADR-018 ACCEPTED
  → core evidence model (fin_import_run, fin_import_run_line, fin_statement_line, fin_statement_match, fin_statement_cutover + immutability guards)
  → security & storage (RLS, grants, bucket financial-statements)
- ├→ bank branch: G-1/G-2 CLOSED (adapters frozen, §7.2/§7.3); first resolve where expected bank identifiers live (§7.4)
+ ├→ bank branch: G-1/G-2 CLOSED (adapters frozen, §7.2/§7.3); identifiers in fin_statement_account_config (§7.4); parsers only after the unpdf parity spike (§7.5)
  │    → bank import DB function + Edge Function (detector/parser, versioned) + reprocess   [not gated by G-3]
  │    → cutover classification view + cut-registration function
  │    → G-3 per account: owner registers fin_statement_cutover from the imported evidence
