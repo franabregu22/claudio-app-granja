@@ -2,6 +2,7 @@
 
 **STATUS:** **ACCEPTED** (owner GO, 2026-10-10: "GO owner para ADR-018", with the `parser_version` NOT NULL correction incorporated). Not implemented: no migration, function, Edge Function, bucket or UI exists for it.
 **DATE:** 2026-10-10
+**AMENDED:** 2026-10-10 (owner decision) — G-1 (BNA) and G-2 (Patagonia) CLOSED on real official statements; adapters `BNA_MONTHLY_PDF_V1` and `PATAGONIA_STATEMENT_PDF_V1` frozen (§7.2, §7.3).
 **RAISED BY:** post-cutover gap (2026-10-04 ~20:36): a real transfer to the MP alias/CVU never reached the webhook, and the target has no report channel (L-1 removed the legacy `sync-mercadopago-releases` / `upload-settlement-csv`). Separately, the target has no way to ingest bank statements (BNA, Patagonia).
 **NEW SCOPE (owner decision):** "Importación y conciliación de extractos financieros" is part of the ERP.
 
@@ -119,7 +120,7 @@ Conceptual; column names are indicative, types and exact constraints are fixed a
 | FK | `financial_account`; `first_run_id` → `fin_import_run` |
 | Represents | the economic fact as reported by the bank, once, regardless of how many files contain it |
 
-**The fingerprint formula is TBD.** It is frozen per adapter only after real official statements (§21 G-1, G-2), validated against the full available history, show which fields are stable across overlapping or consecutive statements, whether a reference and a running balance exist, and how identical rows (same date, amount and description) appear. No candidate (including an ordinal among identical rows) is adopted by this ADR.
+**The fingerprint formula is frozen per adapter**, only after real official statements, validated against the full available history, show which fields are stable across overlapping or consecutive statements, whether a reference and a running balance exist, and how identical rows (same date, amount and description) appear. Frozen today: `BNA_MONTHLY_PDF_V1` (§7.2) and `PATAGONIA_STATEMENT_PDF_V1` (§7.3). Any other adapter's formula is TBD until its own evidence. No fingerprint includes a row ordinal, page, row number, `format_code` or `parser_version`.
 
 MP report rows do **not** produce `fin_statement_line`; their fact is `mp_source_record`, and MP reconciliation stays in `mp_reconciliation` / `mp_report_match`.
 
@@ -132,6 +133,7 @@ MP report rows do **not** produce `fin_statement_line`; their fact is `mp_source
 | FK | `fin_import_run`; `fin_statement_line`; `mp_source_record` |
 | Destination rule | `NEW` / `ALREADY_KNOWN` → exactly one normalized destination, matching the run's `source_kind` (`BANK_STATEMENT` → `statement_line_id`; `MP_RELEASE_REPORT` → `mp_source_record_id`). `INVALID` → no destination required. `IGNORED` → destination present or absent according to the cause, recorded in `note`. `CAPTURED` (only in `VALIDATION` runs) → **no destination**. Never both destinations. |
 | Represents | which file contained which row, verbatim. `run_id + row_number + raw_row` is always preserved, whatever the outcome or mode. |
+| Appearance metadata | adapter-specific evidence of the row inside the file: page, physical row, balance-chain index, and secondary detail (e.g. Patagonia TRANSFERENCIAS RECIBIDAS, §7.3). It never changes the line's fingerprint and is never stored on `fin_statement_line`. |
 
 ### 6.4 `fin_statement_match` — manual, append-only bank reconciliation
 
@@ -173,7 +175,7 @@ Whether a bank line was absorbed by the opening balance is a property of **our c
 | line is the anchor or before it, per the adapter's frozen ordering rule | `PRE_CUTOVER` |
 | line is after the anchor, per the same rule | `POST_CUTOVER` |
 
-**The ordering rule is TBD.** How a line is placed before or after `cutoff_statement_line_id` (row order, date, bank reference, running balance, sequence or another identifier) is frozen per adapter only after the real-file evidence of G-1 / G-2. This ADR adopts no ordering algorithm.
+**The ordering rule is frozen per adapter** after real-file evidence: `BNA_MONTHLY_PDF_V1` in §7.2, `PATAGONIA_STATEMENT_PDF_V1` in §7.3. For any other adapter it is TBD until its own evidence. The position data an ordering rule uses (page, physical row, chain index) lives on the appearance (`fin_import_run_line`), never on `fin_statement_line`.
 
 ## 7. Bank statement ingestion
 
@@ -215,11 +217,59 @@ Distinctions:
 | Adapter (`format_code`) | Official source | Fields observed |
 |---|---|---|
 | `BNA_MONTHLY_PDF_V1` | BNA monthly statement (PDF) | FECHA, MOVIMIENTOS, COMPROB., DEBITOS, CREDITOS, SALDO; the closing balance carries over as the next period's opening balance |
-| `PATAGONIA_MONTHLY_PDF_V1` | Banco Patagonia monthly statement (PDF) | FECHA, CONCEPTO, REFER., FECHA VALOR, DEBITOS, CREDITOS, SALDO; some transfers add a secondary extended-information section |
+| `PATAGONIA_STATEMENT_PDF_V1` | Banco Patagonia statement (PDF); periods may span several months | FECHA, CONCEPTO, REFER., FECHA VALOR, DEBITOS, CREDITOS, SALDO; some transfers add a secondary TRANSFERENCIAS RECIBIDAS section |
 
 - Future adapters (for example a CSV export) may be added without changing the conceptual model; each one is frozen with its own real-file evidence.
 - **OCR is not a requirement.** The reviewed PDFs contain extractable structured text. A file that would require OCR, or that the frozen adapter cannot parse, fails closed: run `REJECTED`, original bytes kept as evidence, and no ad-hoc parser is improvised.
-- The fields above are candidates for identity and ordering only; the fingerprint and the ordering rule stay TBD until G-1 / G-2 (§6.2, §6.6).
+- Both adapters are frozen (§7.2, §7.3; G-1 and G-2 CLOSED).
+
+**Common canonicalisation (both adapters):**
+- `value_date_iso`: `YYYY-MM-DD` (two-digit years read as 20YY; a one-digit day is accepted where the adapter says so).
+- `description_norm`: NFKD → ASCII → uppercase → collapse whitespace → trim.
+- `bank_reference`: preserved as printed text (no zero-stripping); empty string when absent.
+- Amounts and balances: canonical decimal with exactly 2 decimals, `.` as decimal separator, leading `-` for negatives, no thousands separator. Source format: `1.234,56`, with a trailing `-` for negatives; a separate `$` token is ignored.
+- Debit → `signed_amount < 0`; credit → `signed_amount > 0`; exactly one of DEBITOS / CREDITOS per economic row, non-zero, unsigned in its column.
+- Fingerprint = `sha256` of the fields joined with `\x1f`, in the order the adapter defines. It contains no ordinal, page, row number, `format_code` or `parser_version`.
+- Duplicate fingerprint inside the same statement → run `REJECTED` (adapter-specific code below). No ordinal is ever added and no row is chosen arbitrarily.
+
+### 7.2 `BNA_MONTHLY_PDF_V1` (frozen — G-1)
+
+Evidence: 12 consecutive official monthly statements (OCT-25 … SEP-26, 314 economic lines) plus 8 re-downloads of 7 of those periods (different bytes, identical content and order): 0 invalid rows, 0 balance-chain errors, 0 fingerprint collisions, closing → next opening continuity on all 11 transitions.
+
+- **Detection (all required):** "BANCO DE LA" + "NACION ARGENTINA"; "RESUMEN DE CUENTA"; `PERIODO: dd/mm/aaaa AL dd/mm/aaaa`; "CUENTA CORRIENTE - PESOS"; account number and 22-digit CBU matching the identifiers expected for the selected `financial_account` (§7.4); column header `FECHA MOVIMIENTOS COMPROB. DEBITOS CREDITOS SALDO` on every page with movements; exactly one `SALDO ANTERIOR` and one `SALDO FINAL`; `<--- FIN DE RESUMEN`.
+- **Columns:** assigned by word position relative to the column headers (amount columns by right edge). `bank_reference` = COMPROB.
+- **Economic rows:** rows starting with FECHA (`dd/mm/aa`) carrying exactly one amount plus SALDO.
+- **Control rows (never economic facts):** `SALDO ANTERIOR`, `SALDO FINAL`, `TRANSPORTE`, `TOTAL GRAV. LEY 25413 …` totals, headers, page/sheet markers and legal text.
+- **Fingerprint:**
+  `sha256(value_date_iso \x1f description_norm \x1f bank_reference \x1f signed_amount_canonical \x1f running_balance_canonical)`
+  - `bank_reference` alone is **not** identity (COMPROB. is shared by a movement and its tax line, and reused across dates).
+  - `running_balance` is part of the identity (printed on every line, stable across re-downloads, verified by the chain).
+- **Balance chain (mandatory):** `SALDO ANTERIOR + Σ signed_amount` must equal each line's `running_balance`; the last balance must equal `SALDO FINAL`; every `TRANSPORTE` must equal the adjacent balance.
+- **Ordering:** the physical order of the PDF defines the intra-day order and is valid only because the balance chain verifies it. Across statements: by period, with continuity `period_from = previous period_to` and `SALDO ANTERIOR = previous SALDO FINAL`. A line is at or before an anchor if its statement is earlier, or it is in the same statement with a chain index ≤ the anchor's. Page, row and chain index are appearance metadata (§6.3).
+- **Fail closed (run `REJECTED`):** any detection signal missing; account/CBU mismatch; text not extractable; any unclassifiable row; chain mismatch; last balance ≠ `SALDO FINAL`; `TRANSPORTE` mismatch; a date outside `(period_from, period_to]`; duplicate fingerprint inside the statement; **`REISSUE_SUSPECTED`**: a NEW line equal to an existing line of the account in `(value_date, description_norm, bank_reference, signed_amount)` but with a different `running_balance`.
+
+### 7.3 `PATAGONIA_STATEMENT_PDF_V1` (frozen — G-2, deliberately narrow)
+
+Evidence: 4 official statements (cuts 28/11/25, 27/02/26, 30/06/26, 30/09/26; 6 economic lines) plus 1 re-download (different bytes, identical content): 0 invalid rows, chain closed at every printed balance and at `SALDO ACTUAL`, continuity on all 3 transitions (`SALDO ANTERIOR` date = previous cut date). V1 is limited to this observed shape; a future V2 may widen it only with new evidence.
+
+- **Detection (all required):** Banco Patagonia identification; `ESTADO DE CUENTAS UNIFICADO CLIENTE N°: <n> AL dd/mm/aa <statement id>`; `CUENTA CORRIENTE EN PESOS <account> SUBCTA <s> SUC <branch> CBU: <8> <14>` matching the identifiers expected for the selected `financial_account` (§7.4); header `FECHA CONCEPTO REFER. FECHA VALOR DEBITOS CREDITOS SALDO`; one `SALDO ANTERIOR` (dated `0/00/00` on the first statement) and one `SALDO ACTUAL`.
+- **Fields:** FECHA (one-digit day accepted), CONCEPTO → `description_*`, REFER. optional → `bank_reference` or empty, FECHA VALOR optional → date or empty, DEBITOS / CREDITOS, SALDO optional (`running_balance` may be NULL: the bank prints it on the last line of each day only).
+- **Control rows:** `SALDO ANTERIOR`, `SALDO ACTUAL`, the account summary table, headers, notices and legal text.
+- **Fingerprint:**
+  `sha256(value_date_iso \x1f description_norm \x1f bank_reference_or_empty \x1f fecha_valor_iso_or_empty \x1f signed_amount_canonical \x1f running_balance_canonical_or_empty)`
+- **Owner rule for ambiguous identity:** two economic lines of the same statement producing the same fingerprint → run `REJECTED` with **`DUPLICATE_CONTENT_IN_STATEMENT`**. No ordinal is added and no row is chosen.
+- **Balance chain:** `SALDO ANTERIOR + Σ signed_amount` must equal every printed balance and `SALDO ACTUAL`; `SALDO ANTERIOR` date must equal the previous statement's cut date when that statement exists.
+- **TRANSFERENCIAS RECIBIDAS:**
+  - never creates a second `fin_statement_line` and never changes the fingerprint;
+  - association: same date, `IMP.ORIGINAL` = the main line's positive `signed_amount`, and exactly one candidate on each side;
+  - the detail (NOMBRE ORIG, DOC.ORIG., SERVICIO, REFERENCIA, CBU ORIGEN, BANCO, SUC, IMP.ORIGINAL, TI, MON, SUC) belongs to the **appearance** (`fin_import_run_line`), with its raw evidence kept;
+  - association not unambiguous → the detail row is kept as an appearance (`IGNORED`, raw detail preserved, no destination) with an explicit review warning **`TRANSFER_DETAIL_UNMATCHED`**; it is never silently discarded. This alone does not reject the statement when the main economic lines are valid and the chain closes.
+- **Ordering:** between dates, `value_date`. Within one day the physical order is kept as appearance evidence but is **not** asserted as a verifiable economic order. If a bank cut would need to fall between two movements of the same day and no evidence determines their order, resolution of the cut fails closed. This never blocks import.
+- **Fail closed (run `REJECTED`):** any detection signal missing; account/CBU mismatch; text not extractable; any structure not supported by V1 (another account or product section with movements, movement table across pages, unclassifiable row, FECHA VALOR not a date); chain mismatch; `DUPLICATE_CONTENT_IN_STATEMENT`.
+
+### 7.4 Implementation note — expected bank identifiers
+
+Both adapters validate the account number / CBU printed on the statement against identifiers expected for the selected `financial_account`. Where those identifiers are stored is **not** decided here: before building the adapters, inspect the real schema of `financial_account` and choose the minimal place for them. No new column is assumed and no schema is changed by this amendment.
 
 ## 8. Bank reconciliation
 
@@ -349,6 +399,7 @@ Read-only views/queries (no change to the MP state machine):
 - runs by account, mode and status, with counters, reject reasons, parser version and the `previous_run_id` chain;
 - bank lines by account and derived cutover classification (`CUTOVER_UNRESOLVED` / `PRE_CUTOVER` / `POST_CUTOVER`), and pending (`POST_CUTOVER`, unmatched) lines by age;
 - the active `fin_statement_cutover` per account and its supersession history;
+- appearances flagged for review, including `TRANSFER_DETAIL_UNMATCHED`, and runs rejected with `REISSUE_SUSPECTED` or `DUPLICATE_CONTENT_IN_STATEMENT`;
 - bank statement closing balance (when the format carries one) vs Σ postings on the account (information, not a rule);
 - MP report payment coverage, classifying each inbound report `payment` row:
 
@@ -386,6 +437,7 @@ Read-only views/queries (no change to the MP state machine):
 20. Whether a bank line is pre- or post-cutover is never stored on `fin_statement_line`; it is derived from the account's active `fin_statement_cutover` and the adapter's frozen ordering rule.
 21. Only `POST_CUTOVER` lines are reconcilable; `PRE_CUTOVER` and `CUTOVER_UNRESOLVED` lines are not. An unresolved cut never blocks import.
 22. `fin_statement_cutover.cutoff_statement_line_id` belongs to the same `financial_account`; at most one active cut per account; cut decisions are audited and superseded, never edited.
+23. No bank fingerprint contains a row ordinal, page or row number; two economic lines of one statement with the same fingerprint reject the run. Page, row, chain index and secondary detail are appearance metadata, never `fin_statement_line` data.
 
 ## 17. Failure handling (fail closed)
 
@@ -403,6 +455,12 @@ Read-only views/queries (no change to the MP state machine):
 | bank cut unresolved for the account | import allowed as evidence; lines `CUTOVER_UNRESOLVED`; reconciliation refused (`CUTOVER_UNRESOLVED`) |
 | reconciliation of a `PRE_CUTOVER` line | refused (`PRE_CUTOVER_LINE`) |
 | cut anchor on a line of another account, or a second active cut for the account | refused; nothing written |
+| balance chain does not reconcile (BNA, Patagonia) | run `REJECTED` |
+| BNA line equal on `(value_date, description_norm, bank_reference, signed_amount)` to an existing line but with a different balance | run `REJECTED` (`REISSUE_SUSPECTED`) |
+| duplicate fingerprint inside one statement | run `REJECTED` (Patagonia: `DUPLICATE_CONTENT_IN_STATEMENT`) |
+| Patagonia structure not supported by V1 | run `REJECTED` |
+| Patagonia transfer detail not unambiguously associated | appearance `IGNORED` with raw detail and review warning `TRANSFER_DETAIL_UNMATCHED`; the run is not rejected for this alone |
+| bank cut would fall between same-day Patagonia movements of unverifiable order | cut resolution refused; import unaffected |
 | MP report download fails | no run; retried on next schedule; surfaced in health |
 | unknown MP `DESCRIPTION` / missing `SOURCE_ID` | RPC 40 ERROR; no back-fill; review |
 | MP back-fill permanent failure | `FAILED_PERMANENT`; EXCEPTION in §15; no fallback |
@@ -427,7 +485,7 @@ Read-only views/queries (no change to the MP state machine):
 ADR-018 ACCEPTED
  → core evidence model (fin_import_run, fin_import_run_line, fin_statement_line, fin_statement_match, fin_statement_cutover + immutability guards)
  → security & storage (RLS, grants, bucket financial-statements)
- ├→ bank branch: per bank, after its G-1/G-2 evidence is frozen (format, fingerprint, ordering rule)
+ ├→ bank branch: G-1/G-2 CLOSED (adapters frozen, §7.2/§7.3); first resolve where expected bank identifiers live (§7.4)
  │    → bank import DB function + Edge Function (detector/parser, versioned) + reprocess   [not gated by G-3]
  │    → cutover classification view + cut-registration function
  │    → G-3 per account: owner registers fin_statement_cutover from the imported evidence
@@ -476,16 +534,16 @@ Migration numbers are assigned at implementation; no step modifies an applied mi
   - after a validation run there are zero new rows (counted before and after) in `mp_source_record`, `mp_webhook_delivery`, `mp_transition_identity`, `mp_financial_movement`, `financial_operation` and `financial_posting`;
   - `CAPTURED` lines carry `raw_row`;
   - a later `NORMAL` run over the same bytes links to it through `previous_run_id`.
-- Per bank: parser and fingerprint tested on the sanitized real files of G-1/G-2, including the overlap case.
+- Per bank: parser and fingerprint tested on the sanitized real files of G-1/G-2, including the overlap case and re-downloads (same content, different bytes → `ALREADY_KNOWN`); BNA: `REISSUE_SUSPECTED` and in-statement duplicate rejection; Patagonia: `DUPLICATE_CONTENT_IN_STATEMENT`, `TRANSFER_DETAIL_UNMATCHED` kept with raw detail, unsupported structure rejected.
 - Production: read-only verification first; writes only with the owner's GO.
 
 ## 21. STOP / rollout gates
 
 | Gate | Blocks | Evidence required |
 |---|---|---|
-| **G-1 BNA statements** | freezing adapter `BNA_MONTHLY_PDF_V1` (or its successor): parser, fingerprint, use of `bank_reference` / `running_balance`, identical-row rule, ordering rule for the cutover classification | real official BNA monthly statements, validated across the available history (including closing-balance → next opening-balance continuity) |
-| **G-2 Patagonia statements** | the same for adapter `PATAGONIA_MONTHLY_PDF_V1` (or its successor), including the handling of the secondary extended-information section of transfers | real official Banco Patagonia monthly statements, validated across the available history |
-| **G-3 Bank cut per account** | the `fin_statement_cutover` decision and, therefore, `PRE_CUTOVER` / `POST_CUTOVER` classification and reconciliation for that account. **Does not block import.** | the statements used for the opening balances (imported as evidence) and the last line included in each (BNA 335 713, Patagonia 1 994); owner decision |
+| **G-1 BNA statements** — **CLOSED** (2026-10-10) | — (adapter `BNA_MONTHLY_PDF_V1` frozen, §7.2: format, parser contract, fingerprint, ordering rule, control rows, fail-closed rules) | 12 official monthly statements OCT-25 … SEP-26 + 8 re-downloads; 314 lines, 0 chain errors, 0 collisions, full continuity |
+| **G-2 Patagonia statements** — **CLOSED** (2026-10-10, narrow V1) | — (adapter `PATAGONIA_STATEMENT_PDF_V1` frozen, §7.3, limited to the observed shape; anything else fails closed) | 4 official statements (cuts 28/11/25 … 30/09/26) + 1 re-download; 6 lines, chain and continuity closed; owner rule `DUPLICATE_CONTENT_IN_STATEMENT` |
+| **G-3 Bank cut per account** — **OPEN** (both accounts) | the `fin_statement_cutover` decision and, therefore, `PRE_CUTOVER` / `POST_CUTOVER` classification and reconciliation for that account. **Does not block import.** | **BNA:** SEP-26 closing = 738 024,01 vs opening target 335 713; no anchor line exists yet; requires official evidence after 30/09/26. **Patagonia:** last available statement closes at 1 994 = opening target 1 994; anchor candidate = the last economic line of 01/09/26 leaving balance 1 994; not closed until it is officially shown that no movement occurred after it up to the bank cut. Owner decision in both cases. |
 | **G-4 MP report rollout** | `NORMAL` processing of MP reports and the production scheduler | one real official report captured in **validation mode** (§9.3) with zero financial effect verified; observed `DESCRIPTION` values and structure confirmed against the parser; owner GO |
 
 This ADR is accepted with these gates open; only the dependent parts are blocked.
