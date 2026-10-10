@@ -38,7 +38,7 @@
 ## 2. Decision
 
 1. Add a **common financial import evidence model** (`fin_import_run`, `fin_import_run_line`) shared by bank statements and MP reports. A run is one processing attempt over one stored original file; a rejected or validation run may be followed by an explicit, audited reprocess of the same bytes (§6.1).
-2. **Banks:** ADMIN uploads the original CSV; the backend stores it, hashes it, validates, parses and persists unique bank facts (`fin_statement_line`). Lines are **evidence**, reconciled manually 1:1 against existing postings (`fin_statement_match`). **Importing a bank statement never creates money.**
+2. **Banks:** ADMIN uploads the original official bank statement file ("Importar extracto bancario"; no file extension is assumed — each bank format is handled by a server-side adapter, §7.1); the backend stores it, hashes it, validates, parses and persists unique bank facts (`fin_statement_line`). Lines are **evidence**, reconciled manually 1:1 against existing postings (`fin_statement_match`). **Importing a bank statement never creates money.**
 3. **Mercado Pago:** a daily official report is the completeness/discovery path; the webhook remains an optional fast path.
    - **A report `payment` row never creates payment money directly in this phase.** It only triggers a back-fill `GET /v1/payments/{SOURCE_ID}`; payment money is created exclusively by the existing `api_payment` circuit.
    - Non-payment report classes (`yield`, `payout`) keep **exactly** their existing semantics (ADR-003 / ADR-006 / 0071): this ADR neither adds nor removes any effect for them.
@@ -49,7 +49,7 @@
 
 In scope:
 - the evidence model and its private Storage;
-- bank CSV ingestion for accounts of type `BANK_ACCOUNT` (BNA, Patagonia), gated by real-file evidence (§21);
+- bank statement ingestion (format-agnostic, one adapter per bank format) for accounts of type `BANK_ACCOUNT` (BNA, Patagonia), gated by real-file evidence (§21);
 - explicit reprocess of rejected / validation runs;
 - manual 1:1 bank reconciliation;
 - MP daily Liberaciones report ingestion (validation mode first) + inbound payment back-fill;
@@ -61,7 +61,7 @@ Out of scope: §18.
 
 | Actor | Does | Never does |
 |---|---|---|
-| Browser (ADMIN) | selects account, selects file, uploads the original bytes; requests a reprocess of a rejected/validation run; reconciles lines by choosing a posting | parse authoritatively, compute file hash or line identity, write Storage directly |
+| Browser (ADMIN) | "Importar extracto bancario": selects account, selects the original statement file, uploads its bytes; requests a reprocess of a rejected/validation run; reconciles lines by choosing a posting | parse authoritatively, compute file hash or line identity, write Storage directly |
 | Edge Function (bank import) | verifies ADMIN; stores bytes; computes sha256; validates format; parses to canonical fields; calls one DB function; on reprocess, re-reads the stored bytes and re-verifies the hash | create operations or postings |
 | Edge Function (MP report ingest) | requests/downloads the report; stores bytes; in VALIDATION mode only captures and parses; in NORMAL mode loads rows into `mp_source_record` and requests back-fills | create movements, operations or postings itself. Any MP effect comes from the existing pipeline: RPC 40 / S4 / A1 for `api_payment`, and RPC 40's unchanged report-only logic for `yield` / `payout` |
 | DB functions | re-verify the caller; compute line identity; persist transactionally | trust client-computed identity |
@@ -88,7 +88,7 @@ Conceptual; column names are indicative, types and exact constraints are fixed a
 
 | | |
 |---|---|
-| Fields | `id`; `source_kind` (`BANK_CSV` \| `MP_RELEASE_REPORT`); `mode` (`NORMAL` \| `VALIDATION`); `financial_account_id`; `format_code` (NULL when no business format was recognised); `parser_version` (**NOT NULL**); `file_sha256`; `storage_path`; `file_name`; `byte_size`; `coverage_from` / `coverage_to`; `status` (`PARSED` \| `VALIDATED` \| `REJECTED`); `reject_reason`; counters (rows total / new / already known / ignored / invalid / captured); `previous_run_id`; MP metadata (report request id, report type) when `source_kind = 'MP_RELEASE_REPORT'`; `created_by` (NULL for the scheduler); `created_at` |
+| Fields | `id`; `source_kind` (`BANK_STATEMENT` \| `MP_RELEASE_REPORT`); `mode` (`NORMAL` \| `VALIDATION`); `financial_account_id`; `format_code` (the specific adapter/parser that recognised the file, e.g. `BNA_MONTHLY_PDF_V1`; NULL when no business format was recognised); `parser_version` (**NOT NULL**); `file_sha256`; `storage_path`; `file_name`; `byte_size`; `coverage_from` / `coverage_to`; `status` (`PARSED` \| `VALIDATED` \| `REJECTED`); `reject_reason`; counters (rows total / new / already known / ignored / invalid / captured); `previous_run_id`; MP metadata (report request id, report type) when `source_kind = 'MP_RELEASE_REPORT'`; `created_by` (NULL for the scheduler); `created_at` |
 | PK | `id` |
 | UNIQUE | `(financial_account_id, file_sha256)` among runs with `mode = 'NORMAL'` and `status <> 'REJECTED'`; `(financial_account_id, file_sha256, mode, parser_version)` for all runs |
 | FK | `financial_account`; `perfiles`; `previous_run_id` → `fin_import_run` (must have the same account and `file_sha256`, and be `REJECTED` or `VALIDATED`) |
@@ -119,7 +119,7 @@ Conceptual; column names are indicative, types and exact constraints are fixed a
 | FK | `financial_account`; `first_run_id` → `fin_import_run` |
 | Represents | the economic fact as reported by the bank, once, regardless of how many files contain it |
 
-**The fingerprint formula is TBD.** It is frozen per format only after real files (§21 G-1, G-2) show which fields are stable across overlapping exports, whether a reference and a running balance exist, and how identical rows (same date, amount and description) appear. No candidate (including an ordinal among identical rows) is adopted by this ADR.
+**The fingerprint formula is TBD.** It is frozen per adapter only after real official statements (§21 G-1, G-2), validated against the full available history, show which fields are stable across overlapping or consecutive statements, whether a reference and a running balance exist, and how identical rows (same date, amount and description) appear. No candidate (including an ordinal among identical rows) is adopted by this ADR.
 
 MP report rows do **not** produce `fin_statement_line`; their fact is `mp_source_record`, and MP reconciliation stays in `mp_reconciliation` / `mp_report_match`.
 
@@ -130,7 +130,7 @@ MP report rows do **not** produce `fin_statement_line`; their fact is `mp_source
 | Fields | `run_id`; `row_number`; `raw_row` (exact row content); `outcome` (`NEW` \| `ALREADY_KNOWN` \| `IGNORED` \| `INVALID` \| `CAPTURED`); `note`; `statement_line_id` (nullable); `mp_source_record_id` (nullable) |
 | PK | `(run_id, row_number)` |
 | FK | `fin_import_run`; `fin_statement_line`; `mp_source_record` |
-| Destination rule | `NEW` / `ALREADY_KNOWN` → exactly one normalized destination, matching the run's `source_kind` (`BANK_CSV` → `statement_line_id`; `MP_RELEASE_REPORT` → `mp_source_record_id`). `INVALID` → no destination required. `IGNORED` → destination present or absent according to the cause, recorded in `note`. `CAPTURED` (only in `VALIDATION` runs) → **no destination**. Never both destinations. |
+| Destination rule | `NEW` / `ALREADY_KNOWN` → exactly one normalized destination, matching the run's `source_kind` (`BANK_STATEMENT` → `statement_line_id`; `MP_RELEASE_REPORT` → `mp_source_record_id`). `INVALID` → no destination required. `IGNORED` → destination present or absent according to the cause, recorded in `note`. `CAPTURED` (only in `VALIDATION` runs) → **no destination**. Never both destinations. |
 | Represents | which file contained which row, verbatim. `run_id + row_number + raw_row` is always preserved, whatever the outcome or mode. |
 
 ### 6.4 `fin_statement_match` — manual, append-only bank reconciliation
@@ -177,7 +177,7 @@ Whether a bank line was absorbed by the opening balance is a property of **our c
 
 ## 7. Bank statement ingestion
 
-1. ADMIN selects a `BANK_ACCOUNT` and a file in Tesorería; the browser sends account + original bytes to the bank-import Edge Function.
+1. ADMIN uses "Importar extracto bancario" in Tesorería: selects a `BANK_ACCOUNT` and the original official bank statement file (no extension assumed); the browser sends account + original bytes to the bank-import Edge Function.
 2. The Edge Function verifies the caller is an active ADMIN (fails `FORBIDDEN` otherwise).
 3. It computes `file_sha256` over the exact bytes and stores them in `financial-statements` with the service role, under a path derived from account and hash.
 4. It runs the detector/importer registered for that account's bank, which yields a non-null `parser_version` in every case, and a `format_code` only when a business format is recognised. Unknown or malformed → see step 5.
@@ -205,6 +205,21 @@ Distinctions:
 | Line fingerprint | `(financial_account_id, fingerprint)` | same movement in another file → new appearance, same fact |
 
 **No bank adapter (parser + fingerprint) is implemented before the real-file evidence for that bank is frozen (§21).**
+
+### 7.1 Statement formats and adapters
+
+- The abstraction is `BANK_STATEMENT`. The model does not assume CSV, PDF or any other file type; each concrete bank format is handled by one server-side adapter, identified by `format_code` and versioned by `parser_version`.
+- **PDF is a valid, first-class statement format.**
+- Adapters evidenced today (current examples, not a closed list):
+
+| Adapter (`format_code`) | Official source | Fields observed |
+|---|---|---|
+| `BNA_MONTHLY_PDF_V1` | BNA monthly statement (PDF) | FECHA, MOVIMIENTOS, COMPROB., DEBITOS, CREDITOS, SALDO; the closing balance carries over as the next period's opening balance |
+| `PATAGONIA_MONTHLY_PDF_V1` | Banco Patagonia monthly statement (PDF) | FECHA, CONCEPTO, REFER., FECHA VALOR, DEBITOS, CREDITOS, SALDO; some transfers add a secondary extended-information section |
+
+- Future adapters (for example a CSV export) may be added without changing the conceptual model; each one is frozen with its own real-file evidence.
+- **OCR is not a requirement.** The reviewed PDFs contain extractable structured text. A file that would require OCR, or that the frozen adapter cannot parse, fails closed: run `REJECTED`, original bytes kept as evidence, and no ad-hoc parser is improvised.
+- The fields above are candidates for identity and ordering only; the fingerprint and the ordering rule stay TBD until G-1 / G-2 (§6.2, §6.6).
 
 ## 8. Bank reconciliation
 
@@ -468,8 +483,8 @@ Migration numbers are assigned at implementation; no step modifies an applied mi
 
 | Gate | Blocks | Evidence required |
 |---|---|---|
-| **G-1 BNA files** | BNA `format_code`, parser, fingerprint, use of `bank_reference` / `running_balance`, identical-row rule, ordering rule for the cutover classification | original BNA exports, ideally two overlapping periods |
-| **G-2 Patagonia files** | the same for Patagonia | same |
+| **G-1 BNA statements** | freezing adapter `BNA_MONTHLY_PDF_V1` (or its successor): parser, fingerprint, use of `bank_reference` / `running_balance`, identical-row rule, ordering rule for the cutover classification | real official BNA monthly statements, validated across the available history (including closing-balance → next opening-balance continuity) |
+| **G-2 Patagonia statements** | the same for adapter `PATAGONIA_MONTHLY_PDF_V1` (or its successor), including the handling of the secondary extended-information section of transfers | real official Banco Patagonia monthly statements, validated across the available history |
 | **G-3 Bank cut per account** | the `fin_statement_cutover` decision and, therefore, `PRE_CUTOVER` / `POST_CUTOVER` classification and reconciliation for that account. **Does not block import.** | the statements used for the opening balances (imported as evidence) and the last line included in each (BNA 335 713, Patagonia 1 994); owner decision |
 | **G-4 MP report rollout** | `NORMAL` processing of MP reports and the production scheduler | one real official report captured in **validation mode** (§9.3) with zero financial effect verified; observed `DESCRIPTION` values and structure confirmed against the parser; owner GO |
 
@@ -481,7 +496,7 @@ This ADR is accepted with these gates open; only the dependent parts are blocked
 - **Cost:** report `payment` rows remain `DEFERRED_V4` indefinitely; completeness is read from the coverage view, not from `mp_report_match`, until V-4.
 - **Cost:** reconciliation is manual and 1:1; combined debits (one bank line for several operations) stay pending until N:M is decided.
 - **Cost:** a run is an attempt, not a file; the file's identity is the hash plus its `previous_run_id` chain. Two columns (`mode`, `previous_run_id`) avoid a separate file/attempt table.
-- **Risk:** bank CSV formats may change. This is mitigated by the non-null `parser_version`, fail-closed validation, reprocess and the preserved original bytes.
+- **Risk:** bank statement formats may change. This is mitigated by the non-null `parser_version`, fail-closed validation, reprocess and the preserved original bytes.
 - **Growth:** the RPC inventory and the SECURITY DEFINER set both grow; this ADR declares the growth explicitly.
 
 ---
