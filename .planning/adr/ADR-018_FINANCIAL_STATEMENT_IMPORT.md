@@ -1,0 +1,502 @@
+# ADR-018 — Financial statement import and reconciliation
+
+**STATUS:** **ACCEPTED** (owner GO, 2026-10-10: "GO owner para ADR-018", with the `parser_version` NOT NULL correction incorporated). Not implemented: no migration, function, Edge Function, bucket or UI exists for it.
+**DATE:** 2026-10-10
+**RAISED BY:** post-cutover gap (2026-10-04 ~20:36): a real transfer to the MP alias/CVU never reached the webhook, and the target has no report channel (L-1 removed the legacy `sync-mercadopago-releases` / `upload-settlement-csv`). Separately, the target has no way to ingest bank statements (BNA, Patagonia).
+**NEW SCOPE (owner decision):** "Importación y conciliación de extractos financieros" is part of the ERP.
+
+**AFFECTS (by explicit amendment / cross-reference only; FROZEN files are not rewritten):**
+- ADR-006 §8 step 4 and ADR006_IMPLEMENTATION_ORDER_V1 (V-4 gate row and step 19): inbound report-payment back-fill moves outside the V-4 gate (§10).
+- RPC_CONTRACTS_V1: new service-role and ADMIN functions; the inventory grows from 52 (exact count fixed at implementation).
+- The SECURITY DEFINER set: grows from 69 (exact count fixed at implementation).
+- POSTGRES_SCHEMA_SPEC_V1: new tables `fin_import_run`, `fin_import_run_line`, `fin_statement_line`, `fin_statement_match`, `fin_statement_cutover`.
+- RLS_IMPLEMENTATION_SPEC_V1: new tables (ADMIN read) and a new Storage perimeter (bucket `financial-statements`).
+- DATABASE_INVARIANTS_V1: new invariants (§16).
+
+**NOT AFFECTED:**
+- `financial_account`, `financial_operation`, `financial_posting` (no column, constraint or RPC change);
+- RPC 40 `mp_normalize_source`, `mp_register_delivery`, S4 `mp_ingest_api_snapshot`, A1 `mp_apply_transition`, `mp_normalize_report_fallback`, `mp_v4_verified()` (stays false);
+- the semantics of MP report-only classes (`yield` REPORT_ONLY; `payout` never auto-posted): unchanged;
+- ADR-003 parser contract (Liberaciones, 15 keys), ADR-008 bucket `purchase-attachments`, ADR-011 `register_bank_tax`, ADR-017 `mp_cutover_boundary`;
+- the webhook (`mp-webhook`) and the worker (`mp-worker`) contracts;
+- the P&L; client ledger; OPERATOR permissions.
+
+---
+
+## 1. Context
+
+| Fact | Evidence |
+|---|---|
+| The webhook does not deliver every balance-affecting event (e.g. a transfer to alias/CVU). | 2026-10-04 ~20:36 transfer, absent from `mp_webhook_delivery`. |
+| ADR-006 §8 already defines reports as the completeness authority, loaded as `mp_source_record` `csv_import`, but nothing loads them in the target. | No ingestion function exists; `mp_source_record` `csv_import` inserts are service-role only (0054). |
+| Report `payment` rows are parked `DEFERRED_V4` while `mp_v4_verified()` is false; the planned back-fill is inside the V-4 gate. | 0071 RPC 40 body; ADR006_IMPLEMENTATION_ORDER_V1 V-4 row, step 19. |
+| `mp_register_delivery` refuses `origin = 'report_backfill'`. | 0048 RPC body (`origin must be webhook or chargeback_refresh`). |
+| `mp_normalize_report_fallback` refuses while V-4 is false. | 0051 RPC body. |
+| Banks: no statement table, importer or reconciliation exists; bank postings come only from manual RPCs (transfer, cheques, supplier payments, bank tax). | 0014, 0016, 0018, 0020, 0062. |
+| A private-bucket pattern exists (ADMIN-only, owner folder). | ADR-008 / 0058. |
+
+## 2. Decision
+
+1. Add a **common financial import evidence model** (`fin_import_run`, `fin_import_run_line`) shared by bank statements and MP reports. A run is one processing attempt over one stored original file; a rejected or validation run may be followed by an explicit, audited reprocess of the same bytes (§6.1).
+2. **Banks:** ADMIN uploads the original CSV; the backend stores it, hashes it, validates, parses and persists unique bank facts (`fin_statement_line`). Lines are **evidence**, reconciled manually 1:1 against existing postings (`fin_statement_match`). **Importing a bank statement never creates money.**
+3. **Mercado Pago:** a daily official report is the completeness/discovery path; the webhook remains an optional fast path.
+   - **A report `payment` row never creates payment money directly in this phase.** It only triggers a back-fill `GET /v1/payments/{SOURCE_ID}`; payment money is created exclusively by the existing `api_payment` circuit.
+   - Non-payment report classes (`yield`, `payout`) keep **exactly** their existing semantics (ADR-003 / ADR-006 / 0071): this ADR neither adds nor removes any effect for them.
+   - The first real report is captured in **validation mode** (§9.3) before any normal processing.
+4. A **minimal amendment of ADR-006** (§10) enables the inbound report-payment back-fill outside V-4. Everything else gated by V-4 stays gated.
+
+## 3. Scope
+
+In scope:
+- the evidence model and its private Storage;
+- bank CSV ingestion for accounts of type `BANK_ACCOUNT` (BNA, Patagonia), gated by real-file evidence (§21);
+- explicit reprocess of rejected / validation runs;
+- manual 1:1 bank reconciliation;
+- MP daily Liberaciones report ingestion (validation mode first) + inbound payment back-fill;
+- read-only health views (§15).
+
+Out of scope: §18.
+
+## 4. Roles of the actors
+
+| Actor | Does | Never does |
+|---|---|---|
+| Browser (ADMIN) | selects account, selects file, uploads the original bytes; requests a reprocess of a rejected/validation run; reconciles lines by choosing a posting | parse authoritatively, compute file hash or line identity, write Storage directly |
+| Edge Function (bank import) | verifies ADMIN; stores bytes; computes sha256; validates format; parses to canonical fields; calls one DB function; on reprocess, re-reads the stored bytes and re-verifies the hash | create operations or postings |
+| Edge Function (MP report ingest) | requests/downloads the report; stores bytes; in VALIDATION mode only captures and parses; in NORMAL mode loads rows into `mp_source_record` and requests back-fills | create movements, operations or postings itself. Any MP effect comes from the existing pipeline: RPC 40 / S4 / A1 for `api_payment`, and RPC 40's unchanged report-only logic for `yield` / `payout` |
+| DB functions | re-verify the caller; compute line identity; persist transactionally | trust client-computed identity |
+
+## 5. Existing architecture reused
+
+| Element | Role in this ADR | Change |
+|---|---|---|
+| `financial_account` | the account a run and its lines belong to | none |
+| `financial_operation` / `financial_posting` | the accounting facts a bank line is reconciled against; MP money | none |
+| `mp_source_record` (`csv_import`) | MP report row (raw, immutable, unique `(source_type, external_id)`) | none |
+| RPC 40 `mp_normalize_source` | normalizes report rows (payment → `DEFERRED_V4`; yield/payout → current logic) and `api_payment` snapshots | none |
+| `mp_webhook_delivery` (`origin = 'report_backfill'`, `report_source_id`) | back-fill queue entry, already allowed by the table constraints | none to the table |
+| worker, S4, `mp_transition_identity`, A1 `mp_apply_transition` | fetch → snapshot → claim → money | none |
+| `mp_cutover_boundary` (ADR-017) | MP pre-cutover exclusion | none |
+| pg_cron + pg_net + Vault pattern (0056) | scheduling of the daily report | pattern reused |
+| ADR-008 private-bucket pattern | Storage perimeter | pattern reused, new bucket |
+
+## 6. Financial import evidence model
+
+Conceptual; column names are indicative, types and exact constraints are fixed at implementation.
+
+### 6.1 `fin_import_run` — one processing attempt over one stored original file
+
+| | |
+|---|---|
+| Fields | `id`; `source_kind` (`BANK_CSV` \| `MP_RELEASE_REPORT`); `mode` (`NORMAL` \| `VALIDATION`); `financial_account_id`; `format_code` (NULL when no business format was recognised); `parser_version` (**NOT NULL**); `file_sha256`; `storage_path`; `file_name`; `byte_size`; `coverage_from` / `coverage_to`; `status` (`PARSED` \| `VALIDATED` \| `REJECTED`); `reject_reason`; counters (rows total / new / already known / ignored / invalid / captured); `previous_run_id`; MP metadata (report request id, report type) when `source_kind = 'MP_RELEASE_REPORT'`; `created_by` (NULL for the scheduler); `created_at` |
+| PK | `id` |
+| UNIQUE | `(financial_account_id, file_sha256)` among runs with `mode = 'NORMAL'` and `status <> 'REJECTED'`; `(financial_account_id, file_sha256, mode, parser_version)` for all runs |
+| FK | `financial_account`; `perfiles`; `previous_run_id` → `fin_import_run` (must have the same account and `file_sha256`, and be `REJECTED` or `VALIDATED`) |
+| Status by mode | `NORMAL` → `PARSED` \| `REJECTED`; `VALIDATION` → `VALIDATED` \| `REJECTED` |
+| Represents | proof of which exact bytes were received for which account, and every attempt to process them: by whom, when, and with which parser version |
+
+**`parser_version` is always NOT NULL.**
+- Every `fin_import_run` records the version of the component that made the attempt, including when no business format was recognised.
+- In that case the run records a stable version of the detector/importer that performed the attempt.
+- The concrete detector/adapter names and versions are fixed when each adapter is implemented; this ADR freezes only the rule that the attempt's version is never NULL.
+- `format_code` may be NULL when the format was not recognised; `parser_version` may not.
+- The attempt idempotency `(financial_account_id, file_sha256, mode, parser_version)` depends on this rule: a NULL version would make repeated attempts indistinguishable from new ones.
+
+**Reprocess (rejected or validation run).**
+- An ADMIN may explicitly request a new run over the same stored bytes when every existing run for `(financial_account_id, file_sha256)` is `REJECTED` or `VALIDATED`.
+- The new run reuses the same `storage_path`, re-verifies the sha256 of the stored object, and records `previous_run_id`, the new `parser_version`, `created_by` and `created_at`.
+- The previous run is never modified.
+- A run `PARSED` in `NORMAL` mode is never reprocessed through the normal flow.
+- Repeating a request with an already-attempted `(mode, parser_version)` returns the existing run.
+
+### 6.2 `fin_statement_line` — one unique bank fact (immutable)
+
+| | |
+|---|---|
+| Fields | `id`; `financial_account_id`; `value_date`; `signed_amount`; `description_raw`; `description_norm`; `bank_reference` (if the format carries one); `running_balance` (if the format carries one); `fingerprint`; `first_run_id` (informative only); `created_at`. No cutover attribute is stored on the line (§6.6). |
+| PK | `id` |
+| UNIQUE | `(financial_account_id, fingerprint)` |
+| FK | `financial_account`; `first_run_id` → `fin_import_run` |
+| Represents | the economic fact as reported by the bank, once, regardless of how many files contain it |
+
+**The fingerprint formula is TBD.** It is frozen per format only after real files (§21 G-1, G-2) show which fields are stable across overlapping exports, whether a reference and a running balance exist, and how identical rows (same date, amount and description) appear. No candidate (including an ordinal among identical rows) is adopted by this ADR.
+
+MP report rows do **not** produce `fin_statement_line`; their fact is `mp_source_record`, and MP reconciliation stays in `mp_reconciliation` / `mp_report_match`.
+
+### 6.3 `fin_import_run_line` — one row's appearance in one run
+
+| | |
+|---|---|
+| Fields | `run_id`; `row_number`; `raw_row` (exact row content); `outcome` (`NEW` \| `ALREADY_KNOWN` \| `IGNORED` \| `INVALID` \| `CAPTURED`); `note`; `statement_line_id` (nullable); `mp_source_record_id` (nullable) |
+| PK | `(run_id, row_number)` |
+| FK | `fin_import_run`; `fin_statement_line`; `mp_source_record` |
+| Destination rule | `NEW` / `ALREADY_KNOWN` → exactly one normalized destination, matching the run's `source_kind` (`BANK_CSV` → `statement_line_id`; `MP_RELEASE_REPORT` → `mp_source_record_id`). `INVALID` → no destination required. `IGNORED` → destination present or absent according to the cause, recorded in `note`. `CAPTURED` (only in `VALIDATION` runs) → **no destination**. Never both destinations. |
+| Represents | which file contained which row, verbatim. `run_id + row_number + raw_row` is always preserved, whatever the outcome or mode. |
+
+### 6.4 `fin_statement_match` — manual, append-only bank reconciliation
+
+| | |
+|---|---|
+| Fields | `id`; `statement_line_id`; `financial_operation_id`; `financial_posting_id`; `matched_by`; `matched_at`; `reason`; `reversed_by`; `reversed_at`; `reverse_reason` (the three reversal fields all NULL or all set) |
+| PK | `id` |
+| UNIQUE | one active (not reversed) match per `statement_line_id`; one active match per `financial_posting_id` |
+| FK | `fin_statement_line`; `financial_operation`; `financial_posting`; `perfiles` |
+| Represents | the full reconciliation history; rows are never deleted |
+
+### 6.5 Overlapping statements (normative example)
+
+Statement A (01–10 Oct) and statement B (01 Oct–01 Nov) both contain movement X:
+- runs: 2 (`fin_import_run` A, B — different bytes);
+- facts: **1** `fin_statement_line` X;
+- appearances: **2** `fin_import_run_line` (A: `NEW`, B: `ALREADY_KNOWN`), both pointing to X.
+
+Storing only `first_run_id` is insufficient and is not the evidence model.
+
+### 6.6 `fin_statement_cutover` — owner decision fixing the opening cut of one bank account
+
+Whether a bank line was absorbed by the opening balance is a property of **our cutover**, not of the bank movement; it is therefore never stored on `fin_statement_line`.
+
+| | |
+|---|---|
+| Fields | `id`; `financial_account_id`; `opening_balance`; `cutoff_statement_line_id` (the last bank line absorbed by the opening balance); `resolved_by`; `resolved_at`; `evidence_note`; supersession fields (`superseded_by`, `superseded_at`, `supersede_reason`) |
+| PK | `id` |
+| UNIQUE | one active (not superseded) row per `financial_account_id` |
+| FK | `financial_account`; `cutoff_statement_line_id` → `fin_statement_line` (must belong to the same `financial_account_id`); `perfiles` |
+| Rules | written by ADMIN through a dedicated, audited function (`audit_events`), recording the owner decision and its evidence; never edited in place (a correction supersedes the active row); `cutover_at` 2026-10-04 19:00 -03:00 is **not** assumed to be the bank cut; known opening balances: BNA 335 713, Patagonia 1 994 |
+| Represents | the evidence-backed anchor separating lines included in the opening balance from lines the target must reconcile |
+
+**Derived classification** (view/query; never mutates `fin_statement_line`):
+
+| Condition | Classification |
+|---|---|
+| no active `fin_statement_cutover` for the account | `CUTOVER_UNRESOLVED` |
+| line is the anchor or before it, per the adapter's frozen ordering rule | `PRE_CUTOVER` |
+| line is after the anchor, per the same rule | `POST_CUTOVER` |
+
+**The ordering rule is TBD.** How a line is placed before or after `cutoff_statement_line_id` (row order, date, bank reference, running balance, sequence or another identifier) is frozen per adapter only after the real-file evidence of G-1 / G-2. This ADR adopts no ordering algorithm.
+
+## 7. Bank statement ingestion
+
+1. ADMIN selects a `BANK_ACCOUNT` and a file in Tesorería; the browser sends account + original bytes to the bank-import Edge Function.
+2. The Edge Function verifies the caller is an active ADMIN (fails `FORBIDDEN` otherwise).
+3. It computes `file_sha256` over the exact bytes and stores them in `financial-statements` with the service role, under a path derived from account and hash.
+4. It runs the detector/importer registered for that account's bank, which yields a non-null `parser_version` in every case, and a `format_code` only when a business format is recognised. Unknown or malformed → see step 5.
+5. It parses rows to canonical fields and calls **one** DB function (service role) that, in a single transaction:
+   - re-verifies the initiating ADMIN identity passed by the Edge Function;
+   - refuses a NULL `parser_version`;
+   - if a `NORMAL` run for `(financial_account_id, file_sha256)` that is not `REJECTED` already exists → returns it; writes nothing;
+   - if a run with the same `(financial_account_id, file_sha256, mode, parser_version)` exists → returns it; writes nothing;
+   - if no business format is recognised → creates a `REJECTED` run with `format_code` NULL, the detector's `parser_version` and `reject_reason`; no line is created;
+   - otherwise creates the run (`PARSED`), and for each row computes the fingerprint (DB-side, per the frozen per-format formula) and:
+     - fingerprint known for the account → appearance `ALREADY_KNOWN` → existing line;
+     - unknown → new `fin_statement_line` + appearance `NEW`;
+     - unparseable row → appearance `INVALID` with `raw_row`, no line;
+   - sets the counters. No cutover attribute is computed or stored (§6.6).
+6. The response reports counters. Import does **not** depend on the account's cut (G-3): lines may be imported while the account is `CUTOVER_UNRESOLVED`. Lines whose derived classification is `POST_CUTOVER` and that have no active match are **pending reconciliation**.
+7. Reprocess: the ADMIN selects a `REJECTED` (or `VALIDATED`) run and requests a reprocess. The Edge Function reads the stored object, re-verifies its sha256, and invokes step 5 with the current `parser_version` and `previous_run_id`. The original upload is not repeated.
+
+Distinctions:
+
+| Concept | Identity | Effect of repetition |
+|---|---|---|
+| File hash | `(financial_account_id, file_sha256)` | same file again after a `PARSED` run → same run, nothing new |
+| Processing attempt | `(financial_account_id, file_sha256, mode, parser_version)`, `parser_version` NOT NULL | same attempt again → same run |
+| Reprocess | new run with `previous_run_id` | allowed only over `REJECTED` / `VALIDATED` runs, by explicit ADMIN request |
+| Line fingerprint | `(financial_account_id, fingerprint)` | same movement in another file → new appearance, same fact |
+
+**No bank adapter (parser + fingerprint) is implemented before the real-file evidence for that bank is frozen (§21).**
+
+## 8. Bank reconciliation
+
+- Cardinality: **1 `fin_statement_line` ↔ 1 active `financial_posting`.**
+- Integrity (enforced by the DB function):
+  - the posting belongs to the chosen `financial_operation`;
+  - the posting's `financial_account_id` equals the line's;
+  - `posting.signed_amount = line.signed_amount` exactly;
+  - the account has an active `fin_statement_cutover` and the line's derived classification is `POST_CUTOVER` (`PRE_CUTOVER` and `CUTOVER_UNRESOLVED` lines are not reconcilable);
+  - neither the line nor the posting has another active match.
+- Dates are **not** an integrity rule. The UI may propose candidates within a date window; that window is a search aid only.
+- Reversal: ADMIN, with mandatory reason; sets the reversal fields; the line becomes pending again. Nothing is deleted; the original line is never mutated.
+- A line with no existing operation stays pending. This ADR creates no operation from a bank line; any operation is registered through the existing RPCs (transfer, cheques, supplier payment, `register_bank_tax`, …) and then matched.
+
+## 9. Mercado Pago completeness flow
+
+### 9.1 Flow (NORMAL mode, only after G-4)
+
+1. The scheduler invokes the MP report-ingest Edge Function daily for the previous Buenos Aires day.
+2. It requests/downloads the official Liberaciones report, stores the bytes in `financial-statements`, and creates `fin_import_run` (`MP_RELEASE_REPORT`, `mode = 'NORMAL'`, hash, coverage, non-null `parser_version`). If a non-rejected `NORMAL` run with the same hash exists for the MP account → no-op. If the same bytes were previously captured in `VALIDATION` mode, the new run links to it through `previous_run_id`.
+3. Each row is inserted as `mp_source_record` `csv_import` (existing uniqueness deduplicates overlaps) and recorded as `fin_import_run_line` (`NEW` / `ALREADY_KNOWN`).
+4. RPC 40 processes each row with its **current** logic (unchanged).
+5. For each row that is `DESCRIPTION = 'payment'`, **inbound** (direction C in the `SOURCE_ID:DESCRIPTION:direction` identity), with a valid numeric `SOURCE_ID`, not IGNORED by ADR-017, and whose `('payment', SOURCE_ID, 'APPROVAL', '')` is **not yet claimed**, the ingest calls the new service-role back-fill function, which registers one `mp_webhook_delivery` with `origin = 'report_backfill'`, `report_source_id` = that row, and a deterministic key per `SOURCE_ID`.
+6. The worker fetches `GET /v1/payments/{SOURCE_ID}` → S4 `api_payment` snapshot → RPC 40 → `mp_transition_identity` → A1 `mp_apply_transition` → `financial_operation` + `financial_posting` + `mp_reconciliation`. Unchanged.
+
+### 9.2 Cases
+
+| Case | Behaviour |
+|---|---|
+| APPROVAL already claimed (webhook/API first) | no back-fill; report row stays `DEFERRED_V4` as evidence; no effect |
+| GET fails temporarily | normal worker retry policy |
+| GET fails permanently (404, foreign collector, …) | delivery `FAILED_PERMANENT`; exception visible (§15); **no report fallback** |
+| Pre-cutover payment | the API snapshot's `date_approved < cutover_at` → IGNORED by ADR-017; a row with report `DATE` < `cutover_at` is already IGNORED and never back-filled |
+| Outbound payment (direction D) | parked `DEFERRED_V4`; no back-fill |
+| `SOURCE_ID` missing or not numeric | RPC 40 records ERROR (identity); no back-fill; review |
+| Unknown `DESCRIPTION` | RPC 40 records `ERROR UNKNOWN_DESCRIPTION`; fail closed; review |
+| `yield` | current REPORT_ONLY behaviour, unchanged |
+| `payout` | current behaviour, never auto-posted, unchanged |
+
+### 9.3 MP report validation mode and rollout
+
+**Validation mode** (`fin_import_run.mode = 'VALIDATION'`) implements CAPTURE EVIDENCE → VERIFY → CHANGE. It:
+- downloads/captures the real official report;
+- keeps the original bytes in `financial-statements` and records the hash;
+- validates format and parser, producing a `VALIDATED` or `REJECTED` run with a non-null `parser_version`;
+- records every row as `fin_import_run_line` `CAPTURED` (or `INVALID`) with its exact `raw_row`, so `DESCRIPTION` values and structure can be inspected.
+
+Validation mode does **not**:
+- insert `mp_source_record`;
+- execute RPC 40;
+- normalize movements;
+- enqueue back-fills;
+- claim any transition;
+- create `financial_operation` or `financial_posting`;
+- produce any financial effect.
+
+It is invoked on demand only (never by the scheduler).
+
+**Rollout:**
+1. Capture one real report in validation mode.
+2. The owner reviews the observed `DESCRIPTION` values and the structure against the current parser.
+3. Only after the owner's GO:
+   - that same report may be processed in `NORMAL` mode (a new run over the stored bytes, `previous_run_id` = the validation run, no re-download);
+   - the production scheduler may be enabled.
+
+## 10. ADR-006 amendment (minimal)
+
+| Clause | Current text / state | Amended by ADR-018 |
+|---|---|---|
+| ADR-006 §8 "Flow" step 4 | RPC 40 enqueues the back-fill for an inbound unclaimed payment row | The back-fill is enqueued by the **report ingestion** through a **new function callable only by `service_role`**. RPC 40 is not modified and keeps parking payment rows `DEFERRED_V4`. |
+| ADR006_IMPLEMENTATION_ORDER_V1, V-4 gate row ("back-fill" listed as gated) and step 19 ("inbound-only back-fill") | back-fill opens only with V-4 | **Only** the back-fill of **inbound** report `payment` rows is enabled outside V-4. It creates no money: it only requests the API snapshot. |
+
+Still gated by V-4 (unchanged):
+- `mp_normalize_report_fallback` for payment rows;
+- the report ↔ API payment match (MATCHED / DISCREPANCY for payments);
+- MISSING_IN_REPORT for payments;
+- any money created directly from a report `payment` row.
+
+`mp_v4_verified()` stays false; V-4 is not enabled by this ADR.
+
+`mp_register_delivery` is **not** widened to accept `report_backfill`; a dedicated function is used so the origin, the `report_source_id` link, the inbound check and the "not yet claimed" check live in one place.
+
+Safety argument: the back-fill only produces an `api_payment` snapshot; the transition is claimed once in `mp_transition_identity` (first claimant wins), so a report-triggered fetch can never duplicate a webhook-triggered one.
+
+## 11. Security and permissions
+
+- Upload statements, request a reprocess, and capture an MP report in validation mode: **ADMIN only**. Reconcile / reverse: **ADMIN only**. Register / supersede a bank cut (`fin_statement_cutover`): **ADMIN only**, audited. OPERATOR: no change, no new grant, no read access to the new tables or bucket.
+- Authorization is checked twice: in the Edge Function, and again in the DB function that performs the sensitive write.
+- New DB functions are `SECURITY DEFINER`, owned by `postgres`, `REVOKE ALL FROM PUBLIC, anon`; the import and back-fill functions are granted to `service_role` only; the reconciliation functions to `authenticated` and refuse non-ADMIN.
+- Tables: RLS enabled; SELECT for ADMIN; no direct INSERT/UPDATE/DELETE for any API role; writes only through the functions.
+- Bucket `financial-statements`: private; **no INSERT/UPDATE/DELETE policy for `authenticated`**; writes by `service_role` only; ADMIN reads via signed URL. Separate from ADR-008's `purchase-attachments`.
+- The MP access token and the scheduler invoke secret stay in Edge Function secrets / Vault, as in 0056; never in migrations, git or logs.
+
+## 12. Idempotency
+
+| Level | Key | Guarantee |
+|---|---|---|
+| File | `(financial_account_id, file_sha256)` among non-rejected `NORMAL` runs | the same bytes are effectively processed at most once; a `PARSED` run is never reprocessed |
+| Attempt | `(financial_account_id, file_sha256, mode, parser_version)`, with `parser_version` NOT NULL (also for unrecognised formats) | repeating the same attempt returns the existing run |
+| Reprocess | `previous_run_id` → `REJECTED` / `VALIDATED` run of the same hash | explicit, ADMIN-initiated, auditable; previous runs untouched |
+| Bank fact | `(financial_account_id, fingerprint)` | overlapping files never duplicate a fact |
+| Appearance | `(run_id, row_number)` | each row of each run recorded once |
+| MP report row | `mp_source_record (source_type, external_id)` | unchanged |
+| MP back-fill | deterministic delivery key per `SOURCE_ID` + "APPROVAL not claimed" check | at most one back-fill request per payment |
+| MP money | `mp_transition_identity` + `financial_operation.external_ref` | unchanged; first claimant wins |
+| Reconciliation | one active match per line and per posting | no double reconciliation |
+
+## 13. Evidence retention and immutability
+
+- Original bytes are kept in `financial-statements` for the life of the system; the normal flow never deletes them. A reprocess reuses the stored object and never overwrites it.
+- Every `fin_import_run` is immutable once its transaction commits, including `REJECTED` and `VALIDATED` runs. `fin_import_run_line` and `fin_statement_line` are immutable after their import transaction (guard triggers, following `mp_source_record`).
+- The history of attempts over the same bytes is the chain of `previous_run_id`.
+- `fin_statement_match` is append-only; only the reversal fields may be set, once.
+- `fin_statement_cutover` is never edited in place; a correction supersedes the active row, and both remain.
+- No cutover decision, before or after it is taken, mutates `fin_statement_line`.
+
+## 14. Cutover rules
+
+- **MP:** unchanged; `mp_cutover_boundary` (ADR-017) is the only authority.
+- **Banks:** `cutover_at` (2026-10-04 19:00 -03:00) is **not** assumed to define which bank lines are included in the opening balances. The per-account bank cut is resolved from the statements used to build the opening balances (BNA 335 713; Patagonia 1 994), identifying the last line included in each, recorded as `fin_statement_cutover.cutoff_statement_line_id` (§6.6).
+- The cut does **not** gate import: statements may be imported as evidence first, precisely to identify that last line.
+- Until the cut of an account is resolved (§21 G-3), its lines are `CUTOVER_UNRESOLVED` and **not reconcilable**. Once resolved, the derived classification (`PRE_CUTOVER` / `POST_CUTOVER`) follows the adapter's frozen ordering rule (G-1 / G-2); only `POST_CUTOVER` lines are reconcilable.
+
+## 15. Observability
+
+Read-only views/queries (no change to the MP state machine):
+- runs by account, mode and status, with counters, reject reasons, parser version and the `previous_run_id` chain;
+- bank lines by account and derived cutover classification (`CUTOVER_UNRESOLVED` / `PRE_CUTOVER` / `POST_CUTOVER`), and pending (`POST_CUTOVER`, unmatched) lines by age;
+- the active `fin_statement_cutover` per account and its supersession history;
+- bank statement closing balance (when the format carries one) vs Σ postings on the account (information, not a rule);
+- MP report payment coverage, classifying each inbound report `payment` row:
+
+| Report row | Condition | Classification |
+|---|---|---|
+| `DEFERRED_V4` | APPROVAL claimed (webhook or back-fill) | **COVERED** (OK) |
+| `DEFERRED_V4` | not claimed, back-fill pending/retrying | **IN_PROGRESS** |
+| `DEFERRED_V4` | not claimed, back-fill `FAILED_PERMANENT` | **EXCEPTION** |
+| `IGNORED` (ADR-017) | — | **PRE_CUTOVER** |
+| `ERROR` | — | **EXCEPTION** |
+
+`DEFERRED_V4` by itself is **not** an operational error.
+
+## 16. Invariants
+
+1. Importing a **bank** statement never creates money.
+2. A Mercado Pago report `payment` row never creates payment money directly in this phase; payment money is created only from `api_payment`.
+3. Non-payment MP report classes (`yield`, `payout`) keep exactly their existing semantics; this ADR adds no effect to them and removes none.
+4. A bank statement line is evidence, not an accounting operation.
+5. No report payment fallback while V-4 is false (`mp_v4_verified()` stays false).
+6. Original files are immutable evidence.
+7. Re-importing the same file is idempotent.
+8. Overlapping statements preserve multiple appearances without duplicating the economic fact.
+9. Bank reconciliation does not mutate the original line.
+10. Reconciliation history is not deleted.
+11. OPERATOR receives no new financial permissions.
+12. Unknown formats/descriptions fail closed.
+13. No implementation of a bank adapter before real-file evidence is frozen.
+14. Line identity is computed server-side; the browser is never an authority for parsing or identity.
+15. A match links a line to exactly one posting of the same account with an exactly equal signed amount.
+16. RPC 40 and `mp_register_delivery` are unchanged by this ADR.
+17. A run in `VALIDATION` mode produces no `mp_source_record`, no RPC 40 execution, no back-fill, no claim, no operation, no posting and no other financial effect.
+18. A `REJECTED` or `VALIDATED` run is never modified; a reprocess creates a new run over the same stored bytes, and a `NORMAL` `PARSED` run is never reprocessed.
+19. Every `fin_import_run` has a non-null `parser_version`, including runs where no business format was recognised (`format_code` NULL); attempt idempotency depends on it.
+20. Whether a bank line is pre- or post-cutover is never stored on `fin_statement_line`; it is derived from the account's active `fin_statement_cutover` and the adapter's frozen ordering rule.
+21. Only `POST_CUTOVER` lines are reconcilable; `PRE_CUTOVER` and `CUTOVER_UNRESOLVED` lines are not. An unresolved cut never blocks import.
+22. `fin_statement_cutover.cutoff_statement_line_id` belongs to the same `financial_account`; at most one active cut per account; cut decisions are audited and superseded, never edited.
+
+## 17. Failure handling (fail closed)
+
+| Failure | Behaviour |
+|---|---|
+| caller not ADMIN | `FORBIDDEN`; nothing stored |
+| unknown bank format / header mismatch | run `REJECTED` with reason, `format_code` NULL and the detector's non-null `parser_version`; bytes kept; no lines; reprocessable when a compatible parser exists |
+| `parser_version` missing | refused; no run written |
+| single row unparseable | appearance `INVALID` with `raw_row`; other rows proceed; the run surfaces the count |
+| file for the wrong bank (format not registered for the account's bank) | `REJECTED` |
+| DB function fails mid-import | the whole transaction rolls back (no run, lines or appearances); stored bytes are re-used on retry (same hash path) |
+| reprocess requested over a `PARSED` `NORMAL` run | refused (`ALREADY_PROCESSED`) |
+| reprocess: stored object's sha256 differs from the run's | refused (`EVIDENCE_INTEGRITY`); nothing written; escalated |
+| reprocess with an already-attempted `(mode, parser_version)` | returns the existing run |
+| bank cut unresolved for the account | import allowed as evidence; lines `CUTOVER_UNRESOLVED`; reconciliation refused (`CUTOVER_UNRESOLVED`) |
+| reconciliation of a `PRE_CUTOVER` line | refused (`PRE_CUTOVER_LINE`) |
+| cut anchor on a line of another account, or a second active cut for the account | refused; nothing written |
+| MP report download fails | no run; retried on next schedule; surfaced in health |
+| unknown MP `DESCRIPTION` / missing `SOURCE_ID` | RPC 40 ERROR; no back-fill; review |
+| MP back-fill permanent failure | `FAILED_PERMANENT`; EXCEPTION in §15; no fallback |
+| reconciliation integrity violation (account, amount, operation, duplicate active match) | refused with a specific error; nothing written |
+
+## 18. Explicit non-goals
+
+- V-4 enablement; `mp_v4_verified()` stays false.
+- Account Money report (V-3).
+- Report fallback for payment rows.
+- N:M reconciliation.
+- Automatic rules for bank tax, fees or commissions.
+- Automatic creation of `financial_operation` from bank lines.
+- Smart/automatic matching.
+- Retiring or disabling the webhook.
+- Any change to `yield` / `payout` semantics.
+- Redesign of Tesorería.
+
+## 19. Conceptual implementation dependency order
+
+```
+ADR-018 ACCEPTED
+ → core evidence model (fin_import_run, fin_import_run_line, fin_statement_line, fin_statement_match, fin_statement_cutover + immutability guards)
+ → security & storage (RLS, grants, bucket financial-statements)
+ ├→ bank branch: per bank, after its G-1/G-2 evidence is frozen (format, fingerprint, ordering rule)
+ │    → bank import DB function + Edge Function (detector/parser, versioned) + reprocess   [not gated by G-3]
+ │    → cutover classification view + cut-registration function
+ │    → G-3 per account: owner registers fin_statement_cutover from the imported evidence
+ │    → reconciliation functions (POST_CUTOVER only) + health views
+ │    → UI: Tesorería "Extractos" (upload, runs, reprocess, pending lines, match/reverse)
+ └→ MP branch: report-ingest Edge Function (VALIDATION mode first)
+      → G-4 validation run on one real report, owner GO
+      → NORMAL mode + back-fill function (service role) + coverage view → scheduler
+ → validation (§20) → owner GO per branch
+```
+
+Migration numbers are assigned at implementation; no step modifies an applied migration.
+
+## 20. Validation requirements
+
+- Offline/test-branch tests for each invariant in §16, including:
+  - the same file twice → one run;
+  - overlapping files → one fact, two appearances;
+  - an `INVALID` row keeps `raw_row` and has no destination;
+  - a non-ADMIN caller is refused at the Edge Function and at the DB function;
+  - OPERATOR has no access to the tables or the bucket;
+  - a match is refused on a wrong account, an unequal amount, a posting outside the chosen operation, or a second active match;
+  - reversal keeps the history.
+- Bank cut:
+  - an import into an account without a cut succeeds and its lines read `CUTOVER_UNRESOLVED`;
+  - reconciliation of `CUTOVER_UNRESOLVED` and `PRE_CUTOVER` lines is refused;
+  - registering or superseding a cut changes no `fin_statement_line` row;
+  - a cut anchored on another account's line, or a second active cut, is refused;
+  - the cut decision is audited.
+- Attempt identity:
+  - a run without `parser_version` is refused;
+  - an unrecognised file is recorded `REJECTED` with `format_code` NULL and a non-null `parser_version`;
+  - repeating that attempt returns the same run.
+- Reprocess:
+  - a `REJECTED` run followed by a new parser version → a new run with `previous_run_id`; the rejected run is unchanged and the lines are created once;
+  - a repeated reprocess with the same parser version → the same run;
+  - a reprocess over a `PARSED` run → refused;
+  - a tampered stored object → `EVIDENCE_INTEGRITY`.
+- MP:
+  - an inbound unclaimed payment row → exactly one `report_backfill` delivery;
+  - already claimed → none; outbound → none; pre-cutover → none;
+  - repeated ingestion → no new delivery;
+  - a permanent failure → EXCEPTION, no money;
+  - `mp_v4_verified()` remains false.
+- MP validation mode:
+  - after a validation run there are zero new rows (counted before and after) in `mp_source_record`, `mp_webhook_delivery`, `mp_transition_identity`, `mp_financial_movement`, `financial_operation` and `financial_posting`;
+  - `CAPTURED` lines carry `raw_row`;
+  - a later `NORMAL` run over the same bytes links to it through `previous_run_id`.
+- Per bank: parser and fingerprint tested on the sanitized real files of G-1/G-2, including the overlap case.
+- Production: read-only verification first; writes only with the owner's GO.
+
+## 21. STOP / rollout gates
+
+| Gate | Blocks | Evidence required |
+|---|---|---|
+| **G-1 BNA files** | BNA `format_code`, parser, fingerprint, use of `bank_reference` / `running_balance`, identical-row rule, ordering rule for the cutover classification | original BNA exports, ideally two overlapping periods |
+| **G-2 Patagonia files** | the same for Patagonia | same |
+| **G-3 Bank cut per account** | the `fin_statement_cutover` decision and, therefore, `PRE_CUTOVER` / `POST_CUTOVER` classification and reconciliation for that account. **Does not block import.** | the statements used for the opening balances (imported as evidence) and the last line included in each (BNA 335 713, Patagonia 1 994); owner decision |
+| **G-4 MP report rollout** | `NORMAL` processing of MP reports and the production scheduler | one real official report captured in **validation mode** (§9.3) with zero financial effect verified; observed `DESCRIPTION` values and structure confirmed against the parser; owner GO |
+
+This ADR is accepted with these gates open; only the dependent parts are blocked.
+
+## 22. Consequences / tradeoffs
+
+- **Positive:** MP completeness without trusting report amounts for payments; bank evidence with full lineage; no change to frozen money paths; overlap-safe, idempotent ingestion; rejected files recoverable without losing their history.
+- **Cost:** report `payment` rows remain `DEFERRED_V4` indefinitely; completeness is read from the coverage view, not from `mp_report_match`, until V-4.
+- **Cost:** reconciliation is manual and 1:1; combined debits (one bank line for several operations) stay pending until N:M is decided.
+- **Cost:** a run is an attempt, not a file; the file's identity is the hash plus its `previous_run_id` chain. Two columns (`mode`, `previous_run_id`) avoid a separate file/attempt table.
+- **Risk:** bank CSV formats may change. This is mitigated by the non-null `parser_version`, fail-closed validation, reprocess and the preserved original bytes.
+- **Growth:** the RPC inventory and the SECURITY DEFINER set both grow; this ADR declares the growth explicitly.
+
+---
+
+## Compatibility verification
+
+**Real conflicts amended explicitly by this ADR:**
+- ADR-006 §8 step 4: the enqueuer of the back-fill changes from RPC 40 to the report ingestion via a new service-role function (§10).
+- ADR006_IMPLEMENTATION_ORDER_V1, V-4 gate row and step 19: the inbound report-payment back-fill moves outside V-4. Fallback, the payment match and payment MISSING_IN_REPORT stay gated (§10).
+- RPC_CONTRACTS_V1 (inventory 52) and the SECURITY DEFINER set (69): they grow by the new functions, declared as with ADR-011 … ADR-016.
+
+**Compatible without change:**
+- **ADR-006:** all other clauses, including §5.1 atomic application (payout is never auto-applied), §6 real-time flow, §7 idempotency, §8 steps 1–3 and 5–7, and `yield` REPORT_ONLY.
+- **ADR-003:** Liberaciones remains the only report layout; D1 parser unchanged.
+- **ADR-008:** `purchase-attachments` is untouched; the new bucket has its own perimeter.
+- **ADR-011:** `register_bank_tax` is unchanged; bank-tax lines are reconciled against its operations, never auto-created.
+- **ADR-017:** `mp_cutover_boundary` is the only MP authority; RPC 40's guard is unchanged; validation mode inserts no `mp_source_record`, so the guard is not exercised; banks do not reuse `cutover_at` as their cut.
+- **ADR006_V4_DIRECTION_CORRECTION:** back-fill is restricted to inbound rows; outbound rows never back-fill.
