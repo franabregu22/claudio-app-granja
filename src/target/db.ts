@@ -31,6 +31,7 @@ export const TARGET_READ_TABLES = [
   'mp_client_allocation', 'mp_payer_client_map', 'mp_webhook_delivery',
   'collections', 'management_event', 'fiscal_payment',
   'financial_operation', 'financial_posting', 'bank_tax_charge',   // Phase 27 acceptance fixes: transfer history (D-WALK-2) + ADR-011
+  'fin_statement_account_config', 'fin_import_run',   // ADR-018 bank statement import (ADMIN policy; config read as account ids only)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 

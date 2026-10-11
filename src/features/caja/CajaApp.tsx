@@ -4,14 +4,16 @@ import { Cheques } from './Cheques';
 import { Compras } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
 import { ResumenSaldos } from './ResumenSaldos';
+import { ExtractosBancarios } from './ExtractosBancarios';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 
-type Vista = 'saldos' | 'pagar' | 'compras' | 'instrumentos';
+type Vista = 'saldos' | 'pagar' | 'compras' | 'instrumentos' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'saldos', label: 'Saldos' },
   { id: 'pagar', label: 'Cuentas a pagar' },
   { id: 'compras', label: 'Compras y fletes' },
   { id: 'instrumentos', label: 'Cheques' },
+  { id: 'extractos', label: 'Extractos bancarios' },
 ];
 
 /**
@@ -63,6 +65,7 @@ export function CajaApp() {
           {vista === 'pagar' && <CuentasAPagar />}
           {vista === 'compras' && <Compras />}
           {vista === 'instrumentos' && <Cheques />}
+          {vista === 'extractos' && <ExtractosBancarios />}
         </div>
         {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}
       </div>
