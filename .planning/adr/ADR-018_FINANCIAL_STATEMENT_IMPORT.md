@@ -5,6 +5,7 @@
 **AMENDED:** 2026-10-10 (owner decision) — G-1 (BNA) and G-2 (Patagonia) CLOSED on real official statements; adapters `BNA_MONTHLY_PDF_V1` and `PATAGONIA_STATEMENT_PDF_V1` frozen (§7.2, §7.3).
 **AMENDED:** 2026-10-10 (owner decision) — `fin_statement_line.running_balance` and `fin_statement_cutover.opening_balance` declared external bank / cutover evidence and the only two exact exceptions to the DATABASE_INVARIANTS_V1 "no stored balance" textual check (Compatibility verification).
 **AMENDED:** 2026-10-11 (owner decision) — the exception is extended to exactly four pairs, adding the untransformed projections `fin_statement_line_status.running_balance` / `.opening_balance`; read-model state `CUTOVER_AMBIGUOUS_DAY` documented (§6.6).
+**AMENDED:** 2026-10-11 (owner decision) — invariant: every active `fin_statement_match` refers to a `POST_CUTOVER` line under the account's active cut; resolving or superseding a cut that would break it fails atomically, with no automatic reversal (§6.6, §8, §14, §16 #24, §17).
 **RAISED BY:** post-cutover gap (2026-10-04 ~20:36): a real transfer to the MP alias/CVU never reached the webhook, and the target has no report channel (L-1 removed the legacy `sync-mercadopago-releases` / `upload-settlement-csv`). Separately, the target has no way to ingest bank statements (BNA, Patagonia).
 **NEW SCOPE (owner decision):** "Importación y conciliación de extractos financieros" is part of the ERP.
 
@@ -186,6 +187,8 @@ Whether a bank line was absorbed by the opening balance is a property of **our c
 
 **Read-model states (owner decision, 2026-10-11).** The status view `fin_statement_line_status` exposes exactly these four states. `CUTOVER_AMBIGUOUS_DAY` is **not reconcilable**: it mirrors the write model, where `fin_match_statement_line` refuses the same case (`CUTOVER_AMBIGUOUS_DAY`); it never counts as `POST_CUTOVER` and does not change any write rule. Only `POST_CUTOVER` is reconcilable. Structurally impossible or indeterminate states (order data missing, account without configuration) are reported as NULL — fail closed, never as `POST_CUTOVER` — and the write model refuses them as well.
 
+**Active matches and cut changes (owner decision, 2026-10-11).** Every active `fin_statement_match` must refer to a statement line that is `POST_CUTOVER` under the active cutover for its financial account. Resolving or superseding a cut is evaluated against the **proposed** anchor: if any line of the account with an active match (not reversed) would not be exactly `POST_CUTOVER` under it — `PRE_CUTOVER`, `CUTOVER_AMBIGUOUS_DAY`, unresolved or indeterminate — the whole operation is refused (`CUTOVER_ACTIVE_MATCH_CONFLICT`) and nothing is written: no partial supersession, no automatic reversal, no history edit. The same check applies to a first cut. The ADMIN reverses the affected matches first, changes the cut, then reconciles again the lines that are `POST_CUTOVER` under the new cut. Reason: a `PRE_CUTOVER` line is already absorbed by the opening balance, so keeping an active match between it and a `financial_posting` would count that money twice (once in the opening balance, once through the matched posting); an ambiguous or indeterminate line cannot keep a match the write model would refuse today. Cut changes and new matches on the same account are serialised, so neither can slip past the other's check.
+
 **The ordering rule is frozen per adapter** after real-file evidence: `BNA_MONTHLY_PDF_V1` in §7.2, `PATAGONIA_STATEMENT_PDF_V1` in §7.3. For any other adapter it is TBD until its own evidence. The position data an ordering rule uses (page, physical row, chain index) lives on the appearance (`fin_import_run_line`), never on `fin_statement_line`.
 
 ## 7. Bank statement ingestion
@@ -328,6 +331,7 @@ Adapters receive these values as configuration of the selected account and conta
   - the account has an active `fin_statement_cutover` and the line's derived classification is `POST_CUTOVER` (`PRE_CUTOVER` and `CUTOVER_UNRESOLVED` lines are not reconcilable);
   - neither the line nor the posting has another active match.
 - Dates are **not** an integrity rule. The UI may propose candidates within a date window; that window is a search aid only.
+- An active match is valid only while its line is `POST_CUTOVER` under the account's active cut; a cut change that would break this is refused (§6.6), never resolved by reversing matches automatically.
 - Reversal: ADMIN, with mandatory reason; sets the reversal fields; the line becomes pending again. Nothing is deleted; the original line is never mutated.
 - A line with no existing operation stays pending. This ADR creates no operation from a bank line; any operation is registered through the existing RPCs (transfer, cheques, supplier payment, `register_bank_tax`, …) and then matched.
 
@@ -439,6 +443,7 @@ Safety argument: the back-fill only produces an `api_payment` snapshot; the tran
 - **Banks:** `cutover_at` (2026-10-04 19:00 -03:00) is **not** assumed to define which bank lines are included in the opening balances. The per-account bank cut is resolved from the statements used to build the opening balances (BNA 335 713; Patagonia 1 994), identifying the last line included in each, recorded as `fin_statement_cutover.cutoff_statement_line_id` (§6.6).
 - The cut does **not** gate import: statements may be imported as evidence first, precisely to identify that last line.
 - Until the cut of an account is resolved (§21 G-3), its lines are `CUTOVER_UNRESOLVED` and **not reconcilable**. Once resolved, the derived classification (`PRE_CUTOVER` / `POST_CUTOVER`) follows the adapter's frozen ordering rule (G-1 / G-2); only `POST_CUTOVER` lines are reconcilable.
+- Changing a resolved cut never invalidates an existing reconciliation silently: if a line with an active match would stop being `POST_CUTOVER` under the proposed anchor, the change is refused (§6.6); the matches are reversed explicitly first.
 
 ## 15. Observability
 
@@ -485,6 +490,7 @@ Read-only views/queries (no change to the MP state machine):
 21. Only `POST_CUTOVER` lines are reconcilable; `PRE_CUTOVER` and `CUTOVER_UNRESOLVED` lines are not. An unresolved cut never blocks import.
 22. `fin_statement_cutover.cutoff_statement_line_id` belongs to the same `financial_account`; at most one active cut per account; cut decisions are audited and superseded, never edited.
 23. No bank fingerprint contains a row ordinal, page or row number; two economic lines of one statement with the same fingerprint reject the run. Page, row, chain index and secondary detail are appearance metadata, never `fin_statement_line` data.
+24. Every active `fin_statement_match` refers to a statement line that is `POST_CUTOVER` under the active cutover for its financial account. Resolving or superseding a cut that would break this fails atomically (`CUTOVER_ACTIVE_MATCH_CONFLICT`); matches are never reversed automatically.
 
 ## 17. Failure handling (fail closed)
 
@@ -510,6 +516,7 @@ Read-only views/queries (no change to the MP state machine):
 | Patagonia structure not supported by V1 | run `REJECTED` |
 | Patagonia transfer detail not unambiguously associated | appearance `IGNORED` with raw detail and review warning `TRANSFER_DETAIL_UNMATCHED`; the run is not rejected for this alone |
 | bank cut would fall between same-day Patagonia movements of unverifiable order | cut resolution refused; import unaffected |
+| proposed cut (first or superseding) under which a line with an active match would not be `POST_CUTOVER` | refused (`CUTOVER_ACTIVE_MATCH_CONFLICT`); nothing written; the active cut and the matches stay as they were |
 | MP report download fails | no run; retried on next schedule; surfaced in health |
 | unknown MP `DESCRIPTION` / missing `SOURCE_ID` | RPC 40 ERROR; no back-fill; review |
 | MP back-fill permanent failure | `FAILED_PERMANENT`; EXCEPTION in §15; no fallback |
