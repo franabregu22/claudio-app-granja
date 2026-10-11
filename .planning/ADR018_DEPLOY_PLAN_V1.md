@@ -103,6 +103,22 @@ Tests:
 
 ## E. Gates
 
+**Deployment tree — historical EOL parity (Gate 1 evidence, 2026-10-11):**
+- Production historical migrations 0042 and 0046 were originally applied from CRLF bytes. Ledger: 0042 `c98b9ef24aeb…`, 0046 `0fee172d057b…`. Git stores them LF: `96e24b47a611…` / `d6b59e9e51a5…`. The other 70 historical migrations are byte-identical to Git.
+- The dedicated deployment tree must reproduce those exact bytes **solely for historical ledger verification**. Steps:
+  1. a clean clone of the deploy commit (`979641b` for this deploy) with `core.autocrlf=false`;
+  2. 0042 and 0046 converted LF→CRLF, bytes only (`\n` → `\r\n`, no other change; `git diff --ignore-cr-at-eol` empty);
+  3. not staged, not committed.
+- New migrations 0073–0077 remain byte-identical to Git, and are checked before connecting.
+- This is not a general SHA exception. The runner still requires 72/72 full sha256 equality, and any other difference aborts.
+- The production ledger is **never rewritten** to resolve an EOL difference.
+- **Gate 1 result from this tree (2026-10-11):**
+  - historical ledger 72/72 full sha256 match;
+  - 0073–0077 byte-identical to Git (`f7d8c3ddc6c3`, `f331debd7da2`, `3cc2e2894d16`, `6e7f7ece97ba`, `e1f184987be2`);
+  - dry-run pending exactly 0073 → 0077;
+  - before / after snapshot identical (0 writes).
+- Gate 1 and Gate 2 run the runner **from this tree only**: never from the habitual working tree and never from a plain LF clone (that one aborts with `LEDGER_SHA_MISMATCH` on 0042).
+
 **Common setup (owner, WSL shell, repository root; secrets typed privately, never pasted into chat):**
 ```bash
 export PGHOST=aws-0-sa-east-1.pooler.supabase.com PGPORT=5432 PGUSER=postgres.ycmkpnunhxluqqtecbyu PGDATABASE=postgres PGSSLMODE=require
@@ -152,7 +168,7 @@ SELECT 'tz', current_setting('TimeZone');
 - TZ = UTC.
 
 Also:
-- **runner dry-run (mandatory):** `$INC --dry-run`. Expected:
+- **runner dry-run (mandatory, from the deployment tree):** `$INC --dry-run`. Expected:
   - 0001…0072 `VERIFIED_APPLIED`, every sha256 verified;
   - 0073…0077 `PENDING`, in the order 0073 → 0077;
   - `DRY-RUN OK`, no SQL executed.
