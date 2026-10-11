@@ -178,6 +178,7 @@ const LATER_PHASE_TABLES = [
   'bank_tax_charge',                                                                            // ADR-011 (0062)
   'sales_session_closing',                                                                      // ADR-016 (0070)
   'mp_cutover_boundary',                                                                        // ADR-017 (0071)
+  'fin_import_run', 'fin_import_run_line', 'fin_statement_account_config', 'fin_statement_cutover', 'fin_statement_line', 'fin_statement_match', // ADR-018 (0073)
 ];
 const foundationFound = tableList.filter((t) => expectedTables.includes(t));
 check(`17 Foundation tables exist (found ${foundationFound.length})`, foundationFound.length === 17, foundationFound.join(','));
