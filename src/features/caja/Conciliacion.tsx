@@ -7,7 +7,7 @@ import { formatearFechaLocal } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from './Modal';
 import { useStatementAccounts } from './useBankStatements';
 import {
-  useAccountFormat, useAnchorCandidates, useCutovers, useMatchDetail, usePostingCandidates, useReconciliationMutations, useStatementLines,
+  useAccountFormat, useAnchorCandidates, useCutovers, useMatchDetail, useMatchedCount, usePostingCandidates, useReconciliationMutations, useStatementLines,
 } from './useReconciliation';
 
 const CLASE_ESTILO: Record<CutoverClass, string> = {
@@ -255,6 +255,7 @@ function DatosCorte({ c }: { c: CutoverRow }) {
 function CorteModal({ accountId, activo, onClose }: { accountId: string; activo: CutoverRow | null; onClose: () => void }) {
   const candidatas = useAnchorCandidates(accountId);
   const formato = useAccountFormat(accountId);
+  const conciliadas = useMatchedCount(accountId);
   const { resolveCutover } = useReconciliationMutations();
   const [ancla, setAncla] = useState<AnchorCandidate | null>(null);
   const [evidencia, setEvidencia] = useState('');
@@ -270,6 +271,12 @@ function CorteModal({ accountId, activo, onClose }: { accountId: string; activo:
         Elegí la línea del extracto hasta la cual los movimientos ya están incluidos en el saldo inicial. El saldo inicial reconocido es
         exactamente el saldo informado por el banco en esa línea.{activo ? ' El corte actual queda en el historial.' : ''}
       </p>
+      {(conciliadas.data ?? 0) > 0 && (
+        <p className="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2">
+          Esta cuenta tiene {conciliadas.data} línea(s) conciliada(s). Si el nuevo corte deja alguna dentro del saldo inicial, el sistema
+          rechazará el cambio: revertí primero esas conciliaciones.
+        </p>
+      )}
       {candidatas.isLoading ? <p className="text-sm text-gray-500">Cargando líneas...</p>
         : candidatas.error ? <Error_ e={candidatas.error} />
           : (candidatas.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay líneas con saldo informado por el banco.</p>

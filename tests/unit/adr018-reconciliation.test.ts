@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import {
-  activeCutover, canMatch, canReverse, CUTOVER_LABEL, DEFAULT_FILTERS, importe, listAnchorCandidates, listCutovers, listPostingCandidates,
+  activeCutover, canMatch, canReverse, countMatchedLines, CUTOVER_LABEL, DEFAULT_FILTERS, importe, listAnchorCandidates, listCutovers, listPostingCandidates,
   listStatementLines, matchStatementLine, RECONCILIATION_LABEL, reconciliationErrorMessage, resolveStatementCutover, reverseStatementMatch,
   searchTerm, type StatementLine,
 } from '../../src/target/bankReconciliation';
@@ -222,6 +222,36 @@ describe('ADR-018 statement cut', () => {
     expect(m('OPENING_BALANCE_MISMATCH')).toMatch(/exactamente el saldo informado por el banco/);
     expect(m('ANCHOR_WITHOUT_BALANCE')).toMatch(/no tiene saldo informado/);
     expect(m('SUPERSEDE_REASON_REQUIRED')).toMatch(/motivo del cambio/);
+  });
+});
+
+describe('ADR-018 0077: cut change vs active matches', () => {
+  const CONFLICT = 'No se puede cambiar el corte porque hay movimientos conciliados que dejarían de quedar posteriores al nuevo corte. Revertí primero esas conciliaciones.';
+  it('CUTOVER_ACTIVE_MATCH_CONFLICT from the database surfaces the agreed message (no stack, no count leak)', async () => {
+    const { client, seen } = harness({ '/rest/v1/rpc/fin_resolve_statement_cutover':
+      rpcError('CUTOVER_ACTIVE_MATCH_CONFLICT: 2 active match(es) would not remain POST_CUTOVER under the proposed cut') });
+    const err = await resolveStatementCutover(client, { accountId: 'acc', anchor: { statement_line_id: 21, running_balance: 597 }, evidenceNote: 'e',
+      hasActiveCut: true, supersedeReason: 'r' }).catch((e) => e);
+    expect(err).toBeInstanceOf(TargetDbError);
+    expect(err.code).toBe('CUTOVER_ACTIVE_MATCH_CONFLICT');
+    expect(reconciliationErrorMessage(err)).toBe(CONFLICT);
+    expect(seen).toHaveLength(1);   // a single RPC: nothing is reversed automatically
+    expect(seen[0].url.pathname).toBe('/rest/v1/rpc/fin_resolve_statement_cutover');
+  });
+  it('a refused cut change leaves the screen state to the database: re-reads only on success, no local reclassification', () => {
+    const hooks = readFileSync(resolve(__dirname, '../../src/features/caja/useReconciliation.ts'), 'utf8');
+    expect(hooks).toMatch(/resolveCutover: useMutation\(\{ mutationFn: [^}]+, onSuccess \}\)/);
+    expect(hooks).not.toMatch(/onError|onSettled|setQueryData/);
+    const ui = readFileSync(resolve(__dirname, '../../src/features/caja/Conciliacion.tsx'), 'utf8');
+    expect(ui).not.toMatch(/reverseStatementMatch|reverse\.mutate\([^)]*resolve/);   // the cut modal never reverses matches
+    expect(ui).toMatch(/onSuccess: onClose \}\)\}>/);   // the modal (and the current cut behind it) stays on error
+  });
+  it('the pre-warning counts the account lines with an active match (read model only)', async () => {
+    const { client, seen } = harness({ '/rest/v1/fin_statement_line_status': json([{ statement_line_id: 1 }, { statement_line_id: 2 }]) });
+    expect(await countMatchedLines(client, 'acc')).toBe(2);
+    const q = seen[0].url.searchParams;
+    expect([q.get('financial_account_id'), q.get('reconciliation_status'), q.get('select')]).toEqual(['eq.acc', 'eq.MATCHED', 'statement_line_id']);
+    expect(await countMatchedLines(client, '')).toBe(0);
   });
 });
 

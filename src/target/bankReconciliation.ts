@@ -187,6 +187,17 @@ export async function listAnchorCandidates(client: SupabaseClient, accountId: st
       signed_amount: Number(r.signed_amount), running_balance: Number(r.running_balance), same_day_lines: (perDay.get(r.value_date) ?? 1) - 1 }));
 }
 
+/**
+ * Lines of the account with an active match (0077: a cut change is refused if any of them would stop being
+ * POST_CUTOVER). Used only for a warning; which ones conflict is decided by the database.
+ */
+export async function countMatchedLines(client: SupabaseClient, accountId: string): Promise<number> {
+  if (!accountId) return 0;
+  const rows = await readView<{ statement_line_id: number }>(client, 'fin_statement_line_status',
+    (q) => q.eq('financial_account_id', accountId).eq('reconciliation_status', 'MATCHED').limit(1000), 'statement_line_id');
+  return rows.length;
+}
+
 /** Format of the account's statement (only the format code is read from the configuration). */
 export async function accountStatementFormat(client: SupabaseClient, accountId: string): Promise<string | null> {
   if (!accountId) return null;
@@ -236,6 +247,7 @@ const RECON_MESSAGES: Record<string, string> = {
   ANCHOR_AMBIGUOUS_DAY: 'Hay otros movimientos el mismo día que la línea elegida: no se puede usar como corte.',
   SUPERSEDE_REASON_REQUIRED: 'Indicá el motivo del cambio de corte.',
   SUPERSEDE_REASON_NOT_ALLOWED: 'La cuenta no tiene un corte activo para reemplazar.',
+  CUTOVER_ACTIVE_MATCH_CONFLICT: 'No se puede cambiar el corte porque hay movimientos conciliados que dejarían de quedar posteriores al nuevo corte. Revertí primero esas conciliaciones.',
   ACCOUNT_NOT_FOUND_OR_NOT_BANK: 'La cuenta no existe, está inactiva o no es una cuenta bancaria.',
   STATEMENT_CONFIG_MISSING: 'La cuenta no tiene configurada la importación de extractos.',
   FORBIDDEN: 'Solo un administrador puede realizar esta acción.',

@@ -178,10 +178,22 @@ describe.skipIf(!ENABLED)('ADR-018 reconciliation / cut — local E2E (disposabl
     expect((await byAmount(acc.bna, 52)).financial_posting_id).toBe(other.id);
   });
 
-  it('12–14: supersede the cut (reason required), history kept, classification follows the new anchor', async () => {
+  it('12–14 (0077): a cut change that would leave the matched line PRE is refused; after reversing it, the change succeeds', async () => {
     const active = activeCutover(await listCutovers(admin(), acc.bna))!;
-    const third = (await listAnchorCandidates(admin(), acc.bna)).find((a) => a.signed_amount === 52)!;
+    const third = (await listAnchorCandidates(admin(), acc.bna)).find((a) => a.signed_amount === 52)!;   // the matched +52.00 line itself
     expect(() => resolveStatementCutover(admin(), { accountId: acc.bna, anchor: third, evidenceNote: 'e', hasActiveCut: true })).toThrow(/SUPERSEDE_REASON_REQUIRED/);
+    const before = await lines(acc.bna);
+    const refused = await resolveStatementCutover(admin(), { accountId: acc.bna, anchor: third, evidenceNote: 'Saldo conciliado al 05/08', hasActiveCut: true,
+      supersedeReason: 'El saldo inicial real incluye hasta el 05/08' }).catch((e) => e);
+    expect(refused.code).toBe('CUTOVER_ACTIVE_MATCH_CONFLICT');
+    expect(reconciliationErrorMessage(refused)).toBe('No se puede cambiar el corte porque hay movimientos conciliados que dejarían de quedar posteriores al nuevo corte. Revertí primero esas conciliaciones.');
+    // nothing changed: same active cut, same history, same classification and matches
+    const cutsAfterRefusal = await listCutovers(admin(), acc.bna);
+    expect(cutsAfterRefusal.map((c) => [c.id, c.superseded_at === null])).toEqual([[active.id, true]]);
+    expect(await lines(acc.bna)).toEqual(before);
+    // the ADMIN reverses the affected match first, then the same change goes through
+    const l52 = await byAmount(acc.bna, 52);
+    await reverseStatementMatch(admin(), { matchId: l52.active_match_id!, reason: 'pasa a saldo inicial con el nuevo corte' });
     const r = await resolveStatementCutover(admin(), { accountId: acc.bna, anchor: third, evidenceNote: 'Saldo conciliado al 05/08', hasActiveCut: true,
       supersedeReason: 'El saldo inicial real incluye hasta el 05/08' });
     expect(r.superseded_id).toBe(active.id);
@@ -190,9 +202,10 @@ describe.skipIf(!ENABLED)('ADR-018 reconciliation / cut — local E2E (disposabl
     expect(cuts[1].supersede_reason).toBe('El saldo inicial real incluye hasta el 05/08');
     const cls = Object.fromEntries((await lines(acc.bna)).map((l) => [l.signed_amount, l.cutover_classification]));
     expect(cls).toEqual({ 1100: 'PRE_CUTOVER', '-6.6': 'PRE_CUTOVER', 52: 'PRE_CUTOVER', '-1145.4': 'POST_CUTOVER' });
-    // the line matched before keeps its match (history is never rewritten) but is no longer offered for a new match
-    const l52 = await byAmount(acc.bna, 52);
-    expect([l52.reconciliation_status, canMatch(l52)]).toEqual(['MATCHED', false]);
+    const after52 = await byAmount(acc.bna, 52);
+    expect([after52.reconciliation_status, canMatch(after52)]).toEqual(['UNMATCHED', false]);
+    // invariant in the read model: no active match on a non-POST line
+    expect((await lines(acc.bna)).filter((l) => l.reconciliation_status === 'MATCHED' && l.cutover_classification !== 'POST_CUTOVER')).toEqual([]);
   });
 
   it('15–16: Patagonia — an anchor sharing its date is refused; a later same-day line is AMBIGUOUS and not reconcilable', async () => {
