@@ -62,7 +62,8 @@ const LATER_PHASE_TABLES = ['financial_instrument', 'financial_instrument_event'
   'mp_attribution_flag', 'mp_client_allocation', 'mp_payer_client_map', 'mp_report_match', 'mp_transition_identity', 'mp_webhook_delivery',  // ADR-006 (0047)
   'bank_tax_charge',                                                                                // ADR-011 (0062)
   'sales_session_closing',                                                                          // ADR-016 (0070)
-  'mp_cutover_boundary'];                                                                            // ADR-017 (0071)
+  'mp_cutover_boundary',                                                                             // ADR-017 (0071)
+  'fin_import_run', 'fin_import_run_line', 'fin_statement_account_config', 'fin_statement_cutover', 'fin_statement_line', 'fin_statement_match']; // ADR-018 (0073)
 
 let container;
 let pass = 0;

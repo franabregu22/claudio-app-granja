@@ -336,9 +336,19 @@ const rls = owner(`SELECT count(*) FROM pg_class WHERE relnamespace = 'public'::
 check('A12 RLS enabled on the five tables', rls === '5', rls);
 check('A13 supplier_ledger reused, not duplicated (exactly one supplier ledger table)',
   owner(`SELECT string_agg(table_name, ',') FROM information_schema.tables WHERE table_schema = 'public' AND table_name ~* 'supplier.*(ledger|balance|account)|payable';`) === 'supplier_ledger');
-const stored = owner(`SELECT coalesce(string_agg(table_name || '.' || column_name, ','), '') FROM information_schema.columns
-  WHERE table_schema = 'public' AND (column_name ~* '(landed|saldo|balance)' OR (table_name = 'suppliers' AND column_name ~* 'debt|deuda')) AND table_name NOT IN (${ADR005_VIEWS});`);
-check('A14 no stored landed_cost / supplier balance anywhere', stored === '', stored);
+// ADR-018 (owner decision 2026-10-10): exactly two external-evidence columns are exempt, by table AND column
+const A14_QUERY = `SELECT coalesce(string_agg(table_name || '.' || column_name, ',' ORDER BY table_name, column_name), '') FROM information_schema.columns
+  WHERE table_schema = 'public' AND (column_name ~* '(landed|saldo|balance)' OR (table_name = 'suppliers' AND column_name ~* 'debt|deuda')) AND table_name NOT IN (${ADR005_VIEWS})
+    AND (table_name, column_name) NOT IN (('fin_statement_line', 'running_balance'), ('fin_statement_cutover', 'opening_balance'));`;
+const stored = owner(A14_QUERY);
+check('A14 no stored landed_cost / supplier balance anywhere (ADR-018 exact evidence exceptions only)', stored === '', stored);
+const a14Probe = owner(`BEGIN;
+CREATE TABLE public.adr018_a14_probe (balance NUMERIC);
+ALTER TABLE fin_statement_match ADD COLUMN opening_balance NUMERIC;
+${A14_QUERY}
+ROLLBACK;`);
+check('A14 stays fail-closed: a balance column in any other public table, or the exempt name on another table, is still detected',
+  a14Probe === 'adr018_a14_probe.balance,fin_statement_match.opening_balance', a14Probe);
 const forbidden = owner(`SELECT coalesce(string_agg(table_name, ','), '') FROM information_schema.tables WHERE table_schema = 'public'
   AND table_name ~* '(purchase_order|payment_allocation|invoice_allocation|purchase_payment|accounts_payable)';`);
 check('A15 no purchase orders, invoice allocation or parallel AP structure', forbidden === '', forbidden);

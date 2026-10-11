@@ -3,6 +3,7 @@
 **STATUS:** **ACCEPTED** (owner GO, 2026-10-10: "GO owner para ADR-018", with the `parser_version` NOT NULL correction incorporated). Not implemented: no migration, function, Edge Function, bucket or UI exists for it.
 **DATE:** 2026-10-10
 **AMENDED:** 2026-10-10 (owner decision) — G-1 (BNA) and G-2 (Patagonia) CLOSED on real official statements; adapters `BNA_MONTHLY_PDF_V1` and `PATAGONIA_STATEMENT_PDF_V1` frozen (§7.2, §7.3).
+**AMENDED:** 2026-10-10 (owner decision) — `fin_statement_line.running_balance` and `fin_statement_cutover.opening_balance` declared external bank / cutover evidence and the only two exact exceptions to the DATABASE_INVARIANTS_V1 "no stored balance" textual check (Compatibility verification).
 **RAISED BY:** post-cutover gap (2026-10-04 ~20:36): a real transfer to the MP alias/CVU never reached the webhook, and the target has no report channel (L-1 removed the legacy `sync-mercadopago-releases` / `upload-settlement-csv`). Separately, the target has no way to ingest bank statements (BNA, Patagonia).
 **NEW SCOPE (owner decision):** "Importación y conciliación de extractos financieros" is part of the ERP.
 
@@ -171,6 +172,7 @@ Whether a bank line was absorbed by the opening balance is a property of **our c
 - `opening_balance` must equal exactly the `running_balance` of `cutoff_statement_line_id`.
 - A line with `running_balance` NULL cannot be the anchor.
 - If no line carries the required opening balance, no anchor is registered, the global `cutover_at` is never used as a fallback, and G-3 stays OPEN pending further evidence.
+- `opening_balance` and the line's `running_balance` are external / decision evidence, not ERP balances; they are the only two exact exceptions to the DATABASE_INVARIANTS_V1 "no stored balance" textual check (see Compatibility verification).
 
 **Derived classification** (view/query; never mutates `fin_statement_line`):
 
@@ -600,6 +602,13 @@ This ADR is accepted with these gates open; only the dependent parts are blocked
 - ADR-006 §8 step 4: the enqueuer of the back-fill changes from RPC 40 to the report ingestion via a new service-role function (§10).
 - ADR006_IMPLEMENTATION_ORDER_V1, V-4 gate row and step 19: the inbound report-payment back-fill moves outside V-4. Fallback, the payment match and payment MISSING_IN_REPORT stay gated (§10).
 - RPC_CONTRACTS_V1 (inventory 52) and the SECURITY DEFINER set (69): they grow by the new functions, declared as with ADR-011 … ADR-016.
+- DATABASE_INVARIANTS_V1 invariants 5 / 6 / 7 / 27 ("no stored balance"; "derived values are never stored"): their textual verification rejects any public column named like a balance. Owner decision (2026-10-10): exactly two columns are explicit, narrow compatibility exceptions to that textual check — see "External bank balance evidence" below. DATABASE_INVARIANTS_V1 stays FROZEN and is not edited.
+
+**External bank balance evidence (owner decision, 2026-10-10):**
+- `public.fin_statement_line.running_balance` is immutable **external evidence**: the balance printed by the bank on the statement line (§6.2, §7.2, §7.3). It is not the computed balance of any `financial_account` and is never used as an authoritative ERP balance.
+- `public.fin_statement_cutover.opening_balance` is **evidence of the owner's cutover decision**; by K-4 (§6.6) it must equal the anchor line's `running_balance`. It does not replace or take part in the ordinary computation of any ERP balance.
+- The authoritative, operational balance of every `financial_account` remains derived exclusively from `financial_posting` (DATABASE_INVARIANTS_V1 invariant 6), unchanged.
+- The exception is exact per table and column: only (`fin_statement_line`, `running_balance`) and (`fin_statement_cutover`, `opening_balance`). No other column — whether named like a balance, belonging to a `fin_*` table, introduced by this ADR, or holding any other evidence — is exempted; any such column still fails the invariant check.
 
 **Compatible without change:**
 - **ADR-006:** all other clauses, including §5.1 atomic application (payout is never auto-applied), §6 real-time flow, §7 idempotency, §8 steps 1–3 and 5–7, and `yield` REPORT_ONLY.
