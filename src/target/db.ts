@@ -15,6 +15,7 @@ export const TARGET_VIEWS = [
   'report_bank_tax_period',   // ADR-011
   'report_fiscal_period',   // ADR-015
   'report_feria_closing',   // ADR-016
+  'fin_statement_line_status',   // ADR-018 (0076)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -32,6 +33,7 @@ export const TARGET_READ_TABLES = [
   'collections', 'management_event', 'fiscal_payment',
   'financial_operation', 'financial_posting', 'bank_tax_charge',   // Phase 27 acceptance fixes: transfer history (D-WALK-2) + ADR-011
   'fin_statement_account_config', 'fin_import_run',   // ADR-018 bank statement import (ADMIN policy; config read as account ids only)
+  'fin_statement_match', 'fin_statement_cutover',   // ADR-018 reconciliation / cut (ADMIN policy)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -78,6 +80,7 @@ export const TARGET_RPCS = [
   'rectify_feed_manufacturing',   // ADR-014 (RPC 49)
   'register_purchase_with_fiscal_document',   // ADR-015 (RPC 50)
   'close_feria_summary', 'rectify_feria_closing',   // ADR-016 (RPC 51 / 52)
+  'fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover',   // ADR-018 (0075)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

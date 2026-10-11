@@ -189,3 +189,8 @@ export function errorMessage(err: unknown): string {
   const e = normalizeDbError(err);
   return MESSAGES[e.code] ?? 'No se pudo completar la operación. Intentá de nuevo.';
 }
+
+/** The known message for an error's code, or null when the code has no specific text. */
+export function messageFor(err: unknown): string | null {
+  return MESSAGES[normalizeDbError(err).code] ?? null;
+}

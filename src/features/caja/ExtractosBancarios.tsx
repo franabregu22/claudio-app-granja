@@ -5,6 +5,7 @@ import {
   canReprocess, canSubmitImport, rejectCode, rejectMessage, RUN_STATUS_LABEL, validateStatementFile,
   type ImportResult, type ImportRun, type ImportRunStatus,
 } from '../../target/bankStatements';
+import { Conciliacion } from './Conciliacion';
 import { campo, etiqueta, Modal } from './Modal';
 import { useBankStatementMutations, useImportRuns, useStatementAccounts } from './useBankStatements';
 
@@ -25,7 +26,27 @@ interface Resultado { result: ImportResult; cuenta: string; archivo: string; rep
  * the file are sent; format, identifiers, parser version, hash and storage path are derived server-side.
  * Line reconciliation and the statement cut are not part of this screen.
  */
+type SubVista = 'importaciones' | 'conciliacion';
+
+/** Caja → Extractos bancarios: imports (ADR-018 upload / history) and reconciliation (lines, 1:1 match, statement cut). */
 export function ExtractosBancarios() {
+  const [sub, setSub] = useState<SubVista>('importaciones');
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2" role="tablist" aria-label="Extractos bancarios">
+        {([['importaciones', 'Importaciones'], ['conciliacion', 'Conciliación']] as const).map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={sub === id} onClick={() => setSub(id)}
+            className={`px-3 py-1 rounded-full text-sm font-medium ${sub === id ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-white text-[#6B5D45] border border-[#E4DCC8] hover:bg-stone-50'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {sub === 'importaciones' ? <Importaciones /> : <Conciliacion />}
+    </div>
+  );
+}
+
+function Importaciones() {
   const runs = useImportRuns();
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [detalle, setDetalle] = useState<ImportRun | null>(null);
