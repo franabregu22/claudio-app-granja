@@ -644,19 +644,22 @@ check('G2 ledger balance equals current delivered lines minus collections (no hi
 check('G3 account balance = SUM(financial_posting.signed_amount): Caja +14000, BNA +7000, MP +3000',
   accountBalance(ACC.CAJA) === plus(caja0, 14000) && accountBalance(ACC.BNA) === plus(bna0, 7000)
   && accountBalance(ACC.MP) === plus(mp0, 3000));
-// ADR-018 (owner decision 2026-10-10): exactly two external-evidence columns are exempt, by table AND column
+// ADR-018 (owner decisions 2026-10-10 / 2026-10-11): exactly four (relation, column) pairs are exempt — the two
+// evidence columns and their untransformed projections in fin_statement_line_status
 const G4_QUERY = `SELECT coalesce(string_agg(table_name || '.' || column_name, ',' ORDER BY table_name, column_name), '') FROM information_schema.columns
   WHERE table_schema = 'public' AND (column_name ~* '(saldo|balance)' OR column_name IN ('monto_total','total')) AND table_name NOT IN (${ADR005_VIEWS})
-    AND (table_name, column_name) NOT IN (('fin_statement_line', 'running_balance'), ('fin_statement_cutover', 'opening_balance'));`;
+    AND (table_name, column_name) NOT IN (('fin_statement_line', 'running_balance'), ('fin_statement_cutover', 'opening_balance'),
+                                          ('fin_statement_line_status', 'running_balance'), ('fin_statement_line_status', 'opening_balance'));`;
 const balanceCols = owner(G4_QUERY);
 check('G4 no authoritative stored balance column anywhere in public (no saldo/balance/total; ADR-018 exact evidence exceptions only)', balanceCols === '', balanceCols);
 const g4Probe = owner(`BEGIN;
 CREATE TABLE public.adr018_g4_probe (balance NUMERIC);
 ALTER TABLE fin_statement_match ADD COLUMN running_balance NUMERIC;
+CREATE VIEW public.adr018_g4_probe_v AS SELECT 1::NUMERIC AS running_balance, 1::NUMERIC AS opening_balance;
 ${G4_QUERY}
 ROLLBACK;`);
-check('G4 stays fail-closed: a balance column in any other public table, or the exempt name on another table, is still detected',
-  g4Probe === 'adr018_g4_probe.balance,fin_statement_match.running_balance', g4Probe);
+check('G4 stays fail-closed: balance in another table, running_balance in another table and another view, opening_balance in another view are all detected',
+  g4Probe === 'adr018_g4_probe.balance,adr018_g4_probe_v.opening_balance,adr018_g4_probe_v.running_balance,fin_statement_match.running_balance', g4Probe);
 const triggers = owner(`SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal
   AND tgrelid::regclass::TEXT IN (${COMMERCIAL_TABLES.map((t) => `'${t}'`).join(',')}, 'clients', 'financial_account');`);
 check('G5 no trigger maintains any balance (no user triggers on commercial/master tables)', triggers === '0', triggers);
