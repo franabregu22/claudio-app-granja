@@ -310,6 +310,14 @@ Adapters receive these values as configuration of the selected account and conta
 - **Initial implementation limits** (operational, not part of any fingerprint or contract): 10 MB per file, 20 pages, 10 s extraction timeout. Exceeding a limit → run `REJECTED`.
 - **Fixtures:** real bank PDFs are never versioned. Versioned fixtures are only sanitized extracted text items with positions (CUIT, account, CBU, names and other identifiers replaced; geometry and structure preserved). Parity tests over real PDFs run only locally, from a path outside git.
 
+**Gate result (2026-10-11): GO.** Approved library: **`unpdf` 1.8.1** (npm, published 2026-08-13; integrity `sha512-xkURhy2SoGpOIH0a1gLHNkASPIQYonadDJs2AQwPEfUakafeD9EA1WTWWsaR++gfTCXJpV27W7tU1nXuk82UKQ==`; bundles PDF.js 6.1.200; MIT; no dependencies), pinned exactly. Spike: `scripts/adr018/unpdf-parity-spike.mjs` with the synthetic fixtures `scripts/adr018/fixtures/unpdf-synthetic-statements.json`.
+- Extraction: text items with position and width (no OCR). Both banks print in a monospaced font, so words are recovered from each item by its own per-character advance; rows are grouped by baseline; columns are assigned relative to the column headers (amounts by the nearest header right edge). Node 24 and Deno 2.9 (the Edge runtime family) produce byte-identical extractions.
+- BNA: 20 files (12 monthly OCT-25 … SEP-26 + 8 re-downloads) → 314 economic lines, 0 rejected, balance chains and 12-period continuity exact, re-downloads fingerprint-identical, `description_raw` and every canonical field equal to the frozen G-1 corpus, JS ↔ PostgreSQL `fin_norm_description` / `fin_statement_fingerprint` byte-for-byte.
+- Patagonia: 5 files (4 statements + 1 re-download) → 6 economic lines, continuity 0 → 497 → 994 → 1494 → 1994, 4 TRANSFERENCIAS RECIBIDAS details all uniquely associated, none creating a line; same parity results.
+- Fail closed: truncated PDF, non-PDF, over size / page limits, unrelated PDFs, wrong adapter and wrong account are rejected.
+- Observed maxima: 293 KB, 5 pages, 121 ms extraction, 3.3 ms reconstruction — far inside 10 MB / 20 pages / 10 s.
+- Clarification of the BNA control rows (§7.2, no rule change): the economic table ends at `SALDO FINAL`; the statement totals block that follows (`TOTAL …` lines and their continuation lines such as `- INTERESES $ …` or `REINTEGRO GRAV. LEY 25413 … $ …`) is control. A date-led, economic-shaped row after `SALDO FINAL` is unclassifiable and rejects the run.
+
 ## 8. Bank reconciliation
 
 - Cardinality: **1 `fin_statement_line` ↔ 1 active `financial_posting`.**

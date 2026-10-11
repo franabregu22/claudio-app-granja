@@ -1,0 +1,1079 @@
+{
+ "note": "SYNTHETIC statements shaped like the observed unpdf output of the official BNA / Banco Patagonia PDFs (monospaced fonts, column geometry, merged date+description items, totals block after SALDO FINAL). No real account, CBU, name, CUIT, amount or date. ADR-018 §7.5; the real PDFs are never versioned (K-3).",
+ "fixtures": [
+  {
+   "name": "bna-synthetic",
+   "format": "BNA_MONTHLY_PDF_V1",
+   "config": {
+    "expected_account_number": "1234567890",
+    "expected_cbu": "9999999999999999999999",
+    "expected_extra": {}
+   },
+   "pages": [
+    {
+     "n": 1,
+     "items": [
+      {
+       "str": "BANCO DE LA",
+       "x": 84.9,
+       "top": 62.1,
+       "w": 88.99
+      },
+      {
+       "str": "NACION ARGENTINA",
+       "x": 84.9,
+       "top": 76.5,
+       "w": 146.08
+      },
+      {
+       "str": "HOJA:",
+       "x": 513,
+       "top": 79.2,
+       "w": 24.3
+      },
+      {
+       "str": "1",
+       "x": 561,
+       "top": 79.2,
+       "w": 4.86
+      },
+      {
+       "str": "RESUMEN DE CUENTA",
+       "x": 252,
+       "top": 255,
+       "w": 132.43
+      },
+      {
+       "str": "RESUMEN DE EMISION MENSUAL",
+       "x": 65.1,
+       "top": 280.5,
+       "w": 126.36
+      },
+      {
+       "str": "PERIODO: 31/07/2026 AL 31/08/2026",
+       "x": 436.5,
+       "top": 280.5,
+       "w": 160.38
+      },
+      {
+       "str": "EMPRESA SINTETICA S.A.",
+       "x": 76.5,
+       "top": 294.6,
+       "w": 106.92
+      },
+      {
+       "str": "CUENTA CORRIENTE - PESOS",
+       "x": 65.1,
+       "top": 352.8,
+       "w": 163.44
+      },
+      {
+       "str": "NRO. CUENTA",
+       "x": 79.2,
+       "top": 371.1,
+       "w": 67.98
+      },
+      {
+       "str": "SUCURSAL",
+       "x": 237.9,
+       "top": 371.1,
+       "w": 55.04
+      },
+      {
+       "str": "CLAVE BANCARIA UNIFORME (CBU)",
+       "x": 382.5,
+       "top": 371.1,
+       "w": 174.29
+      },
+      {
+       "str": "1234567890",
+       "x": 87.6,
+       "top": 385.5,
+       "w": 48.6
+      },
+      {
+       "str": "SUCURSAL SINTETICA",
+       "x": 237.9,
+       "top": 385.5,
+       "w": 87.48
+      },
+      {
+       "str": "9999999999999999999999",
+       "x": 413.7,
+       "top": 385.5,
+       "w": 106.92
+      },
+      {
+       "str": "FECHA",
+       "x": 74.7,
+       "top": 405.3,
+       "w": 24.3
+      },
+      {
+       "str": "MOVIMIENTOS",
+       "x": 137.1,
+       "top": 405.3,
+       "w": 53.46
+      },
+      {
+       "str": "COMPROB.",
+       "x": 242.7,
+       "top": 405.3,
+       "w": 38.88
+      },
+      {
+       "str": "DEBITOS",
+       "x": 324.3,
+       "top": 405.3,
+       "w": 34.02
+      },
+      {
+       "str": "CREDITOS",
+       "x": 415.5,
+       "top": 405.3,
+       "w": 38.88
+      },
+      {
+       "str": "SALDO",
+       "x": 525.9,
+       "top": 405.3,
+       "w": 24.3
+      },
+      {
+       "str": "SALDO ANTERIOR",
+       "x": 122.7,
+       "top": 422.1,
+       "w": 68.04
+      },
+      {
+       "str": "100,00-",
+       "x": 536.04,
+       "top": 422.1,
+       "w": 34.02
+      },
+      {
+       "str": "04/08/26 DEBIN",
+       "x": 65.1,
+       "top": 430.5,
+       "w": 68.04
+      },
+      {
+       "str": "30000000000",
+       "x": 138,
+       "top": 430.5,
+       "w": 53.46
+      },
+      {
+       "str": "412",
+       "x": 262.22,
+       "top": 430.5,
+       "w": 14.58
+      },
+      {
+       "str": "1.100,00",
+       "x": 430.12,
+       "top": 430.5,
+       "w": 38.88
+      },
+      {
+       "str": "1.000,00",
+       "x": 526.32,
+       "top": 430.5,
+       "w": 38.88
+      },
+      {
+       "str": "04/08/26 GRAVAMEN LEY",
+       "x": 65.1,
+       "top": 438.9,
+       "w": 102.06
+      },
+      {
+       "str": "25413",
+       "x": 172,
+       "top": 438.9,
+       "w": 24.3
+      },
+      {
+       "str": "S/CRED",
+       "x": 201,
+       "top": 438.9,
+       "w": 29.16
+      },
+      {
+       "str": "412",
+       "x": 262.22,
+       "top": 438.9,
+       "w": 14.58
+      },
+      {
+       "str": "6,60",
+       "x": 353.76,
+       "top": 438.9,
+       "w": 19.44
+      },
+      {
+       "str": "$",
+       "x": 468.2,
+       "top": 438.9,
+       "w": 4.86
+      },
+      {
+       "str": "993,40",
+       "x": 536.04,
+       "top": 438.9,
+       "w": 29.16
+      },
+      {
+       "str": "05/08/26 VS.GYT EX.LEY",
+       "x": 65.1,
+       "top": 447.3,
+       "w": 106.92
+      },
+      {
+       "str": "25413",
+       "x": 176.9,
+       "top": 447.3,
+       "w": 24.3
+      },
+      {
+       "str": "-",
+       "x": 206,
+       "top": 447.3,
+       "w": 4.86
+      },
+      {
+       "str": "IB",
+       "x": 215.8,
+       "top": 447.3,
+       "w": 9.72
+      },
+      {
+       "str": "71908989",
+       "x": 237.92,
+       "top": 447.3,
+       "w": 38.88
+      },
+      {
+       "str": "52,00",
+       "x": 444.7,
+       "top": 447.3,
+       "w": 24.3
+      },
+      {
+       "str": "1.045,40",
+       "x": 526.32,
+       "top": 447.3,
+       "w": 38.88
+      },
+      {
+       "str": "TRANSPORTE",
+       "x": 122.7,
+       "top": 760,
+       "w": 48.6
+      },
+      {
+       "str": "1.045,40",
+       "x": 526.32,
+       "top": 760,
+       "w": 38.88
+      },
+      {
+       "str": "PAGINA:",
+       "x": 519,
+       "top": 794,
+       "w": 34.02
+      },
+      {
+       "str": "1",
+       "x": 566,
+       "top": 794,
+       "w": 4.86
+      },
+      {
+       "str": "SIGUIENTE --->",
+       "x": 515,
+       "top": 802,
+       "w": 68.04
+      }
+     ]
+    },
+    {
+     "n": 2,
+     "items": [
+      {
+       "str": "BANCO DE LA",
+       "x": 84.9,
+       "top": 62.1,
+       "w": 88.99
+      },
+      {
+       "str": "NACION ARGENTINA",
+       "x": 84.9,
+       "top": 76.5,
+       "w": 146.08
+      },
+      {
+       "str": "HOJA:",
+       "x": 513,
+       "top": 79.2,
+       "w": 24.3
+      },
+      {
+       "str": "1",
+       "x": 561,
+       "top": 79.2,
+       "w": 4.86
+      },
+      {
+       "str": "CUENTA CORRIENTE - PESOS",
+       "x": 65.1,
+       "top": 252.8,
+       "w": 163.44
+      },
+      {
+       "str": "NRO. CUENTA",
+       "x": 79.2,
+       "top": 271.1,
+       "w": 67.98
+      },
+      {
+       "str": "SUCURSAL",
+       "x": 237.9,
+       "top": 271.1,
+       "w": 55.04
+      },
+      {
+       "str": "CLAVE BANCARIA UNIFORME (CBU)",
+       "x": 382.5,
+       "top": 271.1,
+       "w": 174.29
+      },
+      {
+       "str": "1234567890",
+       "x": 87.6,
+       "top": 285.5,
+       "w": 48.6
+      },
+      {
+       "str": "SUCURSAL SINTETICA",
+       "x": 237.9,
+       "top": 285.5,
+       "w": 87.48
+      },
+      {
+       "str": "9999999999999999999999",
+       "x": 413.7,
+       "top": 285.5,
+       "w": 106.92
+      },
+      {
+       "str": "FECHA",
+       "x": 74.7,
+       "top": 305.3,
+       "w": 24.3
+      },
+      {
+       "str": "MOVIMIENTOS",
+       "x": 137.1,
+       "top": 305.3,
+       "w": 53.46
+      },
+      {
+       "str": "COMPROB.",
+       "x": 242.7,
+       "top": 305.3,
+       "w": 38.88
+      },
+      {
+       "str": "DEBITOS",
+       "x": 324.3,
+       "top": 305.3,
+       "w": 34.02
+      },
+      {
+       "str": "CREDITOS",
+       "x": 415.5,
+       "top": 305.3,
+       "w": 38.88
+      },
+      {
+       "str": "SALDO",
+       "x": 525.9,
+       "top": 305.3,
+       "w": 24.3
+      },
+      {
+       "str": "TRANSPORTE",
+       "x": 122.7,
+       "top": 322.1,
+       "w": 48.6
+      },
+      {
+       "str": "1.045,40",
+       "x": 526.32,
+       "top": 322.1,
+       "w": 38.88
+      },
+      {
+       "str": "10/08/26 INTERESES",
+       "x": 65.1,
+       "top": 330.5,
+       "w": 87.48
+      },
+      {
+       "str": "233",
+       "x": 262.22,
+       "top": 330.5,
+       "w": 14.58
+      },
+      {
+       "str": "1.145,40",
+       "x": 334.32,
+       "top": 330.5,
+       "w": 38.88
+      },
+      {
+       "str": "100,00-",
+       "x": 536.04,
+       "top": 330.5,
+       "w": 34.02
+      },
+      {
+       "str": "SALDO FINAL",
+       "x": 122.7,
+       "top": 350,
+       "w": 53.46
+      },
+      {
+       "str": "100,00-",
+       "x": 536.04,
+       "top": 350,
+       "w": 34.02
+      },
+      {
+       "str": "TOTAL LIQUIDACION DESCUBIERTO DESDE EL 31/07/2026 HASTA EL 31/08/2026",
+       "x": 65.1,
+       "top": 368,
+       "w": 335.34
+      },
+      {
+       "str": "$",
+       "x": 468.2,
+       "top": 368,
+       "w": 4.86
+      },
+      {
+       "str": "5,00",
+       "x": 545.76,
+       "top": 368,
+       "w": 19.44
+      },
+      {
+       "str": "- INTERESES",
+       "x": 65.1,
+       "top": 376.4,
+       "w": 53.46
+      },
+      {
+       "str": "$",
+       "x": 468.2,
+       "top": 376.4,
+       "w": 4.86
+      },
+      {
+       "str": "1,00",
+       "x": 545.76,
+       "top": 376.4,
+       "w": 19.44
+      },
+      {
+       "str": "TEXTO LEGAL SINTETICO SIN IMPORTES",
+       "x": 65.1,
+       "top": 420,
+       "w": 165.24
+      },
+      {
+       "str": "PAGINA:",
+       "x": 519,
+       "top": 794,
+       "w": 34.02
+      },
+      {
+       "str": "2",
+       "x": 566,
+       "top": 794,
+       "w": 4.86
+      },
+      {
+       "str": "<--- FIN DE RESUMEN",
+       "x": 496,
+       "top": 802,
+       "w": 92.34
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "opening": "-100.00",
+    "closing": "-100.00",
+    "period": {
+     "from": "2026-07-31",
+     "to": "2026-08-31"
+    },
+    "lines": [
+     {
+      "value_date": "2026-08-04",
+      "description_raw": "DEBIN 30000000000",
+      "bank_reference": "412",
+      "fecha_valor": null,
+      "signed_amount": "1100.00",
+      "running_balance": "1000.00"
+     },
+     {
+      "value_date": "2026-08-04",
+      "description_raw": "GRAVAMEN LEY 25413 S/CRED",
+      "bank_reference": "412",
+      "fecha_valor": null,
+      "signed_amount": "-6.60",
+      "running_balance": "993.40"
+     },
+     {
+      "value_date": "2026-08-05",
+      "description_raw": "VS.GYT EX.LEY 25413 - IB",
+      "bank_reference": "71908989",
+      "fecha_valor": null,
+      "signed_amount": "52.00",
+      "running_balance": "1045.40"
+     },
+     {
+      "value_date": "2026-08-10",
+      "description_raw": "INTERESES",
+      "bank_reference": "233",
+      "fecha_valor": null,
+      "signed_amount": "-1145.40",
+      "running_balance": "-100.00"
+     }
+    ]
+   }
+  },
+  {
+   "name": "patagonia-synthetic",
+   "format": "PATAGONIA_STATEMENT_PDF_V1",
+   "config": {
+    "expected_account_number": "111111111",
+    "expected_cbu": "9999999999999999999999",
+    "expected_extra": {
+     "subcta": "0",
+     "suc": "1"
+    }
+   },
+   "pages": [
+    {
+     "n": 1,
+     "items": [
+      {
+       "str": "Visitanos en www.bancopatagonia.com.ar",
+       "x": 33,
+       "top": 336,
+       "w": 183.16
+      },
+      {
+       "str": "ESTADO DE CUENTAS UNIFICADO CLIENTE Nº: 111111111 AL 30/09/26 11111111100M20260930",
+       "x": 28.1,
+       "top": 410.8,
+       "w": 395.24
+      },
+      {
+       "str": "CUENTA CORRIENTE EN PESOS 111111111 SUBCTA 0 SUC 1 CBU: 99999999 99999999999999",
+       "x": 28.1,
+       "top": 501,
+       "w": 380.78
+      },
+      {
+       "str": "FECHA",
+       "x": 34.8,
+       "top": 526,
+       "w": 24.1
+      },
+      {
+       "str": "CONCEPTO",
+       "x": 73.3,
+       "top": 526,
+       "w": 38.56
+      },
+      {
+       "str": "REFER.",
+       "x": 227.1,
+       "top": 526,
+       "w": 28.92
+      },
+      {
+       "str": "FECHA",
+       "x": 265.9,
+       "top": 526,
+       "w": 24.1
+      },
+      {
+       "str": "VALOR",
+       "x": 294.8,
+       "top": 526,
+       "w": 24.1
+      },
+      {
+       "str": "DEBITOS",
+       "x": 377.1,
+       "top": 526,
+       "w": 33.74
+      },
+      {
+       "str": "CREDITOS",
+       "x": 468.4,
+       "top": 526,
+       "w": 38.56
+      },
+      {
+       "str": "SALDO",
+       "x": 574.2,
+       "top": 526,
+       "w": 24.1
+      },
+      {
+       "str": "0/00/00",
+       "x": 34.8,
+       "top": 545.2,
+       "w": 33.74
+      },
+      {
+       "str": "SALDO ANTERIOR",
+       "x": 73.3,
+       "top": 545.2,
+       "w": 67.48
+      },
+      {
+       "str": "0,00",
+       "x": 588.92,
+       "top": 545.2,
+       "w": 19.28
+      },
+      {
+       "str": "5/09/26",
+       "x": 34.8,
+       "top": 554.8,
+       "w": 33.74
+      },
+      {
+       "str": "IMP.DB/CR BANCARIOS P/CREDITOS",
+       "x": 73.3,
+       "top": 554.8,
+       "w": 144.6
+      },
+      {
+       "str": "3,00",
+       "x": 390.92,
+       "top": 554.8,
+       "w": 19.28
+      },
+      {
+       "str": "5/09/26",
+       "x": 34.8,
+       "top": 564.4,
+       "w": 33.74
+      },
+      {
+       "str": "TRANSFERENCIA ENTRE CUENTAS",
+       "x": 73.3,
+       "top": 564.4,
+       "w": 130.14
+      },
+      {
+       "str": "500,00",
+       "x": 478.28,
+       "top": 564.4,
+       "w": 28.92
+      },
+      {
+       "str": "497,00",
+       "x": 579.28,
+       "top": 564.4,
+       "w": 28.92
+      },
+      {
+       "str": "16/09/26",
+       "x": 29.9,
+       "top": 574,
+       "w": 38.56
+      },
+      {
+       "str": "TRANSFERENCIA ENTRE CUENTAS",
+       "x": 73.3,
+       "top": 574,
+       "w": 130.14
+      },
+      {
+       "str": "R 1",
+       "x": 227.1,
+       "top": 574,
+       "w": 14.46
+      },
+      {
+       "str": "17/09/26",
+       "x": 265.9,
+       "top": 574,
+       "w": 38.56
+      },
+      {
+       "str": "100,00",
+       "x": 478.28,
+       "top": 574,
+       "w": 28.92
+      },
+      {
+       "str": "597,00",
+       "x": 579.28,
+       "top": 574,
+       "w": 28.92
+      },
+      {
+       "str": "16/09/26",
+       "x": 29.9,
+       "top": 583.6,
+       "w": 38.56
+      },
+      {
+       "str": "SALDO ACTUAL",
+       "x": 73.3,
+       "top": 583.6,
+       "w": 57.84
+      },
+      {
+       "str": "597,00",
+       "x": 579.28,
+       "top": 583.6,
+       "w": 28.92
+      },
+      {
+       "str": "TRANSFERENCIAS RECIBIDAS",
+       "x": 28.1,
+       "top": 603,
+       "w": 115.68
+      }
+     ]
+    },
+    {
+     "n": 2,
+     "items": [
+      {
+       "str": "FECHA",
+       "x": 36.6,
+       "top": 146,
+       "w": 21.1
+      },
+      {
+       "str": "NOMBRE ORIG",
+       "x": 66,
+       "top": 146,
+       "w": 46.42
+      },
+      {
+       "str": "DOC.ORIG.",
+       "x": 142,
+       "top": 146,
+       "w": 37.98
+      },
+      {
+       "str": "SERVICIO",
+       "x": 184,
+       "top": 146,
+       "w": 33.76
+      },
+      {
+       "str": "REFERENCIA",
+       "x": 230,
+       "top": 146,
+       "w": 42.2
+      },
+      {
+       "str": "CBU ORIGEN",
+       "x": 323,
+       "top": 146,
+       "w": 42.2
+      },
+      {
+       "str": "BANCO",
+       "x": 412,
+       "top": 146,
+       "w": 21.1
+      },
+      {
+       "str": "SUC",
+       "x": 466,
+       "top": 146,
+       "w": 12.66
+      },
+      {
+       "str": "IMP.ORIGINAL",
+       "x": 483.3,
+       "top": 146,
+       "w": 50.64
+      },
+      {
+       "str": "TI",
+       "x": 538,
+       "top": 146,
+       "w": 8.44
+      },
+      {
+       "str": "MON",
+       "x": 551,
+       "top": 146,
+       "w": 12.66
+      },
+      {
+       "str": "SUC",
+       "x": 568,
+       "top": 146,
+       "w": 12.66
+      },
+      {
+       "str": "5/09/26",
+       "x": 32,
+       "top": 165,
+       "w": 29.54
+      },
+      {
+       "str": "ORIGEN SINTETICO A",
+       "x": 66,
+       "top": 165,
+       "w": 75.96
+      },
+      {
+       "str": "VARIOS",
+       "x": 184,
+       "top": 165,
+       "w": 25.32
+      },
+      {
+       "str": "-",
+       "x": 298,
+       "top": 165,
+       "w": 4.22
+      },
+      {
+       "str": "143",
+       "x": 399.34,
+       "top": 165,
+       "w": 12.66
+      },
+      {
+       "str": "0",
+       "x": 474.78,
+       "top": 165,
+       "w": 4.22
+      },
+      {
+       "str": "500,00",
+       "x": 508.68,
+       "top": 165,
+       "w": 25.32
+      },
+      {
+       "str": "CC",
+       "x": 538,
+       "top": 165,
+       "w": 8.44
+      },
+      {
+       "str": "$",
+       "x": 555,
+       "top": 165,
+       "w": 4.22
+      },
+      {
+       "str": "1",
+       "x": 575.78,
+       "top": 165,
+       "w": 4.22
+      },
+      {
+       "str": "16/09/26",
+       "x": 28,
+       "top": 174.6,
+       "w": 33.76
+      },
+      {
+       "str": "ORIGEN SINTETICO B",
+       "x": 66,
+       "top": 174.6,
+       "w": 75.96
+      },
+      {
+       "str": "VARIOS",
+       "x": 184,
+       "top": 174.6,
+       "w": 25.32
+      },
+      {
+       "str": "-",
+       "x": 298,
+       "top": 174.6,
+       "w": 4.22
+      },
+      {
+       "str": "143",
+       "x": 399.34,
+       "top": 174.6,
+       "w": 12.66
+      },
+      {
+       "str": "0",
+       "x": 474.78,
+       "top": 174.6,
+       "w": 4.22
+      },
+      {
+       "str": "100,00",
+       "x": 508.68,
+       "top": 174.6,
+       "w": 25.32
+      },
+      {
+       "str": "CC",
+       "x": 538,
+       "top": 174.6,
+       "w": 8.44
+      },
+      {
+       "str": "$",
+       "x": 555,
+       "top": 174.6,
+       "w": 4.22
+      },
+      {
+       "str": "1",
+       "x": 575.78,
+       "top": 174.6,
+       "w": 4.22
+      },
+      {
+       "str": "20/09/26",
+       "x": 28,
+       "top": 184.2,
+       "w": 33.76
+      },
+      {
+       "str": "ORIGEN SINTETICO C",
+       "x": 66,
+       "top": 184.2,
+       "w": 75.96
+      },
+      {
+       "str": "VARIOS",
+       "x": 184,
+       "top": 184.2,
+       "w": 25.32
+      },
+      {
+       "str": "-",
+       "x": 298,
+       "top": 184.2,
+       "w": 4.22
+      },
+      {
+       "str": "143",
+       "x": 399.34,
+       "top": 184.2,
+       "w": 12.66
+      },
+      {
+       "str": "0",
+       "x": 474.78,
+       "top": 184.2,
+       "w": 4.22
+      },
+      {
+       "str": "50,00",
+       "x": 512.9,
+       "top": 184.2,
+       "w": 21.1
+      },
+      {
+       "str": "CC",
+       "x": 538,
+       "top": 184.2,
+       "w": 8.44
+      },
+      {
+       "str": "$",
+       "x": 555,
+       "top": 184.2,
+       "w": 4.22
+      },
+      {
+       "str": "1",
+       "x": 575.78,
+       "top": 184.2,
+       "w": 4.22
+      },
+      {
+       "str": "____________",
+       "x": 25,
+       "top": 200,
+       "w": 50.64
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "opening": "0.00",
+    "closing": "597.00",
+    "period": {
+     "from": null,
+     "to": "2026-09-30"
+    },
+    "lines": [
+     {
+      "value_date": "2026-09-05",
+      "description_raw": "IMP.DB/CR BANCARIOS P/CREDITOS",
+      "bank_reference": "",
+      "fecha_valor": null,
+      "signed_amount": "-3.00",
+      "running_balance": null
+     },
+     {
+      "value_date": "2026-09-05",
+      "description_raw": "TRANSFERENCIA ENTRE CUENTAS",
+      "bank_reference": "",
+      "fecha_valor": null,
+      "signed_amount": "500.00",
+      "running_balance": "497.00"
+     },
+     {
+      "value_date": "2026-09-16",
+      "description_raw": "TRANSFERENCIA ENTRE CUENTAS",
+      "bank_reference": "R 1",
+      "fecha_valor": "2026-09-17",
+      "signed_amount": "100.00",
+      "running_balance": "597.00"
+     }
+    ],
+    "details": [
+     {
+      "date": "2026-09-05",
+      "imp_original": "500.00",
+      "association": "MATCHED"
+     },
+     {
+      "date": "2026-09-16",
+      "imp_original": "100.00",
+      "association": "MATCHED"
+     },
+     {
+      "date": "2026-09-20",
+      "imp_original": "50.00",
+      "association": "TRANSFER_DETAIL_UNMATCHED"
+     }
+    ]
+   }
+  }
+ ]
+}
