@@ -1,0 +1,39 @@
+{
+  "authority": "ADR-018 §7.1 exact description_norm: NFKD; reject U+0000-U+0008, U+000E-U+001F, U+007F (DESCRIPTION_CONTROL_CHAR); drop code points above U+007F; ASCII a-z to A-Z; runs of TAB/LF/VT/FF/CR/SPACE to one SPACE; trim SPACE. Synthetic strings only; no bank data.",
+  "description_norm": [
+    { "label": "accent NFC",            "input": "Transferéncia  Recibida",       "expected": "TRANSFERENCIA RECIBIDA" },
+    { "label": "accent NFD",            "input": "Transferéncia  Recibida",      "expected": "TRANSFERENCIA RECIBIDA" },
+    { "label": "enie and acute",        "input": "Peña Ñandú",         "expected": "PENA NANDU" },
+    { "label": "dieresis",              "input": "Müller GÜEMES",            "expected": "MULLER GUEMES" },
+    { "label": "composed vs decomposed","input": "é vs é",                 "expected": "E VS E" },
+    { "label": "tab and newline",       "input": "café\tcon\nleche",             "expected": "CAFE CON LECHE" },
+    { "label": "VT FF CR",              "input": "a\u000bb\u000cc\rd",                "expected": "A B C D" },
+    { "label": "repeated spaces",       "input": "  varios   espacios  ",              "expected": "VARIOS ESPACIOS" },
+    { "label": "full-width",            "input": "Ａｂｃ",                "expected": "ABC" },
+    { "label": "ligature fi",           "input": "ﬁnal",                         "expected": "FINAL" },
+    { "label": "vulgar fraction",       "input": "1½ kg",                        "expected": "112 KG" },
+    { "label": "ordinal indicators",    "input": "Nº 123 / Nª",             "expected": "NO 123 / NA" },
+    { "label": "euro sign dropped",     "input": "CBU€ 50%",                     "expected": "CBU 50%" },
+    { "label": "sharp s dropped",       "input": "Straße",                       "expected": "STRAE" },
+    { "label": "AE ligature dropped",   "input": "Æsir",                         "expected": "SIR" },
+    { "label": "no-break space",        "input": "non breaking",                 "expected": "NON BREAKING" },
+    { "label": "zero-width space",      "input": "x​y",                          "expected": "XY" },
+    { "label": "mixed case",            "input": "lower Mixed UPPER",                  "expected": "LOWER MIXED UPPER" },
+    { "label": "bank wording",          "input": "GRAVAMEN LEY 25413 S/DEB",           "expected": "GRAVAMEN LEY 25413 S/DEB" },
+    { "label": "empty",                 "input": "",                                   "expected": "" },
+    { "label": "only spaces",           "input": "   ",                                "expected": "" },
+    { "label": "only non-ASCII",        "input": "€",                            "expected": "" },
+    { "label": "control U+0001",        "input": "a\u0001b",                          "error": "DESCRIPTION_CONTROL_CHAR" },
+    { "label": "control U+0008",        "input": "a\u0008b",                          "error": "DESCRIPTION_CONTROL_CHAR" },
+    { "label": "control U+000E",        "input": "a\u000eb",                          "error": "DESCRIPTION_CONTROL_CHAR" },
+    { "label": "control U+001F",        "input": "a\u001fb",                          "error": "DESCRIPTION_CONTROL_CHAR" },
+    { "label": "DEL U+007F",            "input": "a\u007fb",                          "error": "DESCRIPTION_CONTROL_CHAR" }
+  ],
+  "fingerprint": [
+    { "label": "BNA debit",          "format": "BNA_MONTHLY_PDF_V1",         "value_date": "2026-08-04", "description_norm": "GRAVAMEN LEY 25413 S/DEB", "bank_reference": "21",  "fecha_valor": null,         "signed_amount": "-1442.27", "running_balance": "1698750.56" },
+    { "label": "BNA negative balance","format": "BNA_MONTHLY_PDF_V1",        "value_date": "2025-11-19", "description_norm": "VS.GYT EX.LEY 25413 - IB",  "bank_reference": "71908989", "fecha_valor": null,  "signed_amount": "52030.00", "running_balance": "-312.18" },
+    { "label": "BNA empty reference","format": "BNA_MONTHLY_PDF_V1",         "value_date": "2026-01-02", "description_norm": "X",                        "bank_reference": "",    "fecha_valor": null,         "signed_amount": "0.50",     "running_balance": "0.00" },
+    { "label": "Patagonia no balance","format": "PATAGONIA_STATEMENT_PDF_V1","value_date": "2026-06-05", "description_norm": "IMP.DB/CR BANCARIOS P/CREDITOS", "bank_reference": "", "fecha_valor": null,    "signed_amount": "-3.00",    "running_balance": null },
+    { "label": "Patagonia full",     "format": "PATAGONIA_STATEMENT_PDF_V1", "value_date": "2026-09-01", "description_norm": "TRANSFERENCIA ENTRE CUENTAS", "bank_reference": "R 1", "fecha_valor": "2026-09-02", "signed_amount": "500.00", "running_balance": "1994.00" }
+  ]
+}
