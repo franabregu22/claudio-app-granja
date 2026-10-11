@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
-  accountStatementFormat, countMatchedLines, getMatchDetail, type LineFilters, listAnchorCandidates, listCutovers, listPostingCandidates, listStatementLines,
+  accountStatementFormat, countMatchedLines, getMatchDetail, listBankHistory, type LineFilters, listAnchorCandidates, listCutovers, listPostingCandidates, listStatementLines,
   matchStatementLine, resolveStatementCutover, reverseStatementMatch, type StatementLine,
 } from '../../target/bankReconciliation';
 
@@ -9,6 +9,9 @@ const ROOT = ['bank-reconciliation'];
 
 export function useStatementLines(f: LineFilters) {
   return useQuery({ queryKey: [...ROOT, 'lines', f], queryFn: () => listStatementLines(supabase, f), enabled: f.accountId !== '' });
+}
+export function useBankHistory(accountId: string) {
+  return useQuery({ queryKey: [...ROOT, 'history', accountId], queryFn: () => listBankHistory(supabase, accountId), enabled: accountId !== '' });
 }
 export function useCutovers(accountId: string) {
   return useQuery({ queryKey: [...ROOT, 'cutovers', accountId], queryFn: () => listCutovers(supabase, accountId), enabled: accountId !== '' });

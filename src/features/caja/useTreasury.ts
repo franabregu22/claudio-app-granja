@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { createPurchaseWithAttachments } from '../../target/attachments';
 import { listMaster, type ClientRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
 import {
-  assignFreightToPurchase, cancelSupplierInstrument, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
+  assignFreightToPurchase, cancelSupplierInstrument, listAccountPostings, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
   listInstruments, listLedgerBalances, listPnlMonths, listPurchases, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
   registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listTransfers, listBankTaxPeriods, transferWithBankTax,
 } from '../../target/treasury';
@@ -21,6 +21,9 @@ function useRefresh() {
 
 export function useLedgerBalances(ledger: 'ACCOUNT' | 'SUPPLIER') {
   return useQuery({ queryKey: [...BALANCES, ledger], queryFn: () => listLedgerBalances(supabase, ledger) });
+}
+export function useAccountPostings(accountId: string) {
+  return useQuery({ queryKey: [...TREASURY, 'postings', accountId], queryFn: () => listAccountPostings(supabase, accountId), enabled: accountId !== '' });
 }
 export function useInstruments() {
   return useQuery({ queryKey: INSTRUMENTS, queryFn: () => listInstruments(supabase) });

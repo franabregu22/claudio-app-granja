@@ -184,6 +184,20 @@ export async function listTransfers(client: SupabaseClient, limit = 50): Promise
   });
 }
 
+export interface AccountPostingRow {
+  id: number; effective_date: string; signed_amount: number; operation_type: string | null; external_ref: string | null; reason: string | null;
+}
+/** ERP movements of one account: its financial_posting rows as recorded (read-only; the balance stays report_balance_period). */
+export async function listAccountPostings(client: SupabaseClient, accountId: string, limit = 100): Promise<AccountPostingRow[]> {
+  type Raw = { id: number; effective_date: string; signed_amount: number | string;
+    financial_operation: { operation_type: string; external_ref: string | null; reason: string | null } | null };
+  const rows = await readTable<Raw>(client, 'financial_posting',
+    (q) => q.eq('financial_account_id', accountId).order('effective_date', { ascending: false }).order('id', { ascending: false }).limit(limit),
+    'id, effective_date, signed_amount, financial_operation(operation_type, external_ref, reason)');
+  return rows.map((r) => ({ id: r.id, effective_date: r.effective_date, signed_amount: num(r.signed_amount),
+    operation_type: r.financial_operation?.operation_type ?? null, external_ref: r.financial_operation?.external_ref ?? null, reason: r.financial_operation?.reason ?? null }));
+}
+
 export interface BankTaxPeriodRow { period: string; tax_kind: string; financial_account_id: string; account_name: string; amount_paid: number; charges: number }
 /** ADR-011 report: amount paid per period / kind / account, exactly as report_bank_tax_period returns it. */
 export async function listBankTaxPeriods(client: SupabaseClient, limit = 24): Promise<BankTaxPeriodRow[]> {

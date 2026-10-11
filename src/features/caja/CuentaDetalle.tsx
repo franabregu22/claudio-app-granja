@@ -1,0 +1,117 @@
+import { useState } from 'react';
+import { X } from 'lucide-react';
+import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
+import type { FinancialAccountRow } from '../../target/masters';
+import { errorMessage } from '../../target/messages';
+import { formatearFechaLocal } from '../../utils/dateUtils';
+import { formatoPesos } from '../pedidos/helpers';
+import { useBankHistory } from './useReconciliation';
+import { useAccountPostings } from './useTreasury';
+
+type Pestana = 'erp' | 'banco';
+
+const ESTADO_ESTILO: Record<string, string> = {
+  'Corte pendiente': 'bg-stone-200 text-stone-700', 'Histórico': 'bg-blue-100 text-blue-800', 'Pendiente de conciliar': 'bg-amber-100 text-amber-900',
+  'Conciliado': 'bg-green-100 text-green-800', 'Revisar corte': 'bg-purple-100 text-purple-800', 'Sin clasificar': 'bg-stone-100 text-stone-600',
+};
+
+/**
+ * One account inside Caja → Saldos. "Movimientos ERP" are its financial_posting rows (they make the ERP balance);
+ * "Movimientos bancarios" (bank accounts only) are the imported statement lines (ADR-018): bank evidence, shown whatever
+ * the statement cut, read-only — importing a statement never creates money, so they never change the ERP balance.
+ * Reconciliation and the cut stay in Caja → Extractos bancarios → Conciliación.
+ */
+export function CuentaDetalle({ cuenta, saldo, onClose }: { cuenta: FinancialAccountRow; saldo: number | null; onClose: () => void }) {
+  const esBanco = cuenta.account_type === 'BANK_ACCOUNT';
+  const [pestana, setPestana] = useState<Pestana>(esBanco ? 'banco' : 'erp');
+  return (
+    <section className="mt-4 border border-[#E4DCC8] rounded-lg p-4 bg-[#FAF6EE]" aria-label={`Cuenta ${cuenta.nombre}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-bold text-[#2C2419]">{cuenta.nombre}</p>
+          <p className="text-xs text-[#8A7A5C]">Saldo ERP: {saldo === null ? 'sin movimientos' : formatoPesos(saldo)}</p>
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Cerrar cuenta"><X size={20} /></button>
+      </div>
+      <div className="flex gap-2 mt-3" role="tablist" aria-label="Movimientos de la cuenta">
+        {([['erp', 'Movimientos ERP'], ...(esBanco ? [['banco', 'Movimientos bancarios']] : [])] as [Pestana, string][]).map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={pestana === id} onClick={() => setPestana(id)}
+            className={`px-3 py-1 rounded-full text-sm font-medium ${pestana === id ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-white text-[#6B5D45] border border-[#E4DCC8] hover:bg-stone-50'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3">
+        {pestana === 'erp' ? <MovimientosErp accountId={cuenta.id} /> : <MovimientosBancarios accountId={cuenta.id} />}
+      </div>
+    </section>
+  );
+}
+
+function MovimientosErp({ accountId }: { accountId: string }) {
+  const postings = useAccountPostings(accountId);
+  if (postings.isLoading) return <p className="text-sm text-gray-500">Cargando movimientos...</p>;
+  if (postings.error) return <p className="text-sm text-red-700">{errorMessage(postings.error)}</p>;
+  const rows = postings.data ?? [];
+  if (rows.length === 0) return <p className="text-sm text-[#8A7A5C]">La cuenta no tiene movimientos registrados en el ERP.</p>;
+  return (
+    <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
+      <table className="w-full text-sm" aria-label="Movimientos ERP">
+        <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
+          <th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Operación</th><th className="px-3 py-2">Referencia</th><th className="px-3 py-2 text-right">Importe</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.id} className="border-b border-stone-100 last:border-0">
+              <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(p.effective_date)}</td>
+              <td className="px-3 py-2 whitespace-nowrap">{p.operation_type ?? '—'}</td>
+              <td className="px-3 py-2 max-w-[16rem] truncate" title={p.reason ?? p.external_ref ?? ''}>{p.reason || p.external_ref || '—'}</td>
+              <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${p.signed_amount < 0 ? 'text-red-700' : 'text-green-800'}`}>{importe(p.signed_amount, true)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length >= 100 && <p className="text-xs text-[#8A7A5C] px-3 py-2">Se muestran los 100 movimientos más recientes.</p>}
+    </div>
+  );
+}
+
+function MovimientosBancarios({ accountId }: { accountId: string }) {
+  const historial = useBankHistory(accountId);
+  if (historial.isLoading) return <p className="text-sm text-gray-500">Cargando movimientos bancarios...</p>;
+  if (historial.error) return <p className="text-sm text-red-700">{errorMessage(historial.error)}</p>;
+  const lineas: StatementLine[] = historial.data ?? [];
+  if (lineas.length === 0) {
+    return <p className="text-sm text-[#8A7A5C]">Todavía no se importaron extractos de esta cuenta (Caja → Extractos bancarios → Importaciones).</p>;
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-[#8A7A5C]">Movimientos importados del extracto bancario. Son evidencia del banco: no modifican el saldo ERP.</p>
+      {needsCutoverNotice(lineas) && <p className="text-xs bg-stone-100 border border-stone-200 text-stone-700 rounded-lg px-3 py-2">{CUTOVER_NOTICE}</p>}
+      <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
+        <table className="w-full text-sm" aria-label="Movimientos bancarios">
+          <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
+            <th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Descripción</th><th className="px-3 py-2">Referencia</th>
+            <th className="px-3 py-2 text-right">Importe</th><th className="px-3 py-2 text-right">Saldo informado por banco</th><th className="px-3 py-2">Estado</th>
+          </tr></thead>
+          <tbody>
+            {lineas.map((l) => {
+              const estado = bankHistoryStatus(l);
+              return (
+                <tr key={l.statement_line_id} className="border-b border-stone-100 last:border-0">
+                  <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(l.value_date)}</td>
+                  <td className="px-3 py-2 max-w-[18rem] truncate" title={l.description_raw}>{l.description_raw}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{l.bank_reference || '—'}</td>
+                  <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${l.signed_amount < 0 ? 'text-red-700' : 'text-green-800'}`}>{importe(l.signed_amount, true)}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap text-[#8A7A5C]">{importe(l.running_balance)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap"><span className={`text-xs px-2 py-0.5 rounded ${ESTADO_ESTILO[estado]}`}>{estado}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-[#8A7A5C]">{lineas.length} movimiento(s), los más recientes primero. La conciliación se hace en Extractos bancarios → Conciliación.</p>
+    </div>
+  );
+}

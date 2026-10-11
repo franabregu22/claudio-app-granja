@@ -5,6 +5,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import type { TransferHistoryRow } from '../../target/treasury';
+import { CuentaDetalle } from './CuentaDetalle';
 import { campo, etiqueta, Modal } from './Modal';
 import { useBankTaxPeriods, useLedgerBalances, useTransfers, useTreasuryMutations } from './useTreasury';
 
@@ -18,6 +19,7 @@ export function ResumenSaldos() {
   const cuentas = useFinancialAccounts();
   const saldos = useLedgerBalances('ACCOUNT');
   const [transfiriendo, setTransfiriendo] = useState(false);
+  const [abierta, setAbierta] = useState<string | null>(null);
 
   if (cuentas.isLoading || saldos.isLoading) return <p className="text-sm text-gray-500">Cargando saldos...</p>;
   const error = cuentas.error ?? saldos.error;
@@ -30,15 +32,21 @@ export function ResumenSaldos() {
         {(cuentas.data ?? []).map((c) => {
           const s = porCuenta.get(c.id);
           return (
-            <div key={c.id} className="flex items-center justify-between text-sm">
+            <button key={c.id} onClick={() => setAbierta(abierta === c.id ? null : c.id)} aria-expanded={abierta === c.id}
+              className={`w-full flex items-center justify-between text-sm rounded px-1 py-0.5 hover:bg-amber-50 ${abierta === c.id ? 'bg-amber-50' : ''}`}>
               <span className="text-[#2C2419] font-medium">{c.nombre} <span className="text-xs text-[#8A7A5C]">· {TIPO[c.account_type] ?? c.account_type}</span></span>
               {s ? <span className={`font-bold ${s.balance < 0 ? 'text-red-700' : 'text-[#2C2419]'}`}>{formatoPesos(s.balance)}</span>
                 : <span className="text-xs text-[#8A7A5C]">Sin movimientos</span>}
-            </div>
+            </button>
           );
         })}
         {(cuentas.data ?? []).length === 0 && <p className="text-sm text-[#8A7A5C]">No hay cuentas activas. Crealas en Administración.</p>}
+        {(cuentas.data ?? []).length > 0 && !abierta && <p className="text-xs text-[#8A7A5C]">Tocá una cuenta para ver sus movimientos.</p>}
       </div>
+      {(() => {
+        const c = (cuentas.data ?? []).find((x) => x.id === abierta);
+        return c ? <CuentaDetalle key={c.id} cuenta={c} saldo={porCuenta.get(c.id)?.balance ?? null} onClose={() => setAbierta(null)} /> : null;
+      })()}
       <button onClick={() => setTransfiriendo(true)} disabled={(cuentas.data ?? []).length < 2}
         className="mt-4 flex items-center gap-2 text-sm px-3 py-2 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200 disabled:opacity-50">
         <ArrowLeftRight className="w-4 h-4" /> Transferir entre cuentas

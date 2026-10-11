@@ -71,6 +71,30 @@ export const canMatch = (l: Pick<StatementLine, 'cutover_classification' | 'reco
 export const canReverse = (l: Pick<StatementLine, 'reconciliation_status' | 'active_match_id'>) =>
   l.reconciliation_status === 'MATCHED' && l.active_match_id !== null;
 
+// ── bank history in Caja (read-only evidence; never money) ───────────────────────────────────────────────────────
+/** Status of an imported bank line as shown in Caja → account → Movimientos bancarios. */
+export function bankHistoryStatus(l: Pick<StatementLine, 'cutover_classification' | 'reconciliation_status'>): string {
+  switch (l.cutover_classification) {
+    case 'CUTOVER_UNRESOLVED': return 'Corte pendiente';
+    case 'PRE_CUTOVER': return 'Histórico';
+    case 'POST_CUTOVER': return l.reconciliation_status === 'MATCHED' ? 'Conciliado' : 'Pendiente de conciliar';
+    case 'CUTOVER_AMBIGUOUS_DAY': return 'Revisar corte';
+    default: return 'Sin clasificar';
+  }
+}
+/** The discreet notice of an account whose statement cut is not defined yet (its lines are shown anyway). */
+export const needsCutoverNotice = (lines: Pick<StatementLine, 'cutover_classification'>[]) =>
+  lines.some((l) => l.cutover_classification === 'CUTOVER_UNRESOLVED');
+export const CUTOVER_NOTICE = 'Estos movimientos provienen del extracto bancario. Todavía no se definió desde qué punto comienza la conciliación.';
+
+/**
+ * Every imported line of one bank account, whatever its cut classification (historical statements before the ERP start
+ * included). Reads only fin_statement_line_status: bank evidence, never financial_posting, so the ERP balance is untouched.
+ */
+export function listBankHistory(client: SupabaseClient, accountId: string, limit = 2000) {
+  return listStatementLines(client, { accountId, cutover: 'ALL', reconciliation: 'ALL' }, limit);
+}
+
 // ── manual 1:1 match ─────────────────────────────────────────────────────────────────────────────────────────────
 export interface PostingCandidate {
   id: number; financial_operation_id: number; signed_amount: number; effective_date: string; operation_type: string;
