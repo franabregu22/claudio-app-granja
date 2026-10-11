@@ -401,6 +401,10 @@ verify_jwt = false
 [functions.mp-worker]
 verify_jwt = false
 
+# ADR-018: bank statement import; ADMIN user JWT required (the gateway verifies it, the function re-checks the role).
+[functions.fin-statement-import]
+verify_jwt = true
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
