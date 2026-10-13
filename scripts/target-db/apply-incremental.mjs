@@ -7,7 +7,7 @@
  *   node scripts/target-db/apply-incremental.mjs --from 0072 --to 0077 --client <psql client container> [--dry-run]
  *        [--production --expected-project-ref <ref> --forbidden-refs <ref,…>
  *         --confirm-project <ref> --confirm-from 0072 --confirm-to 0077]
- *        [--verify-profile ADR018_POST_0077 [--deployment-check]] [--verify-only]
+ *        [--verify-profile ADR018_POST_0077 | ADR018_POST_0078 [--deployment-check]] [--verify-only]
  *        [--lock-timeout 5s] [--statement-timeout 120s]
  *        [--migrations-dir <dir>]                         (non-production only: tests)
  *
@@ -58,7 +58,10 @@ const FILE_PATTERN = /^(\d{4})_[a-z0-9_]+\.sql$/;
 const TXN_CONTROL = /\b(BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION|SAVEPOINT|RELEASE\s+SAVEPOINT|END\s*;)/i;
 const LOCK_KEY = "hashtext('target_v1_migration_runner')";
 const LEDGER = 'migration_ledger.applied';
-const PROFILES = { ADR018_POST_0077: './verify-profiles/adr018-post-0077.mjs' };
+const PROFILES = {
+  ADR018_POST_0077: './verify-profiles/adr018-post-0077.mjs',
+  ADR018_POST_0078: './verify-profiles/adr018-post-0078.mjs',
+};
 const t0 = Date.now();
 
 const log = (m) => console.log(`  ${m}`);

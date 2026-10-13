@@ -32,9 +32,13 @@ const psql = (sql) => {
   if (r.status !== 0) throw new Error(r.stderr);
   return (r.stdout || '').trim();
 };
+// the scenario is the 0072 → 0077 deploy: unless a test passes its own --migrations-dir, the runner reads a copy of the
+// repository migrations up to 0077 (later migrations, e.g. 0078, belong to their own deploy)
+let d77 = null;
 const runner = (args, extraEnv = {}) => {
   const t = Date.now();
-  const r = spawnSync(process.execPath, [RUNNER, '--client', CLIENT, ...args], { encoding: 'utf8', env: { ...process.env, MIGRATION_TARGET_DB_URL: URL_, ...extraEnv } });
+  const a = args.includes('--migrations-dir') ? args : ['--migrations-dir', d77, ...args];
+  const r = spawnSync(process.execPath, [RUNNER, '--client', CLIENT, ...a], { encoding: 'utf8', env: { ...process.env, MIGRATION_TARGET_DB_URL: URL_, ...extraEnv } });
   return { code: r.status, out: `${r.stdout || ''}${r.stderr || ''}`, ms: Date.now() - t };
 };
 const background = (sql) => {
@@ -53,6 +57,7 @@ const dirs = [];
 
 // ── setup: an existing target at 0072 with data ──────────────────────────────
 const d72 = copyMigrations('0072'); dirs.push(d72);
+d77 = copyMigrations('0077'); dirs.push(d77);
 let r = runner(['--migrations-dir', d72, '--from', '0000', '--to', '0072']);
 check('setup: empty target → 0072 applied by the runner (local only)', r.code === 0 && /RESULT: APPLIED 0000→0072/.test(r.out), r.out.slice(-400));
 const env = (spawnSync('docker', ['inspect', `supabase_edge_runtime_${PROJECT}`, '--format', '{{range .Config.Env}}{{println .}}{{end}}'], { encoding: 'utf8' }).stdout || '').split(/\r?\n/);

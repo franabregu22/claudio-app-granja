@@ -26,9 +26,9 @@ function run(args, url) {
 const POOLER = (ref) => `postgresql://postgres.${ref}:SECRETPW@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`;
 const DIRECT = (ref) => `postgresql://postgres:SECRETPW@db.${ref}.supabase.co:5432/postgres`;
 const LOCAL = 'postgresql://postgres:SECRETPW@127.0.0.1:5432/postgres';
-const base = ['--from', '0072', '--to', '0077', '--client', 'no-such-container'];
+const base = ['--from', '0072', '--to', '0078', '--client', 'no-such-container'];
 const prod = (ref = REF, extra = []) => [...base, '--production', '--expected-project-ref', ref, '--forbidden-refs', LEGACY,
-  '--confirm-project', ref, '--confirm-from', '0072', '--confirm-to', '0077', ...extra];
+  '--confirm-project', ref, '--confirm-from', '0072', '--confirm-to', '0078', ...extra];
 const aborted = (r, code) => r.code === 2 && r.out.includes(`[${code}]`) && !/\[(DOCKER|CONNECT)\]/.test(r.out);
 const noSecret = (r) => !r.out.includes('SECRETPW');
 
@@ -54,7 +54,7 @@ r = run(prod(REF), `postgresql://postgres:SECRETPW@aws-0-sa-east-1.pooler.supaba
 check('6d connection without any project ref → PROJECT', aborted(r, 'PROJECT') && /carries no Supabase project ref/.test(r.out), r.out);
 r = run(prod(REF), LOCAL);
 check('--production on a loopback host → TARGET', aborted(r, 'TARGET'), r.out);
-r = run([...base, '--production', '--expected-project-ref', REF, '--confirm-project', REF, '--confirm-from', '0072', '--confirm-to', '0077'], POOLER(REF));
+r = run([...base, '--production', '--expected-project-ref', REF, '--confirm-project', REF, '--confirm-from', '0072', '--confirm-to', '0078'], POOLER(REF));
 check('--production without --forbidden-refs → USAGE', aborted(r, 'USAGE'), r.out);
 
 // production confirmations
@@ -63,9 +63,9 @@ for (const k of ['confirm-project', 'confirm-from', 'confirm-to']) {
   r = run(withoutConfirm(k), POOLER(REF));
   check(`--production without --${k} → CONFIRM`, aborted(r, 'CONFIRM'), r.out);
 }
-r = run([...base, '--production', '--expected-project-ref', REF, '--forbidden-refs', LEGACY, '--confirm-project', OTHER, '--confirm-from', '0072', '--confirm-to', '0077'], POOLER(REF));
+r = run([...base, '--production', '--expected-project-ref', REF, '--forbidden-refs', LEGACY, '--confirm-project', OTHER, '--confirm-from', '0072', '--confirm-to', '0078'], POOLER(REF));
 check('--confirm-project of another project → CONFIRM', aborted(r, 'CONFIRM'), r.out);
-r = run([...base, '--production', '--expected-project-ref', REF, '--forbidden-refs', LEGACY, '--confirm-project', REF, '--confirm-from', '0071', '--confirm-to', '0077'], POOLER(REF));
+r = run([...base, '--production', '--expected-project-ref', REF, '--forbidden-refs', LEGACY, '--confirm-project', REF, '--confirm-from', '0071', '--confirm-to', '0078'], POOLER(REF));
 check('7a --confirm-from differing from --from → CONFIRM', aborted(r, 'CONFIRM'), r.out);
 r = run(prod(REF, ['--migrations-dir', 'supabase/target-migrations']), POOLER(REF));
 check('--migrations-dir refused with --production', aborted(r, 'USAGE'), r.out);
@@ -82,7 +82,8 @@ check('--deployment-check without a profile → USAGE', aborted(r, 'USAGE'), r.o
 r = run(['--from', '0072', '--to', '0077', '--client', 'no-such-container', '--verify-profile', 'NOPE'], LOCAL);
 check('unknown verify profile → USAGE', aborted(r, 'USAGE'), r.out);
 
-// a fully confirmed production invocation reaches the connection step only (here: a missing container), and never prints the password
+// a fully confirmed production invocation (the newest range, --to = the last local migration) reaches the connection step only
+// (here: a missing container), and never prints the password
 r = run(prod(REF), POOLER(REF));
 check('fully confirmed production args pass every pre-connection guard (stops at the client container)', r.code === 2 && /\[(DOCKER|CONNECT)\]/.test(r.out), r.out);
 check('no output ever contains the password', [run(prod(REF), POOLER(REF)), run(prod(REF), POOLER(OTHER)), run(base, LOCAL)].every(noSecret));
