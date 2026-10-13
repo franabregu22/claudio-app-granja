@@ -174,7 +174,7 @@ expect('security_invoker view owned by postgres',
 expect('grants: SELECT for authenticated only',
   `(SELECT string_agg(grantee || ':' || privilege_type, ',' ORDER BY grantee, privilege_type) FROM information_schema.role_table_grants
      WHERE table_schema = 'public' AND table_name = 'fin_statement_line_status' AND grantee IN ('PUBLIC','anon','authenticated','service_role'))`, 'authenticated:SELECT');
-expect('no function added: SECURITY DEFINER set still 73', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '73');
+expect('no function added by 0076: SECURITY DEFINER set 74 after 0078', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '74');
 expect('the view never reads the global cutover instant or the MP boundary',
   `(SELECT (pg_get_viewdef('fin_statement_line_status'::regclass) !~* '(cutover_at|mp_cutover_boundary)')::text)`, 'true');
 expect('ADMIN reads every test line (8)', viewAsAdmin(`SELECT count(*) FROM fin_statement_line_status

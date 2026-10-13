@@ -343,7 +343,7 @@ expect('Patagonia earlier line is PRE', as('authenticated', ADMIN, `SELECT ${mat
 // ── 5. perimeter ─────────────────────────────────────────────────────────────
 expect('no function uses the global cutover instant or the MP boundary',
   `(SELECT count(*)::text FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'fin\\_%' AND prosrc ~* '(cutover_at|mp_cutover_boundary)')`, '0');
-expect('SECURITY DEFINER set = 73', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '73');
+expect('SECURITY DEFINER set = 74 (0078 adds fin_capture_mp_release_report)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '74');
 expect('the four definers: owner postgres, search_path=public',
   `(SELECT string_agg(proname || ':' || prosecdef || ':' || pg_get_userbyid(proowner) || ':' || (coalesce(proconfig, '{}') @> ARRAY['search_path=public']), ',' ORDER BY proname)
      FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('fin_import_bank_statement','fin_match_statement_line','fin_reverse_statement_match','fin_resolve_statement_cutover'))`,

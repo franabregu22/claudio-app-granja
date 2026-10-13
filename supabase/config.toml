@@ -405,6 +405,10 @@ verify_jwt = false
 [functions.fin-statement-import]
 verify_jwt = true
 
+# ADR-018 §9.3: MP release report capture, VALIDATION mode; ADMIN user JWT required (re-checked in the function and the DB).
+[functions.mp-report-ingest]
+verify_jwt = true
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
