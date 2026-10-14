@@ -324,8 +324,8 @@ check('I-4 EXECUTE: both functions service_role only; view SELECT authenticated 
   || has_function_privilege('service_role', oid, 'EXECUTE') || prosecdef, ',' ORDER BY proname) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
   AND proname IN ('fin_ingest_mp_release_report', 'mp_register_report_backfill');`) === 'fin_ingest_mp_release_report:falsefalsetruetrue,mp_register_report_backfill:falsefalsetruetrue'
   && owner(`SELECT string_agg(grantee || ':' || privilege_type, ',') FROM information_schema.role_table_grants WHERE table_name = 'fin_mp_report_activity' AND grantee IN ('anon','authenticated','service_role','PUBLIC');`) === 'authenticated:SELECT');
-check('I-5 SECURITY DEFINER set = 76; one cron job; mp_register_delivery still refuses report_backfill',
-  owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '76'
+check('I-5 SECURITY DEFINER set = 77 (0081 adds the scheduler log); one cron job; mp_register_delivery still refuses report_backfill',
+  owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '77'
     && owner(`SELECT string_agg(jobname, ',') FROM cron.job;`) === 'mp_worker_every_minute'
     && errOf(() => svcJson(`mp_register_delivery('report_backfill', 'payment', 'payment', NULL, '1', NULL, NULL, '{}'::jsonb, false)`)).includes('origin must be webhook or chargeback_refresh'));
 

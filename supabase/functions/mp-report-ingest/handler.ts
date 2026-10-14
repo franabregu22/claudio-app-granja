@@ -40,7 +40,7 @@ const FAILED_TASK = ['failed', 'error', 'canceled', 'cancelled', 'deleted', 'exp
 const DIGITS = /^[0-9]{1,20}$/;
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-type Mode = 'VALIDATION' | 'NORMAL';
+export type Mode = 'VALIDATION' | 'NORMAL';
 
 export const CORS_HEADERS: Record<string, string> = {
   'access-control-allow-origin': '*',
@@ -55,12 +55,12 @@ export interface RunRow {
   lines_new: number; lines_known: number; rows_ignored: number; file_name: string; byte_size: number; source_meta: Record<string, unknown> | null;
 }
 export interface CaptureParams {
-  p_actor: string; p_parser_version: string; p_format_code: string | null; p_file_sha256: string; p_storage_path: string;
+  p_actor: string | null; p_parser_version: string; p_format_code: string | null; p_file_sha256: string; p_storage_path: string;
   p_file_name: string; p_byte_size: number; p_coverage_from: string; p_coverage_to: string; p_source_meta: Record<string, unknown>;
   p_reject_reason: string | null; p_rows: unknown[] | null;
 }
 export type AuthResult = { ok: true; uid: string } | { ok: false; status: 401 | 403; code: string };
-export interface LogEntry { event: string; code?: string; status?: number; run_id?: string; task?: string; sha?: string; ms?: number }
+export interface LogEntry { event: string; code?: string; status?: number; run_id?: string; task?: string; sha?: string; ms?: number; date?: string; outcome?: string }
 
 export interface IngestDeps {
   authorize(authorization: string | null): Promise<AuthResult>;
@@ -81,8 +81,11 @@ export interface IngestDeps {
   now(): number;
 }
 
+/** Everything but `authorize`: what the report pipeline itself needs (the ADMIN action and the scheduler). */
+export type ReportDeps = Omit<IngestDeps, 'authorize'>;
+
 export class CaptureRpcError extends Error {}
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, readonly extra: Record<string, unknown> = {}) { super(code); }
 }
 
@@ -92,14 +95,14 @@ const fail = (status: number, code: string, extra: Record<string, unknown> = {})
 export const canonicalPath = (accountId: string, sha: string) => `mp/${accountId}/${sha}.csv`;
 
 /** One MP call; transport failures and non-JSON bodies are MP failures, never partial results. */
-async function mpJson(deps: IngestDeps, method: 'GET' | 'POST', path: string, okStatuses: number[], code: string, body?: unknown): Promise<unknown> {
+async function mpJson(deps: ReportDeps, method: 'GET' | 'POST', path: string, okStatuses: number[], code: string, body?: unknown): Promise<unknown> {
   let res: Response;
   try { res = await deps.mp(method, path, body); } catch { return fail(502, 'MP_UNREACHABLE'); }
   if (!okStatuses.includes(res.status)) { await res.body?.cancel(); return fail(502, code, { mp_status: res.status }); }
   try { return await res.json(); } catch { return fail(502, 'MP_RESPONSE_INCONSISTENT'); }
 }
 
-async function readConfig(deps: IngestDeps): Promise<ConfigCheck> {
+async function readConfig(deps: ReportDeps): Promise<ConfigCheck> {
   return checkReleaseConfig(await mpJson(deps, 'GET', `${MP}/config`, [200], 'MP_CONFIG_UNAVAILABLE'));
 }
 
@@ -107,7 +110,7 @@ const sameInstant = (a: unknown, b: string) => typeof a === 'string' && Date.par
 const idOf = (v: unknown): string | null => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) || (typeof v === 'string' && DIGITS.test(v)) ? String(v) : null;
 
 /** Poll the task until `processed`; its window must be exactly the requested one. */
-async function awaitTask(deps: IngestDeps, taskId: string, window: { begin_date: string; end_date: string }): Promise<Record<string, unknown>> {
+async function awaitTask(deps: ReportDeps, taskId: string, window: { begin_date: string; end_date: string }): Promise<Record<string, unknown>> {
   for (let i = 0; i < MAX_POLLS; i++) {
     if (i > 0) await deps.sleep(POLL_MS);
     const t = await mpJson(deps, 'GET', `${MP}/task/${taskId}`, [200], 'MP_TASK_UNAVAILABLE');
@@ -124,7 +127,7 @@ async function awaitTask(deps: IngestDeps, taskId: string, window: { begin_date:
 }
 
 /** file_name from the processed task, else exactly one entry of the report list referring to this task. */
-async function resolveFileName(deps: IngestDeps, task: Record<string, unknown>): Promise<string> {
+async function resolveFileName(deps: ReportDeps, task: Record<string, unknown>): Promise<string> {
   let name: unknown = task.file_name;
   if (typeof name !== 'string') {
     const ids = new Set([idOf(task.id), idOf(task.report_id)].filter((v): v is string => v !== null));
@@ -143,7 +146,7 @@ async function resolveFileName(deps: IngestDeps, task: Record<string, unknown>):
   return fileName;
 }
 
-async function downloadReport(deps: IngestDeps, fileName: string): Promise<Uint8Array> {
+async function downloadReport(deps: ReportDeps, fileName: string): Promise<Uint8Array> {
   let res: Response;
   try { res = await deps.mp('GET', `${MP}/${encodeURIComponent(fileName)}`); } catch { return fail(502, 'MP_UNREACHABLE'); }
   if (res.status !== 200) { await res.body?.cancel(); return fail(502, 'MP_DOWNLOAD_FAILED', { mp_status: res.status }); }
@@ -156,7 +159,7 @@ async function downloadReport(deps: IngestDeps, fileName: string): Promise<Uint8
 }
 
 /** Store the original once; an existing object must hold exactly the same bytes (content-addressed path). */
-async function storeEvidence(deps: IngestDeps, path: string, sha: string, bytes: Uint8Array): Promise<'created' | 'reused'> {
+async function storeEvidence(deps: ReportDeps, path: string, sha: string, bytes: Uint8Array): Promise<'created' | 'reused'> {
   const verifyExisting = async () => {
     const stored = await deps.download(path);
     if (!stored || (await deps.sha256(stored)) !== sha) fail(409, 'EVIDENCE_INTEGRITY');
@@ -176,9 +179,6 @@ const rpcStatus = (message: string): [number, string] => {
 
 async function handleCapture(deps: IngestDeps, uid: string, b: Record<string, unknown>, t0: number): Promise<Response> {
   const date = typeof b.date === 'string' ? b.date : '';
-  const window = businessDayWindow(date, deps.now());
-  if (!window) fail(400, 'INVALID_DATE');
-  const w = window as { begin_date: string; end_date: string };
   let resumeId: string | null = null;
   if (b.task_id !== undefined) {
     resumeId = idOf(b.task_id);
@@ -186,6 +186,36 @@ async function handleCapture(deps: IngestDeps, uid: string, b: Record<string, un
   }
   if (b.mode !== undefined && b.mode !== 'VALIDATION' && b.mode !== 'NORMAL') fail(400, 'INVALID_MODE');
   const mode: Mode = b.mode === 'NORMAL' ? 'NORMAL' : 'VALIDATION';
+  const { summary: _summary, ...res } = await captureReport(deps, { actor: uid, date, mode, taskId: resumeId, t0 });
+  return json(200, res);
+}
+
+/** Row classes of a parsed report (no row content): what a run will hold, for logs and the scheduler record. */
+export interface ReportSummary { rows: number; control: number; payments_in: number; payments_out: number; yields: number; payouts: number; reserves: number }
+function summarize(rows: { raw_row: Record<string, string> }[]): ReportSummary {
+  const s: ReportSummary = { rows: rows.length, control: 0, payments_in: 0, payments_out: 0, yields: 0, payouts: 0, reserves: 0 };
+  for (const { raw_row: r } of rows) {
+    if (r.SOURCE_ID === '' && r.DESCRIPTION === '') s.control++;
+    else if (r.DESCRIPTION === 'payment') { if (Number(r.NET_CREDIT_AMOUNT) - Number(r.NET_DEBIT_AMOUNT) > 0) s.payments_in++; else s.payments_out++; }
+    else if (r.DESCRIPTION === 'asset_management') s.yields++;
+    else if (r.DESCRIPTION === 'payout') s.payouts++;
+    else if (r.DESCRIPTION === 'reserve_for_payment' || r.DESCRIPTION === 'reserve_for_payout') s.reserves++;
+  }
+  return s;
+}
+
+/**
+ * One business day: configuration check → report request (or resume of taskId) → bounded polling → download → evidence →
+ * parse → VALIDATION or NORMAL record. Shared by the ADMIN action (actor = the user) and the daily scheduler
+ * (mp-report-daily, actor = null: the database records created_by NULL). Throws HttpError on every refusal.
+ */
+export async function captureReport(deps: ReportDeps, o: { actor: string | null; date: string; mode: Mode; taskId: string | null; t0: number }):
+  Promise<Record<string, unknown> & { summary: ReportSummary | null }> {
+  const { date, mode } = o;
+  const window = businessDayWindow(date, deps.now());
+  if (!window) fail(400, 'INVALID_DATE');
+  const w = window as { begin_date: string; end_date: string };
+  const resumeId = o.taskId;
   const account = await deps.loadMpAccount();
   if (!account) fail(422, 'MP_ACCOUNT_MISSING');
   const acc = account as string;
@@ -220,17 +250,17 @@ async function handleCapture(deps: IngestDeps, uid: string, b: Record<string, un
       : null,
   };
   const res = await record(deps, mode, {
-    p_actor: uid, p_parser_version: PARSER_VERSION, p_format_code: parsed.ok ? FORMAT_CODE : null, p_file_sha256: sha,
+    p_actor: o.actor, p_parser_version: PARSER_VERSION, p_format_code: parsed.ok ? FORMAT_CODE : null, p_file_sha256: sha,
     p_storage_path: path, p_file_name: fileName, p_byte_size: bytes.length, p_coverage_from: date, p_coverage_to: date,
     p_source_meta: source_meta, p_reject_reason: parsed.ok ? null : parsed.reject_reason, p_rows: parsed.ok ? parsed.rows : null,
   }, { task_id: taskId, evidence: stored });
   deps.log({ event: mode === 'NORMAL' ? 'capture_normal' : 'capture', status: 200, run_id: String(res.run_id), task: taskId as string,
-    sha: sha.slice(0, 12), code: stored, ms: Math.round(deps.now() - t0) });
-  return json(200, res);
+    sha: sha.slice(0, 12), code: stored, ms: Math.round(deps.now() - o.t0) });
+  return { ...res, summary: parsed.ok ? summarize(parsed.rows) : null };
 }
 
 /** fin_capture_mp_release_report (VALIDATION) or fin_ingest_mp_release_report (NORMAL), then the stored run. */
-async function record(deps: IngestDeps, mode: Mode, params: CaptureParams, extra: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function record(deps: ReportDeps, mode: Mode, params: CaptureParams, extra: Record<string, unknown>): Promise<Record<string, unknown>> {
   let result: Record<string, unknown>;
   try {
     result = mode === 'NORMAL' ? await deps.ingest(params) : await deps.capture(params);

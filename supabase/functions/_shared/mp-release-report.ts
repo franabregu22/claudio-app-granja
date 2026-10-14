@@ -122,6 +122,17 @@ export function businessDayWindow(date: string, nowMs: number): { begin_date: st
   return { begin_date: iso(begin), end_date: iso(end - 1000) };
 }
 
+/**
+ * The business calendar day before `nowMs` in America/Argentina/Buenos_Aires (YYYY-MM-DD) — the day a daily scheduled
+ * run processes. Uses the time zone database (never the server time zone, a UTC calendar day or a fixed offset).
+ */
+export function previousBusinessDay(nowMs: number): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: BUSINESS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(nowMs));
+  const n = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const d = new Date(Date.UTC(n('year'), n('month') - 1, n('day') - 1));   // calendar arithmetic on the local date only
+  return d.toISOString().slice(0, 10);
+}
+
 export interface ParsedReport {
   ok: true;
   separator: ';' | ',';

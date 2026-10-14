@@ -701,7 +701,7 @@ const STEP6_DEFINERS = ['mp_ingest_api_snapshot'];
 const STEP7_DEFINERS = ['mp_apply_transition', 'mp_normalize_report_fallback'];
 const ADR007_DEFINERS = ['register_flock', 'close_flock'];   // ADR-007 RPCs 44 / 45 (0057), owner-approved 60 → 62
 const ADR016_DEFINERS = ['close_feria_summary', 'rectify_feria_closing'];   // ADR-016 RPCs 51 / 52 (0070)
-const ADR018_DEFINERS = ['fin_capture_mp_release_report', 'fin_import_bank_statement', 'fin_ingest_mp_release_report', 'fin_match_statement_line', 'fin_resolve_statement_cutover', 'fin_reverse_statement_match', 'mp_register_report_backfill'];   // ADR-018 (0075, 0078, 0079)
+const ADR018_DEFINERS = ['fin_capture_mp_release_report', 'fin_import_bank_statement', 'fin_ingest_mp_release_report', 'fin_match_statement_line', 'fin_record_mp_report_schedule', 'fin_resolve_statement_cutover', 'fin_reverse_statement_match', 'mp_register_report_backfill'];   // ADR-018 (0075, 0078, 0079, 0081)
 const expected = [...BASELINE_DEFINERS, ...Object.keys(STEP2_DEFINERS), ...STEP6_DEFINERS, ...STEP7_DEFINERS, ...ADR007_DEFINERS, ...ADR016_DEFINERS, ...ADR018_DEFINERS].sort().join(',');
 check(`Z1 exact SECURITY DEFINER set = baseline (41) ∪ the ${Object.keys(STEP2_DEFINERS).length} Step-2 definers ∪ the Step-6 definer mp_ingest_api_snapshot ∪ the ADR-007 definers register_flock / close_flock ∪ the Step-7 definers mp_apply_transition / mp_normalize_report_fallback, by name`, definers === expected,
   definers.split(',').filter((d) => !expected.split(',').includes(d)).join(',') || 'missing:' + expected.split(',').filter((d) => !definers.split(',').includes(d)).join(','));

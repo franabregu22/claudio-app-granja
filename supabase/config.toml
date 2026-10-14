@@ -409,6 +409,10 @@ verify_jwt = true
 [functions.mp-report-ingest]
 verify_jwt = true
 
+# ADR-018 §9.1: daily MP release report (scheduler); authenticated by WORKER_INVOKE_SECRET (x-worker-invoke-secret), not a JWT.
+[functions.mp-report-daily]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
