@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import { TARGET_VIEWS } from '../../src/target/db';
-import { isMercadoPagoAccount, listMpActivity, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus } from '../../src/target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, listMpActivity, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus } from '../../src/target/mpActivity';
 
 function harness(rows: unknown[]) {
   const seen: URL[] = [];
@@ -71,10 +71,10 @@ describe('ADR-018 MP activity — screen', () => {
     expect(detalle).toMatch(/\['erp', 'Movimientos ERP'\]/);
     expect(detalle).toMatch(/aria-label="Actividad Mercado Pago"/);
   });
-  it('shows date, type, reference, amount and coverage status; control rows omitted; states that it does not change the ERP balance', () => {
+  it('shows date, type, reference, amount and coverage status; internal rows omitted; states that it does not change the ERP balance', () => {
     const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'));
     for (const th of ['Fecha', 'Tipo', 'Referencia', 'Importe', 'Estado']) expect(fn).toContain(`>${th}</th>`);
-    expect(fn).toMatch(/coverage_status !== 'CONTROL'/);
+    expect(fn).toMatch(/todas\.filter\(isVisibleActivity\)/);
     expect(fn).toMatch(/no modifica el saldo ERP/);
     expect(fn).toMatch(/MP_STATUS_LABEL\[r\.coverage_status\]/);
   });
@@ -82,5 +82,31 @@ describe('ADR-018 MP activity — screen', () => {
     const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'));
     expect(fn).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.upsert\(|\.delete\(|useMutation|onClick/);
     expect(SRC('target/mpActivity.ts')).not.toMatch(/callRpc|\.rpc\(|\.insert\(|\.update\(|\.delete\(/);
+  });
+});
+
+describe('ADR-018 MP activity — internal report rows hidden', () => {
+  const row = (coverage_status: MpCoverageStatus, description: string | null, net: number | null) =>
+    ({ coverage_status, description, net_amount: net });
+  it('CONTROL and RESERVE are hidden; payment, yield, payout, outbound and every coverage state stay visible', () => {
+    expect(isVisibleActivity(row('CONTROL', null, null))).toBe(false);
+    expect(isVisibleActivity(row('RESERVE', 'reserve_for_payout', 759702.86))).toBe(false);
+    for (const s of ['PRE_CUTOVER', 'COVERED', 'BACKFILL_PROCESSED', 'BACKFILL_PENDING', 'EXCEPTION', 'YIELD', 'PAYOUT', 'OUTBOUND'] as MpCoverageStatus[]) {
+      expect(isVisibleActivity(row(s, 'payment', 1))).toBe(true);
+    }
+  });
+  it('real case SOURCE_ID 183984533002: Retiro −759.702,86 plus its two reserve rows → only the Retiro is listed', () => {
+    const rows = [
+      { ...row('RESERVE', 'reserve_for_payout', 759702.86), source_id: '183984533002' },
+      { ...row('RESERVE', 'reserve_for_payout', -759702.86), source_id: '183984533002' },
+      { ...row('PAYOUT', 'payout', -759702.86), source_id: '183984533002' },
+      { ...row('CONTROL', null, null), source_id: null },
+    ];
+    const listed = rows.filter(isVisibleActivity);
+    expect(listed.map((r) => [mpActivityType(r), r.net_amount])).toEqual([['Retiro', -759702.86]]);
+  });
+  it('payment (Cobro / Pago), yield and payout types are unchanged', () => {
+    expect([mpActivityType(row('BACKFILL_PROCESSED', 'payment', 49.7)), mpActivityType(row('OUTBOUND', 'payment', -37322.6)),
+      mpActivityType(row('YIELD', 'asset_management', 3389.55)), mpActivityType(row('PAYOUT', 'payout', -759702.86))]).toEqual(['Cobro', 'Pago', 'Rendimiento', 'Retiro']);
   });
 });

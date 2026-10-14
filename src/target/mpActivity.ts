@@ -53,5 +53,13 @@ export async function listMpActivity(client: SupabaseClient, accountId: string, 
   return rows.map((r) => ({ ...r, net_amount: num(r.net_amount), gross_amount: num(r.gross_amount), financial_operation_id: num(r.financial_operation_id) }));
 }
 
+/**
+ * Rows of the main activity list. CONTROL (report opening balance / totals) and RESERVE (Mercado Pago internal reserve
+ * pairs around a payout or an outbound payment) are report mechanics, not movements of the account: they stay in the
+ * database and the view as evidence, but the list shows only Cobro / Pago / Rendimiento / Retiro rows.
+ */
+const HIDDEN: ReadonlySet<MpCoverageStatus> = new Set(['CONTROL', 'RESERVE']);
+export const isVisibleActivity = (r: Pick<MpActivityRow, 'coverage_status'>) => !HIDDEN.has(r.coverage_status);
+
 /** The Mercado Pago account, identified exactly as the database functions do (0048 / 0051 / 0078 / 0079). */
 export const isMercadoPagoAccount = (a: { nombre: string; account_type: string }) => a.nombre === 'Mercado Pago' && a.account_type === 'EXTERNAL_SERVICE';

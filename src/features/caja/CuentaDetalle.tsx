@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { isMercadoPagoAccount, MP_STATUS_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus } from '../../target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, MP_STATUS_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useMpActivity } from './useMpActivity';
@@ -134,7 +134,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
   if (actividad.isLoading) return <p className="text-sm text-gray-500">Cargando actividad de Mercado Pago...</p>;
   if (actividad.error) return <p className="text-sm text-red-700">{errorMessage(actividad.error)}</p>;
   const todas: MpActivityRow[] = actividad.data ?? [];
-  const filas = todas.filter((r) => r.coverage_status !== 'CONTROL');
+  const filas = todas.filter(isVisibleActivity);   // CONTROL and RESERVE rows stay in the view as evidence, not in the list
   if (filas.length === 0) {
     return <p className="text-sm text-[#8A7A5C]">Todavía no se procesó ningún reporte de Mercado Pago.</p>;
   }
@@ -160,7 +160,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-[#8A7A5C]">{filas.length} movimiento(s) del reporte, los más recientes primero ({todas.length - filas.length} fila(s) de control omitidas).</p>
+      <p className="text-xs text-[#8A7A5C]">{filas.length} movimiento(s) del reporte, los más recientes primero ({todas.length - filas.length} fila(s) internas del reporte omitidas: saldos, totales y reservas).</p>
     </div>
   );
 }
