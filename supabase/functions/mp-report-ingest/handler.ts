@@ -16,7 +16,8 @@
  *                                                          store the original once at mp/<account>/<sha256>.csv →
  *                                                          parse → VALIDATION (default, fin_capture_mp_release_report) or
  *                                                          NORMAL (fin_ingest_mp_release_report: report rows, back-fills).
- *   {"action":"process","run_id":"<uuid>"}                 NORMAL over the stored original of a VALIDATED capture
+ *   {"action":"process","run_id":"<uuid>"}                 NORMAL over the stored original of a VALIDATED capture, or a
+ *                                                          reprocess of a REJECTED run with the current parser version
  *                                                          (no Mercado Pago call, no re-download; hash re-verified).
  * Mercado Pago endpoints used, and no other: GET release_report/config, POST release_report, GET release_report/task/{id},
  * GET release_report/list, GET release_report/{file_name}. The configuration is never written; nothing is scheduled.
@@ -258,8 +259,10 @@ async function record(deps: IngestDeps, mode: Mode, params: CaptureParams, extra
 }
 
 /**
- * NORMAL over the stored original of a VALIDATED capture (ADR-018 §9.3 rollout step 3): no re-download; the run, its path,
- * size and hash come only from the database and the stored object, never from the request.
+ * NORMAL over the stored original of a VALIDATED capture (ADR-018 §9.3 rollout step 3), or of a REJECTED run (an explicit
+ * reprocess with the current parser version; the database links the new run through previous_run_id and replays the same
+ * attempt): no re-download; the run, its path, size and hash come only from the database and the stored object, never from
+ * the request. A PARSED NORMAL run is never reprocessed.
  */
 async function handleProcess(deps: IngestDeps, uid: string, b: Record<string, unknown>, t0: number): Promise<Response> {
   const runId = typeof b.run_id === 'string' ? b.run_id.trim().toLowerCase() : '';
@@ -270,7 +273,8 @@ async function handleProcess(deps: IngestDeps, uid: string, b: Record<string, un
   if (!prev) fail(404, 'RUN_NOT_FOUND');
   const p = prev as RunRow;
   if (p.source_kind !== 'MP_RELEASE_REPORT' || p.financial_account_id !== account) fail(422, 'NOT_AN_MP_REPORT_RUN');
-  if (p.mode !== 'VALIDATION' || p.status !== 'VALIDATED') fail(409, 'NOT_A_VALIDATED_CAPTURE');
+  if (p.mode === 'NORMAL' && p.status === 'PARSED') fail(409, 'ALREADY_PROCESSED');
+  if (p.status !== 'VALIDATED' && p.status !== 'REJECTED') fail(409, 'NOT_REPROCESSABLE');
   if (p.storage_path !== canonicalPath(p.financial_account_id, p.file_sha256) || !p.coverage_from || !p.coverage_to) fail(409, 'EVIDENCE_INTEGRITY');
   const bytes = await deps.download(p.storage_path);
   if (!bytes) fail(409, 'EVIDENCE_MISSING');

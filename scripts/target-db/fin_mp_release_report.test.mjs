@@ -208,8 +208,12 @@ rejectCase('payment with a non-numeric SOURCE_ID', 'sid', swap(1, { SOURCE_ID: '
 rejectCase('movement without DATE', 'no-date', swap(1, { DATE: '' }), 2, 'MISSING_IDENTITY');
 rejectCase('duplicate identity in the report', 'dup', [...GOOD.slice(0, 2), GOOD[1], ...GOOD.slice(2)], 3, 'DUPLICATE_IDENTITY');
 
-expect('only CONTROL rows → REJECTED NO_MOVEMENT_ROWS', service({ sha: sha('empty'), rows: rowsOf([OPENING, TOTALS]) }, 'E'), 'OK:%"status": "REJECTED"%');
-expect('no-movement reason', `(SELECT reject_reason FROM fin_import_run WHERE id = ${RES('E')}::uuid)`, 'NO_MOVEMENT_ROWS%');
+// 0080 (owner decision 2026-10-14): a valid report without movements is a day without activity, not a rejection
+expect('only CONTROL rows → VALIDATED (0080: day without activity)', service({ sha: sha('empty'), rows: rowsOf([OPENING, TOTALS]) }, 'E'), 'OK:%"status": "VALIDATED"%');
+expect('empty day: 2 CAPTURED CONTROL rows, no reject reason', `(SELECT format('%s/%s/%s', r.rows_captured, r.rows_invalid, coalesce(r.reject_reason, '-')) FROM fin_import_run r WHERE id = ${RES('E')}::uuid)`, '2/0/-');
+expect('malformed CONTROL row (bad amount) → REJECTED INVALID_CONTROL_ROW (0080)',
+  service({ sha: sha('bad-control'), rows: rowsOf([{ ...OPENING, BALANCE_AMOUNT: '1.000,00' }, TOTALS]) }, 'BC'), 'OK:%"status": "REJECTED"%');
+expect('malformed CONTROL row note', `(SELECT outcome || ':' || split_part(note, ':', 1) FROM fin_import_run_line WHERE run_id = ${RES('BC')}::uuid AND row_number = 1)`, 'INVALID:INVALID_CONTROL_ROW');
 
 // ── 6. file-level rejection (Edge parser) ────────────────────────────────────
 expect('file-level reject → REJECTED run, format NULL, zero appearances',

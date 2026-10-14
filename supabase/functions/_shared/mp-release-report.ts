@@ -13,7 +13,9 @@
  * rejects the whole file; the parser is never adapted silently.
  */
 
-export const PARSER_VERSION = 'mp-release-report-csv/1.0.0';
+// 1.1.0 (0080): a valid report with only CONTROL rows is a day without activity (VALIDATED / PARSED, 0 effects), not a
+// rejection; CONTROL rows must themselves be well-formed. File-level parsing is unchanged.
+export const PARSER_VERSION = 'mp-release-report-csv/1.1.0';
 export const FORMAT_CODE = 'MP_RELEASE_REPORT_CSV_V1';
 export const BUSINESS_TZ = 'America/Argentina/Buenos_Aires';
 

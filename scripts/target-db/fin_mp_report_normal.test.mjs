@@ -98,7 +98,7 @@ const RES_D = mv(D4('11:00:00'), '777900000002', 'reserve_for_payout', '0.00', '
 const RES_C = mv(D4('11:00:01'), '777900000002', 'reserve_for_payout', '200.00', '0.00', '200.00', '0.00', 'available_money', '');
 const OUT_ROW = mv(D4('12:00:00'), '777900000003', 'payment', '0.00', '500.00', '-500.00', '0.00');   // outbound (direction D)
 const PRE_ROW = mv('2026-10-01T10:00:00.000-03:00', '777900000004', 'payment', '99.40', '0.00', '100.00', '-0.60');
-const REPORT_1 = [ctl('2026-10-04T00:00:00.000-03:00'), YIELD_ROW, RES_D, RES_C, PAYOUT_ROW, OUT_ROW, REAL_ROW, PRE_ROW, { ...EMPTY }];
+const REPORT_1 = [ctl('2026-10-04T00:00:00.000-03:00'), YIELD_ROW, RES_D, RES_C, PAYOUT_ROW, OUT_ROW, REAL_ROW, PRE_ROW, ctl('')];   // last row: the totals CONTROL row (DATE empty, amounts present)
 const rowsOf = (raws) => raws.map((raw_row, i) => ({ row_number: i + 1, raw_row }));
 const sha = (seed) => createHash('sha256').update(`ADR018-0079-${seed}`).digest('hex');
 const SEEDS = ['r1', 'r1-redownload', 'webhook-first', 'race', 'reject', 'pre-only', 'validation', 'closed-yield', 'auth'];

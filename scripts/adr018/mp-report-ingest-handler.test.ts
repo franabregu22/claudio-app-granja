@@ -407,7 +407,7 @@ Deno.test('process: refuses a non-validated run, a foreign run, a tampered or mi
   const h = harness({ tasks: { '777': [processed()] } });
   const v = await read(await handleIngest(capture(), h.deps));
   const n = await read(await handleIngest(post({ action: 'process', run_id: v.body.run_id }), h.deps));
-  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: n.body.run_id }), h.deps))).body.error, 'NOT_A_VALIDATED_CAPTURE');
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: n.body.run_id }), h.deps))).body.error, 'ALREADY_PROCESSED');
   assertEquals((await read(await handleIngest(post({ action: 'process', run_id: crypto.randomUUID() }), h.deps))).body.error, 'RUN_NOT_FOUND');
   assertEquals((await read(await handleIngest(post({ action: 'process', run_id: 'x' }), h.deps))).body.error, 'INVALID_RUN_ID');
   assertEquals((await read(await handleIngest(post({ action: 'process', run_id: v.body.run_id, mode: 'NORMAL' }), h.deps))).body.error, 'UNEXPECTED_FIELD');
@@ -420,4 +420,20 @@ Deno.test('process: refuses a non-validated run, a foreign run, a tampered or mi
   h.storage.delete(run.storage_path);
   assertEquals((await read(await handleIngest(post({ action: 'process', run_id: run.id }), h.deps))).body.error, 'EVIDENCE_MISSING');
   assertEquals(h.ingests.length, 1);
+});
+
+Deno.test('process: a REJECTED run (e.g. an empty day under parser 1.0.0) is reprocessed from its stored bytes with the current parser', async () => {
+  const h = harness({ tasks: { '777': [processed()] } });
+  const v = await read(await handleIngest(capture(), h.deps));
+  const stored = h.runs.get(v.body.run_id) as RunRow;
+  // a REJECTED NORMAL attempt over the same bytes made by the previous parser version
+  const rejected = { ...stored, id: crypto.randomUUID(), mode: 'NORMAL', status: 'REJECTED', parser_version: 'mp-release-report-csv/1.0.0',
+    reject_reason: 'NO_MOVEMENT_ROWS: the report has no movement row' };
+  h.runs.set(rejected.id, rejected);
+  const before = h.calls.length;
+  const r = await read(await handleIngest(post({ action: 'process', run_id: rejected.id }), h.deps));
+  assertEquals([r.status, r.body.mode, r.body.status, r.body.parser_version, r.body.evidence], [200, 'NORMAL', 'PARSED', PARSER_VERSION, 'reused']);
+  assertEquals(PARSER_VERSION, 'mp-release-report-csv/1.1.0');
+  assertEquals([h.calls.length, h.uploads.length], [before, 1]);   // no Mercado Pago call, no second upload
+  assertEquals(h.ingests[0].p_file_sha256, stored.file_sha256);
 });
