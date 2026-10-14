@@ -7,7 +7,7 @@
  *   node scripts/target-db/apply-incremental.mjs --from 0072 --to 0077 --client <psql client container> [--dry-run]
  *        [--production --expected-project-ref <ref> --forbidden-refs <ref,…>
  *         --confirm-project <ref> --confirm-from 0072 --confirm-to 0077]
- *        [--verify-profile ADR018_POST_0077 | ADR018_POST_0078 | ADR018_POST_0079 | ADR018_POST_0080 | ADR018_POST_0081 | ADR018_POST_0082 [--deployment-check]] [--verify-only]
+ *        [--verify-profile ADR018_POST_0077 | ADR018_POST_0078 | ADR018_POST_0079 | ADR018_POST_0080 | ADR018_POST_0081 | ADR018_POST_0082 | ADR018_POST_0083 [--deployment-check]] [--verify-only]
  *        [--lock-timeout 5s] [--statement-timeout 120s]
  *        [--migrations-dir <dir>]                         (non-production only: tests)
  *
@@ -65,6 +65,7 @@ const PROFILES = {
   ADR018_POST_0080: './verify-profiles/adr018-post-0080.mjs',
   ADR018_POST_0081: './verify-profiles/adr018-post-0081.mjs',
   ADR018_POST_0082: './verify-profiles/adr018-post-0082.mjs',
+  ADR018_POST_0083: './verify-profiles/adr018-post-0083.mjs',
 };
 const t0 = Date.now();
 
