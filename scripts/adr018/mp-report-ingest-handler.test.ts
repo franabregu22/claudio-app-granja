@@ -86,9 +86,27 @@ function harness(state: Partial<MpState> = {}) {
   const storage = new Map<string, Uint8Array>();
   const uploads: string[] = [];
   const captures: CaptureParams[] = [];
+  const ingests: CaptureParams[] = [];
   const runs = new Map<string, RunRow>();
   const logs: LogEntry[] = [];
   let sleeps = 0;
+  // in-memory stand-in for the two database functions (their real behaviour is proven by the DB suites)
+  const record = (mode: 'VALIDATION' | 'NORMAL', p: CaptureParams) => {
+    const prior = [...runs.values()].find((r) => r.mode === mode && r.file_sha256 === p.p_file_sha256 && r.parser_version === p.p_parser_version);
+    if (prior) return Promise.resolve({ run_id: prior.id, replayed: true });
+    const id = crypto.randomUUID();
+    const n = p.p_rows?.length ?? 0;
+    const ctl = (p.p_rows as { raw_row: { SOURCE_ID: string; DESCRIPTION: string } }[] | null ?? []).filter((r) => r.raw_row.SOURCE_ID === '' && r.raw_row.DESCRIPTION === '').length;
+    const latest = [...runs.values()].filter((r) => r.file_sha256 === p.p_file_sha256).pop();
+    const ok = !p.p_reject_reason;
+    runs.set(id, { id, source_kind: 'MP_RELEASE_REPORT', mode, status: ok ? (mode === 'NORMAL' ? 'PARSED' : 'VALIDATED') : 'REJECTED', financial_account_id: MP_ACC,
+      format_code: p.p_format_code, parser_version: p.p_parser_version, file_sha256: p.p_file_sha256, storage_path: p.p_storage_path,
+      coverage_from: p.p_coverage_from, coverage_to: p.p_coverage_to, rows_total: n, rows_captured: mode === 'VALIDATION' ? n : 0, rows_invalid: 0,
+      reject_reason: p.p_reject_reason, previous_run_id: latest?.id ?? null, lines_new: mode === 'NORMAL' ? n - ctl : 0, lines_known: 0,
+      rows_ignored: mode === 'NORMAL' ? ctl : 0, file_name: p.p_file_name, byte_size: p.p_byte_size, source_meta: p.p_source_meta });
+    return Promise.resolve(mode === 'NORMAL' ? { run_id: id, replayed: false, backfills_created: 1, backfills_existing: 0, yields_applied: 1, yields_not_applied: 0 }
+      : { run_id: id, replayed: false });
+  };
   const deps: IngestDeps = {
     authorize: (h) => Promise.resolve(TOKENS[(h ?? '').replace(/^Bearer /, '')] ?? { ok: false, status: 401, code: 'NOT_AUTHENTICATED' }),
     loadMpAccount: () => Promise.resolve(MP_ACC),
@@ -96,23 +114,14 @@ function harness(state: Partial<MpState> = {}) {
     mp: fake.mp,
     download: (p) => Promise.resolve(storage.get(p) ?? null),
     upload: (p, b) => { uploads.push(p); if (storage.has(p)) return Promise.resolve('exists' as const); storage.set(p, b); return Promise.resolve('created' as const); },
-    capture: (p) => {
-      captures.push(p);
-      const prior = [...runs.values()].find((r) => r.file_sha256 === p.p_file_sha256 && r.parser_version === p.p_parser_version);
-      if (prior) return Promise.resolve({ run_id: prior.id, replayed: true });
-      const id = crypto.randomUUID();
-      const n = p.p_rows?.length ?? 0;
-      runs.set(id, { id, source_kind: 'MP_RELEASE_REPORT', mode: 'VALIDATION', status: p.p_reject_reason ? 'REJECTED' : 'VALIDATED', financial_account_id: MP_ACC,
-        format_code: p.p_format_code, parser_version: p.p_parser_version, file_sha256: p.p_file_sha256, storage_path: p.p_storage_path,
-        coverage_from: p.p_coverage_from, coverage_to: p.p_coverage_to, rows_total: n, rows_captured: n, rows_invalid: 0, reject_reason: p.p_reject_reason, previous_run_id: null });
-      return Promise.resolve({ run_id: id, replayed: false });
-    },
+    capture: (p) => { captures.push(p); return record('VALIDATION', p); },
+    ingest: (p) => { ingests.push(p); return record('NORMAL', p); },
     sha256: async (b) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))).map((x) => x.toString(16).padStart(2, '0')).join(''),
     sleep: () => { sleeps++; return Promise.resolve(); },
     log: (e) => logs.push(e),
     now: () => NOW,
   };
-  return { deps, s, calls: fake.calls, bodies: fake.bodies, storage, uploads, captures, runs, logs, sleeps: () => sleeps };
+  return { deps, s, calls: fake.calls, bodies: fake.bodies, storage, uploads, captures, ingests, runs, logs, sleeps: () => sleeps };
 }
 const post = (body: unknown, token = 'admin', type = 'application/json') =>
   new Request('http://local/mp-report-ingest', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': type }, body: typeof body === 'string' ? body : JSON.stringify(body) });
@@ -190,7 +199,7 @@ Deno.test('auth: no JWT / OPERATOR refused before any Mercado Pago call; non-JSO
   const h = harness();
   assertEquals((await read(await handleIngest(post('x', 'admin', 'text/plain'), h.deps))).body.error, 'UNSUPPORTED_CONTENT_TYPE');
   assertEquals((await read(await handleIngest(post({ action: 'config', x: 1 }), h.deps))).body.error, 'UNEXPECTED_FIELD');
-  assertEquals((await read(await handleIngest(capture('2026-10-05', { mode: 'NORMAL' }), h.deps))).body.error, 'UNEXPECTED_FIELD');
+  assertEquals((await read(await handleIngest(capture('2026-10-05', { backfill: true }), h.deps))).body.error, 'UNEXPECTED_FIELD');
   assertEquals((await read(await handleIngest(post({ action: 'normal' }), h.deps))).body.error, 'UNKNOWN_ACTION');
   assertEquals((await handleIngest(new Request('http://local', { method: 'GET' }), h.deps)).status, 405);
   assertEquals((await handleIngest(new Request('http://local', { method: 'OPTIONS' }), h.deps)).status, 204);
@@ -363,4 +372,52 @@ Deno.test('MP transport failure → MP_UNREACHABLE; internal errors never echo d
   const ri = await read(await handleIngest(capture(), i.deps));
   assertEquals([ri.status, ri.body], [500, { error: 'INTERNAL' }]);
   assert(!JSON.stringify([...h.logs, ...i.logs]).includes('SECRET'));
+});
+
+// ── NORMAL (0079) ─────────────────────────────────────────────────────────────────────────────────────────────────
+Deno.test('capture mode NORMAL: same MP flow and evidence, recorded by the NORMAL ingestion (back-fills / yields reported)', async () => {
+  const h = harness();
+  const r = await read(await handleIngest(capture('2026-10-05', { mode: 'NORMAL' }), h.deps));
+  assertEquals([r.status, r.body.mode, r.body.status, h.captures.length, h.ingests.length], [200, 'NORMAL', 'PARSED', 0, 1]);
+  assertEquals(r.body.counters, { rows_total: 5, lines_new: 3, lines_known: 0, rows_ignored: 2, rows_invalid: 0 });
+  assertEquals(r.body.effects, { backfills_created: 1, backfills_existing: 0, yields_applied: 1, yields_not_applied: 0 });
+  assertEquals(h.ingests[0].p_format_code, FORMAT_CODE);
+  assertEquals(h.calls.filter((c) => c.startsWith('POST')).length, 1);
+  noLeak(h, [JSON.stringify(r.body)]);
+  const bad = harness();
+  assertEquals((await read(await handleIngest(capture('2026-10-05', { mode: 'normal' }), bad.deps))).body.error, 'INVALID_MODE');
+  assertEquals(bad.calls, []);
+});
+
+Deno.test('process: NORMAL over the stored bytes of a VALIDATED capture, no Mercado Pago call, previous_run_id linked', async () => {
+  const h = harness({ tasks: { '777': [processed()] } });
+  const v = await read(await handleIngest(capture(), h.deps));
+  const before = h.calls.length;
+  const r = await read(await handleIngest(post({ action: 'process', run_id: v.body.run_id }), h.deps));
+  assertEquals([r.status, r.body.mode, r.body.status, r.body.previous_run_id, r.body.evidence], [200, 'NORMAL', 'PARSED', v.body.run_id, 'reused']);
+  assertEquals(h.calls.length, before);                         // no MP call at all
+  assertEquals(h.uploads.length, 1);                            // the original is not stored again
+  assertEquals((h.ingests[0].p_source_meta as { processed_from_run: string }).processed_from_run, v.body.run_id);
+  assertEquals([h.ingests[0].p_coverage_from, h.ingests[0].p_file_sha256], ['2026-10-05', v.body.file_sha256]);
+  const again = await read(await handleIngest(post({ action: 'process', run_id: v.body.run_id }), h.deps));
+  assertEquals([again.body.replayed, again.body.run_id, again.body.effects], [true, r.body.run_id, undefined]);
+});
+
+Deno.test('process: refuses a non-validated run, a foreign run, a tampered or missing original, and bad input', async () => {
+  const h = harness({ tasks: { '777': [processed()] } });
+  const v = await read(await handleIngest(capture(), h.deps));
+  const n = await read(await handleIngest(post({ action: 'process', run_id: v.body.run_id }), h.deps));
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: n.body.run_id }), h.deps))).body.error, 'NOT_A_VALIDATED_CAPTURE');
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: crypto.randomUUID() }), h.deps))).body.error, 'RUN_NOT_FOUND');
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: 'x' }), h.deps))).body.error, 'INVALID_RUN_ID');
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: v.body.run_id, mode: 'NORMAL' }), h.deps))).body.error, 'UNEXPECTED_FIELD');
+  const run = h.runs.get(v.body.run_id) as RunRow;
+  h.runs.set(run.id, { ...run, financial_account_id: 'aaaaaaaa-0000-4000-8000-000000000001' });
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: run.id }), h.deps))).body.error, 'NOT_AN_MP_REPORT_RUN');
+  h.runs.set(run.id, run);
+  h.storage.set(run.storage_path, enc('tampered'));
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: run.id }), h.deps))).body.error, 'EVIDENCE_INTEGRITY');
+  h.storage.delete(run.storage_path);
+  assertEquals((await read(await handleIngest(post({ action: 'process', run_id: run.id }), h.deps))).body.error, 'EVIDENCE_MISSING');
+  assertEquals(h.ingests.length, 1);
 });

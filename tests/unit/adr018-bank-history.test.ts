@@ -85,7 +85,7 @@ describe('ADR-018 bank history in Caja — screen', () => {
     const saldos = SRC('features/caja/ResumenSaldos.tsx');
     expect(saldos).toMatch(/<CuentaDetalle key=\{c\.id\} cuenta=\{c\} saldo=\{porCuenta\.get\(c\.id\)\?\.balance \?\? null\}/);
     expect(saldos).toMatch(/useLedgerBalances\('ACCOUNT'\)/);   // the ERP balance source is unchanged
-    expect(detalle).toMatch(/\['erp', 'Movimientos ERP'\], \.\.\.\(esBanco \? \[\['banco', 'Movimientos bancarios'\]\] : \[\]\)/);
+    expect(detalle).toMatch(/\['erp', 'Movimientos ERP'\], \.\.\.\(esBanco \? \[\['banco', 'Movimientos bancarios'\]\] : \[\]\),/);
     expect(detalle).toMatch(/const esBanco = cuenta\.account_type === 'BANK_ACCOUNT'/);
   });
   it('the bank history is read-only: no write, no RPC, no reconciliation or cut action', () => {

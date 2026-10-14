@@ -1,5 +1,5 @@
 /**
- * ADR-018 §9.3 — `mp-report-ingest` Supabase Edge Function (verify_jwt = true), VALIDATION mode only.
+ * ADR-018 §9 — `mp-report-ingest` Supabase Edge Function (verify_jwt = true): VALIDATION capture and NORMAL ingestion.
  *
  * The request logic lives in ./handler.ts; this file only wires the runtime.
  * Runtime values read here and nowhere else: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (platform)
@@ -10,7 +10,8 @@
  *   role       POST /rest/v1/rpc/current_app_role  with the caller's JWT  → ADMIN required (active perfil)
  *   reads      PostgREST with the service key: financial_account, fin_import_run
  *   evidence   Storage with the service key, bucket financial-statements, x-upsert: false, never deleted
- *   write      POST /rest/v1/rpc/fin_capture_mp_release_report with the service key (p_actor = uid)
+ *   write      POST /rest/v1/rpc/fin_capture_mp_release_report (VALIDATION) or fin_ingest_mp_release_report (NORMAL)
+ *              with the service key (p_actor = uid)
  *   MP         https://api.mercadopago.com/v1/account/release_report{/config,/task/{id},/list,/{file_name}} (15 s timeout each)
  */
 import { BUCKET, CaptureRpcError, CORS_HEADERS, handleIngest, type LogEntry, type RunRow, type AuthResult } from './handler.ts';
@@ -68,8 +69,8 @@ async function upload(path: string, bytes: Uint8Array): Promise<'created' | 'exi
   throw new Error(`upload: HTTP ${res.status}`);
 }
 
-async function capture(params: unknown): Promise<Record<string, unknown>> {
-  const res = await fetch(`${supabaseUrl}/rest/v1/rpc/fin_capture_mp_release_report`, {
+async function rpc(fn: 'fin_capture_mp_release_report' | 'fin_ingest_mp_release_report', params: unknown): Promise<Record<string, unknown>> {
+  const res = await fetch(`${supabaseUrl}/rest/v1/rpc/${fn}`, {
     method: 'POST', headers: { ...service, 'content-type': 'application/json' }, body: JSON.stringify(params),
   });
   const body = await res.json().catch(() => null);
@@ -107,13 +108,15 @@ Deno.serve((req) => {
     loadRun: async (id) => {
       const rows = await select<RunRow>('fin_import_run',
         'select=id,source_kind,mode,status,financial_account_id,format_code,parser_version,file_sha256,storage_path,coverage_from,coverage_to,' +
-          `rows_total,rows_captured,rows_invalid,reject_reason,previous_run_id&id=eq.${encodeURIComponent(id)}`);
+          'rows_total,rows_captured,rows_invalid,reject_reason,previous_run_id,lines_new,lines_known,rows_ignored,file_name,byte_size,source_meta' +
+          `&id=eq.${encodeURIComponent(id)}`);
       return rows.length === 1 ? rows[0] : null;
     },
     mp,
     download,
     upload,
-    capture,
+    capture: (p) => rpc('fin_capture_mp_release_report', p),
+    ingest: (p) => rpc('fin_ingest_mp_release_report', p),
     sha256,
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     log,

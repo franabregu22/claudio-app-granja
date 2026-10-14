@@ -16,6 +16,7 @@ export const TARGET_VIEWS = [
   'report_fiscal_period',   // ADR-015
   'report_feria_closing',   // ADR-016
   'fin_statement_line_status',   // ADR-018 (0076)
+  'fin_mp_report_activity',   // ADR-018 §15 (0079)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 

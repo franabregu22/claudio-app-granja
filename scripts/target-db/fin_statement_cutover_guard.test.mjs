@@ -201,7 +201,7 @@ expect('functions still SECURITY DEFINER owned by postgres',
      WHERE pronamespace = 'public'::regnamespace AND proname IN ('fin_match_statement_line','fin_resolve_statement_cutover'))`,
   'fin_match_statement_line:true:postgres,fin_resolve_statement_cutover:true:postgres');
 expect('one overload each', `(SELECT count(*)::text FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('fin_match_statement_line','fin_resolve_statement_cutover'))`, '2');
-expect('SECURITY DEFINER set = 74 (0078 adds fin_capture_mp_release_report)', `(SELECT count(*)::text FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND prosecdef)`, '74');
+expect('SECURITY DEFINER set = 76 (0078 capture + 0079 NORMAL ingest and report back-fill)', `(SELECT count(*)::text FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND prosecdef)`, '76');
 expect('EXECUTE: authenticated only',
   `(SELECT string_agg(proname || ':' || has_function_privilege('anon', oid, 'EXECUTE') || ':' || has_function_privilege('authenticated', oid, 'EXECUTE') || ':' || has_function_privilege('service_role', oid, 'EXECUTE'), ',' ORDER BY proname)
      FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('fin_match_statement_line','fin_resolve_statement_cutover'))`,

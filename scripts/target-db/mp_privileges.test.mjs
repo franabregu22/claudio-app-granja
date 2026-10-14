@@ -116,6 +116,7 @@ const INVOKER_FNS = ['mp_is_auto_applicable', 'mp_v4_verified', 'mp_parse_report
 const WANT_EXEC = Object.fromEntries([
   ...SERVICE_FNS.map((f) => [f, 'service_role']), ...BOTH_FNS.map((f) => [f, 'authenticated,service_role']),
   ...ADMIN_FNS.map((f) => [f, 'authenticated']), ...INVOKER_FNS.map((f) => [f, '']),
+  ['mp_register_report_backfill', 'service_role'],   // ADR-018 §10 report back-fill (0079)
 ]);
 // ADR006_RLS_AND_SECURITY_V1 §4: 41 verified baseline + 19 ADR-006 = 60; ADR-007 adds RPCs 44 / 45 → 62 (owner-approved)
 const BASELINE_41 = ['assert_period_open', 'assign_flock_feed', 'assign_freight_to_purchase', 'cancel_order', 'cancel_supplier_instrument',
@@ -138,7 +139,8 @@ const ADR015_1 = ['register_purchase_with_fiscal_document'];   // ADR-015 RPC 50
 const ADR016_2 = ['close_feria_summary', 'rectify_feria_closing'];   // ADR-016 RPCs 51 / 52 (0070) → 69
 const ADR018_4 = ['fin_import_bank_statement', 'fin_match_statement_line', 'fin_resolve_statement_cutover', 'fin_reverse_statement_match'];   // ADR-018 (0075) → 73
 const ADR018_MP_1 = ['fin_capture_mp_release_report'];   // ADR-018 MP release report capture, VALIDATION (0078) → 74
-const DEFINER_69 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013, ...ADR014_1, ...ADR015_1, ...ADR016_2, ...ADR018_4, ...ADR018_MP_1].sort();
+const ADR018_MP_0079 = ['fin_ingest_mp_release_report', 'mp_register_report_backfill'];   // ADR-018 NORMAL ingest + report back-fill (0079) → 76
+const DEFINER_69 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013, ...ADR014_1, ...ADR015_1, ...ADR016_2, ...ADR018_4, ...ADR018_MP_1, ...ADR018_MP_0079].sort();
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 function cleanup() {
@@ -377,9 +379,9 @@ section('S-6', 'evidence-only AUTO attribution');
 section('S-7', 'SECURITY DEFINER inventory + RLS spec §11 verification');
 {
   const got = owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`);
-  check(`S-7a SECURITY DEFINER set = the exact 74-name literal (41 verified baseline + 19 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013 + 1 ADR-014 + 1 ADR-015 + 2 ADR-016 + 5 ADR-018; §4)`, got === DEFINER_69.join(','),
+  check(`S-7a SECURITY DEFINER set = the exact 76-name literal (41 verified baseline + 19 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013 + 1 ADR-014 + 1 ADR-015 + 2 ADR-016 + 7 ADR-018; §4)`, got === DEFINER_69.join(','),
     `extra=${got.split(',').filter((x) => !DEFINER_69.includes(x))} missing=${DEFINER_69.filter((x) => !got.split(',').includes(x))}`);
-  check('S-7b count = 74 (ADR-007 + ADR-011 + ADR-012/013 + ADR-014 + ADR-015 + ADR-016 + ADR-018 incl. 0078)', got.split(',').length === 74 && DEFINER_69.length === 74);
+  check('S-7b count = 76 (ADR-007 + ADR-011 + ADR-012/013 + ADR-014 + ADR-015 + ADR-016 + ADR-018 incl. 0078 / 0079)', got.split(',').length === 76 && DEFINER_69.length === 76);
   check('S-7c every SECURITY DEFINER is owned by postgres', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace AND proowner <> 'postgres'::regrole;`) === '0');
   check('S-7d spec check 6: every SECURITY DEFINER pins search_path = public (0 rows)', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef = true AND pronamespace = 'public'::regnamespace
     AND NOT (COALESCE(proconfig, '{}') @> ARRAY['search_path=public']);`) === '0');

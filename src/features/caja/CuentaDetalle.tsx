@@ -3,27 +3,39 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
+import { isMercadoPagoAccount, MP_STATUS_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
+import { useMpActivity } from './useMpActivity';
 import { useBankHistory } from './useReconciliation';
 import { useAccountPostings } from './useTreasury';
 
-type Pestana = 'erp' | 'banco';
+type Pestana = 'erp' | 'banco' | 'mp';
 
 const ESTADO_ESTILO: Record<string, string> = {
   'Corte pendiente': 'bg-stone-200 text-stone-700', 'Histórico': 'bg-blue-100 text-blue-800', 'Pendiente de conciliar': 'bg-amber-100 text-amber-900',
   'Conciliado': 'bg-green-100 text-green-800', 'Revisar corte': 'bg-purple-100 text-purple-800', 'Sin clasificar': 'bg-stone-100 text-stone-600',
+};
+const MP_ESTILO: Record<MpCoverageStatus, string> = {
+  CONTROL: 'bg-stone-100 text-stone-600', PRE_CUTOVER: 'bg-blue-100 text-blue-800', RESERVE: 'bg-stone-100 text-stone-600',
+  COVERED: 'bg-green-100 text-green-800', BACKFILL_PROCESSED: 'bg-green-100 text-green-800', BACKFILL_PENDING: 'bg-amber-100 text-amber-900',
+  EXCEPTION: 'bg-red-100 text-red-800', YIELD: 'bg-teal-100 text-teal-800', PAYOUT: 'bg-purple-100 text-purple-800', OUTBOUND: 'bg-stone-200 text-stone-700',
 };
 
 /**
  * One account inside Caja → Saldos. "Movimientos ERP" are its financial_posting rows (they make the ERP balance);
  * "Movimientos bancarios" (bank accounts only) are the imported statement lines (ADR-018): bank evidence, shown whatever
  * the statement cut, read-only — importing a statement never creates money, so they never change the ERP balance.
- * Reconciliation and the cut stay in Caja → Extractos bancarios → Conciliación.
+ * Reconciliation and the cut stay in Caja → Extractos bancarios → Conciliación. "Actividad Mercado Pago" (the MP account
+ * only) is what the official release report says, with its coverage status (ADR-018 §15): read-only evidence; payment
+ * money comes only from the Mercado Pago payment circuit, so this list never changes the ERP balance either.
  */
 export function CuentaDetalle({ cuenta, saldo, onClose }: { cuenta: FinancialAccountRow; saldo: number | null; onClose: () => void }) {
   const esBanco = cuenta.account_type === 'BANK_ACCOUNT';
-  const [pestana, setPestana] = useState<Pestana>(esBanco ? 'banco' : 'erp');
+  const esMp = isMercadoPagoAccount(cuenta);
+  const [pestana, setPestana] = useState<Pestana>(esBanco ? 'banco' : esMp ? 'mp' : 'erp');
+  const pestanas: [Pestana, string][] = [['erp', 'Movimientos ERP'], ...(esBanco ? [['banco', 'Movimientos bancarios']] : []),
+    ...(esMp ? [['mp', 'Actividad Mercado Pago']] : [])] as [Pestana, string][];
   return (
     <section className="mt-4 border border-[#E4DCC8] rounded-lg p-4 bg-[#FAF6EE]" aria-label={`Cuenta ${cuenta.nombre}`}>
       <div className="flex items-start justify-between gap-2">
@@ -34,7 +46,7 @@ export function CuentaDetalle({ cuenta, saldo, onClose }: { cuenta: FinancialAcc
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Cerrar cuenta"><X size={20} /></button>
       </div>
       <div className="flex gap-2 mt-3" role="tablist" aria-label="Movimientos de la cuenta">
-        {([['erp', 'Movimientos ERP'], ...(esBanco ? [['banco', 'Movimientos bancarios']] : [])] as [Pestana, string][]).map(([id, label]) => (
+        {pestanas.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={pestana === id} onClick={() => setPestana(id)}
             className={`px-3 py-1 rounded-full text-sm font-medium ${pestana === id ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-white text-[#6B5D45] border border-[#E4DCC8] hover:bg-stone-50'}`}>
             {label}
@@ -42,7 +54,8 @@ export function CuentaDetalle({ cuenta, saldo, onClose }: { cuenta: FinancialAcc
         ))}
       </div>
       <div className="mt-3">
-        {pestana === 'erp' ? <MovimientosErp accountId={cuenta.id} /> : <MovimientosBancarios accountId={cuenta.id} />}
+        {pestana === 'erp' ? <MovimientosErp accountId={cuenta.id} />
+          : pestana === 'mp' ? <ActividadMercadoPago accountId={cuenta.id} /> : <MovimientosBancarios accountId={cuenta.id} />}
       </div>
     </section>
   );
@@ -112,6 +125,42 @@ function MovimientosBancarios({ accountId }: { accountId: string }) {
         </table>
       </div>
       <p className="text-xs text-[#8A7A5C]">{lineas.length} movimiento(s), los más recientes primero. La conciliación se hace en Extractos bancarios → Conciliación.</p>
+    </div>
+  );
+}
+
+function ActividadMercadoPago({ accountId }: { accountId: string }) {
+  const actividad = useMpActivity(accountId);
+  if (actividad.isLoading) return <p className="text-sm text-gray-500">Cargando actividad de Mercado Pago...</p>;
+  if (actividad.error) return <p className="text-sm text-red-700">{errorMessage(actividad.error)}</p>;
+  const todas: MpActivityRow[] = actividad.data ?? [];
+  const filas = todas.filter((r) => r.coverage_status !== 'CONTROL');
+  if (filas.length === 0) {
+    return <p className="text-sm text-[#8A7A5C]">Todavía no se procesó ningún reporte de Mercado Pago.</p>;
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-[#8A7A5C]">Actividad informada por el reporte oficial de Mercado Pago. Es evidencia: no modifica el saldo ERP; los cobros se registran solo por el circuito de pagos de Mercado Pago.</p>
+      <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
+        <table className="w-full text-sm" aria-label="Actividad Mercado Pago">
+          <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
+            <th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Referencia</th>
+            <th className="px-3 py-2 text-right">Importe</th><th className="px-3 py-2">Estado</th>
+          </tr></thead>
+          <tbody>
+            {filas.map((r) => (
+              <tr key={`${r.run_id}:${r.row_number}`} className="border-b border-stone-100 last:border-0">
+                <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(r.business_date)}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{mpActivityType(r)}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id ?? '—'}</td>
+                <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${(r.net_amount ?? 0) < 0 ? 'text-red-700' : 'text-green-800'}`}>{importe(r.net_amount, true)}</td>
+                <td className="px-3 py-2 whitespace-nowrap"><span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{MP_STATUS_LABEL[r.coverage_status]}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-[#8A7A5C]">{filas.length} movimiento(s) del reporte, los más recientes primero ({todas.length - filas.length} fila(s) de control omitidas).</p>
     </div>
   );
 }
