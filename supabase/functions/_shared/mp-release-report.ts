@@ -15,7 +15,10 @@
 
 // 1.1.0 (0080): a valid report with only CONTROL rows is a day without activity (VALIDATED / PARSED, 0 effects), not a
 // rejection; CONTROL rows must themselves be well-formed. File-level parsing is unchanged.
-export const PARSER_VERSION = 'mp-release-report-csv/1.1.0';
+// 1.2.0: PAYOUT_BANK_ACCOUNT_NUMBER (the payout destination account) is accepted as ONE optional extra column. It never
+// enters raw_row (the frozen 15-key D1 row and the SOURCE_ID:DESCRIPTION:C/D identity are unchanged): non-empty values are
+// returned apart, as `destinations`, and stored privately by fin_record_mp_payout_destinations. Any other column still rejects.
+export const PARSER_VERSION = 'mp-release-report-csv/1.2.0';
 export const FORMAT_CODE = 'MP_RELEASE_REPORT_CSV_V1';
 export const BUSINESS_TZ = 'America/Argentina/Buenos_Aires';
 
@@ -25,6 +28,10 @@ export const EXPECTED_COLUMNS: readonly string[] = Object.freeze([
   'NET_DEBIT_AMOUNT', 'PAYMENT_METHOD', 'PAYMENT_METHOD_TYPE', 'PURCHASE_ID', 'SOURCE_ID', 'SUB_UNIT', 'TAXES_AMOUNT',
   'TRANSACTION_APPROVAL_DATE',
 ]);
+/** Optional columns: may be present or absent; never part of raw_row. */
+export const OPTIONAL_COLUMNS: readonly string[] = Object.freeze(['PAYOUT_BANK_ACCOUNT_NUMBER']);
+export const PAYOUT_DESTINATION_COLUMN = 'PAYOUT_BANK_ACCOUNT_NUMBER';
+const KNOWN = (k: string) => EXPECTED_COLUMNS.includes(k) || OPTIONAL_COLUMNS.includes(k);
 const SEPARATORS = [';', ','] as const;
 
 /** Configuration fields recorded as evidence (values copied as is). Everything else: key name only. */
@@ -67,7 +74,7 @@ export function checkReleaseConfig(config: unknown): ConfigCheck {
     for (const k of evidence.columns) {
       if (seen.has(k)) problems.push(`COLUMN_DUPLICATED:${k}`);
       seen.add(k);
-      if (!EXPECTED_COLUMNS.includes(k)) problems.push(`COLUMN_UNEXPECTED:${k}`);
+      if (!KNOWN(k)) problems.push(`COLUMN_UNEXPECTED:${k}`);
     }
     for (const k of EXPECTED_COLUMNS) if (!seen.has(k)) problems.push(`COLUMN_MISSING:${k}`);
   }
@@ -140,7 +147,9 @@ export interface ParsedReport {
   has_bom: boolean;
   header: string[];
   rows: { row_number: number; raw_row: Record<string, string> }[];
-  summary: { data_rows: number; descriptions: Record<string, number> };
+  /** non-empty PAYOUT_BANK_ACCOUNT_NUMBER values (sensitive: never logged, never in source_meta or a response) */
+  destinations: { row_number: number; value: string }[];
+  summary: { data_rows: number; descriptions: Record<string, number>; destination_column: boolean; destinations: number };
 }
 export type ParseOutcome = ParsedReport | { ok: false; reject_reason: string };
 
@@ -175,30 +184,36 @@ export function parseReleaseReport(bytes: Uint8Array, configured: ';' | ',' | nu
   } else {
     const fits = SEPARATORS.filter((s) => {
       const h = head.split(s);
-      return h.length === EXPECTED_COLUMNS.length && h.every((k) => EXPECTED_COLUMNS.includes(k));
+      return h.every(KNOWN) && EXPECTED_COLUMNS.every((k) => h.includes(k));
     });
     if (fits.length !== 1) return reject('SEPARATOR_AMBIGUOUS: the header does not identify one separator');
     separator = fits[0];
   }
   const header = head.split(separator);
   const missing = EXPECTED_COLUMNS.filter((k) => !header.includes(k));
-  const unexpected = header.filter((k) => !EXPECTED_COLUMNS.includes(k));
+  const unexpected = header.filter((k) => !KNOWN(k));
   if (missing.length || unexpected.length || new Set(header).size !== header.length) {
     return reject(`HEADER_MISMATCH: missing [${missing.join(',')}] unexpected [${unexpected.join(',')}]` +
       (new Set(header).size !== header.length ? ' duplicated' : ''));
   }
 
   const rows: ParsedReport['rows'] = [];
+  const destinations: ParsedReport['destinations'] = [];
+  const destIx = header.indexOf(PAYOUT_DESTINATION_COLUMN);
   const descriptions: Record<string, number> = {};
   for (let i = 1; i < lines.length; i++) {
     if (lines[i] === '') return reject(`EMPTY_LINE: line ${i + 1}`);
     const f = lines[i].split(separator);
     if (f.length !== header.length) return reject(`FIELD_COUNT_MISMATCH: line ${i + 1} has ${f.length} fields, expected ${header.length}`);
     const raw_row: Record<string, string> = {};
-    header.forEach((k, j) => { raw_row[k] = f[j]; });
+    header.forEach((k, j) => { if (j !== destIx) raw_row[k] = f[j]; });
+    if (destIx >= 0 && f[destIx].trim() !== '') destinations.push({ row_number: i, value: f[destIx] });
     rows.push({ row_number: i, raw_row });
     descriptions[raw_row.DESCRIPTION] = (descriptions[raw_row.DESCRIPTION] ?? 0) + 1;
   }
   if (rows.length === 0) return reject('EMPTY_FILE: header only');
-  return { ok: true, separator, line_ending, has_bom, header, rows, summary: { data_rows: rows.length, descriptions } };
+  return {
+    ok: true, separator, line_ending, has_bom, header, rows, destinations,
+    summary: { data_rows: rows.length, descriptions, destination_column: destIx >= 0, destinations: destinations.length },
+  };
 }

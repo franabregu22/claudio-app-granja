@@ -83,6 +83,7 @@ function harness(o: Opts = {}) {
     upload: (p, b) => { if (storage.has(p)) return Promise.resolve('exists' as const); storage.set(p, b); return Promise.resolve('created' as const); },
     capture: () => Promise.reject(new Error('VALIDATION must never be used by the scheduler')),
     ingest,
+    recordDestinations: (p) => Promise.resolve(p.p_items.length),
     sha256: async (b) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))).map((x) => x.toString(16).padStart(2, '0')).join(''),
     sleep: () => Promise.resolve(),
     log: (e) => logs.push(e),

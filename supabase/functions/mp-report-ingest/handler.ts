@@ -75,6 +75,9 @@ export interface IngestDeps {
   capture(params: CaptureParams): Promise<Record<string, unknown>>;
   /** fin_ingest_mp_release_report (NORMAL, same parameters); throws CaptureRpcError with the database message on failure. */
   ingest(params: CaptureParams): Promise<Record<string, unknown>>;
+  /** fin_record_mp_payout_destinations (parser 1.2.0): stores the payout destination values of a run privately (idempotent);
+   *  returns how many rows of the run hold one. Throws CaptureRpcError on refusal. The values never leave this call. */
+  recordDestinations(params: { p_run_id: string; p_items: { row_number: number; value: string }[] }): Promise<number>;
   sha256(bytes: Uint8Array): Promise<string>;
   sleep(ms: number): Promise<void>;
   log(entry: LogEntry): void;
@@ -254,9 +257,21 @@ export async function captureReport(deps: ReportDeps, o: { actor: string | null;
     p_storage_path: path, p_file_name: fileName, p_byte_size: bytes.length, p_coverage_from: date, p_coverage_to: date,
     p_source_meta: source_meta, p_reject_reason: parsed.ok ? null : parsed.reject_reason, p_rows: parsed.ok ? parsed.rows : null,
   }, { task_id: taskId, evidence: stored });
+  if (parsed.ok) res.payout_destinations = await storeDestinations(deps, String(res.run_id), parsed.destinations);
   deps.log({ event: mode === 'NORMAL' ? 'capture_normal' : 'capture', status: 200, run_id: String(res.run_id), task: taskId as string,
     sha: sha.slice(0, 12), code: stored, ms: Math.round(deps.now() - o.t0) });
   return { ...res, summary: parsed.ok ? summarize(parsed.rows) : null };
+}
+
+/** Parser 1.2.0: the payout destinations of a parsed file go to the private table (count only in the response). */
+async function storeDestinations(deps: ReportDeps, runId: string, destinations: { row_number: number; value: string }[]): Promise<number> {
+  if (destinations.length === 0) return 0;
+  try {
+    return await deps.recordDestinations({ p_run_id: runId, p_items: destinations });
+  } catch (e) {
+    if (!(e instanceof CaptureRpcError)) throw e;
+    return fail(500, 'DESTINATION_RECORD_FAILED', { run_id: runId });
+  }
 }
 
 /** fin_capture_mp_release_report (VALIDATION) or fin_ingest_mp_release_report (NORMAL), then the stored run. */
@@ -320,6 +335,7 @@ async function handleProcess(deps: IngestDeps, uid: string, b: Record<string, un
     p_coverage_to: p.coverage_to as string, p_source_meta: { ...meta, processed_from_run: p.id },
     p_reject_reason: parsed.ok ? null : parsed.reject_reason, p_rows: parsed.ok ? parsed.rows : null,
   }, { evidence: 'reused' });
+  if (parsed.ok) res.payout_destinations = await storeDestinations(deps, String(res.run_id), parsed.destinations);
   deps.log({ event: 'process_normal', status: 200, run_id: String(res.run_id), sha: p.file_sha256.slice(0, 12), ms: Math.round(deps.now() - t0) });
   return json(200, res);
 }

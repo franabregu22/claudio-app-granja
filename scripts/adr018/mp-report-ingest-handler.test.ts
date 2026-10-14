@@ -89,6 +89,9 @@ function harness(state: Partial<MpState> = {}) {
   const ingests: CaptureParams[] = [];
   const runs = new Map<string, RunRow>();
   const logs: LogEntry[] = [];
+  const dests: { p_run_id: string; p_items: { row_number: number; value: string }[] }[] = [];
+  const destStore = new Map<string, string>();
+  let destFail = false;
   let sleeps = 0;
   // in-memory stand-in for the two database functions (their real behaviour is proven by the DB suites)
   const record = (mode: 'VALIDATION' | 'NORMAL', p: CaptureParams) => {
@@ -116,12 +119,22 @@ function harness(state: Partial<MpState> = {}) {
     upload: (p, b) => { uploads.push(p); if (storage.has(p)) return Promise.resolve('exists' as const); storage.set(p, b); return Promise.resolve('created' as const); },
     capture: (p) => { captures.push(p); return record('VALIDATION', p); },
     ingest: (p) => { ingests.push(p); return record('NORMAL', p); },
+    recordDestinations: (p) => {
+      if (destFail) return Promise.reject(new CaptureRpcError('DESTINATION_CONFLICT: row 2 already holds another value'));
+      dests.push(p);
+      for (const it of p.p_items) {
+        const k = p.p_run_id + ':' + it.row_number;
+        if (destStore.has(k) && destStore.get(k) !== it.value) return Promise.reject(new CaptureRpcError('DESTINATION_CONFLICT'));
+        destStore.set(k, it.value);
+      }
+      return Promise.resolve(p.p_items.length);
+    },
     sha256: async (b) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))).map((x) => x.toString(16).padStart(2, '0')).join(''),
     sleep: () => { sleeps++; return Promise.resolve(); },
     log: (e) => logs.push(e),
     now: () => NOW,
   };
-  return { deps, s, calls: fake.calls, bodies: fake.bodies, storage, uploads, captures, ingests, runs, logs, sleeps: () => sleeps };
+  return { deps, s, calls: fake.calls, bodies: fake.bodies, storage, uploads, captures, ingests, runs, logs, dests, destStore, failDest: () => { destFail = true; }, sleeps: () => sleeps };
 }
 const post = (body: unknown, token = 'admin', type = 'application/json') =>
   new Request('http://local/mp-report-ingest', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': type }, body: typeof body === 'string' ? body : JSON.stringify(body) });
@@ -433,7 +446,75 @@ Deno.test('process: a REJECTED run (e.g. an empty day under parser 1.0.0) is rep
   const before = h.calls.length;
   const r = await read(await handleIngest(post({ action: 'process', run_id: rejected.id }), h.deps));
   assertEquals([r.status, r.body.mode, r.body.status, r.body.parser_version, r.body.evidence], [200, 'NORMAL', 'PARSED', PARSER_VERSION, 'reused']);
-  assertEquals(PARSER_VERSION, 'mp-release-report-csv/1.1.0');
+  assertEquals(PARSER_VERSION, 'mp-release-report-csv/1.2.0');
   assertEquals([h.calls.length, h.uploads.length], [before, 1]);   // no Mercado Pago call, no second upload
   assertEquals(h.ingests[0].p_file_sha256, stored.file_sha256);
+});
+
+// ── parser 1.2.0: optional PAYOUT_BANK_ACCOUNT_NUMBER ────────────────────────────────────────────────────────────────
+const DEST = '0110999900000099999999';            // synthetic, never a real account
+const HEADER16 = HEADER + ';PAYOUT_BANK_ACCOUNT_NUMBER';
+const LINES16 = LINES.map((l) => l + (l.includes(';payout;') ? `; ${DEST} ` : ';'));
+const csv16 = (lines = LINES16) => enc([HEADER16, ...lines].join('\n') + '\n');
+const CONFIG16 = { ...CONFIG, columns: [...COLUMNS, { key: 'PAYOUT_BANK_ACCOUNT_NUMBER' }] };
+const leaksDest = (h: ReturnType<typeof harness>, texts: string[]) =>
+  (JSON.stringify(h.logs) + JSON.stringify(h.ingests) + JSON.stringify(h.captures) + texts.join('')).includes(DEST);
+
+Deno.test('1.2.0 config: the 15 columns alone, or + PAYOUT_BANK_ACCOUNT_NUMBER, are compatible; any other extra column is not', () => {
+  assertEquals([checkReleaseConfig(CONFIG).compatible, checkReleaseConfig(CONFIG16).compatible], [true, true]);
+  assertEquals(checkReleaseConfig({ ...CONFIG16, columns: [...CONFIG16.columns, { key: 'EXTERNAL_REFERENCE' }] }).problems, ['COLUMN_UNEXPECTED:EXTERNAL_REFERENCE']);
+  assertEquals(checkReleaseConfig({ ...CONFIG16, columns: CONFIG16.columns.slice(1) }).problems, ['COLUMN_MISSING:DATE']);
+});
+
+Deno.test('1.2.0 parser: 15-column file unchanged; 16-column file → same 15-key raw_row, destination apart; 17th column rejects', () => {
+  const p15 = parseReleaseReport(csv(), ';'); const p16 = parseReleaseReport(csv16(), ';');
+  assert(p15.ok && p16.ok);
+  if (!p15.ok || !p16.ok) return;
+  assertEquals(p16.rows, p15.rows);                                       // identical rows → identical D1 identity
+  assert(p16.rows.every((r) => Object.keys(r.raw_row).length === 15 && !('PAYOUT_BANK_ACCOUNT_NUMBER' in r.raw_row)));
+  assertEquals([p15.destinations, p15.summary.destination_column, p15.summary.destinations], [[], false, 0]);
+  assertEquals(p16.destinations, [{ row_number: 4, value: ` ${DEST} ` }]); // original string kept (trim is the DB's job)
+  assertEquals([p16.summary.destination_column, p16.summary.destinations], [true, 1]);
+  const p16auto = parseReleaseReport(csv16(), null);                       // separator detection with 16 columns
+  assert(p16auto.ok && p16auto.separator === ';');
+  const p17 = parseReleaseReport(enc([HEADER16 + ';ITEM_ID', ...LINES16.map((l) => l + ';')].join('\n') + '\n'), ';');
+  assert(!p17.ok && /^HEADER_MISMATCH: missing \[\] unexpected \[ITEM_ID\]/.test(p17.reject_reason), JSON.stringify(p17));
+  const dup = parseReleaseReport(enc([HEADER16 + ';PAYOUT_BANK_ACCOUNT_NUMBER', ...LINES16.map((l) => l + ';')].join('\n') + '\n'), ';');
+  assert(!dup.ok && /duplicated/.test(dup.reject_reason));
+  const empty16 = parseReleaseReport(enc([HEADER16, LINES16[0], LINES16[LINES16.length - 1]].join('\n') + '\n'), ';');
+  assert(empty16.ok && empty16.rows.length === 2 && empty16.destinations.length === 0);   // empty day, 16 columns
+});
+
+Deno.test('1.2.0 capture NORMAL with 16 columns: same ingestion rows; destination stored privately; count only in the response', async () => {
+  const h = harness({ config: CONFIG16, files: { 'release-report-777.csv': csv16() } });
+  const r = await read(await handleIngest(capture('2026-10-05', { mode: 'NORMAL' }), h.deps));
+  assertEquals([r.status, r.body.status, r.body.payout_destinations], [200, 'PARSED', 1]);
+  assertEquals(h.ingests[0].p_rows, (parseReleaseReport(csv(), ';') as { rows: unknown[] }).rows);   // the DB gets the 15-key rows
+  assertEquals(h.dests.length, 1);
+  assertEquals([h.dests[0].p_run_id, h.dests[0].p_items], [r.body.run_id, [{ row_number: 4, value: ` ${DEST} ` }]]);
+  assert(!leaksDest(h, [JSON.stringify(r.body)]), 'the destination value leaked into logs / RPC params / response');
+  assertEquals((h.ingests[0].p_source_meta.file as Record<string, unknown>).destinations, 1);
+});
+
+Deno.test('1.2.0 replay and 15-column reports: destination recording is idempotent; no destination call without the column', async () => {
+  const h = harness({ config: CONFIG16, files: { 'release-report-777.csv': csv16() } });
+  const a = await read(await handleIngest(capture('2026-10-05', { mode: 'NORMAL' }), h.deps));
+  const b = await read(await handleIngest(capture('2026-10-05', { mode: 'NORMAL' }), h.deps));
+  assertEquals([b.body.replayed, b.body.run_id, b.body.payout_destinations, h.destStore.size], [true, a.body.run_id, 1, 1]);
+  const old = harness();
+  const o = await read(await handleIngest(capture('2026-10-05', { mode: 'NORMAL' }), old.deps));
+  assertEquals([o.status, o.body.payout_destinations, old.dests.length], [200, 0, 0]);
+});
+
+Deno.test('1.2.0 VALIDATION and process: destinations follow the run; a refused recording → 500 without the value', async () => {
+  const h = harness({ config: CONFIG16, files: { 'release-report-777.csv': csv16() } });
+  const v = await read(await handleIngest(capture(), h.deps));
+  assertEquals([v.body.status, v.body.payout_destinations], ['VALIDATED', 1]);
+  const p = await read(await handleIngest(post({ action: 'process', run_id: v.body.run_id }), h.deps));
+  assertEquals([p.body.status, p.body.payout_destinations, h.dests.length], ['PARSED', 1, 2]);
+  const f = harness({ config: CONFIG16, files: { 'release-report-777.csv': csv16() } });
+  f.failDest();
+  const e = await read(await handleIngest(capture('2026-10-05', { mode: 'NORMAL' }), f.deps));
+  assertEquals([e.status, e.body.error], [500, 'DESTINATION_RECORD_FAILED']);
+  assert(!leaksDest(f, [JSON.stringify(e.body)]));
 });

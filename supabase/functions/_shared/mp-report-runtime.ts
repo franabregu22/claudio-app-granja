@@ -6,7 +6,7 @@
  *
  *   reads      PostgREST with the service key (financial_account, fin_import_run, fin_mp_report_schedule_log)
  *   evidence   Storage with the service key, bucket financial-statements, x-upsert: false, never deleted
- *   writes     POST /rest/v1/rpc/<function> with the service key
+ *   writes     POST /rest/v1/rpc/<function> with the service key (report ingestion; payout destinations: values never logged)
  *   MP         https://api.mercadopago.com/v1/account/release_report{/config,/task/{id},/list,/{file_name}} (15 s timeout each)
  */
 import { BUCKET, CaptureRpcError, type LogEntry, type ReportDeps, type RunRow } from '../mp-report-ingest/handler.ts';
@@ -95,6 +95,7 @@ export function reportDeps(fnName: string): ReportDeps {
     upload,
     capture: async (p) => await rpc('fin_capture_mp_release_report', p) as Record<string, unknown>,
     ingest: async (p) => await rpc('fin_ingest_mp_release_report', p) as Record<string, unknown>,
+    recordDestinations: async (p) => Number(await rpc('fin_record_mp_payout_destinations', p)),
     sha256,
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     log: (entry: LogEntry) => console.log(JSON.stringify({ fn: fnName, ...entry })),
