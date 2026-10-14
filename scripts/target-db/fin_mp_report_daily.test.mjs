@@ -6,7 +6,7 @@
  * be an active ADMIN; the daily report after the webhook and before it (one back-fill per payment, never money from the
  * report itself); re-execution of the same day (replay) and a re-downloaded report (no new back-fill);
  * fin_mp_report_schedule_log + fin_record_mp_report_schedule (outcomes, constraints, counters-only summary, run of the
- * target day, immutability, RLS and privileges); the activation statement (scripts/target-db/mp_report_daily_schedule.sql)
+ * target day, immutability, RLS and privileges); the activation migration 0082 (re-run inside the rolled-back transaction)
  * executed inside the rolled-back transaction (one job upserted by name, mp_worker_every_minute unchanged), and that
  * nothing is scheduled by the migration; zero bank / financial effect; mp_v4_verified() still false.
  *
@@ -242,8 +242,8 @@ expect('E-17 the latest record of the day (read by the scheduler to resume a tim
   'FAILED:777:MP_TASK_TIMEOUT');
 
 // ── F. scheduling: nothing scheduled by 0081; the activation statement, rolled back ─
-expect('F-1 0081 schedules nothing: no mp_release_report_daily job', `(SELECT count(*)::text FROM cron.job WHERE jobname = 'mp_release_report_daily')`, '0');
-const ACTIVATION = readFileSync(new URL('./mp_report_daily_schedule.sql', import.meta.url), 'utf8');
+expect('F-1 after 0082: exactly one mp_release_report_daily job (0081 itself scheduled nothing)', `(SELECT count(*)::text FROM cron.job WHERE jobname = 'mp_release_report_daily')`, '1');
+const ACTIVATION = readFileSync(new URL('../../supabase/target-migrations/0082_mp_report_daily_schedule.sql', import.meta.url), 'utf8');
 add(ACTIVATION);
 add(ACTIVATION);   // cron.schedule upserts by name: twice → still one job
 expect('F-2 activation: exactly one daily job at 10:00 and 14:00 UTC (07:00 / 11:00 Buenos Aires), active',
@@ -254,7 +254,9 @@ expect('F-3 the job posts to mp-report-daily from the existing Vault URL and inv
      FROM cron.job WHERE jobname = 'mp_release_report_daily')`, 'true');
 expect('F-4 mp_worker_every_minute unchanged; no other job added',
   `((SELECT string_agg(jobname || schedule || command || active, ',' ORDER BY jobid) FROM cron.job WHERE jobname <> 'mp_release_report_daily')
-     = (SELECT string_agg(jobname || schedule || command || active, ',' ORDER BY jobid) FROM before_jobs))::text`, 'true');
+     = (SELECT string_agg(jobname || schedule || command || active, ',' ORDER BY jobid) FROM before_jobs WHERE jobname <> 'mp_release_report_daily'))::text`, 'true');
+expect('F-6 re-running 0082 keeps the same daily job (same jobid, schedule, command): upsert by name',
+  `((SELECT jobid || schedule || command FROM cron.job WHERE jobname = 'mp_release_report_daily') = (SELECT jobid || schedule || command FROM before_jobs WHERE jobname = 'mp_release_report_daily'))::text`, 'true');
 expect('F-5 the URL derivation maps the worker endpoint to the daily endpoint',
   `replace('https://x.supabase.co/functions/v1/mp-worker', '/functions/v1/mp-worker', '/functions/v1/mp-report-daily')`, 'https://x.supabase.co/functions/v1/mp-report-daily');
 
