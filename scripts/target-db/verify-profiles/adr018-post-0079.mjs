@@ -101,7 +101,7 @@ export function buildSql(repo) {
                   WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name LIKE 'fin\\_%'),
   'views', (SELECT coalesce(json_agg(c.relname || ':' || coalesce(array_to_string(c.reloptions, ','), '') ORDER BY c.relname), '[]') FROM pg_class c
              WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'v' AND c.relname IN ('fin_statement_line_status', 'fin_mp_report_activity')),
-  'activity_admin_filter', (SELECT pg_get_viewdef('public.fin_mp_report_activity'::regclass) ~ 'current_app_role\\(\\).*ADMIN'),
+  'activity_admin_filter', (SELECT coalesce(pg_get_viewdef(to_regclass('public.fin_mp_report_activity')) ~ 'current_app_role\\(\\).*ADMIN', false)),
   'definers', (SELECT coalesce(json_agg(p.oid::regprocedure::text ORDER BY 1), '[]') FROM pg_proc p WHERE pronamespace = 'public'::regnamespace AND prosecdef),
   'anon_definers', (SELECT count(*) FROM pg_proc p WHERE pronamespace = 'public'::regnamespace AND prosecdef
                      AND p.oid::regprocedure::text <> ALL (ARRAY[${PLATFORM_DEFINERS.map(lit).join(', ')}]::text[])
