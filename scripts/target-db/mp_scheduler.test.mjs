@@ -174,7 +174,7 @@ const allJobs = owner(`SELECT count(*) FROM cron.job;`);
 check('E-1 pg_cron, pg_net and supabase_vault are installed; cron runs in database postgres',
   owner(`SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension WHERE extname IN ('pg_cron','pg_net','supabase_vault');`) === 'pg_cron,pg_net,supabase_vault'
     && owner(`SELECT current_setting('cron.database_name');`) === 'postgres');
-check('E-2 exactly one mp_worker_every_minute job, active, owned by postgres in database postgres (2 jobs in all: + the 0082 daily report job)', prodJob.length === 1 && allJobs === '2'
+check('E-2 exactly one mp_worker_every_minute job, active, owned by postgres in database postgres (3 jobs in all: + the 0085 fallback + the 0082 daily report job)', prodJob.length === 1 && allJobs === '3'
   && prodJob[0].active === true && prodJob[0].username === 'postgres' && prodJob[0].database === 'postgres', `${allJobs} ${JSON.stringify(prodJob)}`);
 const cmd = prodJob[0]?.command ?? '';
 check('E-3 cadence is exactly once per minute (\'* * * * *\')', prodJob[0]?.schedule === '* * * * *');
@@ -187,7 +187,7 @@ const sqlFile = readFileSync(MIGRATION, 'utf8');
 owner(sqlFile);   // re-run the whole migration file (extensions IF NOT EXISTS; cron.schedule upserts by name)
 const after = JSON.parse(owner(`SELECT coalesce(json_agg(j), '[]')::text FROM (SELECT jobid, schedule, command FROM cron.job WHERE jobname = ${q(JOB)}) j;`));
 check('E-6 idempotent: re-running 0056 keeps exactly one job, same jobid, same schedule and command', after.length === 1 && after[0].jobid === prodJob[0].jobid
-  && after[0].command === cmd && owner('SELECT count(*) FROM cron.job;') === '2', JSON.stringify(after));
+  && after[0].command === cmd && owner('SELECT count(*) FROM cron.job;') === '3', JSON.stringify(after));
 const queued = () => owner(`SELECT (SELECT count(*) FROM net.http_request_queue) + (SELECT count(*) FROM net._http_response);`);
 const q0 = queued();
 const noVault = raw(`${cmd}`);

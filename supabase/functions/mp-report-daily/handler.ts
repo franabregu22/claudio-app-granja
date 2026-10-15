@@ -15,14 +15,21 @@
  *   ALREADY_PROCESSED  an effective NORMAL run for the day exists (no Mercado Pago call), or the ingestion replayed one
  *   SUCCESS            PARSED, with movements
  *   SUCCESS_EMPTY      PARSED, only CONTROL rows (a day without activity)
- *   FAILED             any refusal: error_code (+ task_id when MP had accepted the request). No in-process retry: the
- *                      next scheduled execution retries, resuming a timed-out MP task instead of requesting a new one.
+ *   PENDING            (0085) Mercado Pago accepted the task but is still preparing the file after a SHORT poll
+ *                      (DAILY_MAX_POLLS): task_id kept, reason MP_TASK_PREPARING, no effect. The next slot polls the SAME
+ *                      task again — a new task is never requested while the day's latest task record is PENDING (or the
+ *                      legacy FAILED MP_TASK_TIMEOUT), so there is at most one live task per target date.
+ *   FAILED             a real refusal (MP / task failed, rejected file, configuration, database, …): error_code (+ task_id
+ *                      when MP had accepted the request). The next slot requests a new task.
  */
 import { previousBusinessDay } from '../_shared/mp-release-report.ts';
 import { captureReport, HttpError, type ReportDeps, type ReportSummary } from '../mp-report-ingest/handler.ts';
 
 export const SECRET_HEADER = 'x-worker-invoke-secret';
-export type Outcome = 'SUCCESS' | 'SUCCESS_EMPTY' | 'ALREADY_PROCESSED' | 'FAILED';
+export type Outcome = 'SUCCESS' | 'SUCCESS_EMPTY' | 'ALREADY_PROCESSED' | 'FAILED' | 'PENDING';
+/** Polls of the MP task per scheduled execution (3 s apart, ≈ 12 s): the scheduler retries every 15 minutes instead. */
+export const DAILY_MAX_POLLS = 5;
+export const PREPARING = 'MP_TASK_PREPARING';
 export interface ScheduleRecord {
   p_target_date: string; p_outcome: Outcome; p_run_id: string | null; p_task_id: string | null; p_error_code: string | null;
   p_summary: Record<string, number>;
@@ -34,8 +41,8 @@ export interface DailyDeps extends ReportDeps {
   secretMatches(given: string | null): boolean;
   /** The effective NORMAL run (status PARSED) of the MP account for that day, or null. */
   findProcessedRun(accountId: string, date: string): Promise<string | null>;
-  /** The latest scheduler record for that day, or null. */
-  lastSchedule(date: string): Promise<ScheduleEntry | null>;
+  /** The latest scheduler record of that day that carries a task_id, or null. */
+  lastTaskSchedule(date: string): Promise<ScheduleEntry | null>;
   /** fin_record_mp_report_schedule; returns the log id. */
   recordSchedule(r: ScheduleRecord): Promise<number>;
 }
@@ -82,7 +89,7 @@ export async function handleDaily(req: Request, deps: DailyDeps): Promise<Respon
     deps.log({ event: 'daily', status: 500, date, outcome: rec.p_outcome, code: 'SCHEDULE_RECORD_FAILED', run_id: rec.p_run_id ?? undefined });
     return json(500, { error: 'SCHEDULE_RECORD_FAILED', target_date: date, outcome: rec.p_outcome, run_id: rec.p_run_id });
   }
-  const status = rec.p_outcome === 'FAILED' ? 502 : 200;
+  const status = rec.p_outcome === 'FAILED' ? 502 : rec.p_outcome === 'PENDING' ? 202 : 200;
   deps.log({ event: 'daily', status, date, outcome: rec.p_outcome, code: rec.p_error_code ?? undefined, run_id: rec.p_run_id ?? undefined,
     task: rec.p_task_id ?? undefined, ms: Math.round(deps.now() - t0) });
   return json(status, {
@@ -100,12 +107,14 @@ async function execute(deps: DailyDeps, date: string, t0: number): Promise<Sched
   const done = await deps.findProcessedRun(account, date);
   if (done) return { ...base, p_outcome: 'ALREADY_PROCESSED', p_run_id: done };
 
-  // 2. a task MP accepted but did not finish in time is resumed, not requested again
-  const last = await deps.lastSchedule(date);
-  const resume = last?.outcome === 'FAILED' && last.error_code === 'MP_TASK_TIMEOUT' && last.task_id ? last.task_id : null;
+  // 2. the day's live task (still being prepared by MP) is polled again, never replaced by a new request
+  const last = await deps.lastTaskSchedule(date);
+  const live = last !== null && last.task_id !== null
+    && (last.outcome === 'PENDING' || (last.outcome === 'FAILED' && last.error_code === 'MP_TASK_TIMEOUT'));   // legacy record (before 0085)
+  const resume = live ? last.task_id : null;
 
   try {
-    const res = await captureReport(deps, { actor: null, date, mode: 'NORMAL', taskId: resume, t0 });
+    const res = await captureReport(deps, { actor: null, date, mode: 'NORMAL', taskId: resume, t0, maxPolls: DAILY_MAX_POLLS });
     const run = String(res.run_id);
     const task = typeof res.task_id === 'string' ? res.task_id : null;
     const summary = counters(res.summary, res.effects);
@@ -122,6 +131,8 @@ async function execute(deps: DailyDeps, date: string, t0: number): Promise<Sched
       if (now) return { ...base, p_outcome: 'ALREADY_PROCESSED', p_run_id: now };
     }
     const task = typeof e.extra.task_id === 'string' ? e.extra.task_id : null;
+    // MP accepted the task and is still preparing the file: not a failure (the next slot polls the same task)
+    if (e.code === 'MP_TASK_TIMEOUT' && task) return { ...base, p_outcome: 'PENDING', p_task_id: task, p_error_code: PREPARING };
     return { ...base, p_outcome: 'FAILED', p_task_id: task, p_error_code: e.code };
   }
 }

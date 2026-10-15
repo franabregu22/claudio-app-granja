@@ -113,8 +113,8 @@ const sameInstant = (a: unknown, b: string) => typeof a === 'string' && Date.par
 const idOf = (v: unknown): string | null => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0) || (typeof v === 'string' && DIGITS.test(v)) ? String(v) : null;
 
 /** Poll the task until `processed`; its window must be exactly the requested one. */
-async function awaitTask(deps: ReportDeps, taskId: string, window: { begin_date: string; end_date: string }): Promise<Record<string, unknown>> {
-  for (let i = 0; i < MAX_POLLS; i++) {
+async function awaitTask(deps: ReportDeps, taskId: string, window: { begin_date: string; end_date: string }, maxPolls = MAX_POLLS): Promise<Record<string, unknown>> {
+  for (let i = 0; i < maxPolls; i++) {
     if (i > 0) await deps.sleep(POLL_MS);
     const t = await mpJson(deps, 'GET', `${MP}/task/${taskId}`, [200], 'MP_TASK_UNAVAILABLE');
     if (t === null || typeof t !== 'object' || Array.isArray(t)) fail(502, 'MP_RESPONSE_INCONSISTENT', { task_id: taskId });
@@ -212,7 +212,7 @@ function summarize(rows: { raw_row: Record<string, string> }[]): ReportSummary {
  * parse → VALIDATION or NORMAL record. Shared by the ADMIN action (actor = the user) and the daily scheduler
  * (mp-report-daily, actor = null: the database records created_by NULL). Throws HttpError on every refusal.
  */
-export async function captureReport(deps: ReportDeps, o: { actor: string | null; date: string; mode: Mode; taskId: string | null; t0: number }):
+export async function captureReport(deps: ReportDeps, o: { actor: string | null; date: string; mode: Mode; taskId: string | null; t0: number; maxPolls?: number }):
   Promise<Record<string, unknown> & { summary: ReportSummary | null }> {
   const { date, mode } = o;
   const window = businessDayWindow(date, deps.now());
@@ -234,7 +234,7 @@ export async function captureReport(deps: ReportDeps, o: { actor: string | null;
     taskId = idOf(created && typeof created === 'object' ? (created as Record<string, unknown>).id : null);
     if (taskId === null) fail(502, 'MP_RESPONSE_INCONSISTENT');
   }
-  const task = await awaitTask(deps, taskId as string, w);
+  const task = await awaitTask(deps, taskId as string, w, o.maxPolls ?? MAX_POLLS);   // the scheduler polls briefly (PENDING, retried later)
   const fileName = await resolveFileName(deps, task);
 
   // 3. original bytes: download, hash, store once

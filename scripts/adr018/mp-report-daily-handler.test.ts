@@ -12,7 +12,7 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1.0.13';
 import { previousBusinessDay } from '../../supabase/functions/_shared/mp-release-report.ts';
 import { type CaptureParams, type LogEntry, type RunRow } from '../../supabase/functions/mp-report-ingest/handler.ts';
-import { type DailyDeps, handleDaily, type ScheduleRecord, SECRET_HEADER } from '../../supabase/functions/mp-report-daily/handler.ts';
+import { DAILY_MAX_POLLS, type DailyDeps, handleDaily, type ScheduleRecord, SECRET_HEADER } from '../../supabase/functions/mp-report-daily/handler.ts';
 
 const SECRET = 'test-only-invoke-secret';
 const MP_ACC = 'aaaaaaaa-0000-4000-8000-000000000099';
@@ -90,8 +90,8 @@ function harness(o: Opts = {}) {
     now: () => NOW,
     findProcessedRun: (acc, date) => Promise.resolve(o.processedRun !== undefined ? o.processedRun
       : [...runs.values()].find((r) => r.financial_account_id === acc && r.status === 'PARSED' && r.coverage_from === date)?.id ?? null),
-    lastSchedule: (date) => {
-      const r = records.filter((x) => x.p_target_date === date).pop();
+    lastTaskSchedule: (date) => {
+      const r = records.filter((x) => x.p_target_date === date && x.p_task_id !== null).pop();
       return Promise.resolve(r ? { outcome: r.p_outcome, task_id: r.p_task_id, error_code: r.p_error_code } : null);
     },
     recordSchedule: (r) => { if (o.recordFails) return Promise.reject(new Error('db down')); records.push(r); return Promise.resolve(records.length); },
@@ -181,16 +181,68 @@ Deno.test('duplicate concurrent execution: one effective run, the other ALREADY_
   assertEquals(h.runs.size, 1);
 });
 
-Deno.test('MP task timeout → FAILED with task id; the next execution resumes that task (no new request) and succeeds', async () => {
+const posts = (h: { calls: string[] }) => h.calls.filter((c) => c.startsWith('POST')).length;
+const polls = (h: { calls: string[] }) => h.calls.filter((c) => c.includes('/task/')).length;
+
+Deno.test('MP still preparing → PENDING (202, task kept, reason MP_TASK_PREPARING, short poll, no effect)', async () => {
   const h = harness({ taskAnswers: ['pending'] });
   const r = await read(await handleDaily(invoke(), h.deps));
-  assertEquals([r.status, r.body.outcome, r.body.error_code, r.body.task_id, r.body.run_id], [502, 'FAILED', 'MP_TASK_TIMEOUT', '777', null]);
-  assertEquals([h.storage.size, h.ingests.length], [0, 0]);
-  const posts = h.calls.filter((c) => c.startsWith('POST')).length;
+  assertEquals([r.status, r.body.outcome, r.body.error_code, r.body.task_id, r.body.run_id], [202, 'PENDING', 'MP_TASK_PREPARING', '777', null]);
+  assertEquals([h.storage.size, h.ingests.length, posts(h), polls(h)], [0, 0, 1, DAILY_MAX_POLLS]);
+  assertEquals(h.records[0], { p_target_date: TARGET, p_outcome: 'PENDING', p_run_id: null, p_task_id: '777', p_error_code: 'MP_TASK_PREPARING', p_summary: {} });
+});
+
+Deno.test('simulation: attempt 1 creates task → PENDING; 2 reuses → PENDING; 3 reuses → SUCCESS; 4 → ALREADY_PROCESSED (1 task, 1 run)', async () => {
+  const h = harness({ taskAnswers: ['pending'] });
+  const a1 = await read(await handleDaily(invoke(), h.deps));
+  const a2 = await read(await handleDaily(invoke(), h.deps));
   h.setAnswers(['processed']);
-  const next = await read(await handleDaily(invoke(), h.deps));
-  assertEquals([next.body.outcome, next.body.task_id], ['SUCCESS', '777']);
-  assertEquals(h.calls.filter((c) => c.startsWith('POST')).length, posts);     // resumed, not re-requested
+  const a3 = await read(await handleDaily(invoke(), h.deps));
+  const a4 = await read(await handleDaily(invoke(), h.deps));
+  assertEquals([a1.body.outcome, a2.body.outcome, a3.body.outcome, a4.body.outcome], ['PENDING', 'PENDING', 'SUCCESS', 'ALREADY_PROCESSED']);
+  assertEquals([a1.body.task_id, a2.body.task_id, a3.body.task_id], ['777', '777', '777']);
+  assertEquals([posts(h), h.runs.size, h.ingests.length], [1, 1, 1]);                 // tasks created = 1, one financial application
+  assertEquals(h.records.map((r) => r.p_outcome), ['PENDING', 'PENDING', 'SUCCESS', 'ALREADY_PROCESSED']);
+});
+
+Deno.test('legacy FAILED MP_TASK_TIMEOUT record (before 0085) is resumed like PENDING — the real 14/10 case', async () => {
+  const h = harness({ taskAnswers: ['processed'] });
+  h.records.push({ p_target_date: TARGET, p_outcome: 'FAILED', p_run_id: null, p_task_id: '777', p_error_code: 'MP_TASK_TIMEOUT', p_summary: {} });
+  const r = await read(await handleDaily(invoke(), h.deps));
+  assertEquals([r.body.outcome, r.body.task_id, posts(h)], ['SUCCESS', '777', 0]);
+});
+
+Deno.test('a PENDING task stays the only live task even if a later record has no task (e.g. an INTERNAL failure)', async () => {
+  const h = harness({ taskAnswers: ['pending'] });
+  await handleDaily(invoke(), h.deps);
+  h.records.push({ p_target_date: TARGET, p_outcome: 'FAILED', p_run_id: null, p_task_id: null, p_error_code: 'INTERNAL', p_summary: {} });
+  const r = await read(await handleDaily(invoke(), h.deps));
+  assertEquals([r.body.outcome, r.body.task_id, posts(h)], ['PENDING', '777', 1]);
+});
+
+Deno.test('a real task failure → FAILED (502, MP_TASK_FAILED, task kept); the next slot requests ONE new task', async () => {
+  const h = harness({ taskAnswers: ['failed'] });
+  const r = await read(await handleDaily(invoke(), h.deps));
+  assertEquals([r.status, r.body.outcome, r.body.error_code, r.body.task_id], [502, 'FAILED', 'MP_TASK_FAILED', '777']);
+  h.setAnswers(['processed']);
+  const n = await read(await handleDaily(invoke(), h.deps));
+  assertEquals([n.body.outcome, posts(h)], ['SUCCESS', 2]);
+});
+
+Deno.test('concurrent retries of a PENDING day: both poll the same task, one run, no new task', async () => {
+  const h = harness({ taskAnswers: ['pending'] });
+  await handleDaily(invoke(), h.deps);
+  h.setAnswers(['processed']);
+  const [a, b] = await Promise.all([handleDaily(invoke(), h.deps), handleDaily(invoke(), h.deps)].map(async (p) => (await read(await p)).body.outcome));
+  assertEquals([[a, b].sort(), posts(h), h.runs.size], [['ALREADY_PROCESSED', 'SUCCESS'], 1, 1]);
+});
+
+Deno.test('repeated invocations after success never call Mercado Pago again', async () => {
+  const h = harness();
+  await handleDaily(invoke(), h.deps);
+  const calls = h.calls.length;
+  for (let i = 0; i < 5; i++) assertEquals((await read(await handleDaily(invoke(), h.deps))).body.outcome, 'ALREADY_PROCESSED');
+  assertEquals([h.calls.length, h.runs.size], [calls, 1]);
 });
 
 Deno.test('parser rejection → FAILED REPORT_REJECTED:<code> with the REJECTED run; no report content in the record', async () => {

@@ -240,8 +240,21 @@ expect('E-16 SELECT: ADMIN 4, service_role 4, OPERATOR 0, anon refused',
 expect('E-17 the latest record of the day (read by the scheduler to resume a timed-out task)',
   `(SELECT outcome || ':' || coalesce(task_id, '-') || ':' || coalesce(error_code, '-') FROM fin_mp_report_schedule_log WHERE target_date = '${DAY}' ORDER BY id DESC LIMIT 1)`,
   'FAILED:777:MP_TASK_TIMEOUT');
+// 0085: PENDING = MP accepted the task and is still preparing it (task kept, no run, reason MP_TASK_PREPARING)
+const PEND = (task, run, err) => rec('service_role', null, `'${DAY}'::date, 'PENDING', ${run}, ${task}, ${err}, '{}'::jsonb`);
+expect('E-18 PENDING with task id, no run, reason MP_TASK_PREPARING → accepted', PEND(`'777'`, 'NULL', `'MP_TASK_PREPARING'`), 'OK:%');
+expect('E-19 PENDING without a task / with a run / with another reason / without a reason → refused',
+  `(${PEND('NULL', 'NULL', `'MP_TASK_PREPARING'`)} || ${PEND(`'777'`, `${RUNA}::uuid`, `'MP_TASK_PREPARING'`)} || ${PEND(`'777'`, 'NULL', `'MP_TASK_TIMEOUT'`)} || ${PEND(`'777'`, 'NULL', 'NULL')})`,
+  'ERR:INVALID_SCHEDULE_RECORD%ERR:INVALID_SCHEDULE_RECORD%ERR:INVALID_SCHEDULE_RECORD%ERR:INVALID_SCHEDULE_RECORD%');
+expect('E-20 the latest record with a task is now the PENDING one (what the next slot resumes)',
+  `(SELECT outcome || ':' || task_id || ':' || error_code FROM fin_mp_report_schedule_log WHERE target_date = '${DAY}' AND task_id IS NOT NULL ORDER BY id DESC LIMIT 1)`,
+  'PENDING:777:MP_TASK_PREPARING');
 
-// ── F. scheduling: nothing scheduled by 0081; the activation statement, rolled back ─
+// ── F. scheduling: nothing scheduled by 0081; 0082 activation; 0085 morning retry slots ─
+expect('F-0 after 0085: daily job every 15 min 07:00–07:45 BA, fallback job 08:00 + 11:00 BA with the SAME command; 3 jobs in all',
+  `((SELECT schedule FROM cron.job WHERE jobname = 'mp_release_report_daily') || '|' || (SELECT schedule FROM cron.job WHERE jobname = 'mp_release_report_daily_fallback')
+    || '|' || ((SELECT command FROM cron.job WHERE jobname = 'mp_release_report_daily') = (SELECT command FROM cron.job WHERE jobname = 'mp_release_report_daily_fallback'))::text
+    || '|' || (SELECT count(*) FROM cron.job) || '|' || (SELECT bool_and(active) FROM cron.job))`, '0,15,30,45 10 * * *|0 11,14 * * *|true|3|true');
 expect('F-1 after 0082: exactly one mp_release_report_daily job (0081 itself scheduled nothing)', `(SELECT count(*)::text FROM cron.job WHERE jobname = 'mp_release_report_daily')`, '1');
 const ACTIVATION = readFileSync(new URL('../../supabase/target-migrations/0082_mp_report_daily_schedule.sql', import.meta.url), 'utf8');
 add(ACTIVATION);
@@ -255,8 +268,8 @@ expect('F-3 the job posts to mp-report-daily from the existing Vault URL and inv
 expect('F-4 mp_worker_every_minute unchanged; no other job added',
   `((SELECT string_agg(jobname || schedule || command || active, ',' ORDER BY jobid) FROM cron.job WHERE jobname <> 'mp_release_report_daily')
      = (SELECT string_agg(jobname || schedule || command || active, ',' ORDER BY jobid) FROM before_jobs WHERE jobname <> 'mp_release_report_daily'))::text`, 'true');
-expect('F-6 re-running 0082 keeps the same daily job (same jobid, schedule, command): upsert by name',
-  `((SELECT jobid || schedule || command FROM cron.job WHERE jobname = 'mp_release_report_daily') = (SELECT jobid || schedule || command FROM before_jobs WHERE jobname = 'mp_release_report_daily'))::text`, 'true');
+expect('F-6 re-running 0082 keeps the same daily job (same jobid and command; upsert by name — it would reset the schedule, hence never re-run after 0085)',
+  `((SELECT jobid || command FROM cron.job WHERE jobname = 'mp_release_report_daily') = (SELECT jobid || command FROM before_jobs WHERE jobname = 'mp_release_report_daily'))::text`, 'true');
 expect('F-5 the URL derivation maps the worker endpoint to the daily endpoint',
   `replace('https://x.supabase.co/functions/v1/mp-worker', '/functions/v1/mp-worker', '/functions/v1/mp-report-daily')`, 'https://x.supabase.co/functions/v1/mp-report-daily');
 

@@ -200,7 +200,7 @@ expect('B-10 blank / control-character / oversized values refused without echoin
 // ── C. privacy and perimeter ────────────────────────────────────────────────
 const callAs = (role, uid) => as(role, uid, `SELECT fin_record_mp_payout_destinations(gen_random_uuid(), '[]'::jsonb)::text`);
 expect('C-1 authenticated ADMIN and anon cannot record', `(${callAs('authenticated', ADMIN)} || ${callAs('anon', null)})`, 'ERR:permission denied%ERR:permission denied%');
-const cnt = 'SELECT count(*)::text FROM fin_mp_payout_destination';
+const cnt = "SELECT count(*)::text FROM fin_mp_payout_destination WHERE source_id LIKE '830000000%'";   // this suite's rows only
 expect('C-2 SELECT: ADMIN refused, OPERATOR refused, anon refused, service_role 2',
   `(${as('authenticated', ADMIN, cnt)} || '|' || ${as('authenticated', OPER, cnt)} || '|' || ${as('anon', null, cnt)} || '|' || ${as('service_role', null, cnt)})`,
   'ERR:permission denied%|ERR:permission denied%|ERR:permission denied%|OK:2');
@@ -228,7 +228,7 @@ expect('C-8 ingestion functions unchanged by 0083 (still the 0080 capture / 0081
 for (const t of ['financial_operation', 'financial_posting', 'mp_reconciliation', 'fin_statement_line']) {
   expect(`D-1 zero financial / bank effect: Δ ${t} = 0`, `(SELECT ((SELECT count(*) FROM ${t}) - b.n)::text FROM before_counts b WHERE b.t = ${lit(t)})`, '0');
 }
-expect('D-2 cron jobs unchanged (worker + daily report)', `(SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job)`, 'mp_release_report_daily,mp_worker_every_minute');
+expect('D-2 cron jobs unchanged (worker + daily report + fallback)', `(SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute');
 expect('D-3 mp_v4_verified() still false', '(SELECT mp_v4_verified()::text)', 'false');
 
 add('ROLLBACK;');

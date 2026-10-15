@@ -247,7 +247,7 @@ expect('bucket financial-statements: private, 10 MB, pdf + csv',
   `(SELECT public || ':' || file_size_limit || ':' || array_to_string(allowed_mime_types, ',') FROM storage.buckets WHERE id = 'financial-statements')`, 'false:10485760:application/pdf,text/csv');
 expect('bucket policies unchanged: one ADMIN SELECT policy',
   `(SELECT string_agg(policyname || ':' || cmd, ',') FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND qual ~ 'financial-statements')`, 'financial_statements_admin_select:SELECT');
-expect('cron jobs: the worker + the 0082 daily report job only', `(SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job)`, 'mp_release_report_daily,mp_worker_every_minute');
+expect('cron jobs: the worker + the 0082 daily report job + the 0085 fallback only', `(SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute');
 expect('mp_parse_report_row, RPC 40 and mp_register_delivery untouched: no MP function references the capture',
   `(SELECT count(*)::text FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'mp\\_%' AND prosrc ~ 'fin_capture_mp_release_report')`, '0');
 

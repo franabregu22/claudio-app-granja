@@ -29,8 +29,8 @@ const deps: DailyDeps = {
         `&coverage_from=eq.${date}&coverage_to=eq.${date}&order=created_at.desc&limit=1`);
     return rows.length === 1 ? rows[0].id : null;
   },
-  lastSchedule: async (date) => {
-    const rows = await select<ScheduleEntry>('fin_mp_report_schedule_log', `select=outcome,task_id,error_code&target_date=eq.${date}&order=id.desc&limit=1`);
+  lastTaskSchedule: async (date) => {
+    const rows = await select<ScheduleEntry>('fin_mp_report_schedule_log', `select=outcome,task_id,error_code&target_date=eq.${date}&task_id=not.is.null&order=id.desc&limit=1`);
     return rows.length === 1 ? rows[0] : null;
   },
   recordSchedule: async (r) => Number(await rpc('fin_record_mp_report_schedule', r)),

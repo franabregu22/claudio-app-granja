@@ -177,8 +177,8 @@ const rowOf = (sid) => PDAY.findIndex((r) => r.SOURCE_ID === sid) + 1;
 const record = (key, items) => as('service_role', null,
   `SELECT fin_record_mp_payout_destinations(${P(RES(key))}::uuid, jsonb_build_array(${items.map(([sid, v]) => `jsonb_build_object('row_number', ${rowOf(sid)}, 'value', ${v})`).join(', ')}))::text`);
 const MATCHES = (role, uid) => as(role, uid, `SELECT coalesce(string_agg(source_id || ':' || match_status || ':' || coalesce(matched_account_name, '-') || ':' || confidence || ':' || suggested_action, ',' ORDER BY source_id), '')
-  FROM fin_mp_payout_matches(${P(MPACC)}::uuid)`);
-const RAW = (role, uid) => as(role, uid, `SELECT coalesce(json_agg(m)::text, '[]') FROM fin_mp_payout_matches(${P(MPACC)}::uuid) m`);
+  FROM fin_mp_payout_matches(${P(MPACC)}::uuid) WHERE source_id LIKE '840000000%'`);   // this suite's payouts only
+const RAW = (role, uid) => as(role, uid, `SELECT coalesce(json_agg(m)::text, '[]') FROM fin_mp_payout_matches(${P(MPACC)}::uuid) m WHERE m.source_id LIKE '840000000%'`);
 
 // ── A. identifiers seeded from the approved configuration, private ──────────
 expect('A-1 financial_account_identifier holds exactly the active configuration CBUs (BNA, Patagonia), primary, active',
@@ -237,7 +237,7 @@ for (const t of ['financial_operation', 'financial_posting', 'mp_reconciliation'
 expect('D-5 no transfer proposed is written anywhere (no TRANSFER operation created)',
   `(SELECT count(*)::text FROM financial_operation WHERE operation_type = 'TRANSFER' AND created_at >= (SELECT now()))`, '0');
 expect('D-6 cron jobs unchanged; mp_v4_verified() false',
-  `((SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job) || '|' || mp_v4_verified()::text)`, 'mp_release_report_daily,mp_worker_every_minute|false');
+  `((SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job) || '|' || mp_v4_verified()::text)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute|false');
 
 add('ROLLBACK;');
 
