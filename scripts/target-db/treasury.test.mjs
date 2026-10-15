@@ -65,7 +65,8 @@ const LATER_PHASE_TABLES = ['financial_instrument', 'financial_instrument_event'
   'mp_cutover_boundary',                                                                             // ADR-017 (0071)
   'fin_import_run', 'fin_import_run_line', 'fin_statement_account_config', 'fin_statement_cutover', 'fin_statement_line', 'fin_statement_match', // ADR-018 (0073)
   'fin_mp_report_schedule_log', // ADR-018 (0081)
-  'fin_mp_payout_destination']; // ADR-018 (0083)
+  'fin_mp_payout_destination', // ADR-018 (0083)
+  'financial_account_identifier']; // ADR-018 (0084)
 
 let container;
 let pass = 0;

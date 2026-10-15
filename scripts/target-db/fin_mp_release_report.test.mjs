@@ -235,7 +235,7 @@ expect('no audit / MP queue entry referencing the captured runs',
   `(SELECT count(*)::text FROM mp_webhook_delivery WHERE origin = 'report_backfill')`, '0');
 
 // ── 9. perimeter ─────────────────────────────────────────────────────────────
-expect('SECURITY DEFINER set = 78 (0079 NORMAL ingest + back-fill, 0081 scheduler log, 0083 payout destinations)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '78');
+expect('SECURITY DEFINER set = 79 (0079 NORMAL ingest + back-fill, 0081 scheduler log, 0083 payout destinations, 0084 payout matches)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '79');
 expect('capture function: definer, owner postgres, search_path=public, single overload',
   `(SELECT string_agg(prosecdef || ':' || pg_get_userbyid(proowner) || ':' || (coalesce(proconfig, '{}') @> ARRAY['search_path=public']), ',') FROM pg_proc
      WHERE pronamespace = 'public'::regnamespace AND proname = 'fin_capture_mp_release_report')`, 'true:postgres:true');

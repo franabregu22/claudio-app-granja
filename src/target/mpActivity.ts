@@ -4,7 +4,7 @@
  * it never changes the ERP balance, which stays the sum of financial_posting (Movimientos ERP).
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readView } from './db';
+import { callRpc, readView } from './db';
 
 export type MpCoverageStatus =
   | 'CONTROL' | 'PRE_CUTOVER' | 'RESERVE' | 'COVERED' | 'BACKFILL_PROCESSED' | 'BACKFILL_PENDING' | 'EXCEPTION' | 'YIELD' | 'PAYOUT' | 'OUTBOUND';
@@ -63,3 +63,34 @@ export const isVisibleActivity = (r: Pick<MpActivityRow, 'coverage_status'>) => 
 
 /** The Mercado Pago account, identified exactly as the database functions do (0048 / 0051 / 0078 / 0079). */
 export const isMercadoPagoAccount = (a: { nombre: string; account_type: string }) => a.nombre === 'Mercado Pago' && a.account_type === 'EXTERNAL_SERVICE';
+
+/**
+ * ADR-018 (0084) — payout destination vs. own accounts, read-only proposal. The server compares the payout destination
+ * (stored server-side, never sent here) EXACTLY with the active own-account CBUs and returns only the outcome: never a CBU or any
+ * destination value. Nothing is created: no transfer, no posting, no classification (auto-transfer is OFF).
+ */
+export type MpPayoutMatchStatus = 'OWN_ACCOUNT_EXACT' | 'NO_OWN_ACCOUNT_MATCH' | 'DESTINATION_CONFLICT';
+export interface MpPayoutMatch {
+  source_id: string; match_status: MpPayoutMatchStatus; matched_account_id: string | null; matched_account_name: string | null;
+  confidence: 'HIGH' | 'NONE' | 'REVIEW'; suggested_action: 'PROPOSE_INTERNAL_TRANSFER' | 'CLASSIFY_OUTFLOW' | 'REVIEW_DESTINATION';
+}
+
+/** Matches of the account's payouts, keyed by SOURCE_ID (ADMIN only; an empty map when nothing is stored). */
+export async function listMpPayoutMatches(client: SupabaseClient, accountId: string): Promise<Map<string, MpPayoutMatch>> {
+  if (!accountId) return new Map();
+  const rows = await callRpc<MpPayoutMatch[] | null>(client, 'fin_mp_payout_matches', { p_account_id: accountId });
+  return new Map((rows ?? []).map((m) => [m.source_id, m]));
+}
+
+/** What the Actividad list shows under a payout ("Retiro") row; null when there is nothing to show. */
+export function payoutMatchLabel(r: Pick<MpActivityRow, 'description' | 'source_id'>, matches: ReadonlyMap<string, MpPayoutMatch>):
+  { title: string; detail: string | null; tone: 'own' | 'classify' | 'review' } | null {
+  if (r.description !== 'payout' || !r.source_id) return null;
+  const m = matches.get(r.source_id);
+  if (!m) return null;
+  if (m.match_status === 'OWN_ACCOUNT_EXACT' && m.matched_account_name) {
+    return { title: `Transferencia a ${m.matched_account_name} detectada`, detail: 'Coincidencia exacta de cuenta destino', tone: 'own' };
+  }
+  if (m.match_status === 'NO_OWN_ACCOUNT_MATCH') return { title: 'Clasificar salida', detail: null, tone: 'classify' };
+  return { title: 'Revisar destino', detail: 'El reporte informó destinos distintos para este retiro', tone: 'review' };
+}

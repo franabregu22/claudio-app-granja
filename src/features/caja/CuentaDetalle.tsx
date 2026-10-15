@@ -3,10 +3,10 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { isMercadoPagoAccount, isVisibleActivity, MP_STATUS_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus } from '../../target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, MP_STATUS_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
-import { useMpActivity } from './useMpActivity';
+import { useMpActivity, useMpPayoutMatches } from './useMpActivity';
 import { useBankHistory } from './useReconciliation';
 import { useAccountPostings } from './useTreasury';
 
@@ -131,6 +131,8 @@ function MovimientosBancarios({ accountId }: { accountId: string }) {
 
 function ActividadMercadoPago({ accountId }: { accountId: string }) {
   const actividad = useMpActivity(accountId);
+  const coincidencias = useMpPayoutMatches(accountId);
+  const matches: ReadonlyMap<string, MpPayoutMatch> = coincidencias.data ?? new Map();   // proposal only; the list works without it
   if (actividad.isLoading) return <p className="text-sm text-gray-500">Cargando actividad de Mercado Pago...</p>;
   if (actividad.error) return <p className="text-sm text-red-700">{errorMessage(actividad.error)}</p>;
   const todas: MpActivityRow[] = actividad.data ?? [];
@@ -154,13 +156,30 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
                 <td className="px-3 py-2 whitespace-nowrap">{mpActivityType(r)}</td>
                 <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id ?? '—'}</td>
                 <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${(r.net_amount ?? 0) < 0 ? 'text-red-700' : 'text-green-800'}`}>{importe(r.net_amount, true)}</td>
-                <td className="px-3 py-2 whitespace-nowrap"><span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{MP_STATUS_LABEL[r.coverage_status]}</span></td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{MP_STATUS_LABEL[r.coverage_status]}</span>
+                  <DestinoRetiro r={r} matches={matches} />
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <p className="text-xs text-[#8A7A5C]">{filas.length} movimiento(s) del reporte, los más recientes primero ({todas.length - filas.length} fila(s) internas del reporte omitidas: saldos, totales y reservas).</p>
+    </div>
+  );
+}
+
+const DESTINO_ESTILO = { own: 'bg-sky-100 text-sky-900', classify: 'bg-amber-100 text-amber-900', review: 'bg-purple-100 text-purple-800' } as const;
+
+/** Read-only payout destination proposal (0084): no action button, nothing is created. */
+function DestinoRetiro({ r, matches }: { r: MpActivityRow; matches: ReadonlyMap<string, MpPayoutMatch> }) {
+  const m = payoutMatchLabel(r, matches);
+  if (!m) return null;
+  return (
+    <div className="mt-1">
+      <span className={`text-xs px-2 py-0.5 rounded ${DESTINO_ESTILO[m.tone]}`}>{m.title}</span>
+      {m.detail && <p className="text-[11px] text-[#8A7A5C] mt-0.5">{m.detail}</p>}
     </div>
   );
 }

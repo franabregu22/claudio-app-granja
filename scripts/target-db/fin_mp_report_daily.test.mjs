@@ -261,7 +261,7 @@ expect('F-5 the URL derivation maps the worker endpoint to the daily endpoint',
   `replace('https://x.supabase.co/functions/v1/mp-worker', '/functions/v1/mp-worker', '/functions/v1/mp-report-daily')`, 'https://x.supabase.co/functions/v1/mp-report-daily');
 
 // ── G. perimeter ─────────────────────────────────────────────────────────────
-expect('G-1 SECURITY DEFINER set = 78 (76 + fin_record_mp_report_schedule + 0083 fin_record_mp_payout_destinations)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '78');
+expect('G-1 SECURITY DEFINER set = 79 (76 + fin_record_mp_report_schedule + 0083 fin_record_mp_payout_destinations + 0084 fin_mp_payout_matches)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '79');
 expect('G-2 fin_record_mp_report_schedule: DEFINER, owner postgres, EXECUTE service_role only',
   `(SELECT prosecdef || ':' || pg_get_userbyid(proowner) || ':' || has_function_privilege('anon', oid, 'EXECUTE') || has_function_privilege('authenticated', oid, 'EXECUTE')
       || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'fin_record_mp_report_schedule')`, 'true:postgres:falsefalsetrue');

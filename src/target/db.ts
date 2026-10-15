@@ -82,6 +82,7 @@ export const TARGET_RPCS = [
   'register_purchase_with_fiscal_document',   // ADR-015 (RPC 50)
   'close_feria_summary', 'rectify_feria_closing',   // ADR-016 (RPC 51 / 52)
   'fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover',   // ADR-018 (0075)
+  'fin_mp_payout_matches',   // ADR-018 (0084): read-only payout destination proposal (ADMIN)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

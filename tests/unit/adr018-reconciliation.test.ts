@@ -55,8 +55,8 @@ describe('ADR-018 reconciliation access: ADMIN only', () => {
     expect([...lib.matchAll(/callRpc<[^>]*>\(client, '([a-z_]+)'/g)].map((m) => m[1]).sort())
       .toEqual(['fin_match_statement_line', 'fin_resolve_statement_cutover', 'fin_reverse_statement_match']);
   });
-  it('allowlist: exactly the 3 ADR-018 RPCs added; view and the two tables registered', () => {
-    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(['fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover']);
+  it('allowlist: exactly the 3 ADR-018 reconciliation RPCs + the read-only MP payout match (0084); view and the two tables registered', () => {
+    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(['fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover', 'fin_mp_payout_matches']);
     expect(TARGET_RPCS).not.toContain('fin_import_bank_statement');
     expect(TARGET_VIEWS).toContain('fin_statement_line_status');
     expect(TARGET_READ_TABLES).toEqual(expect.arrayContaining(['fin_statement_match', 'fin_statement_cutover']));
