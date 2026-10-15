@@ -509,7 +509,7 @@ section('P', 'privilege perimeter re-asserted');
     `${r1.status} ${r2.status}`);
   const DEFINER_69 = ['assert_period_open', 'assign_flock_feed', 'assign_freight_to_purchase', 'cancel_order', 'cancel_supplier_instrument', 'clear_cheque',
     'close_feria_summary', 'close_flock', 'close_sales_session', 'current_app_role', 'deliver_order', 'deposit_cheque', 'endorse_cheque', 'fin_capture_mp_release_report', 'fin_import_bank_statement', 'fin_ingest_mp_release_report', 'fin_match_statement_line', 'fin_mp_payout_matches', 'fin_record_mp_payout_destinations', 'fin_record_mp_report_schedule', 'fin_resolve_statement_cutover', 'fin_reverse_statement_match', 'issue_supplier_instrument', 'mark_supplier_instrument_debited',
-    'mp_allocate_to_client', 'mp_apply_transition', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_classify_inflow_as_collection', 'mp_classify_payout_outflow', 'mp_clear_attribution_flag', 'mp_confirm_payout_transfer',
+    'mp_account_posting_guard', 'mp_admin_correction', 'mp_allocate_to_client', 'mp_apply_transition', 'mp_auto_allocate', 'mp_check_report_coverage', 'mp_claim_deliveries', 'mp_classify_inflow_as_collection', 'mp_classify_payout_outflow', 'mp_clear_attribution_flag', 'mp_confirm_payout_transfer',
     'mp_delivery_transition', 'mp_flag_for_attribution', 'mp_ingest_api_snapshot', 'mp_map_payer_to_client', 'mp_normalize_report_fallback', 'mp_normalize_source',
     'mp_reclassify_inbound_own_transfer', 'mp_reconcile_movement', 'mp_record_balance_check', 'mp_register_delivery', 'mp_register_report_backfill', 'mp_request_refetch', 'mp_requeue_config_blocked', 'mp_resolve_chargeback_signal',
     'mp_resolve_match', 'mp_reverse_client_allocation', 'mp_unmap_payer', 'open_sales_session', 'pay_fiscal_obligation', 'pay_supplier', 'publish_feed_formula_version', 'receive_cheque', 'rectify_casual_purchase_classification', 'rectify_classification',
@@ -517,7 +517,7 @@ section('P', 'privilege perimeter re-asserted');
     'register_count_adjustment', 'register_daily_production', 'register_feed_inventory_count', 'register_feed_manufacturing', 'register_feed_movement',
     'register_fiscal_document', 'register_fiscal_obligation', 'register_flock', 'register_freight', 'register_management_event', 'register_mortality', 'register_purchase', 'register_purchase_with_fiscal_document',
     'register_session_cash_event', 'register_session_movement', 'reject_cheque', 'reject_supplier_instrument', 'transfer_between_accounts'];
-  check('P-7 SECURITY DEFINER set = the exact 85-name literal (60 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013 + 1 ADR-014 + 1 ADR-015 + 2 ADR-016 + 10 ADR-018 + 1 inbound reclass 0086 + 0087 payout confirm); helpers / trigger functions INVOKER and owner-only',
+  check('P-7 SECURITY DEFINER set = the exact 87-name literal (60 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013 + 1 ADR-014 + 1 ADR-015 + 2 ADR-016 + 10 ADR-018 + 1 inbound reclass 0086 + 0087 payout confirm); helpers / trigger functions INVOKER and owner-only',
     owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === DEFINER_69.join(',')
       && owner(`SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN ('mp_is_auto_applicable','mp_v4_verified','mp_parse_report_row',
           'mp_claim_report_payment_fallback','mp_delivery_immutable_guard','mp_report_match_guard','mp_source_raw_guard','mp_source_insert_guard')

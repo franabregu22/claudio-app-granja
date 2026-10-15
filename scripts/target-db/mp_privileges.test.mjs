@@ -120,7 +120,8 @@ const WANT_EXEC = Object.fromEntries([
   ['mp_reclassify_inbound_own_transfer', 'authenticated'], ['mp_own_transfer_allocation_guard', ''],
   ['mp_confirm_payout_transfer', 'authenticated'], ['mp_payout_outflow_resolve', ''],   // 0088 internal resolver: no API EXECUTE
   ['mp_classify_payout_outflow', 'authenticated'], ['mp_classify_inflow_as_collection', 'authenticated'],   // MP classification (ADMIN, 0089)
-  ['mp_outflow_resolve', ''], ['mp_outflow_apply_charges', ''],   // ADR-020 internal helpers: no API EXECUTE (0090)   // payout → own account confirmation (ADMIN, 0087)   // inbound own-account reclassification (ADMIN) + allocation guard (0086)
+  ['mp_outflow_resolve', ''], ['mp_outflow_apply_charges', ''],   // ADR-020 internal helpers: no API EXECUTE (0090)
+  ['mp_account_posting_guard', ''], ['mp_admin_correction', 'authenticated'],   // global MP source invariant (0091)   // payout → own account confirmation (ADMIN, 0087)   // inbound own-account reclassification (ADMIN) + allocation guard (0086)
 ]);
 // ADR006_RLS_AND_SECURITY_V1 §4: 41 verified baseline + 19 ADR-006 = 60; ADR-007 adds RPCs 44 / 45 → 62 (owner-approved)
 const BASELINE_41 = ['assert_period_open', 'assign_flock_feed', 'assign_freight_to_purchase', 'cancel_order', 'cancel_supplier_instrument',
@@ -148,10 +149,11 @@ const ADR018_MP_0081 = ['fin_record_mp_report_schedule'];   // ADR-018 daily rep
 const ADR018_MP_0083 = ['fin_record_mp_payout_destinations'];   // ADR-018 payout destination private storage (0083) → 78
 const ADR018_MP_0084 = ['fin_mp_payout_matches'];   // ADR-018 payout own-account match, read-only (0084) → 79
 const ADR019_0088 = ['rectify_casual_purchase_classification', 'register_casual_purchase'];   // ADR-019 casual purchases (0088) → 83
+const MP_0091 = ['mp_account_posting_guard', 'mp_admin_correction'];   // global MP source invariant (0091) → 87
 const MP_0089 = ['mp_classify_inflow_as_collection', 'mp_classify_payout_outflow'];   // MP classification (0089) → 85
 const MP_0087 = ['mp_confirm_payout_transfer'];   // payout → own account confirmation (0087) → 81
 const MP_0086 = ['mp_reclassify_inbound_own_transfer'];   // inbound own-account transfer reclassification (0086) → 80
-const DEFINER_69 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013, ...ADR014_1, ...ADR015_1, ...ADR016_2, ...ADR018_4, ...ADR018_MP_1, ...ADR018_MP_0079, ...ADR018_MP_0081, ...ADR018_MP_0083, ...ADR018_MP_0084, ...MP_0086, ...MP_0087, ...ADR019_0088, ...MP_0089].sort();
+const DEFINER_69 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013, ...ADR014_1, ...ADR015_1, ...ADR016_2, ...ADR018_4, ...ADR018_MP_1, ...ADR018_MP_0079, ...ADR018_MP_0081, ...ADR018_MP_0083, ...ADR018_MP_0084, ...MP_0086, ...MP_0087, ...ADR019_0088, ...MP_0089, ...MP_0091].sort();
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 function cleanup() {
@@ -390,9 +392,9 @@ section('S-6', 'evidence-only AUTO attribution');
 section('S-7', 'SECURITY DEFINER inventory + RLS spec §11 verification');
 {
   const got = owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`);
-  check(`S-7a SECURITY DEFINER set = the exact 85-name literal (41 verified baseline + 19 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013 + 1 ADR-014 + 1 ADR-015 + 2 ADR-016 + 10 ADR-018 + 1 inbound reclass 0086 + 0087 payout confirm; §4)`, got === DEFINER_69.join(','),
+  check(`S-7a SECURITY DEFINER set = the exact 87-name literal (41 verified baseline + 19 ADR-006 + 2 ADR-007 + 1 ADR-011 + 2 ADR-012/013 + 1 ADR-014 + 1 ADR-015 + 2 ADR-016 + 10 ADR-018 + 1 inbound reclass 0086 + 0087 payout confirm; §4)`, got === DEFINER_69.join(','),
     `extra=${got.split(',').filter((x) => !DEFINER_69.includes(x))} missing=${DEFINER_69.filter((x) => !got.split(',').includes(x))}`);
-  check('S-7b count = 85 (ADR-007 + ADR-011 + ADR-012/013 + ADR-014 + ADR-015 + ADR-016 + ADR-018 incl. 0078 / 0079 / 0081 / 0083 / 0084 / 0086 + 0087 payout confirm)', got.split(',').length === 85 && DEFINER_69.length === 85);
+  check('S-7b count = 87 (ADR-007 + ADR-011 + ADR-012/013 + ADR-014 + ADR-015 + ADR-016 + ADR-018 incl. 0078 / 0079 / 0081 / 0083 / 0084 / 0086 + 0087 payout confirm)', got.split(',').length === 87 && DEFINER_69.length === 87);
   check('S-7c every SECURITY DEFINER is owned by postgres', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace AND proowner <> 'postgres'::regrole;`) === '0');
   check('S-7d spec check 6: every SECURITY DEFINER pins search_path = public (0 rows)', owner(`SELECT count(*) FROM pg_proc WHERE prosecdef = true AND pronamespace = 'public'::regnamespace
     AND NOT (COALESCE(proconfig, '{}') @> ARRAY['search_path=public']);`) === '0');

@@ -70,7 +70,8 @@ const LATER_PHASE_TABLES = ['financial_instrument', 'financial_instrument_event'
   'mp_inbound_reclassification', // 0086
   'mp_payout_transfer_confirmation', // 0087
   'mp_outflow_classification', // 0088
-  'mp_inflow_classification']; // 0089
+  'mp_inflow_classification', // 0089
+  'mp_source_exception']; // 0091
 
 let container;
 let pass = 0;
