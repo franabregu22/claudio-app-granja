@@ -183,6 +183,7 @@ const LATER_PHASE_TABLES = [
   'fin_mp_payout_destination',                                                                  // ADR-018 (0083) payout destination (private)
   'financial_account_identifier',                                                               // ADR-018 (0084) own-account identifiers (private)
   'mp_inbound_reclassification',                                                                // 0086 inbound own-account transfers
+  'mp_payout_transfer_confirmation',                                                            // 0087 payout → own account confirmed transfers
 ];
 const foundationFound = tableList.filter((t) => expectedTables.includes(t));
 check(`17 Foundation tables exist (found ${foundationFound.length})`, foundationFound.length === 17, foundationFound.join(','));

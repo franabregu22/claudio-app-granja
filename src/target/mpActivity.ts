@@ -1,7 +1,8 @@
 /**
  * ADR-018 §15 — Mercado Pago report activity (read-only). One row per appearance of a processed (NORMAL) release report,
  * from the view fin_mp_report_activity (0079), with its coverage status. It is evidence of what Mercado Pago reported:
- * it never changes the ERP balance, which stays the sum of financial_posting (Movimientos ERP).
+ * reading it never changes the ERP balance, which stays the sum of financial_posting (Movimientos ERP). The one action is
+ * the explicit ADMIN confirmation of a payout to an own account (0087), done server-side.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readView } from './db';
@@ -37,9 +38,14 @@ export const MP_STATUS_LABEL: Record<MpCoverageStatus, string> = {
   CLASSIFY_INFLOW: 'Clasificar ingreso',
 };
 
-/** The status text of a row: an own-account inflow names its source account ("Transferencia desde BNA"). */
-export function mpStatusLabel(r: Pick<MpActivityRow, 'coverage_status' | 'counterpart_account_name'>): string {
-  if (r.coverage_status === 'OWN_TRANSFER' && r.counterpart_account_name) return `Transferencia desde ${r.counterpart_account_name}`;
+/**
+ * The status text of a row: an own-account inflow names its source account ("Transferencia desde BNA"); a confirmed
+ * payout (0087) names its destination ("Transferencia a BNA").
+ */
+export function mpStatusLabel(r: Pick<MpActivityRow, 'coverage_status' | 'counterpart_account_name'> & { description?: string | null }): string {
+  if (r.coverage_status === 'OWN_TRANSFER' && r.counterpart_account_name) {
+    return r.description === 'payout' ? `Transferencia a ${r.counterpart_account_name}` : `Transferencia desde ${r.counterpart_account_name}`;
+  }
   return MP_STATUS_LABEL[r.coverage_status];
 }
 
@@ -78,9 +84,9 @@ export const isVisibleActivity = (r: Pick<MpActivityRow, 'coverage_status'>) => 
 export const isMercadoPagoAccount = (a: { nombre: string; account_type: string }) => a.nombre === 'Mercado Pago' && a.account_type === 'EXTERNAL_SERVICE';
 
 /**
- * ADR-018 (0084) — payout destination vs. own accounts, read-only proposal. The server compares the payout destination
- * (stored server-side, never sent here) EXACTLY with the active own-account CBUs and returns only the outcome: never a CBU or any
- * destination value. Nothing is created: no transfer, no posting, no classification (auto-transfer is OFF).
+ * ADR-018 (0084) — payout destination vs. own accounts. The server compares the payout destination (stored server-side,
+ * never sent here) EXACTLY with the active own-account CBUs and returns only the outcome: never a CBU or any destination
+ * value. The proposal itself creates nothing (auto-transfer is OFF); an ADMIN confirms it explicitly (0087, below).
  */
 export type MpPayoutMatchStatus = 'OWN_ACCOUNT_EXACT' | 'NO_OWN_ACCOUNT_MATCH' | 'DESTINATION_CONFLICT';
 export interface MpPayoutMatch {
@@ -95,15 +101,30 @@ export async function listMpPayoutMatches(client: SupabaseClient, accountId: str
   return new Map((rows ?? []).map((m) => [m.source_id, m]));
 }
 
-/** What the Actividad list shows under a payout ("Retiro") row; null when there is nothing to show. */
-export function payoutMatchLabel(r: Pick<MpActivityRow, 'description' | 'source_id'>, matches: ReadonlyMap<string, MpPayoutMatch>):
-  { title: string; detail: string | null; tone: 'own' | 'classify' | 'review' } | null {
+/**
+ * What the Actividad list shows under a payout ("Retiro") row; null when there is nothing to show. `canConfirm` is true
+ * ONLY for an unconfirmed OWN_ACCOUNT_EXACT payout (0087); a confirmed one (coverage OWN_TRANSFER) shows "Confirmada".
+ */
+export function payoutMatchLabel(r: Pick<MpActivityRow, 'description' | 'source_id'> & { coverage_status?: MpCoverageStatus },
+  matches: ReadonlyMap<string, MpPayoutMatch>):
+  { title: string; detail: string | null; tone: 'own' | 'classify' | 'review'; canConfirm: boolean } | null {
   if (r.description !== 'payout' || !r.source_id) return null;
+  if (r.coverage_status === 'OWN_TRANSFER') return { title: 'Confirmada', detail: null, tone: 'own', canConfirm: false };
   const m = matches.get(r.source_id);
   if (!m) return null;
   if (m.match_status === 'OWN_ACCOUNT_EXACT' && m.matched_account_name) {
-    return { title: `Transferencia a ${m.matched_account_name} detectada`, detail: 'Coincidencia exacta de cuenta destino', tone: 'own' };
+    return { title: `Transferencia a ${m.matched_account_name} detectada`, detail: 'Coincidencia exacta de cuenta destino', tone: 'own', canConfirm: true };
   }
-  if (m.match_status === 'NO_OWN_ACCOUNT_MATCH') return { title: 'Clasificar salida', detail: null, tone: 'classify' };
-  return { title: 'Revisar destino', detail: 'El reporte informó destinos distintos para este retiro', tone: 'review' };
+  if (m.match_status === 'NO_OWN_ACCOUNT_MATCH') return { title: 'Clasificar salida', detail: null, tone: 'classify', canConfirm: false };
+  return { title: 'Revisar destino', detail: 'El reporte informó destinos distintos para este retiro', tone: 'review', canConfirm: false };
+}
+
+/**
+ * 0087 — confirm an OWN_ACCOUNT_EXACT payout as ONE internal transfer (Mercado Pago → own bank account). Only the
+ * SOURCE_ID is sent: the server resolves the movement, amount, date and destination account; nothing is computed here.
+ * A repeated call writes nothing (replayed = true).
+ */
+export interface MpPayoutConfirmation { confirmation_id: number; replayed: boolean; transfer_operation_id: number; amount: number; destination_account: string }
+export async function confirmMpPayoutTransfer(client: SupabaseClient, sourceId: string): Promise<MpPayoutConfirmation> {
+  return callRpc<MpPayoutConfirmation>(client, 'mp_confirm_payout_transfer', { p_source_id: sourceId });
 }

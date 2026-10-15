@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import { TARGET_RPCS, TARGET_VIEWS } from '../../src/target/db';
-import { isMercadoPagoAccount, isVisibleActivity, listMpActivity, listMpPayoutMatches, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../src/target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, listMpActivity, listMpPayoutMatches, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel, confirmMpPayoutTransfer } from '../../src/target/mpActivity';
 
 function harness(rows: unknown[]) {
   const seen: URL[] = [];
@@ -78,12 +78,13 @@ describe('ADR-018 MP activity — screen', () => {
     expect(fn).toMatch(/no modifica el saldo ERP/);
     expect(fn).toMatch(/mpStatusLabel\(r\)/);
   });
-  it('read-only: no write, no reconciliation action; the only RPC is the read-only payout match proposal (0084)', () => {
-    const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'));
+  it('the list itself writes nothing; the only RPCs are the payout match proposal (0084) and the payout confirmation (0087)', () => {
+    const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'), detalle.indexOf('const DESTINO_ESTILO'));
     expect(fn).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.upsert\(|\.delete\(|useMutation|onClick/);
     const lib = SRC('target/mpActivity.ts');
     expect(lib).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.delete\(/);
-    expect((lib.match(/callRpc<[^;]*/g) ?? []).map((c) => c.includes("'fin_mp_payout_matches'"))).toEqual([true]);
+    expect((lib.match(/callRpc<[^;]*/g) ?? []).map((c) => c.match(/'(fin_mp_payout_matches|mp_confirm_payout_transfer)'/)?.[1]))
+      .toEqual(['fin_mp_payout_matches', 'mp_confirm_payout_transfer']);
   });
 });
 
@@ -144,11 +145,11 @@ describe('ADR-018 MP activity — payout own-account match (0084, read-only)', (
   const map = new Map(MATCHES.map((x) => [x.source_id, x]));
   it('05/10 and 10/10 → "Transferencia a BNA detectada" (exact destination match)', () => {
     for (const sid of ['181533509871', '183527567414']) {
-      expect(payoutMatchLabel(payout(sid), map)).toEqual({ title: 'Transferencia a BNA detectada', detail: 'Coincidencia exacta de cuenta destino', tone: 'own' });
+      expect(payoutMatchLabel(payout(sid), map)).toEqual({ title: 'Transferencia a BNA detectada', detail: 'Coincidencia exacta de cuenta destino', tone: 'own', canConfirm: true });
     }
   });
   it('13/10 → "Clasificar salida" (no own account; no supplier inferred)', () => {
-    expect(payoutMatchLabel(payout('183984533002'), map)).toEqual({ title: 'Clasificar salida', detail: null, tone: 'classify' });
+    expect(payoutMatchLabel(payout('183984533002'), map)).toEqual({ title: 'Clasificar salida', detail: null, tone: 'classify', canConfirm: false });
   });
   it('Patagonia fixture → "Transferencia a Patagonia detectada"; conflicting destinations → "Revisar destino"', () => {
     expect(payoutMatchLabel(payout('900000000077'), map)?.title).toBe('Transferencia a Patagonia detectada');
@@ -160,11 +161,13 @@ describe('ADR-018 MP activity — payout own-account match (0084, read-only)', (
     expect(payoutMatchLabel({ description: 'asset_management', source_id: '183984533002' }, map)).toBeNull();
     expect(payoutMatchLabel({ description: 'payout', source_id: null }, map)).toBeNull();
   });
-  it('the screen shows the proposal under the Retiro status, with no action button and no identifier value', () => {
+  it('the screen shows the proposal under the Retiro status; the only button is the guarded confirmation; no identifier value', () => {
     const s = SRC('features/caja/CuentaDetalle.tsx');
     expect(s).toMatch(/<DestinoRetiro r=\{r\} matches=\{matches\} \/>/);
     const comp = s.slice(s.indexOf('function DestinoRetiro'));
-    expect(comp).not.toMatch(/<button|onClick/);
+    expect(comp.match(/<button/g) ?? []).toHaveLength(1);
+    expect(comp).toMatch(/\{m\.canConfirm && r\.source_id && \(/);
+    expect(comp).toMatch(/confirmar\.mutate\(r\.source_id as string\)/);
     const all = SRC('target/mpActivity.ts') + s;
     expect(all).not.toMatch(/normalized_value|identifier_value|original_value|expected_cbu|PAYOUT_BANK_ACCOUNT_NUMBER/);
     expect(JSON.stringify(MATCHES)).not.toMatch(/\d{22}/);
@@ -186,5 +189,46 @@ describe('ADR-018 MP activity — own-account inflows (0086)', () => {
   it('the list reads the counterpart account and both new statuses are visible rows', () => {
     expect(SRC('target/mpActivity.ts')).toMatch(/financial_operation_id, counterpart_account_name'/);
     expect([isVisibleActivity({ coverage_status: 'OWN_TRANSFER' }), isVisibleActivity({ coverage_status: 'CLASSIFY_INFLOW' })]).toEqual([true, true]);
+  });
+});
+
+// ── 0087: payouts to own accounts confirmed as internal transfers ─────────────────────────────────────────────────────
+describe('MP activity — payout confirmation (0087)', () => {
+  const map = new Map(MATCHES.map((x) => [x.source_id, x]));
+  it('only an unconfirmed OWN_ACCOUNT_EXACT payout offers the confirmation (05/10, 10/10); 13/10, conflict and unknown do not', () => {
+    expect(['181533509871', '183527567414'].map((sid) => payoutMatchLabel({ ...payout(sid), coverage_status: 'PAYOUT' }, map)?.canConfirm)).toEqual([true, true]);
+    expect(payoutMatchLabel({ ...payout('183984533002'), coverage_status: 'PAYOUT' }, map)).toEqual({ title: 'Clasificar salida', detail: null, tone: 'classify', canConfirm: false });
+    expect(payoutMatchLabel({ ...payout('900000000078'), coverage_status: 'PAYOUT' }, map)?.canConfirm).toBe(false);
+    expect(payoutMatchLabel({ ...payout('999999999999'), coverage_status: 'PAYOUT' }, map)).toBeNull();
+  });
+  it('after confirmation: "Transferencia a BNA" + "Confirmada", no button; the type is Transferencia', () => {
+    const r = { description: 'payout', source_id: '181533509871', net_amount: -1000000, coverage_status: 'OWN_TRANSFER' as MpCoverageStatus, counterpart_account_name: 'BNA' };
+    expect([mpActivityType(r), mpStatusLabel(r)]).toEqual(['Transferencia', 'Transferencia a BNA']);
+    expect(payoutMatchLabel(r, map)).toEqual({ title: 'Confirmada', detail: null, tone: 'own', canConfirm: false });
+    expect(payoutMatchLabel(r, new Map())?.canConfirm).toBe(false);
+  });
+  it('BNA → MP inflows already reclassified still read "Transferencia desde BNA"', () => {
+    const r = { description: 'payment', net_amount: 100000, coverage_status: 'OWN_TRANSFER' as MpCoverageStatus, counterpart_account_name: 'BNA' };
+    expect([mpActivityType(r), mpStatusLabel(r)]).toEqual(['Transferencia', 'Transferencia desde BNA']);
+  });
+  it('the confirmation sends ONLY the SOURCE_ID (no amount, no account) to mp_confirm_payout_transfer', async () => {
+    const seen: { url: URL; body: string }[] = [];
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+      seen.push({ url, body: String(init?.body ?? '') });
+      return new Response(JSON.stringify({ confirmation_id: 1, replayed: false, transfer_operation_id: 9, amount: 1000000, destination_account: 'BNA' }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const client = createClient('http://127.0.0.1:54321', 'anon-key', { global: { fetch: fetchImpl as typeof fetch }, auth: { persistSession: false } });
+    const res = await confirmMpPayoutTransfer(client, '181533509871');
+    expect(seen.map((x) => x.url.pathname)).toEqual(['/rest/v1/rpc/mp_confirm_payout_transfer']);
+    expect(JSON.parse(seen[0].body)).toEqual({ p_source_id: '181533509871' });
+    expect(res.destination_account).toBe('BNA');
+    expect(TARGET_RPCS).toContain('mp_confirm_payout_transfer');
+  });
+  it('the mutation refreshes the activity, the matches and every balance (treasury, P&L)', () => {
+    const h = SRC('features/caja/useMpActivity.ts');
+    expect(h).toMatch(/confirmMpPayoutTransfer\(supabase, sourceId\)/);
+    for (const k of ["['mp-activity']", "['mp-payout-matches']", "['treasury']", "['pnl']"]) expect(h).toContain(k);
   });
 });

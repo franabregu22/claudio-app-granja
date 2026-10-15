@@ -67,7 +67,8 @@ const LATER_PHASE_TABLES = ['financial_instrument', 'financial_instrument_event'
   'fin_mp_report_schedule_log', // ADR-018 (0081)
   'fin_mp_payout_destination', // ADR-018 (0083)
   'financial_account_identifier', // ADR-018 (0084)
-  'mp_inbound_reclassification']; // 0086
+  'mp_inbound_reclassification', // 0086
+  'mp_payout_transfer_confirmation']; // 0087
 
 let container;
 let pass = 0;
@@ -293,9 +294,10 @@ check('A8 financial_account has no balance column (id, nombre, account_type, act
 //   session cash events, whose money effect is posted through financial_operation / financial_posting;
 //   mp_financial_movement (Phase 23, Domain L): normalized external MP movement, reconciled into postings, not a ledger.
 //   bank_tax_charge / report_bank_tax_period (ADR-011): tax detail of a BANK_TAX operation, posted through financial_posting.
+//   mp_payout_transfer_confirmation (0087): evidence link payout → TRANSFER operation; the money is posted through financial_posting.
 const parallel = owner(`SELECT coalesce(string_agg(table_name, ','), '') FROM information_schema.tables
   WHERE table_schema = 'public' AND table_name ~* '(movement|movimiento|cash|caja|bank|banco|treasury|tesoreria|transfer|balance|saldo|journal|asiento)'
-    AND table_name NOT IN ('feed_movement', 'sales_session_movement', 'sales_session_cash_event', 'mp_financial_movement', 'bank_tax_charge', 'report_bank_tax_period', ${ADR005_VIEWS});`);
+    AND table_name NOT IN ('feed_movement', 'sales_session_movement', 'sales_session_cash_event', 'mp_financial_movement', 'bank_tax_charge', 'report_bank_tax_period', 'mp_payout_transfer_confirmation', ${ADR005_VIEWS});`);
 check('A9 no parallel money ledger / cash / bank / transfer / balance table', parallel === '', parallel);
 
 // ═══════════════════════════════════════════════════════════════════════════

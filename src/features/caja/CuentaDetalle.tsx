@@ -6,7 +6,7 @@ import { errorMessage } from '../../target/messages';
 import { isMercadoPagoAccount, isVisibleActivity, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
-import { useMpActivity, useMpPayoutMatches } from './useMpActivity';
+import { useConfirmPayoutTransfer, useMpActivity, useMpPayoutMatches } from './useMpActivity';
 import { useBankHistory } from './useReconciliation';
 import { useAccountPostings } from './useTreasury';
 
@@ -143,7 +143,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
   }
   return (
     <div className="space-y-2">
-      <p className="text-xs text-[#8A7A5C]">Actividad informada por el reporte oficial de Mercado Pago. Es evidencia: no modifica el saldo ERP; los cobros se registran solo por el circuito de pagos de Mercado Pago.</p>
+      <p className="text-xs text-[#8A7A5C]">Actividad informada por el reporte oficial de Mercado Pago. Es evidencia: no modifica el saldo ERP; los cobros se registran solo por el circuito de pagos de Mercado Pago. Solo &quot;Confirmar transferencia&quot; registra un retiro a una cuenta propia como transferencia interna.</p>
       <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
         <table className="w-full text-sm" aria-label="Actividad Mercado Pago">
           <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
@@ -173,14 +173,25 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
 
 const DESTINO_ESTILO = { own: 'bg-sky-100 text-sky-900', classify: 'bg-amber-100 text-amber-900', review: 'bg-purple-100 text-purple-800' } as const;
 
-/** Read-only payout destination proposal (0084): no action button, nothing is created. */
+/**
+ * Payout destination proposal (0084) and its confirmation (0087). The button exists only for an unconfirmed
+ * OWN_ACCOUNT_EXACT payout and sends only the SOURCE_ID: the server resolves amount, date and destination account.
+ */
 function DestinoRetiro({ r, matches }: { r: MpActivityRow; matches: ReadonlyMap<string, MpPayoutMatch> }) {
   const m = payoutMatchLabel(r, matches);
+  const confirmar = useConfirmPayoutTransfer();
   if (!m) return null;
   return (
     <div className="mt-1">
       <span className={`text-xs px-2 py-0.5 rounded ${DESTINO_ESTILO[m.tone]}`}>{m.title}</span>
       {m.detail && <p className="text-[11px] text-[#8A7A5C] mt-0.5">{m.detail}</p>}
+      {m.canConfirm && r.source_id && (
+        <button type="button" disabled={confirmar.isPending} onClick={() => confirmar.mutate(r.source_id as string)}
+          className="ml-2 text-xs px-2 py-0.5 rounded border border-sky-300 bg-white text-sky-900 hover:bg-sky-50 disabled:opacity-50">
+          {confirmar.isPending ? 'Confirmando...' : 'Confirmar transferencia'}
+        </button>
+      )}
+      {confirmar.error && <p className="text-[11px] text-red-700 mt-0.5">{errorMessage(confirmar.error)}</p>}
     </div>
   );
 }

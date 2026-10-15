@@ -189,7 +189,7 @@ try {
   // ── 1. perimeter ─────────────────────────────────────────────────────────
   section(1, 'perimeter (ADR-007 §security)');
   check('S1 SECURITY DEFINER count in public = 73 (60 + register_flock + close_flock + ADR-011 register_bank_tax + ADR-012/013 RPCs 47 / 48 + ADR-014 RPC 49 + ADR-015 RPC 50 + ADR-016 RPCs 51 / 52 + ADR-018 four functions)',
-    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '80');
+    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '81');
   check('S2 RPC 44/44: SECURITY DEFINER, owner postgres, search_path=public, EXECUTE authenticated only',
     owner(`SELECT string_agg(proname || ':' || prosecdef || ':' || pg_get_userbyid(proowner) || ':' || array_to_string(proconfig, ';') || ':'
       || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('anon', oid, 'EXECUTE')
