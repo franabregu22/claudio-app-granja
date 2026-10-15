@@ -119,7 +119,8 @@ const WANT_EXEC = Object.fromEntries([
   ['mp_register_report_backfill', 'service_role'],   // ADR-018 §10 report back-fill (0079)
   ['mp_reclassify_inbound_own_transfer', 'authenticated'], ['mp_own_transfer_allocation_guard', ''],
   ['mp_confirm_payout_transfer', 'authenticated'], ['mp_payout_outflow_resolve', ''],   // 0088 internal resolver: no API EXECUTE
-  ['mp_classify_payout_outflow', 'authenticated'], ['mp_classify_inflow_as_collection', 'authenticated'],   // MP classification (ADMIN, 0089)   // payout → own account confirmation (ADMIN, 0087)   // inbound own-account reclassification (ADMIN) + allocation guard (0086)
+  ['mp_classify_payout_outflow', 'authenticated'], ['mp_classify_inflow_as_collection', 'authenticated'],   // MP classification (ADMIN, 0089)
+  ['mp_outflow_resolve', ''], ['mp_outflow_apply_charges', ''],   // ADR-020 internal helpers: no API EXECUTE (0090)   // payout → own account confirmation (ADMIN, 0087)   // inbound own-account reclassification (ADMIN) + allocation guard (0086)
 ]);
 // ADR006_RLS_AND_SECURITY_V1 §4: 41 verified baseline + 19 ADR-006 = 60; ADR-007 adds RPCs 44 / 45 → 62 (owner-approved)
 const BASELINE_41 = ['assert_period_open', 'assign_flock_feed', 'assign_freight_to_purchase', 'cancel_order', 'cancel_supplier_instrument',
