@@ -250,8 +250,8 @@ expect('E-1 overall: MP +100000 (unapplied DEBIN, now via TRANSFER) +7500 +12000
   `(SELECT ((${bal(MPID)}) - b.mp)::text || '|' || ((${bal(BNA)}) - b.bna)::text FROM bal0 b)`, '1119500.00|-1100000.00');
 expect('E-2 P&L unaffected (no fee on these inflows; P&L never reads operations)',
   `(SELECT count(*)::text FROM mp_financial_movement m WHERE m.id IN (${MV(P_FUND_DEBIN)}, ${MV(P_LEGACY)}) AND m.fee_amount <> 0)`, '0');
-expect('E-3 SECURITY DEFINER set = 87 (79 + mp_reclassify_inbound_own_transfer + 0087 mp_confirm_payout_transfer); the guard trigger function is INVOKER',
-  `((SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)::text || '|' || (SELECT prosecdef::text FROM pg_proc WHERE proname = 'mp_own_transfer_allocation_guard'))`, '87|false');
+expect('E-3 SECURITY DEFINER set = 88 (79 + mp_reclassify_inbound_own_transfer + 0087 mp_confirm_payout_transfer); the guard trigger function is INVOKER',
+  `((SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)::text || '|' || (SELECT prosecdef::text FROM pg_proc WHERE proname = 'mp_own_transfer_allocation_guard'))`, '88|false');
 expect('E-4 mp_reclassify_inbound_own_transfer: EXECUTE authenticated only',
   `(SELECT has_function_privilege('anon', oid, 'EXECUTE')::text || has_function_privilege('authenticated', oid, 'EXECUTE')::text || has_function_privilege('service_role', oid, 'EXECUTE')::text FROM pg_proc WHERE proname = 'mp_reclassify_inbound_own_transfer')`,
   'falsetruefalse');

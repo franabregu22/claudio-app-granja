@@ -187,6 +187,7 @@ const LATER_PHASE_TABLES = [
   'mp_outflow_classification',                                                                  // 0088 MP outflow classification (ADR-019 gateway)
   'mp_inflow_classification',                                                                   // 0089 MP inflow classification
   'mp_source_exception',                                                                        // 0091 audited exceptions to the MP source invariant
+  'collection_correction',                                                                      // 0092 manual MP collection corrections
 ];
 const foundationFound = tableList.filter((t) => expectedTables.includes(t));
 check(`17 Foundation tables exist (found ${foundationFound.length})`, foundationFound.length === 17, foundationFound.join(','));

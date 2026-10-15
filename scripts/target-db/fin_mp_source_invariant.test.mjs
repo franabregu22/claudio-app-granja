@@ -237,7 +237,7 @@ expect('Z-1 constraint trigger: deferrable, initially deferred, on financial_pos
   'true:true:financial_posting|true:falsefalse');
 expect('Z-2 mp_admin_correction: DEFINER, EXECUTE authenticated only', `(SELECT prosecdef || ':' || has_function_privilege('anon', oid, 'EXECUTE') || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'mp_admin_correction')`,
   'true:falsetruefalse');
-expect('Z-3 SECURITY DEFINER set = 87 (85 + mp_account_posting_guard + mp_admin_correction)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '87');
+expect('Z-3 SECURITY DEFINER set = 88 (85 + mp_account_posting_guard + mp_admin_correction)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '88');
 
 add('ROLLBACK;');
 
