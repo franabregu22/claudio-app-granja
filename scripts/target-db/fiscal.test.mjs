@@ -272,7 +272,8 @@ check('A1 the five fiscal tables exist', owner(`SELECT string_agg(table_name, ',
   WHERE table_schema = 'public' AND table_name IN (${TABLES.map((t) => `'${t}'`).join(',')});`) === TABLES.join(','));
 const wantCols = {
   fiscal_document: 'id:uuid,document_type:USER-DEFINED,direction:USER-DEFINED,document_date:date,fiscal_period:date,supplier_id:uuid,cliente_id:uuid,'
-    + 'external_number:character varying,net_amount:numeric,total_amount:numeric,created_at:timestamp with time zone,created_by:uuid',
+    + 'external_number:character varying,net_amount:numeric,total_amount:numeric,created_at:timestamp with time zone,created_by:uuid,'
+    + 'issuer_tax_id:character varying,issuer_name:character varying',   // [ADR-019] issuer of a document without a recurring supplier
   fiscal_document_component: 'id:uuid,fiscal_document_id:uuid,tax_kind:USER-DEFINED,direction:USER-DEFINED,base_amount:numeric,rate_applied:numeric,'
     + 'tax_amount:numeric,created_at:timestamp with time zone',
   fiscal_obligation: 'id:uuid,tax_kind:USER-DEFINED,fiscal_period:date,amount:numeric,due_date:date,status:USER-DEFINED,created_at:timestamp with time zone,created_by:uuid',
@@ -285,7 +286,7 @@ check('A2 columns of all five tables exactly as frozen Domain K', badCols.length
 const cons = owner(`SELECT string_agg(conrelid::regclass || '.' || conname || ':' || contype::TEXT, ',' ORDER BY conrelid::regclass::TEXT, conname) FROM pg_constraint
   WHERE conrelid IN (${TABLES.map((t) => `'${t}'::regclass`).join(',')}) AND contype IN ('u','c');`);
 check('A3 UNIQUE / CHECK constraints exactly as frozen (month start, counterparty, amounts, rates, installment number, idempotency)',
-  cons === 'fiscal_document.chk_fiscal_counterparty:c,fiscal_document.chk_fiscal_period_month_start:c,'
+  cons === 'fiscal_document.chk_fiscal_counterparty:c,fiscal_document.chk_fiscal_issuer:c,fiscal_document.chk_fiscal_period_month_start:c,'   // [ADR-019] chk_fiscal_issuer
   + 'fiscal_document.fiscal_document_net_amount_check:c,fiscal_document.fiscal_document_total_amount_check:c,'
   + 'fiscal_document_component.fiscal_document_component_base_amount_check:c,fiscal_document_component.fiscal_document_component_rate_applied_check:c,'
   + 'fiscal_document_component.fiscal_document_component_tax_amount_check:c,'

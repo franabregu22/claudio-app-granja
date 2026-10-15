@@ -290,8 +290,8 @@ const tables = owner(`SELECT string_agg(table_name, ',' ORDER BY table_name) FRO
   WHERE table_schema = 'public' AND table_name IN (${TABLES.map((t) => `'${t}'`).join(',')});`);
 check('A1 purchases, purchase_line, purchase_attachment, freight, freight_allocation exist', tables === TABLES.join(','), tables);
 const colsOf = (t) => owner(`SELECT string_agg(column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = '${t}';`);
-check('A2 purchases columns exactly as frozen', colsOf('purchases') === 'id,supplier_id,economic_date,amount_net,amount_total,expense_category_id,subcategory,'
-  + 'nature,project_id,fiscal_document_id,supplier_invoice_number,flock_id,is_current,version_seq,idempotency_key,created_at,created_by', colsOf('purchases'));
+check('A2 purchases columns exactly as frozen [ADR-019: + counterparty_name, paid_operation_id]', colsOf('purchases') === 'id,supplier_id,economic_date,amount_net,amount_total,expense_category_id,subcategory,'
+  + 'nature,project_id,fiscal_document_id,supplier_invoice_number,flock_id,is_current,version_seq,idempotency_key,created_at,created_by,counterparty_name,paid_operation_id', colsOf('purchases'));
 check('A3 purchase_line / attachment / freight / allocation columns exactly as frozen',
   colsOf('purchase_line') === 'id,purchase_id,producto_id,feed_ingredient_id,descripcion,cantidad,unit_type,precio_unitario,subtotal,created_at'
   && colsOf('purchase_attachment') === 'id,purchase_id,storage_path,file_name,content_type,byte_size,uploaded_at,uploaded_by'
@@ -301,8 +301,8 @@ const gen = owner(`SELECT is_generated || ':' || generation_expression FROM info
 check('A4 purchase_line.subtotal GENERATED ALWAYS (cantidad * precio_unitario)', /^ALWAYS:.*cantidad.*precio_unitario/.test(gen), gen);
 const checks = owner(`SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint WHERE contype = 'c'
   AND conrelid::regclass::TEXT IN (${TABLES.map((t) => `'${t}'`).join(',')});`);
-check('A5 CHECKs as frozen (the 2 fiscal deferred-FK stand-ins were replaced by the frozen FKs in Phase 22)', checks === ''
-  + 'freight_allocation_allocated_amount_check,freight_amount_check,purchase_attachment_byte_size_check,purchase_line_cantidad_check,'
+check('A5 CHECKs as frozen (the 2 fiscal deferred-FK stand-ins were replaced by the frozen FKs in Phase 22) [ADR-019: + casual CHECKs]', checks === ''
+  + 'chk_purchases_casual_paid,chk_purchases_counterparty,freight_allocation_allocated_amount_check,freight_amount_check,purchase_attachment_byte_size_check,purchase_line_cantidad_check,'
   + 'purchase_line_precio_unitario_check,purchases_amount_net_check,purchases_amount_total_check', checks);
 const uniques = owner(`SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint WHERE contype = 'u'
   AND conrelid::regclass::TEXT IN (${TABLES.map((t) => `'${t}'`).join(',')});`);
@@ -319,13 +319,13 @@ const fks = owner(`SELECT string_agg(x, ',' ORDER BY x) FROM (
   SELECT c.conrelid::regclass || '.' || a.attname || '>' || c.confrelid::regclass || ':' || c.confdeltype::TEXT AS x
     FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
    WHERE c.contype = 'f' AND c.conrelid::regclass::TEXT IN (${TABLES.map((t) => `'${t}'`).join(',')})) s;`);
-check('A9 foreign keys as frozen, all RESTRICT; fiscal_document_id FKs added by Phase 22',
+check('A9 foreign keys as frozen, all RESTRICT; fiscal_document_id FKs added by Phase 22 [ADR-019: + purchases.paid_operation_id]',
   fks === 'freight.created_by>perfiles:r,freight.expense_category_id>expense_category:r,freight.fiscal_document_id>fiscal_document:r,freight.supplier_id>suppliers:r,'
   + 'freight_allocation.allocated_by>perfiles:r,freight_allocation.freight_id>freight:r,freight_allocation.purchase_id>purchases:r,'
   + 'purchase_attachment.purchase_id>purchases:r,purchase_attachment.uploaded_by>perfiles:r,'
   + 'purchase_line.feed_ingredient_id>feed_ingredient:r,purchase_line.producto_id>products:r,purchase_line.purchase_id>purchases:r,'
   + 'purchases.created_by>perfiles:r,purchases.expense_category_id>expense_category:r,purchases.fiscal_document_id>fiscal_document:r,purchases.flock_id>flocks:r,'
-  + 'purchases.project_id>projects:r,purchases.supplier_id>suppliers:r', fks);
+  + 'purchases.paid_operation_id>financial_operation:r,purchases.project_id>projects:r,purchases.supplier_id>suppliers:r', fks);
 const cyc = owner(`SELECT string_agg(conname || ':' || convalidated, ',' ORDER BY conname) FROM pg_constraint
   WHERE conname IN ('fk_pedidos_sales_session','fk_sales_session_aggregated_pedido','fk_flocks_purchase','fk_purchases_flock');`);
 check('A10 step 3.6 cycle 2 FKs (flocks ↔ purchases) exist and are validated; cycle 1 (pedidos ↔ sales_session) added by Phase 21',

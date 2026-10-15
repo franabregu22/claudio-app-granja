@@ -36,7 +36,8 @@ export interface PurchaseLineRow {
   precio_unitario: number; subtotal: number;
 }
 export interface PurchaseRow {
-  id: string; supplier_id: string; supplier_nombre: string; economic_date: string; amount_net: number; amount_total: number;
+  /** ADR-019: null for a casual purchase (no registered supplier); supplier_nombre then shows the counterparty or "Sin proveedor registrado" */
+  id: string; supplier_id: string | null; supplier_nombre: string; counterparty_name: string | null; economic_date: string; amount_net: number; amount_total: number;
   expense_category_id: string; categoria_nombre: string; subcategory: string | null; nature: PurchaseNature;
   supplier_invoice_number: string | null; version_seq: number; created_at: string; lineas: PurchaseLineRow[];
 }
@@ -89,7 +90,7 @@ export async function listPurchases(client: SupabaseClient, limit = 200): Promis
     '*, suppliers(nombre), expense_category(nombre), purchase_line(*)');
   return rows.map(({ suppliers, expense_category, purchase_line, ...p }) => ({
     ...p, amount_net: num(p.amount_net), amount_total: num(p.amount_total),
-    supplier_nombre: suppliers?.nombre ?? '—', categoria_nombre: expense_category?.nombre ?? '—',
+    supplier_nombre: suppliers?.nombre ?? p.counterparty_name ?? 'Sin proveedor registrado', categoria_nombre: expense_category?.nombre ?? '—',
     lineas: (purchase_line ?? []).map((l) => ({ ...l, cantidad: num(l.cantidad), precio_unitario: num(l.precio_unitario), subtotal: num(l.subtotal) })),
   }));
 }

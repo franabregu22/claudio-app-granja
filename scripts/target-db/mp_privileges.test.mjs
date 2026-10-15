@@ -118,8 +118,7 @@ const WANT_EXEC = Object.fromEntries([
   ...ADMIN_FNS.map((f) => [f, 'authenticated']), ...INVOKER_FNS.map((f) => [f, '']),
   ['mp_register_report_backfill', 'service_role'],   // ADR-018 §10 report back-fill (0079)
   ['mp_reclassify_inbound_own_transfer', 'authenticated'], ['mp_own_transfer_allocation_guard', ''],
-  ['mp_confirm_payout_transfer', 'authenticated'],   // payout → own account confirmation (ADMIN, 0087)
-  ['mp_classify_payout_outflow', 'authenticated'], ['mp_classify_inflow_as_collection', 'authenticated'],   // MP classification (ADMIN, 0088)   // inbound own-account reclassification (ADMIN) + allocation guard (0086)
+  ['mp_confirm_payout_transfer', 'authenticated'], ['mp_payout_outflow_resolve', ''],   // 0088 internal resolver: no API EXECUTE   // payout → own account confirmation (ADMIN, 0087)   // inbound own-account reclassification (ADMIN) + allocation guard (0086)
 ]);
 // ADR006_RLS_AND_SECURITY_V1 §4: 41 verified baseline + 19 ADR-006 = 60; ADR-007 adds RPCs 44 / 45 → 62 (owner-approved)
 const BASELINE_41 = ['assert_period_open', 'assign_flock_feed', 'assign_freight_to_purchase', 'cancel_order', 'cancel_supplier_instrument',
@@ -146,10 +145,10 @@ const ADR018_MP_0079 = ['fin_ingest_mp_release_report', 'mp_register_report_back
 const ADR018_MP_0081 = ['fin_record_mp_report_schedule'];   // ADR-018 daily report scheduler log (0081) → 77
 const ADR018_MP_0083 = ['fin_record_mp_payout_destinations'];   // ADR-018 payout destination private storage (0083) → 78
 const ADR018_MP_0084 = ['fin_mp_payout_matches'];   // ADR-018 payout own-account match, read-only (0084) → 79
-const MP_0088 = ['mp_classify_inflow_as_collection', 'mp_classify_payout_outflow'];   // MP classification (0088) → 83
+const ADR019_0088 = ['rectify_casual_purchase_classification', 'register_casual_purchase'];   // ADR-019 casual purchases (0088) → 83
 const MP_0087 = ['mp_confirm_payout_transfer'];   // payout → own account confirmation (0087) → 81
 const MP_0086 = ['mp_reclassify_inbound_own_transfer'];   // inbound own-account transfer reclassification (0086) → 80
-const DEFINER_69 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013, ...ADR014_1, ...ADR015_1, ...ADR016_2, ...ADR018_4, ...ADR018_MP_1, ...ADR018_MP_0079, ...ADR018_MP_0081, ...ADR018_MP_0083, ...ADR018_MP_0084, ...MP_0086, ...MP_0087, ...MP_0088].sort();
+const DEFINER_69 = [...BASELINE_41, ...ADR006_19, ...ADR007_2, ...ADR011_1, ...ADR012_013, ...ADR014_1, ...ADR015_1, ...ADR016_2, ...ADR018_4, ...ADR018_MP_1, ...ADR018_MP_0079, ...ADR018_MP_0081, ...ADR018_MP_0083, ...ADR018_MP_0084, ...MP_0086, ...MP_0087, ...ADR019_0088].sort();
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 function cleanup() {

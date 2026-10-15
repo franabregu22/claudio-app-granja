@@ -1,9 +1,9 @@
 /**
  * Verification profile ADR018_POST_0088 — the exact database state after target migrations 0001…0088
- * (0088: mp_outflow_classification + mp_inflow_classification; mp_classify_payout_outflow (supplier payment / expense /
- * partner withdrawal of a NO_OWN_ACCOUNT_MATCH payout) and mp_classify_inflow_as_collection (DEBIN inflow as a receipt),
- * both ADMIN, identifiers only; fin_mp_report_activity: CLASSIFIED_OUTFLOW + appended classification columns; no pre-0079
- * Mercado Pago function changes). Derived from ADR018_POST_0087, whose text follows:
+ * (0088, ADR-019: casual purchases — purchases.supplier_id nullable, counterparty_name, paid_operation_id, PURCHASE_PAYMENT;
+ * fiscal_document issuer CUIT / name; register_casual_purchase + rectify_casual_purchase_classification (ADMIN); RPC 14
+ * casual branch; RPC 34 delegating to fiscal_document_insert; mp_outflow_classification + mp_payout_outflow_resolve).
+ * Derived from ADR018_POST_0087, whose text follows:
  *
  * Verification profile ADR018_POST_0087 — the exact database state after target migrations 0001…0087
  * (0087: mp_payout_transfer_confirmation + mp_confirm_payout_transfer (ADMIN, SOURCE_ID only): an OWN_ACCOUNT_EXACT payout
@@ -56,7 +56,7 @@ const MIGRATIONS = ['0078_fin_mp_release_report_validation.sql', '0079_fin_mp_re
   '0081_fin_mp_report_daily_support.sql', '0082_mp_report_daily_schedule.sql',
   '0083_fin_mp_payout_destination.sql', '0084_fin_mp_payout_own_account_match.sql',
   '0085_mp_report_daily_pending_retry.sql', '0086_mp_inbound_own_transfer.sql',
-  '0087_mp_payout_own_transfer_confirm.sql', '0088_mp_classify_inflows_outflows.sql'];
+  '0087_mp_payout_own_transfer_confirm.sql', '0088_optional_supplier_casual_purchases.sql'];
 
 const FIN_TABLES = ['fin_import_run', 'fin_import_run_line', 'fin_mp_payout_destination', 'fin_mp_report_schedule_log', 'fin_statement_account_config', 'fin_statement_cutover', 'fin_statement_line', 'fin_statement_match'];
 const SIG = '(uuid,text,text,text,text,text,bigint,date,date,jsonb,text,jsonb)';
@@ -69,10 +69,11 @@ const MATCHES = 'fin_mp_payout_matches(uuid)';
 const RECLASS = 'mp_reclassify_inbound_own_transfer(text,uuid,text)';
 const GUARD = 'mp_own_transfer_allocation_guard()';
 const CONFIRM = 'mp_confirm_payout_transfer(text)';
-const OUTFLOW = 'mp_classify_payout_outflow(text,text,uuid,uuid,purchase_nature,text,text)';
-const INFLOW = 'mp_classify_inflow_as_collection(text,uuid)';
+const CASUAL = 'register_casual_purchase(date,numeric,numeric,uuid,character varying,purchase_nature,uuid,payment_method,character varying,character varying,jsonb,jsonb,jsonb,uuid,uuid,text,text)';
+const CASUAL_RECLASS = 'rectify_casual_purchase_classification(uuid,uuid,purchase_nature,character varying,character varying,text)';
+const RESOLVE = 'mp_payout_outflow_resolve(text)';
 const ADR018_DEFINERS = [
-  CAPTURE, INGEST, BACKFILL, SCHEDULE, DESTINATIONS, MATCHES, RECLASS, CONFIRM, OUTFLOW, INFLOW,
+  CAPTURE, INGEST, BACKFILL, SCHEDULE, DESTINATIONS, MATCHES, RECLASS, CONFIRM, CASUAL, CASUAL_RECLASS,
   'fin_import_bank_statement(uuid,uuid,text,text,text,text,text,bigint,date,date,jsonb,uuid,text,jsonb)',
   'fin_match_statement_line(bigint,bigint,text)',
   'fin_resolve_statement_cutover(uuid,bigint,numeric,text,text)',
@@ -89,8 +90,8 @@ const EXEC = {   // anon | authenticated | service_role
   'fin_mp_payout_matches': 'false|true|false',
   'mp_reclassify_inbound_own_transfer': 'false|true|false',
   'mp_confirm_payout_transfer': 'false|true|false',
-  'mp_classify_payout_outflow': 'false|true|false',
-  'mp_classify_inflow_as_collection': 'false|true|false',
+  'register_casual_purchase': 'false|true|false',
+  'rectify_casual_purchase_classification': 'false|true|false',
   'fin_import_bank_statement': 'false|false|true',
   'fin_match_statement_line': 'false|true|false',
   'fin_resolve_statement_cutover': 'false|true|false',
@@ -115,10 +116,9 @@ const MP_BODY_FINGERPRINT_0078 = 'da5095a42f0bc74cfdb1a071f155447b';
 const AUTO_APPLICABLE_MD5 = 'a571cd9698c8d6ab067a179f807b7c17';
 const RECLASS_BODY_MD5 = 'b1d5ab111e64dda2ee8f705c797cfe6f';
 const GUARD_BODY_MD5 = 'a40b7337f7436cebb6c3e55c15a30831';
-const ACTIVITY_VIEW_MD5 = '4f34c70cc7b4e770a50a191515fb5dec';   // 0088: CLASSIFIED_OUTFLOW + classification columns
-const OUTFLOW_BODY_MD5 = 'b4c8f3164f1ac2b05b51183d1850eb25';
-const INFLOW_BODY_MD5 = '5a2f594c0b386d39bdc29001633322d7';
+const ACTIVITY_VIEW_MD5 = '4ea279fe6866e668164e94df6b632931';   // 0087: confirmed payouts → OWN_TRANSFER
 const CONFIRM_BODY_MD5 = '3a185bfcfc3b97baf408137787f5ab50';
+const ADR019_BODIES = {"fiscal_document_insert":"false:fe337b7e4f3b375ab81378c19624d9c6","mp_payout_outflow_resolve":"false:d16aa41c51ee950b3756ffe4475c6991","rectify_casual_purchase_classification":"true:cbee92e89aeaecc37da6c625f6f6d9ca","rectify_purchase":"true:e87c030f7cead5f33fb7b2e13ffea5a3","register_casual_purchase":"true:25447f5ac4fb4ddf1f3728e79437d954","register_fiscal_document":"true:faf694dfab743e019e9d25872b0a2e2c"};
 const PAYOUT_IDS = ['181533509871', '183527567414', '183984533002'];
 const RECLASS_IDS = ['182961933745', '183094247963', '184118733308'];
 const MP_EXEC_FINGERPRINT_0078 = '8cea14fdbec23b0c69792f7db74319ec';
@@ -158,7 +158,7 @@ const MP_FP = (where) => `SELECT md5(string_agg(p.oid::regprocedure::text || ':'
 const MP_EXEC = (where) => `SELECT md5(string_agg(p.oid::regprocedure::text || ':' || has_function_privilege('anon', p.oid, 'EXECUTE')
                      || has_function_privilege('authenticated', p.oid, 'EXECUTE') || has_function_privilege('service_role', p.oid, 'EXECUTE'), ',' ORDER BY p.oid::regprocedure::text))
                    FROM pg_proc p WHERE pronamespace = 'public'::regnamespace AND ${where}`;
-const PRE_0079 = "proname LIKE 'mp\\_%' AND proname NOT IN ('mp_register_report_backfill', 'mp_reclassify_inbound_own_transfer', 'mp_own_transfer_allocation_guard', 'mp_confirm_payout_transfer', 'mp_classify_payout_outflow', 'mp_classify_inflow_as_collection')";
+const PRE_0079 = "proname LIKE 'mp\\_%' AND proname NOT IN ('mp_register_report_backfill', 'mp_reclassify_inbound_own_transfer', 'mp_own_transfer_allocation_guard', 'mp_confirm_payout_transfer', 'mp_payout_outflow_resolve')";
 
 export function buildSql(repo) {
   const cfg = approvedConfigs(repo);
@@ -281,15 +281,25 @@ export function buildSql(repo) {
                      AND tgfoid = 'fin_evidence_immutable_guard'::regproc),
       'confirm_fn', (SELECT pg_get_function_identity_arguments(oid) || ':' || md5(replace(prosrc, E'\\r', ''))
                       FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'mp_confirm_payout_transfer')),
-  'cls', (SELECT json_object_agg(t, json_build_object(
-      'rls', (SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.' || t)),
-      'policies', (SELECT coalesce(json_agg(policyname || ':' || cmd ORDER BY policyname), '[]') FROM pg_policies WHERE schemaname = 'public' AND tablename = t),
-      'privileges', has_table_privilege('anon', 'public.' || t, 'SELECT,INSERT,UPDATE,DELETE') || ':' || has_table_privilege('authenticated', 'public.' || t, 'SELECT') || ':'
-                    || has_table_privilege('authenticated', 'public.' || t, 'INSERT,UPDATE,DELETE,TRUNCATE') || ':' || has_table_privilege('service_role', 'public.' || t, 'SELECT,INSERT,UPDATE,DELETE'),
-      'immutable', (SELECT count(*) FROM pg_trigger WHERE tgrelid = to_regclass('public.' || t) AND NOT tgisinternal AND tgfoid = 'fin_evidence_immutable_guard'::regproc)))
-     FROM unnest(ARRAY['mp_outflow_classification', 'mp_inflow_classification']) t),
-  'cls_fn', (SELECT json_object_agg(proname, pg_get_function_identity_arguments(oid) || ':' || md5(replace(prosrc, E'\\r', '')))
-              FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('mp_classify_payout_outflow', 'mp_classify_inflow_as_collection'))),
+  'adr019', json_build_object(
+      'bodies', (SELECT json_object_agg(proname, prosecdef || ':' || md5(replace(prosrc, E'\\r', '')) ORDER BY proname)
+                  FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('register_casual_purchase', 'rectify_casual_purchase_classification',
+                    'rectify_purchase', 'register_fiscal_document', 'fiscal_document_insert', 'mp_payout_outflow_resolve')),
+      'helpers_exec', (SELECT string_agg(proname || '=' || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('service_role', oid, 'EXECUTE'), ',' ORDER BY proname)
+                        FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('fiscal_document_insert', 'mp_payout_outflow_resolve')),
+      'purchases', (SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint WHERE conrelid = 'public.purchases'::regclass
+                     AND conname IN ('chk_purchases_counterparty', 'chk_purchases_casual_paid')),
+      'supplier_nullable', (SELECT NOT attnotnull FROM pg_attribute WHERE attrelid = 'public.purchases'::regclass AND attname = 'supplier_id'),
+      'indexes', (SELECT string_agg(indexname, ',' ORDER BY indexname) FROM pg_indexes WHERE schemaname = 'public'
+                   AND indexname IN ('uq_purchases_paid_operation_current', 'idx_fiscal_document_issuer_number')),
+      'fiscal', (SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint WHERE conrelid = 'public.fiscal_document'::regclass
+                  AND conname IN ('chk_fiscal_counterparty', 'chk_fiscal_issuer')),
+      'op_type', (SELECT 'PURCHASE_PAYMENT' = ANY (enum_range(NULL::financial_operation_type)::text[])),
+      'moc', json_build_object('rls', (SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.mp_outflow_classification')),
+               'policies', (SELECT coalesce(json_agg(policyname || ':' || cmd ORDER BY policyname), '[]') FROM pg_policies WHERE schemaname = 'public' AND tablename = 'mp_outflow_classification'),
+               'privileges', has_table_privilege('anon', 'public.mp_outflow_classification', 'SELECT,INSERT,UPDATE,DELETE') || ':' || has_table_privilege('authenticated', 'public.mp_outflow_classification', 'SELECT') || ':'
+                    || has_table_privilege('authenticated', 'public.mp_outflow_classification', 'INSERT,UPDATE,DELETE,TRUNCATE') || ':' || has_table_privilege('service_role', 'public.mp_outflow_classification', 'SELECT,INSERT,UPDATE,DELETE'),
+               'immutable', (SELECT count(*) FROM pg_trigger WHERE tgrelid = to_regclass('public.mp_outflow_classification') AND NOT tgisinternal AND tgfoid = 'fin_evidence_immutable_guard'::regproc)))),
   'mp_v4', (SELECT mp_v4_verified()),
   'mp_boundary', (SELECT count(*) FROM mp_cutover_boundary),
   'cron', (SELECT coalesce(json_agg(jobname || '|' || schedule || '|' || active ORDER BY jobname), '[]') FROM cron.job),
@@ -312,7 +322,8 @@ export function buildSql(repo) {
       'destination_rows', (SELECT count(*) FROM fin_mp_payout_destination),
       'reclass_rows', (SELECT count(*) FROM mp_inbound_reclassification),
       'payout_confirmations', (SELECT string_agg(source_id || ':' || amount, ',' ORDER BY source_id) FROM mp_payout_transfer_confirmation),
-      'classifications', (SELECT count(*) FROM mp_outflow_classification) || ':' || (SELECT count(*) FROM mp_inflow_classification),
+      'casual', (SELECT count(*) FROM purchases WHERE supplier_id IS NULL) || ':' || (SELECT count(*) FROM mp_outflow_classification) || ':'
+                || (SELECT count(*) FROM fiscal_document WHERE issuer_tax_id IS NOT NULL),
       'payouts_unapplied', (SELECT string_agg(split_part(t.resource_id, ':', 1) || ':' || m.net_amount || ':' || (SELECT count(*) FROM mp_reconciliation r WHERE r.mp_financial_movement_id = m.id), ',' ORDER BY t.resource_id)
                              FROM mp_transition_identity t JOIN mp_financial_movement m ON m.id = t.mp_financial_movement_id
                             WHERE t.resource_type = 'report' AND t.transition = 'PAYOUT'
@@ -360,8 +371,8 @@ export function evaluate(s, { repo, expectedLedger, deploymentCheck }) {
   check(`H the ${MP_PRE_0079} pre-0079 Mercado Pago functions = POST_0078 except mp_is_auto_applicable (0086); EXECUTE matrix unchanged; 0087 / 0088 change none`,
     s.mp_pre_count === MP_PRE_0079 && s.mp_pre_body_fp === MP_BODY_FINGERPRINT_0078 && s.mp_pre_exec_fp === MP_EXEC_FINGERPRINT_0078,
     `count=${s.mp_pre_count} body=${s.mp_pre_body_fp} exec=${s.mp_pre_exec_fp}`);
-  check('H new mp_* functions: mp_register_report_backfill (0079), mp_reclassify_inbound_own_transfer + mp_own_transfer_allocation_guard (0086), mp_confirm_payout_transfer (0087), mp_classify_payout_outflow + mp_classify_inflow_as_collection (0088)',
-    JSON.stringify(s.mp_new) === JSON.stringify([CONFIRM, GUARD, RECLASS, BACKFILL, OUTFLOW, INFLOW].sort()) && s.backfill_body === BACKFILL_BODY_MD5, `${s.mp_new.join(' ')} ${s.backfill_body}`);
+  check('H new mp_* functions: mp_register_report_backfill (0079), mp_reclassify_inbound_own_transfer + mp_own_transfer_allocation_guard (0086), mp_confirm_payout_transfer (0087), mp_payout_outflow_resolve (0088, INVOKER)',
+    JSON.stringify(s.mp_new) === JSON.stringify([CONFIRM, GUARD, RECLASS, BACKFILL, RESOLVE].sort()) && s.backfill_body === BACKFILL_BODY_MD5, `${s.mp_new.join(' ')} ${s.backfill_body}`);
   check('H mp_register_delivery still refuses report_backfill; mp_v4_verified() false; one MP cutover boundary',
     s.register_refuses_backfill === true && s.mp_v4 === false && s.mp_boundary === 1, `refuses=${s.register_refuses_backfill} v4=${s.mp_v4} boundary=${s.mp_boundary}`);
   check('I exactly three cron jobs: mp_release_report_daily (0,15,30,45 10 * * *) + mp_release_report_daily_fallback (0 11,14 * * *) + mp_worker_every_minute, all active, owner postgres@postgres',
@@ -400,27 +411,29 @@ export function evaluate(s, { repo, expectedLedger, deploymentCheck }) {
   check('P mp_inbound_reclassification: RLS, ADMIN SELECT policy only, SELECT for authenticated, no write for any API role, immutable; allocation guard trigger present',
     m.rls === true && JSON.stringify(m.policies) === JSON.stringify(['mp_inbound_reclassification_admin_select:SELECT']) && m.privileges === 'false:true:false:false'
       && m.immutable === 1 && m.alloc_guard === 1, JSON.stringify(m));
-  check('P bodies: reclassification RPC, INVOKER guard (no EXECUTE for authenticated), mp_is_auto_applicable as in 0086; activity view as in 0088',
+  check('P bodies: reclassification RPC, INVOKER guard (no EXECUTE for authenticated), mp_is_auto_applicable as in 0086; activity view as in 0087',
     m.reclass_body === RECLASS_BODY_MD5 && m.guard_fn === `false:false:${GUARD_BODY_MD5}` && m.auto_body === AUTO_APPLICABLE_MD5 && m.view === ACTIVITY_VIEW_MD5, JSON.stringify(m));
   const c = s.mir?.ptc ?? {};   // nested in mir: the root json_build_object is at its 100-argument limit
   check('Q mp_payout_transfer_confirmation: RLS, ADMIN SELECT policy only, SELECT for authenticated, no write for any API role, immutable',
     c.rls === true && JSON.stringify(c.policies) === JSON.stringify(['mp_payout_transfer_confirmation_admin_select:SELECT']) && c.privileges === 'false:true:false:false'
       && c.immutable === 1, JSON.stringify(c));
   check('Q mp_confirm_payout_transfer: the SOURCE_ID is its only parameter; body as in 0087', c.confirm_fn === `p_source_id text:${CONFIRM_BODY_MD5}`, String(c.confirm_fn));
-  const k = s.mir?.cls ?? {}; const kf = s.mir?.cls_fn ?? {};
-  check('R mp_outflow_classification / mp_inflow_classification: RLS, ADMIN SELECT policy only, SELECT for authenticated, no write for any API role, immutable',
-    ['mp_outflow_classification', 'mp_inflow_classification'].every((t) => k[t] && k[t].rls === true && JSON.stringify(k[t].policies) === JSON.stringify([`${t}_admin_select:SELECT`])
-      && k[t].privileges === 'false:true:false:false' && k[t].immutable === 1), JSON.stringify(k));
-  check('R classification RPCs: identifier parameters only; bodies as in 0088',
-    kf.mp_classify_payout_outflow === `p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_concept text, p_reason text:${OUTFLOW_BODY_MD5}`
-      && kf.mp_classify_inflow_as_collection === `p_payment_id text, p_client_id uuid:${INFLOW_BODY_MD5}`, JSON.stringify(kf));
+  const z = s.mir?.adr019 ?? {};
+  check('S ADR-019 model: supplier_id nullable, casual CHECKs, one current purchase per payment, issuer form of fiscal documents, PURCHASE_PAYMENT',
+    z.supplier_nullable === true && z.purchases === 'chk_purchases_casual_paid,chk_purchases_counterparty' && z.fiscal === 'chk_fiscal_counterparty,chk_fiscal_issuer'
+      && z.indexes === 'idx_fiscal_document_issuer_number,uq_purchases_paid_operation_current' && z.op_type === true, JSON.stringify(z));
+  check('S ADR-019 bodies as in 0088 (casual RPCs DEFINER; RPC 14 / RPC 34 redefined; helpers INVOKER, no API EXECUTE)',
+    JSON.stringify(z.bodies) === JSON.stringify(ADR019_BODIES) && z.helpers_exec === 'fiscal_document_insert=falsefalse,mp_payout_outflow_resolve=falsefalse', JSON.stringify(z));
+  check('S mp_outflow_classification: RLS, ADMIN SELECT policy only, SELECT for authenticated, no write for any API role, immutable',
+    z.moc && z.moc.rls === true && JSON.stringify(z.moc.policies) === JSON.stringify(['mp_outflow_classification_admin_select:SELECT'])
+      && z.moc.privileges === 'false:true:false:false' && z.moc.immutable === 1, JSON.stringify(z.moc));
   check('O scheduler log accepts PENDING (task required, no run, reason MP_TASK_PREPARING); FAILED / PENDING carry a reason; success carries a run — constraints as in 0085',
     s.schedule_checks === SCHEDULE_CHECKS_MD5, String(s.schedule_checks));
   if (deploymentCheck) {
     const e = s.evidence;
-    check('DEPLOYMENT CHECK: the 3 BNA → MP reclassifications in place (settlement + reversal + transfer); 05/10 + 10/10 confirmed as transfers to BNA (owner, 15/10); 13/10 → no own account, unapplied and unclassified; no classification yet; MP config 16 columns; one mp/ object per MP file',
+    check('DEPLOYMENT CHECK: the 3 BNA → MP reclassifications in place (settlement + reversal + transfer); 05/10 + 10/10 confirmed as transfers to BNA; 13/10 → no own account, unapplied; no casual purchase / MP classification / issuer document yet; MP config 16 columns; one mp/ object per MP file',
       e.reclass_rows === 3 && e.targets_applied === RECLASS_IDS.map((id) => `${id}:MP_SETTLEMENT+MP_SETTLEMENT+TRANSFER`).join(',')
-        && e.payout_confirmations === '181533509871:1000000.00,183527567414:2200000.00' && e.classifications === '0:0'
+        && e.payout_confirmations === '181533509871:1000000.00,183527567414:2200000.00' && e.casual === '0:0:0'
         && e.payouts_unapplied === '181533509871:-1000000.00:1,183527567414:-2200000.00:1,183984533002:-759702.86:0'
         && e.corpus === '181533509871:BNA,183527567414:BNA,183984533002:NO_OWN_ACCOUNT_MATCH' && e.latest_config_columns === 16
         && e.mp_objects === e.mp_files,

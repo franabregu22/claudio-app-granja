@@ -83,6 +83,9 @@ CREATE UNIQUE INDEX idx_fiscal_document_issuer_number ON fiscal_document(issuer_
 - `purchases`: a casual purchase MAY link a fiscal document whose `supplier_id IS NULL` (issuer form); a supplier purchase keeps linking documents of its own supplier. Consistency check in the RPCs: `purchase.supplier_id IS NOT DISTINCT FROM document.supplier_id`.
 - `register_casual_purchase` accepts an optional fiscal payload (type, date, period, number, components, issuer CUIT / name) and calls RPC 34 in the same transaction, exactly as `register_purchase_with_fiscal_document` does for suppliers. The document's components feed `report_fiscal_period` unchanged → **IVA crédito of a casual purchase is computed**.
 - A ticket / receipt without a computable IVA credit is evidence only: an attachment (ADR-010), not a `fiscal_document`.
+- **Implementation note (0088):** RPC 34 keeps its exact signature (no DEFINER identity change). Its body delegates to the
+  internal helper `fiscal_document_insert` (INVOKER, owner-only), which also accepts the issuer CUIT / name; the issuer form
+  is reached through `register_casual_purchase` (`p_fiscal`). Extending RPC 34's own parameters remains possible later.
 - Not changed: DEBITO documents, components, obligations, payments, the fiscal report.
 
 ## 4. Backward compatibility
