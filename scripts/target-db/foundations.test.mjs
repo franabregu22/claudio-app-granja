@@ -185,6 +185,7 @@ const LATER_PHASE_TABLES = [
   'mp_inbound_reclassification',                                                                // 0086 inbound own-account transfers
   'mp_payout_transfer_confirmation',                                                            // 0087 payout → own account confirmed transfers
   'mp_outflow_classification',                                                                  // 0088 MP outflow classification (ADR-019 gateway)
+  'mp_inflow_classification',                                                                   // 0089 MP inflow classification
 ];
 const foundationFound = tableList.filter((t) => expectedTables.includes(t));
 check(`17 Foundation tables exist (found ${foundationFound.length})`, foundationFound.length === 17, foundationFound.join(','));

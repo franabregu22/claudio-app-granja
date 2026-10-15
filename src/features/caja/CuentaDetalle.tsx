@@ -199,14 +199,15 @@ function DestinoRetiro({ r, matches }: { r: MpActivityRow; matches: ReadonlyMap<
 }
 
 const SELECT_CLS = 'text-xs border border-[#E4DCC8] rounded px-1 py-0.5 bg-white';
+const SIN_PROVEEDOR = 'SIN_PROVEEDOR';
 const ACCION_CLS = 'text-xs px-2 py-0.5 rounded border border-amber-300 bg-white text-amber-900 hover:bg-amber-50 disabled:opacity-50';
 
 /**
- * 0088 — "Clasificar salida" for a payout to a third party (NO_OWN_ACCOUNT_MATCH): one "Compra / gasto" or a partner
- * withdrawal (owner CR 15/10). Only identifiers and the concept are sent: amount, date and the Mercado Pago account are
- * resolved by the server. With a supplier that already has a debt, the user may apply the payment to that debt (no new
- * purchase). A purchase without a registered supplier is not representable in the current model (purchases.supplier_id
- * is NOT NULL): the option is shown disabled until the owner decides. Own-account payouts keep their own confirmation.
+ * 0089 — "Clasificar salida" for a payout to a third party (NO_OWN_ACCOUNT_MATCH): one "Compra / gasto" or a partner
+ * withdrawal. Only identifiers, the concept and the optional counterparty name are sent: amount, date and the Mercado Pago
+ * account are resolved by the server. A registered supplier: purchase + payment, or the payment of its existing debt.
+ * "Sin proveedor registrado" (ADR-019): a casual purchase — no supplier, no supplier debt, optional "Comercio / nombre".
+ * Own-account payouts keep their own confirmation.
  */
 function ClasificarSalida({ sourceId }: { sourceId: string }) {
   const [abierto, setAbierto] = useState(false);
@@ -216,6 +217,7 @@ function ClasificarSalida({ sourceId }: { sourceId: string }) {
   const [concepto, setConcepto] = useState('');
   const [naturaleza, setNaturaleza] = useState<'OPERATING' | 'REINVESTMENT' | 'INVESTMENT'>('OPERATING');
   const [aDeuda, setADeuda] = useState(false);
+  const [comercio, setComercio] = useState('');
   const proveedores = useSuppliers();
   const categorias = useExpenseCategories();
   const saldos = useLedgerBalances('SUPPLIER');
@@ -223,12 +225,14 @@ function ClasificarSalida({ sourceId }: { sourceId: string }) {
   if (!abierto) {
     return <button type="button" className={`ml-2 ${ACCION_CLS}`} onClick={() => setAbierto(true)}>Clasificar salida</button>;
   }
-  const deuda = (saldos.data ?? []).find((x) => x.entity_id === proveedor)?.balance ?? 0;
+  const sinProveedor = proveedor === SIN_PROVEEDOR;
+  const deuda = sinProveedor ? 0 : (saldos.data ?? []).find((x) => x.entity_id === proveedor)?.balance ?? 0;
   const pagoDeuda = tipo === 'PURCHASE' && aDeuda && deuda > 0;
   const listo = tipo === 'OWNER_WITHDRAWAL' || (proveedor !== '' && (pagoDeuda || (categoria !== '' && concepto.trim() !== '')));
   const confirmar = () => outflow.mutate(tipo === 'OWNER_WITHDRAWAL' ? { sourceId, classification: 'OWNER_WITHDRAWAL' }
     : pagoDeuda ? { sourceId, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor }
-      : { sourceId, classification: 'EXPENSE', supplierId: proveedor, expenseCategoryId: categoria, nature: naturaleza, concept: concepto.trim() });
+      : sinProveedor ? { sourceId, classification: 'CASUAL_PURCHASE', expenseCategoryId: categoria, nature: naturaleza, concept: concepto.trim(), counterpartyName: comercio.trim() || null }
+        : { sourceId, classification: 'EXPENSE', supplierId: proveedor, expenseCategoryId: categoria, nature: naturaleza, concept: concepto.trim() });
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="Clasificar salida">
       <select aria-label="Tipo de salida" className={SELECT_CLS} value={tipo} onChange={(e) => setTipo(e.target.value as MpOutflowChoice)}>
@@ -239,8 +243,12 @@ function ClasificarSalida({ sourceId }: { sourceId: string }) {
           <select aria-label="Proveedor" className={SELECT_CLS} value={proveedor} onChange={(e) => { setProveedor(e.target.value); setADeuda(false); }}>
             <option value="">Proveedor…</option>
             {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-            <option value="SIN_PROVEEDOR" disabled>Sin proveedor registrado (pendiente de definición)</option>
+            <option value={SIN_PROVEEDOR}>Sin proveedor registrado</option>
           </select>
+          {sinProveedor && (
+            <input aria-label="Comercio / nombre (opcional)" className={SELECT_CLS} placeholder="Comercio / nombre (opcional)" maxLength={120}
+              value={comercio} onChange={(e) => setComercio(e.target.value)} />
+          )}
           {deuda > 0 && (
             <label className="text-xs flex items-center gap-1">
               <input type="checkbox" checked={aDeuda} onChange={(e) => setADeuda(e.target.checked)} />
@@ -265,9 +273,6 @@ function ClasificarSalida({ sourceId }: { sourceId: string }) {
         {outflow.isPending ? 'Confirmando...' : 'Confirmar'}
       </button>
       <button type="button" className="text-xs text-[#8A7A5C] underline" onClick={() => setAbierto(false)}>Cancelar</button>
-      {tipo === 'PURCHASE' && proveedores.data && proveedores.data.length === 0 && (
-        <p className="w-full text-[11px] text-amber-900">No hay proveedores activos: crealo primero en Admin → Proveedores.</p>
-      )}
       {outflow.error && <p className="w-full text-[11px] text-red-700">{errorMessage(outflow.error)}</p>}
     </div>
   );

@@ -13,7 +13,7 @@ export type MpCoverageStatus =
   | 'CLASSIFIED_OUTFLOW';                 // 0088: a payout to a third party classified (supplier payment / expense / owner withdrawal)
 
 /** 0088: how a payout to a third party was classified. */
-export type MpOutflowClassification = 'SUPPLIER_PAYMENT' | 'EXPENSE' | 'OWNER_WITHDRAWAL';
+export type MpOutflowClassification = 'SUPPLIER_PAYMENT' | 'EXPENSE' | 'CASUAL_PURCHASE' | 'OWNER_WITHDRAWAL';
 
 export interface MpActivityRow {
   run_id: string; row_number: number; occurred_at: string | null; business_date: string; description: string | null;
@@ -50,7 +50,7 @@ export type MpOutflowChoice = 'PURCHASE' | 'OWNER_WITHDRAWAL';
 export const MP_OUTFLOW_CHOICE_LABEL: Record<MpOutflowChoice, string> = { PURCHASE: 'Compra / gasto', OWNER_WITHDRAWAL: 'Retiro de socios' };
 /** Server classification shown to the user: a purchase and a payment of an existing supplier debt are both "Compra / gasto". */
 export const MP_OUTFLOW_LABEL: Record<MpOutflowClassification, string> = {
-  SUPPLIER_PAYMENT: 'Compra / gasto', EXPENSE: 'Compra / gasto', OWNER_WITHDRAWAL: 'Retiro de socios',
+  SUPPLIER_PAYMENT: 'Compra / gasto', EXPENSE: 'Compra / gasto', CASUAL_PURCHASE: 'Compra / gasto', OWNER_WITHDRAWAL: 'Retiro de socios',
 };
 
 /**
@@ -162,13 +162,18 @@ export interface MpOutflowInput {
   sourceId: string; classification: MpOutflowClassification;
   supplierId?: string | null; expenseCategoryId?: string | null; nature?: 'OPERATING' | 'REINVESTMENT' | 'INVESTMENT' | null;
   concept?: string | null;
+  /** ADR-019: optional free name of the counterparty of a purchase without a registered supplier */
+  counterpartyName?: string | null;
 }
 export async function classifyMpOutflow(client: SupabaseClient, i: MpOutflowInput): Promise<{ replayed: boolean; financial_operation_id: number; amount: number }> {
+  const purchase = i.classification === 'EXPENSE' || i.classification === 'CASUAL_PURCHASE';
   return callRpc(client, 'mp_classify_payout_outflow', {
-    p_source_id: i.sourceId, p_classification: i.classification, p_supplier_id: i.classification === 'OWNER_WITHDRAWAL' ? null : i.supplierId ?? null,
-    p_expense_category_id: i.classification === 'EXPENSE' ? i.expenseCategoryId ?? null : null,
-    p_nature: i.classification === 'EXPENSE' ? i.nature ?? null : null,
-    p_concept: i.classification === 'EXPENSE' ? i.concept?.trim() || null : null, p_reason: null });
+    p_source_id: i.sourceId, p_classification: i.classification,
+    p_supplier_id: i.classification === 'EXPENSE' || i.classification === 'SUPPLIER_PAYMENT' ? i.supplierId ?? null : null,
+    p_expense_category_id: purchase ? i.expenseCategoryId ?? null : null,
+    p_nature: purchase ? i.nature ?? null : null,
+    p_concept: purchase ? i.concept?.trim() || null : null,
+    p_counterparty_name: i.classification === 'CASUAL_PURCHASE' ? i.counterpartyName?.trim() || null : null, p_reason: null });
 }
 
 /** 0088 — an account_fund + DEBIN inflow (CLASSIFY_INFLOW) is a client receipt: the server applies it; the client is optional. */

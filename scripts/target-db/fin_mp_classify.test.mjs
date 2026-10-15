@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * META A — CLASSIFY MP OUTFLOWS AND INFLOWS (migration 0088). LOCAL TEST DATABASE ONLY.
+ * META A — CLASSIFY MP OUTFLOWS AND INFLOWS (migration 0089, on top of ADR-019 / 0088). LOCAL TEST DATABASE ONLY.
  *
  * OUTFLOWS (real pipeline: NORMAL ingestion → payout movements → destinations → 0084 match): a NO_OWN_ACCOUNT_MATCH payout
- * classified as SUPPLIER_PAYMENT (pay_supplier), EXPENSE (register_purchase + pay_supplier) or OWNER_WITHDRAWAL
+ * classified as SUPPLIER_PAYMENT (pay_supplier), EXPENSE (register_purchase + pay_supplier), CASUAL_PURCHASE (ADR-019:
+ * register_casual_purchase, no supplier, the 13/10 case) or OWNER_WITHDRAWAL
  * (register_management_event RETIRO), resolved server-side from the SOURCE_ID; own / conflict / unknown destination and an
  * unknown id refused; replay writes nothing; another choice refused; MP down once; P&L per type.
  * INFLOWS (real pipeline: delivery → snapshot → RPC 40): account_fund + debin_transfer is not auto-applied; classified as a
@@ -59,7 +60,7 @@ const mv = (t, sid, desc, credit, debit, gross, tax, bal, method = 'available_mo
   BALANCE_AMOUNT: bal, PAYMENT_METHOD_TYPE: type });
 const CTL = { ...EMPTY, DATE: `${DAY}T00:00:00.000-03:00`, NET_CREDIT_AMOUNT: '10000.00', NET_DEBIT_AMOUNT: '0.00',
   GROSS_AMOUNT: '10000.00', MP_FEE_AMOUNT: '0.00', TAXES_AMOUNT: '0.00', BALANCE_AMOUNT: '10000.00' };
-const TOT = { ...EMPTY, NET_CREDIT_AMOUNT: '0.00', NET_DEBIT_AMOUNT: '0.00', GROSS_AMOUNT: '-2759.86', MP_FEE_AMOUNT: '0.00',
+const TOT = { ...EMPTY, NET_CREDIT_AMOUNT: '0.00', NET_DEBIT_AMOUNT: '0.00', GROSS_AMOUNT: '-762462.72', MP_FEE_AMOUNT: '0.00',
   TAXES_AMOUNT: '0.00', BALANCE_AMOUNT: '0.00' };
 const rowsOf = (raws) => raws.map((raw_row, i) => ({ row_number: i + 1, raw_row }));
 
@@ -74,7 +75,7 @@ const as = (role, uid, call, key = null) => `pg_temp.run_as(${lit(role)}, ${lit(
 const NORMAL = (o, key) => as('service_role', null, captureCall({ ...o, fn: 'fin_ingest_mp_release_report' }), key);
 
 const FIN_TABLES = ['financial_operation', 'financial_posting', 'mp_reconciliation', 'mp_financial_movement', 'mp_transition_identity',
-  'mp_source_record', 'fin_mp_payout_destination', 'fin_import_run_line', 'mp_client_allocation', 'fin_statement_line', 'fin_statement_match', 'purchases', 'management_event'];
+  'mp_source_record', 'fin_mp_payout_destination', 'fin_import_run_line', 'mp_client_allocation', 'fin_statement_line', 'fin_statement_match', 'purchases', 'management_event', 'suppliers'];
 const counts = () => FIN_TABLES.map((t) => `SELECT ${lit(t)} AS t, count(*) AS n FROM ${t}`).join(' UNION ALL ');
 const delta = (snap) => `(SELECT string_agg(c.t || '=' || (c.n - b.n), ',' ORDER BY c.t) FROM (${counts()}) c JOIN ${snap} b ON b.t = c.t WHERE c.n <> b.n)`;
 const BAL = (acc) => `(SELECT coalesce(sum(p.signed_amount), 0) FROM financial_posting p JOIN financial_account a ON a.id = p.financial_account_id WHERE a.nombre = '${acc}')`;
@@ -133,9 +134,10 @@ INSERT INTO clients (id, nombre) VALUES ('${CLI}', 'Cliente META A 0088');`);
 // ── OUTFLOWS: one payout day ────────────────────────────────────────────────
 // Q1 third party → supplier payment · Q2 third party → expense · Q3 third party → owner withdrawal
 // Q4 → BNA (own) · Q5 conflicting destinations · Q6 no destination
-const PAYOUTS = ['880000000001', '880000000002', '880000000003', '880000000004', '880000000005', '880000000006'];
-const [Q1, Q2, Q3, Q4, Q5, Q6] = PAYOUTS;
-const AMT = ['759.86', '300.00', '500.00', '1000.00', '100.00', '100.00'];
+// Q7 mirrors the real 13/10 payout (third party, 759,702.86) → casual purchase
+const PAYOUTS = ['880000000001', '880000000002', '880000000003', '880000000004', '880000000005', '880000000006', '880000000007'];
+const [Q1, Q2, Q3, Q4, Q5, Q6, Q7] = PAYOUTS;
+const AMT = ['759.86', '300.00', '500.00', '1000.00', '100.00', '100.00', '759702.86'];
 const PDAY = [CTL, ...PAYOUTS.map((sid, i) => mv(`1${i}:00:00`, sid, 'payout', '0.00', AMT[i], `-${AMT[i]}`, '0.00', '0.00', 'available_money', '')), TOT];
 const rowOf = (sid) => PDAY.findIndex((r) => r.SOURCE_ID === sid) + 1;
 const CBU = (bank) => `(SELECT c.expected_cbu::text FROM fin_statement_account_config c JOIN financial_account a ON a.id = c.financial_account_id WHERE a.nombre = '${bank}' AND c.activo)`;
@@ -143,8 +145,8 @@ const EXTERNAL = `'2850590940090418135201'`;
 const OTHER = `'2850590940090418135299'`;
 const record = (key, items) => as('service_role', null,
   `SELECT fin_record_mp_payout_destinations(${P(RES(key))}::uuid, jsonb_build_array(${items.map(([sid, v]) => `jsonb_build_object('row_number', ${rowOf(sid)}, 'value', ${v})`).join(', ')}))::text`);
-const OUT = (sid, cls, sup = null, cat = null, nature = null, role = 'authenticated', uid = ADMIN, concept = cat ? 'Repuestos bomba de agua' : null) =>
-  as(role, uid, `SELECT mp_classify_payout_outflow(${lit(sid)}, ${lit(cls)}, ${sup ? `'${sup}'::uuid` : 'NULL'}, ${cat ? `'${cat}'::uuid` : 'NULL'}, ${nature ? `'${nature}'::purchase_nature` : 'NULL'}, ${lit(concept)}, NULL)::text`);
+const OUT = (sid, cls, sup = null, cat = null, nature = null, role = 'authenticated', uid = ADMIN, concept = cat ? 'Repuestos bomba de agua' : null, name = null) =>
+  as(role, uid, `SELECT mp_classify_payout_outflow(${lit(sid)}, ${lit(cls)}, ${sup ? `'${sup}'::uuid` : 'NULL'}, ${cat ? `'${cat}'::uuid` : 'NULL'}, ${nature ? `'${nature}'::purchase_nature` : 'NULL'}, ${lit(concept)}, ${lit(name)}, NULL)::text`);
 const PMOV = (sid) => `(SELECT m.id FROM mp_transition_identity t JOIN mp_financial_movement m ON m.id = t.mp_financial_movement_id
   WHERE t.resource_type = 'report' AND t.resource_id = '${sid}:payout:D' AND t.transition = 'PAYOUT')`;
 const OPOF = (sid) => `(SELECT financial_operation_id FROM mp_outflow_classification WHERE source_id = '${sid}')`;
@@ -155,7 +157,7 @@ const PNLAS = (bucket) => as('authenticated', ADMIN, `SELECT coalesce(sum(signed
 
 expect('A-1 NORMAL run of the payout day → PARSED', NORMAL({ sha: sha('payout-day'), actor: null, rows: rowsOf(PDAY) }, 'R'), 'OK:%"status": "PARSED"%');
 expect('A-2 VALIDATION capture of the same day (other bytes)', as('service_role', null, captureCall({ sha: sha('payout-day-validation'), rows: rowsOf(PDAY) }), 'V'), 'OK:%"status": "VALIDATED"%');
-expect('A-3 destinations: Q1–Q3 third party, Q4 BNA, Q5 third party', record('R', [[Q1, EXTERNAL], [Q2, EXTERNAL], [Q3, EXTERNAL], [Q4, CBU('BNA')], [Q5, EXTERNAL]]), 'OK:5');
+expect('A-3 destinations: Q1–Q3 third party, Q4 BNA, Q5 third party, Q7 third party', record('R', [[Q1, EXTERNAL], [Q2, EXTERNAL], [Q3, EXTERNAL], [Q4, CBU('BNA')], [Q5, EXTERNAL], [Q7, EXTERNAL]]), 'OK:6');
 expect('A-4 Q5 reported elsewhere by the VALIDATION run (conflict)', record('V', [[Q5, OTHER]]), 'OK:1');
 add(`CREATE TEMP TABLE c0 AS ${counts()};
 CREATE TEMP TABLE b0 AS SELECT ${BAL('Mercado Pago')} AS mp, ${BAL('BNA')} AS bna, ${SUPBAL} AS sup;`);
@@ -190,6 +192,30 @@ expect('D-2 operation OWNER_WITHDRAWAL MGMT:MP-OUTFLOW:<id>, MP −500; manageme
   `(${OPDESC(Q3)} || '|' || (SELECT me.event_type || ':' || me.amount || ':' || (me.financial_account_id = ${MPACC}) FROM management_event me WHERE me.id = (SELECT management_event_id FROM mp_outflow_classification WHERE source_id = '${Q3}')))`,
   `OWNER_WITHDRAWAL:MGMT:MP-OUTFLOW:${Q3}:${DAY}:Mercado Pago -500.00|RETIRO:500.00:true`);
 
+// K. casual purchase without a registered supplier (ADR-019) — the 13/10 case
+const CAS = (o = {}) => OUT(Q7, 'CASUAL_PURCHASE', null, CAT, null, 'authenticated', ADMIN, o.concept ?? 'Repuestos bomba de agua', o.name === undefined ? '  Ferretería X  ' : o.name);
+expect('K-1 Q7 → Compra / gasto, Sin proveedor registrado (category, concept, nature default OPERATING, counterparty): amount from the server',
+  CAS(), 'OK:%"amount": 759702.86%"replayed": false%"classification": "CASUAL_PURCHASE"%');
+expect('K-2 purchase: no supplier, counterparty trimmed, concept as subcategory, OPERATING, total 759,702.86, payout date, current',
+  `(SELECT (p.supplier_id IS NULL) || ':' || p.counterparty_name || ':' || p.subcategory || ':' || p.nature || ':' || p.amount_total || ':' || p.economic_date || ':' || p.is_current
+     FROM purchases p WHERE p.id = (SELECT purchase_id FROM mp_outflow_classification WHERE source_id = '${Q7}'))`, `true:Ferretería X:Repuestos bomba de agua:OPERATING:759702.86:${DAY}:true`);
+expect('K-3 payment: PURCHASE_PAYMENT MP-OUTFLOW:<id>, MP −759,702.86 only; the movement reconciled once',
+  `(${OPDESC(Q7)} || '|' || (SELECT string_agg(assigned_amount::text, ',') FROM mp_reconciliation WHERE mp_financial_movement_id = ${PMOV(Q7)}))`,
+  `PURCHASE_PAYMENT:MP-OUTFLOW:${Q7}:${DAY}:Mercado Pago -759702.86|-759702.86`);
+expect('K-4 no supplier ledger row and no supplier created for the casual purchase',
+  `((SELECT count(*) FROM supplier_ledger WHERE source_entity_id IN ((SELECT purchase_id::text FROM mp_outflow_classification WHERE source_id = '${Q7}'), ${OPOF(Q7)}::text))
+     || ':' || (SELECT count(*) FROM suppliers WHERE id <> '${SUP}' AND nombre ILIKE '%Ferretería%'))`, '0:0');
+add(`CREATE TEMP TABLE c7 AS ${counts()};`);
+expect('K-5 exact replay from the MP activity → replayed, nothing written', `(${CAS()} LIKE 'OK:%"replayed": true%' AND coalesce(${delta('c7')}, 'none') = 'none')::text`, 'true');
+expect('K-6 exact replay from Compras (register_casual_purchase, another key, same data) → replayed, nothing written',
+  `(${as('authenticated', ADMIN, `SELECT register_casual_purchase('${DAY}'::date, 759702.86, 759702.86, '${CAT}'::uuid, 'Repuestos bomba de agua', 'OPERATING',
+     ${P(MPACC)}::uuid, 'MERCADOPAGO', 'COMPRAS-K6', 'Ferretería X', '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, '${Q7}', NULL)::text`)} LIKE 'OK:%"replayed": true%'
+     AND coalesce(${delta('c7')}, 'none') = 'none')::text`, 'true');
+expect('K-7 a conflicting second classification of the same SOURCE_ID is refused (activity: other concept / withdrawal; Compras: other concept)',
+  `(${CAS({ concept: 'Otra cosa' })} || '|' || ${OUT(Q7, 'OWNER_WITHDRAWAL')} || '|' || ${as('authenticated', ADMIN, `SELECT register_casual_purchase('${DAY}'::date, 759702.86, 759702.86, '${CAT}'::uuid, 'Otra cosa', 'OPERATING',
+     ${P(MPACC)}::uuid, 'MERCADOPAGO', 'COMPRAS-K7', NULL, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, '${Q7}', NULL)::text`)})`,
+  'ERR:ALREADY_CLASSIFIED%|ERR:ALREADY_CLASSIFIED%|ERR:ALREADY_CLASSIFIED%');
+
 // E. refusals
 expect('E-1 Q4 (own account, OWN_ACCOUNT_EXACT) → use the transfer flow', OUT(Q4, 'SUPPLIER_PAYMENT', SUP), 'ERR:OWN_ACCOUNT_PAYOUT%');
 expect('E-2 Q5 DESTINATION_CONFLICT → refused', OUT(Q5, 'OWNER_WITHDRAWAL'), 'ERR:DESTINATION_REVIEW_REQUIRED%DESTINATION_CONFLICT%');
@@ -197,10 +223,13 @@ expect('E-3 Q6 no stored destination → refused', OUT(Q6, 'OWNER_WITHDRAWAL'), 
 expect('E-4 unknown SOURCE_ID → refused', OUT('889999999999', 'OWNER_WITHDRAWAL'), 'ERR:PAYOUT_NOT_FOUND%');
 expect('E-5 malformed SOURCE_ID / unknown classification / "OTHER" not offered',
   `(${OUT('1 OR 1=1', 'OWNER_WITHDRAWAL')} || '|' || ${OUT(Q5, 'OTHER')} || '|' || ${OUT(Q5, 'TRANSFER')})`, 'ERR:INVALID_SOURCE_ID%|ERR:INVALID_CLASSIFICATION%|ERR:INVALID_CLASSIFICATION%');
-expect('E-6 refused: payment without supplier / purchase without category / withdrawal with a supplier / purchase without concept / purchase without supplier (frozen model: purchases.supplier_id NOT NULL) / concept on a debt payment',
+expect('E-6 refused: payment without supplier / purchase without category / withdrawal with a supplier / purchase without concept / EXPENSE without supplier (casual is CASUAL_PURCHASE) / concept on a debt payment',
   `(${OUT(Q6, 'SUPPLIER_PAYMENT')} || '|' || ${OUT(Q6, 'EXPENSE', SUP)} || '|' || ${OUT(Q6, 'OWNER_WITHDRAWAL', SUP)} || '|' || ${OUT(Q6, 'EXPENSE', SUP, CAT, null, 'authenticated', ADMIN, '  ')}
     || '|' || ${OUT(Q6, 'EXPENSE', null, CAT)} || '|' || ${OUT(Q6, 'SUPPLIER_PAYMENT', SUP, null, null, 'authenticated', ADMIN, 'x')})`,
   'ERR:%SUPPLIER_REQUIRED%|ERR:%CATEGORY_REQUIRED%|ERR:%SUPPLIER_NOT_ALLOWED%|ERR:%CONCEPT_REQUIRED%|ERR:%SUPPLIER_REQUIRED%|ERR:%CATEGORY_NOT_ALLOWED%');
+expect('E-6b casual purchase with a supplier / without category; a counterparty name on a supplier purchase → refused',
+  `(${OUT(Q6, 'CASUAL_PURCHASE', SUP, CAT)} || '|' || ${OUT(Q6, 'CASUAL_PURCHASE', null, null, null, 'authenticated', ADMIN, 'x')} || '|' || ${OUT(Q6, 'EXPENSE', SUP, CAT, null, 'authenticated', ADMIN, 'x', 'Ferretería')})`,
+  'ERR:%SUPPLIER_NOT_ALLOWED%|ERR:%CATEGORY_REQUIRED%|ERR:%COUNTERPARTY_NOT_ALLOWED%');
 expect('E-7 a payout confirmed as an own transfer cannot be classified (already applied)',
   `(${as('authenticated', ADMIN, `SELECT mp_confirm_payout_transfer('${Q4}')::text`)} LIKE 'OK:%' AND ${OUT(Q4, 'OWNER_WITHDRAWAL')} LIKE 'ERR:PAYOUT_ALREADY_APPLIED%')::text`, 'true');
 expect('E-8 OPERATOR → FORBIDDEN; anon / service_role → no EXECUTE',
@@ -208,22 +237,23 @@ expect('E-8 OPERATOR → FORBIDDEN; anon / service_role → no EXECUTE',
   'ERR:FORBIDDEN%|ERR:permission denied%|ERR:permission denied%');
 expect('E-9 no amount / account / date parameter exists (single overload)',
   `(SELECT string_agg(pg_get_function_identity_arguments(oid), ',') FROM pg_proc WHERE proname = 'mp_classify_payout_outflow')`,
-  'p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_concept text, p_reason text');
+  'p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_concept text, p_counterparty_name text, p_reason text');
 
-// F. economy of the outflows (Q1 + Q2 + Q3 + Q4 transfer)
-expect('F-1 MP −(759.86 + 300 + 500 + 1000) once each; BNA +1000 (Q4 transfer); supplier net −759.86',
-  `((SELECT ${BAL('Mercado Pago')} - mp FROM b0) || '|' || (SELECT ${BAL('BNA')} - bna FROM b0) || '|' || (SELECT ${SUPBAL} - sup FROM b0))`, '-2559.86|1000.00|-759.86');
-expect('F-2 P&L: supplier payment and transfer neutral; expense −300 COSTOS_INDIRECTOS; withdrawal −500 RETIROS',
+// F. economy of the outflows (Q1 + Q2 + Q3 + Q4 transfer + Q7 casual)
+expect('F-1 MP −(759.86 + 300 + 500 + 1000 + 759,702.86) once each; BNA +1000 (Q4 transfer); supplier net −759.86 (the casual purchase adds nothing)',
+  `((SELECT ${BAL('Mercado Pago')} - mp FROM b0) || '|' || (SELECT ${BAL('BNA')} - bna FROM b0) || '|' || (SELECT ${SUPBAL} - sup FROM b0))`, '-762262.72|1000.00|-759.86');
+expect('F-2 P&L: supplier payment and transfer neutral; expense −300 and casual purchase −759,702.86 COSTOS_INDIRECTOS (from purchases); withdrawal −500 RETIROS',
   `(((${PNLAS('COSTOS_INDIRECTOS')}) || '|' || (${PNLAS('RETIROS')})) || ' vs ' || (SELECT ind || '|' || ret FROM p0))`,
-  'OK:-300.00|OK:-500.00 vs OK:0|OK:0');
-expect('F-3 Δ: 4 operations (2 supplier payments, 1 withdrawal, 1 transfer), 5 postings, 4 reconciliations, 1 purchase, 1 management event; no new movement / source / evidence',
-  delta('c0'), 'financial_operation=4,financial_posting=5,management_event=1,mp_reconciliation=4,purchases=1');
+  'OK:-760002.86|OK:-500.00 vs OK:0|OK:0');
+expect('F-3 Δ: 5 operations (2 supplier payments, 1 withdrawal, 1 transfer, 1 purchase payment), 6 postings, 5 reconciliations, 2 purchases, 1 management event; no new movement / source / evidence',
+  delta('c0'), 'financial_operation=5,financial_posting=6,management_event=1,mp_reconciliation=5,purchases=2');
 expect('F-4 no duplicate postings', `(SELECT count(*)::text FROM (SELECT financial_operation_id, financial_account_id, signed_amount FROM financial_posting GROUP BY 1, 2, 3 HAVING count(*) > 1) x)`, '0');
 const ACT = as('authenticated', ADMIN, `SELECT string_agg(source_id || ':' || coverage_status || ':' || coalesce(classification, '-') || ':' || coalesce(classification_detail, '-') || ':' || (financial_operation_id IS NOT NULL), ',' ORDER BY source_id)
   FROM fin_mp_report_activity WHERE run_id = ${P(RES('R'))}::uuid AND description = 'payout'`);
-expect('F-5 activity: Q1 supplier payment, Q2 expense (category · supplier), Q3 withdrawal, Q4 own transfer, Q5/Q6 still PAYOUT',
+expect('F-5 activity: Q1 debt payment, Q2 purchase (concept · category · supplier), Q3 withdrawal, Q4 own transfer, Q5/Q6 still PAYOUT, Q7 casual (concept · category · counterparty)',
   ACT, `OK:${Q1}:CLASSIFIED_OUTFLOW:SUPPLIER_PAYMENT:Proveedor META A 0088:true,${Q2}:CLASSIFIED_OUTFLOW:EXPENSE:Repuestos bomba de agua · Categoría META A 0088 · Proveedor META A 0088:true,`
-  + `${Q3}:CLASSIFIED_OUTFLOW:OWNER_WITHDRAWAL:-:true,${Q4}:OWN_TRANSFER:-:-:true,${Q5}:PAYOUT:-:-:false,${Q6}:PAYOUT:-:-:false`);
+  + `${Q3}:CLASSIFIED_OUTFLOW:OWNER_WITHDRAWAL:-:true,${Q4}:OWN_TRANSFER:-:-:true,${Q5}:PAYOUT:-:-:false,${Q6}:PAYOUT:-:-:false,`
+  + `${Q7}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:Repuestos bomba de agua · Categoría META A 0088 · Ferretería X:true`);
 expect('F-6 classification rows immutable; ADMIN cannot write them directly',
   `(pg_temp.err_of('UPDATE mp_outflow_classification SET amount = 1') LIKE 'ERR:%' AND ${as('authenticated', ADMIN, `DELETE FROM mp_outflow_classification RETURNING 'x'`)} LIKE 'ERR:permission denied%')::text`, 'true');
 
@@ -295,7 +325,7 @@ expect('Z-2 tables: RLS, one ADMIN SELECT policy each, SELECT only for authentic
       || ':' || (SELECT count(*) FROM pg_trigger WHERE tgrelid = t::regclass AND NOT tgisinternal), ',' ORDER BY t)
      FROM unnest(ARRAY['mp_inflow_classification', 'mp_outflow_classification']) t)`,
   'mp_inflow_classification=true:mp_inflow_classification_admin_select:SELECT:truefalsefalse:1,mp_outflow_classification=true:mp_outflow_classification_admin_select:SELECT:truefalsefalse:1');
-expect('Z-3 SECURITY DEFINER set = 83 (81 + the two classification RPCs)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '83');
+expect('Z-3 SECURITY DEFINER set = 85 (83 after ADR-019 + the two classification RPCs)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '85');
 expect('Z-4 cron jobs unchanged; mp_v4_verified() false',
   `((SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job) || '|' || mp_v4_verified()::text)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute|false');
 
@@ -323,5 +353,5 @@ if (r.status !== 0) {
   fail += 1;
   console.log(`    MAL  psql aborted: ${(lines.find((l) => /ERROR/.test(l)) || r.stderr || '').slice(0, 300)}`);
 }
-console.log(`\n  ══ META A 0088 MP CLASSIFICATION RESULT: ${pass} passed, ${fail} failed ══\n`);
+console.log(`\n  ══ META A 0089 MP CLASSIFICATION RESULT: ${pass} passed, ${fail} failed ══\n`);
 process.exit(fail === 0 ? 0 : 1);

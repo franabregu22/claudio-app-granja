@@ -263,12 +263,16 @@ describe('MP activity — classification (0088)', () => {
     const c = rpcClient(seen);
     await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'SUPPLIER_PAYMENT', supplierId: 'sup-1', expenseCategoryId: 'cat-ignored', nature: 'OPERATING', concept: 'ignored' });
     await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'EXPENSE', supplierId: 'sup-1', expenseCategoryId: 'cat-1', nature: 'REINVESTMENT', concept: '  Repuestos  ' });
-    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'OWNER_WITHDRAWAL', supplierId: 'sup-ignored' });
-    expect(seen.map((x) => x.url.pathname)).toEqual(Array(3).fill('/rest/v1/rpc/mp_classify_payout_outflow'));
+    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'OWNER_WITHDRAWAL', supplierId: 'sup-ignored', counterpartyName: 'ignored' });
+    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'CASUAL_PURCHASE', supplierId: 'sup-ignored', expenseCategoryId: 'cat-1', nature: 'OPERATING', concept: ' Repuestos ', counterpartyName: '  Ferretería  ' });
+    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'CASUAL_PURCHASE', expenseCategoryId: 'cat-1', nature: 'OPERATING', concept: 'Repuestos', counterpartyName: '   ' });
+    expect(seen.map((x) => x.url.pathname)).toEqual(Array(5).fill('/rest/v1/rpc/mp_classify_payout_outflow'));
     expect(seen.map((x) => JSON.parse(x.body))).toEqual([
-      { p_source_id: '183984533002', p_classification: 'SUPPLIER_PAYMENT', p_supplier_id: 'sup-1', p_expense_category_id: null, p_nature: null, p_concept: null, p_reason: null },
-      { p_source_id: '183984533002', p_classification: 'EXPENSE', p_supplier_id: 'sup-1', p_expense_category_id: 'cat-1', p_nature: 'REINVESTMENT', p_concept: 'Repuestos', p_reason: null },
-      { p_source_id: '183984533002', p_classification: 'OWNER_WITHDRAWAL', p_supplier_id: null, p_expense_category_id: null, p_nature: null, p_concept: null, p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'SUPPLIER_PAYMENT', p_supplier_id: 'sup-1', p_expense_category_id: null, p_nature: null, p_concept: null, p_counterparty_name: null, p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'EXPENSE', p_supplier_id: 'sup-1', p_expense_category_id: 'cat-1', p_nature: 'REINVESTMENT', p_concept: 'Repuestos', p_counterparty_name: null, p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'OWNER_WITHDRAWAL', p_supplier_id: null, p_expense_category_id: null, p_nature: null, p_concept: null, p_counterparty_name: null, p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'CASUAL_PURCHASE', p_supplier_id: null, p_expense_category_id: 'cat-1', p_nature: 'OPERATING', p_concept: 'Repuestos', p_counterparty_name: 'Ferretería', p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'CASUAL_PURCHASE', p_supplier_id: null, p_expense_category_id: 'cat-1', p_nature: 'OPERATING', p_concept: 'Repuestos', p_counterparty_name: null, p_reason: null },
     ]);
     for (const x of seen) expect(x.body).not.toMatch(/amount|account|date/);
   });
@@ -291,10 +295,12 @@ describe('MP activity — classification (0088)', () => {
     expect(s).toMatch(/\{m\.canClassify && r\.source_id && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
     expect(s).toMatch(/\{r\.coverage_status === 'CLASSIFY_INFLOW' && r\.source_id && <ClasificarIngreso paymentId=\{r\.source_id\} \/>\}/);
     expect(Object.values(MP_OUTFLOW_CHOICE_LABEL)).toEqual(['Compra / gasto', 'Retiro de socios']);
-    expect(Object.values(MP_OUTFLOW_LABEL)).toEqual(['Compra / gasto', 'Compra / gasto', 'Retiro de socios']);
+    expect(Object.values(MP_OUTFLOW_LABEL)).toEqual(['Compra / gasto', 'Compra / gasto', 'Compra / gasto', 'Retiro de socios']);
     const salida = s.slice(s.indexOf('function ClasificarSalida'), s.indexOf('type TipoIngreso'));
     expect(salida).not.toMatch(/Transferencia a cuenta propia<\/option>|Otra salida|>Pago a proveedor<|>Gasto</);
-    expect(salida).toMatch(/<option value="SIN_PROVEEDOR" disabled>Sin proveedor registrado/);   // not representable yet (purchases.supplier_id NOT NULL)
+    expect(salida).toMatch(/<option value=\{SIN_PROVEEDOR\}>Sin proveedor registrado<\/option>/);   // ADR-019 casual purchase
+    expect(salida).toMatch(/sinProveedor \? \{ sourceId, classification: 'CASUAL_PURCHASE'/);
+    expect(salida).toMatch(/aria-label="Comercio \/ nombre \(opcional\)"/);
     expect(salida).toMatch(/aria-label="Concepto"/);
     expect(salida).toMatch(/\{deuda > 0 && \(/);   // "apply to the existing debt" only when the supplier owes
     const ingreso = s.slice(s.indexOf('function ClasificarIngreso'));
@@ -302,5 +308,20 @@ describe('MP activity — classification (0088)', () => {
     expect(ingreso).not.toMatch(/Otro ingreso<\/option>/);
     const lib = SRC('target/mpActivity.ts');
     expect(s.slice(s.indexOf('function ClasificarSalida')) + lib.slice(lib.indexOf('export interface MpOutflowInput'))).not.toMatch(/p_amount|p_financial_account_id|p_effective_date|p_signed/);
+  });
+});
+
+// ── ADR-019 (0089): casual purchase from the MP activity ──────────────────────────────────────────────────────────────
+describe('MP activity — casual purchase (ADR-019, 0089)', () => {
+  it('a classified casual purchase reads "Compra / gasto: concepto · categoría [· comercio]"', () => {
+    const r = (classification_detail: string) => ({ description: 'payout', source_id: '183984533002', net_amount: -759702.86,
+      coverage_status: 'CLASSIFIED_OUTFLOW' as MpCoverageStatus, counterpart_account_name: null, classification: 'CASUAL_PURCHASE' as const, classification_detail });
+    expect(mpStatusLabel(r('Repuestos · Mantenimiento'))).toBe('Compra / gasto: Repuestos · Mantenimiento');
+    expect(mpStatusLabel(r('Repuestos · Mantenimiento · Ferretería'))).toBe('Compra / gasto: Repuestos · Mantenimiento · Ferretería');
+  });
+  it('the purchase list shows the counterparty or "Sin proveedor registrado" when there is no supplier', () => {
+    const t = SRC('target/treasury.ts');
+    expect(t).toMatch(/supplier_nombre: suppliers\?\.nombre \?\? p\.counterparty_name \?\? 'Sin proveedor registrado'/);
+    expect(t).toMatch(/supplier_id: string \| null; supplier_nombre: string; counterparty_name: string \| null;/);
   });
 });
