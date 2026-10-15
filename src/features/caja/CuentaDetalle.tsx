@@ -3,12 +3,12 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { isMercadoPagoAccount, isVisibleActivity, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, MP_OUTFLOW_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowClassification, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
-import { useConfirmPayoutTransfer, useMpActivity, useMpPayoutMatches } from './useMpActivity';
+import { useClassifyMp, useConfirmPayoutTransfer, useMpActivity, useMpPayoutMatches, useOwnBankAccounts } from './useMpActivity';
 import { useBankHistory } from './useReconciliation';
-import { useAccountPostings } from './useTreasury';
+import { useAccountPostings, useClients, useExpenseCategories, useSuppliers } from './useTreasury';
 
 type Pestana = 'erp' | 'banco' | 'mp';
 
@@ -20,7 +20,7 @@ const MP_ESTILO: Record<MpCoverageStatus, string> = {
   CONTROL: 'bg-stone-100 text-stone-600', PRE_CUTOVER: 'bg-blue-100 text-blue-800', RESERVE: 'bg-stone-100 text-stone-600',
   COVERED: 'bg-green-100 text-green-800', BACKFILL_PROCESSED: 'bg-green-100 text-green-800', BACKFILL_PENDING: 'bg-amber-100 text-amber-900',
   EXCEPTION: 'bg-red-100 text-red-800', YIELD: 'bg-teal-100 text-teal-800', PAYOUT: 'bg-purple-100 text-purple-800', OUTBOUND: 'bg-stone-200 text-stone-700',
-  OWN_TRANSFER: 'bg-sky-100 text-sky-900', CLASSIFY_INFLOW: 'bg-amber-100 text-amber-900',
+  OWN_TRANSFER: 'bg-sky-100 text-sky-900', CLASSIFY_INFLOW: 'bg-amber-100 text-amber-900', CLASSIFIED_OUTFLOW: 'bg-stone-200 text-stone-800',
 };
 
 /**
@@ -160,6 +160,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
                 <td className="px-3 py-2 whitespace-nowrap">
                   <span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{mpStatusLabel(r)}</span>
                   <DestinoRetiro r={r} matches={matches} />
+                  {r.coverage_status === 'CLASSIFY_INFLOW' && r.source_id && <ClasificarIngreso paymentId={r.source_id} />}
                 </td>
               </tr>
             ))}
@@ -192,6 +193,111 @@ function DestinoRetiro({ r, matches }: { r: MpActivityRow; matches: ReadonlyMap<
         </button>
       )}
       {confirmar.error && <p className="text-[11px] text-red-700 mt-0.5">{errorMessage(confirmar.error)}</p>}
+      {m.canClassify && r.source_id && <ClasificarSalida sourceId={r.source_id} />}
+    </div>
+  );
+}
+
+const SELECT_CLS = 'text-xs border border-[#E4DCC8] rounded px-1 py-0.5 bg-white';
+const ACCION_CLS = 'text-xs px-2 py-0.5 rounded border border-amber-300 bg-white text-amber-900 hover:bg-amber-50 disabled:opacity-50';
+
+/**
+ * 0088 — "Clasificar salida" for a payout to a third party (NO_OWN_ACCOUNT_MATCH). Only identifiers are sent (SOURCE_ID,
+ * choice, supplier / category / nature): amount, date and the Mercado Pago account are resolved by the server.
+ * "Transferencia a cuenta propia" is not offered here: own-account payouts use their own confirmation.
+ */
+function ClasificarSalida({ sourceId }: { sourceId: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const [tipo, setTipo] = useState<MpOutflowClassification>('SUPPLIER_PAYMENT');
+  const [proveedor, setProveedor] = useState('');
+  const [categoria, setCategoria] = useState('');
+  const [naturaleza, setNaturaleza] = useState<'OPERATING' | 'REINVESTMENT' | 'INVESTMENT'>('OPERATING');
+  const proveedores = useSuppliers();
+  const categorias = useExpenseCategories();
+  const { outflow } = useClassifyMp();
+  if (!abierto) {
+    return <button type="button" className={`ml-2 ${ACCION_CLS}`} onClick={() => setAbierto(true)}>Clasificar salida</button>;
+  }
+  const conProveedor = tipo !== 'OWNER_WITHDRAWAL';
+  const listo = !conProveedor || (proveedor !== '' && (tipo !== 'EXPENSE' || categoria !== ''));
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="Clasificar salida">
+      <select aria-label="Tipo de salida" className={SELECT_CLS} value={tipo} onChange={(e) => setTipo(e.target.value as MpOutflowClassification)}>
+        {(Object.keys(MP_OUTFLOW_LABEL) as MpOutflowClassification[]).map((k) => <option key={k} value={k}>{MP_OUTFLOW_LABEL[k]}</option>)}
+      </select>
+      {conProveedor && (
+        <select aria-label="Proveedor" className={SELECT_CLS} value={proveedor} onChange={(e) => setProveedor(e.target.value)}>
+          <option value="">Proveedor…</option>
+          {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+      )}
+      {tipo === 'EXPENSE' && (
+        <>
+          <select aria-label="Categoría de gasto" className={SELECT_CLS} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+            <option value="">Categoría…</option>
+            {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <select aria-label="Naturaleza" className={SELECT_CLS} value={naturaleza} onChange={(e) => setNaturaleza(e.target.value as typeof naturaleza)}>
+            <option value="OPERATING">Operativo</option><option value="REINVESTMENT">Reinversión</option><option value="INVESTMENT">Inversión</option>
+          </select>
+        </>
+      )}
+      <button type="button" className={ACCION_CLS} disabled={!listo || outflow.isPending}
+        onClick={() => outflow.mutate({ sourceId, classification: tipo, supplierId: conProveedor ? proveedor : null,
+          expenseCategoryId: tipo === 'EXPENSE' ? categoria : null, nature: tipo === 'EXPENSE' ? naturaleza : null })}>
+        {outflow.isPending ? 'Confirmando...' : 'Confirmar'}
+      </button>
+      <button type="button" className="text-xs text-[#8A7A5C] underline" onClick={() => setAbierto(false)}>Cancelar</button>
+      {conProveedor && proveedores.data && proveedores.data.length === 0 && (
+        <p className="w-full text-[11px] text-amber-900">No hay proveedores activos: crealo primero en Admin → Proveedores.</p>
+      )}
+      {outflow.error && <p className="w-full text-[11px] text-red-700">{errorMessage(outflow.error)}</p>}
+    </div>
+  );
+}
+
+type TipoIngreso = 'OWN_TRANSFER' | 'COLLECTION';
+
+/**
+ * 0088 — "Clasificar ingreso" for an account_fund + DEBIN inflow (CLASSIFY_INFLOW): money from an own account (one
+ * TRANSFER, 0086) or a client receipt (applied server-side; the client is optional). "Otro ingreso" is not offered yet.
+ */
+function ClasificarIngreso({ paymentId }: { paymentId: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const [tipo, setTipo] = useState<TipoIngreso>('OWN_TRANSFER');
+  const [cuenta, setCuenta] = useState('');
+  const [cliente, setCliente] = useState('');
+  const cuentas = useOwnBankAccounts();
+  const clientes = useClients();
+  const { collection, ownTransfer } = useClassifyMp();
+  const pendiente = collection.isPending || ownTransfer.isPending;
+  const error = collection.error ?? ownTransfer.error;
+  if (!abierto) {
+    return <button type="button" className={`ml-2 ${ACCION_CLS}`} onClick={() => setAbierto(true)}>Clasificar ingreso</button>;
+  }
+  const listo = tipo === 'COLLECTION' || cuenta !== '';
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="Clasificar ingreso">
+      <select aria-label="Tipo de ingreso" className={SELECT_CLS} value={tipo} onChange={(e) => setTipo(e.target.value as TipoIngreso)}>
+        <option value="OWN_TRANSFER">Transferencia desde cuenta propia</option><option value="COLLECTION">Cobro de cliente</option>
+      </select>
+      {tipo === 'OWN_TRANSFER' ? (
+        <select aria-label="Cuenta propia de origen" className={SELECT_CLS} value={cuenta} onChange={(e) => setCuenta(e.target.value)}>
+          <option value="">Cuenta…</option>
+          {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+        </select>
+      ) : (
+        <select aria-label="Cliente" className={SELECT_CLS} value={cliente} onChange={(e) => setCliente(e.target.value)}>
+          <option value="">Sin cliente</option>
+          {(clientes.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
+      )}
+      <button type="button" className={ACCION_CLS} disabled={!listo || pendiente}
+        onClick={() => (tipo === 'OWN_TRANSFER' ? ownTransfer.mutate({ paymentId, fromAccountId: cuenta }) : collection.mutate({ paymentId, clientId: cliente || null }))}>
+        {pendiente ? 'Confirmando...' : 'Confirmar'}
+      </button>
+      <button type="button" className="text-xs text-[#8A7A5C] underline" onClick={() => setAbierto(false)}>Cancelar</button>
+      {error && <p className="w-full text-[11px] text-red-700">{errorMessage(error)}</p>}
     </div>
   );
 }

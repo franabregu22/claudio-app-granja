@@ -9,7 +9,11 @@ import { callRpc, readView } from './db';
 
 export type MpCoverageStatus =
   | 'CONTROL' | 'PRE_CUTOVER' | 'RESERVE' | 'COVERED' | 'BACKFILL_PROCESSED' | 'BACKFILL_PENDING' | 'EXCEPTION' | 'YIELD' | 'PAYOUT' | 'OUTBOUND'
-  | 'OWN_TRANSFER' | 'CLASSIFY_INFLOW';   // 0086: inflow from an own account (reclassified) / account_fund + DEBIN awaiting classification
+  | 'OWN_TRANSFER' | 'CLASSIFY_INFLOW'    // 0086: inflow from an own account (reclassified) / account_fund + DEBIN awaiting classification
+  | 'CLASSIFIED_OUTFLOW';                 // 0088: a payout to a third party classified (supplier payment / expense / owner withdrawal)
+
+/** 0088: how a payout to a third party was classified. */
+export type MpOutflowClassification = 'SUPPLIER_PAYMENT' | 'EXPENSE' | 'OWNER_WITHDRAWAL';
 
 export interface MpActivityRow {
   run_id: string; row_number: number; occurred_at: string | null; business_date: string; description: string | null;
@@ -17,9 +21,11 @@ export interface MpActivityRow {
   payment_method_type: string | null; coverage_status: MpCoverageStatus; financial_operation_id: number | null;
   /** 0086: the own account an inflow came from (OWN_TRANSFER), else null */
   counterpart_account_name?: string | null;
+  /** 0088: the classification of a payout to a third party, and its supplier (or "category · supplier" for an expense) */
+  classification?: MpOutflowClassification | null; classification_detail?: string | null;
 }
 const COLUMNS = 'run_id, row_number, occurred_at, business_date, description, source_id, net_amount, gross_amount, payment_method, '
-  + 'payment_method_type, coverage_status, financial_operation_id, counterpart_account_name';
+  + 'payment_method_type, coverage_status, financial_operation_id, counterpart_account_name, classification, classification_detail';
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
 /** Readable coverage status (Caja → Saldos → Mercado Pago → Actividad Mercado Pago). */
@@ -36,13 +42,23 @@ export const MP_STATUS_LABEL: Record<MpCoverageStatus, string> = {
   OUTBOUND: 'Pago saliente (sin efecto)',
   OWN_TRANSFER: 'Transferencia entre cuentas propias',
   CLASSIFY_INFLOW: 'Clasificar ingreso',
+  CLASSIFIED_OUTFLOW: 'Salida clasificada',
+};
+
+export const MP_OUTFLOW_LABEL: Record<MpOutflowClassification, string> = {
+  SUPPLIER_PAYMENT: 'Pago a proveedor', EXPENSE: 'Gasto', OWNER_WITHDRAWAL: 'Retiro de socios',
 };
 
 /**
  * The status text of a row: an own-account inflow names its source account ("Transferencia desde BNA"); a confirmed
  * payout (0087) names its destination ("Transferencia a BNA").
  */
-export function mpStatusLabel(r: Pick<MpActivityRow, 'coverage_status' | 'counterpart_account_name'> & { description?: string | null }): string {
+export function mpStatusLabel(r: Pick<MpActivityRow, 'coverage_status' | 'counterpart_account_name'> & { description?: string | null }
+  & Partial<Pick<MpActivityRow, 'classification' | 'classification_detail'>>): string {
+  if (r.coverage_status === 'CLASSIFIED_OUTFLOW' && r.classification) {
+    const base = MP_OUTFLOW_LABEL[r.classification];
+    return r.classification_detail ? `${base}: ${r.classification_detail}` : base;
+  }
   if (r.coverage_status === 'OWN_TRANSFER' && r.counterpart_account_name) {
     return r.description === 'payout' ? `Transferencia a ${r.counterpart_account_name}` : `Transferencia desde ${r.counterpart_account_name}`;
   }
@@ -53,6 +69,7 @@ export function mpStatusLabel(r: Pick<MpActivityRow, 'coverage_status' | 'counte
 export function mpActivityType(r: Pick<MpActivityRow, 'description' | 'net_amount'> & { coverage_status?: MpCoverageStatus }): string {
   if (r.coverage_status === 'OWN_TRANSFER') return 'Transferencia';   // money from an own account is not a collection
   if (r.coverage_status === 'CLASSIFY_INFLOW') return 'Ingreso';
+  if (r.coverage_status === 'CLASSIFIED_OUTFLOW') return 'Salida';
   switch (r.description) {
     case 'payment': return (r.net_amount ?? 0) < 0 ? 'Pago' : 'Cobro';
     case 'asset_management': return 'Rendimiento';
@@ -107,16 +124,17 @@ export async function listMpPayoutMatches(client: SupabaseClient, accountId: str
  */
 export function payoutMatchLabel(r: Pick<MpActivityRow, 'description' | 'source_id'> & { coverage_status?: MpCoverageStatus },
   matches: ReadonlyMap<string, MpPayoutMatch>):
-  { title: string; detail: string | null; tone: 'own' | 'classify' | 'review'; canConfirm: boolean } | null {
+  { title: string; detail: string | null; tone: 'own' | 'classify' | 'review'; canConfirm: boolean; canClassify: boolean } | null {
   if (r.description !== 'payout' || !r.source_id) return null;
-  if (r.coverage_status === 'OWN_TRANSFER') return { title: 'Confirmada', detail: null, tone: 'own', canConfirm: false };
+  if (r.coverage_status === 'OWN_TRANSFER') return { title: 'Confirmada', detail: null, tone: 'own', canConfirm: false, canClassify: false };
+  if (r.coverage_status === 'CLASSIFIED_OUTFLOW') return null;   // the status itself names the classification
   const m = matches.get(r.source_id);
   if (!m) return null;
   if (m.match_status === 'OWN_ACCOUNT_EXACT' && m.matched_account_name) {
-    return { title: `Transferencia a ${m.matched_account_name} detectada`, detail: 'Coincidencia exacta de cuenta destino', tone: 'own', canConfirm: true };
+    return { title: `Transferencia a ${m.matched_account_name} detectada`, detail: 'Coincidencia exacta de cuenta destino', tone: 'own', canConfirm: true, canClassify: false };
   }
-  if (m.match_status === 'NO_OWN_ACCOUNT_MATCH') return { title: 'Clasificar salida', detail: null, tone: 'classify', canConfirm: false };
-  return { title: 'Revisar destino', detail: 'El reporte informó destinos distintos para este retiro', tone: 'review', canConfirm: false };
+  if (m.match_status === 'NO_OWN_ACCOUNT_MATCH') return { title: 'Clasificar salida', detail: null, tone: 'classify', canConfirm: false, canClassify: true };
+  return { title: 'Revisar destino', detail: 'El reporte informó destinos distintos para este retiro', tone: 'review', canConfirm: false, canClassify: false };
 }
 
 /**
@@ -127,4 +145,30 @@ export function payoutMatchLabel(r: Pick<MpActivityRow, 'description' | 'source_
 export interface MpPayoutConfirmation { confirmation_id: number; replayed: boolean; transfer_operation_id: number; amount: number; destination_account: string }
 export async function confirmMpPayoutTransfer(client: SupabaseClient, sourceId: string): Promise<MpPayoutConfirmation> {
   return callRpc<MpPayoutConfirmation>(client, 'mp_confirm_payout_transfer', { p_source_id: sourceId });
+}
+
+/**
+ * 0088 — classify a payout to a third party (NO_OWN_ACCOUNT_MATCH). Only identifiers are sent: the SOURCE_ID, the choice
+ * and, by choice, the supplier / expense category / nature. The server resolves amount, date and the Mercado Pago account
+ * and writes through the ERP's routes (pay_supplier; register_purchase + pay_supplier; register_management_event RETIRO).
+ */
+export interface MpOutflowInput {
+  sourceId: string; classification: MpOutflowClassification;
+  supplierId?: string | null; expenseCategoryId?: string | null; nature?: 'OPERATING' | 'REINVESTMENT' | 'INVESTMENT' | null;
+}
+export async function classifyMpOutflow(client: SupabaseClient, i: MpOutflowInput): Promise<{ replayed: boolean; financial_operation_id: number; amount: number }> {
+  return callRpc(client, 'mp_classify_payout_outflow', {
+    p_source_id: i.sourceId, p_classification: i.classification, p_supplier_id: i.classification === 'OWNER_WITHDRAWAL' ? null : i.supplierId ?? null,
+    p_expense_category_id: i.classification === 'EXPENSE' ? i.expenseCategoryId ?? null : null,
+    p_nature: i.classification === 'EXPENSE' ? i.nature ?? null : null, p_reason: null });
+}
+
+/** 0088 — an account_fund + DEBIN inflow (CLASSIFY_INFLOW) is a client receipt: the server applies it; the client is optional. */
+export async function classifyMpInflowAsCollection(client: SupabaseClient, paymentId: string, clientId: string | null): Promise<{ replayed: boolean }> {
+  return callRpc(client, 'mp_classify_inflow_as_collection', { p_payment_id: paymentId, p_client_id: clientId });
+}
+
+/** 0086 — an account_fund + DEBIN inflow came from an own account: one TRANSFER own account → Mercado Pago (server-side). */
+export async function classifyMpInflowAsOwnTransfer(client: SupabaseClient, paymentId: string, fromAccountId: string): Promise<{ replayed: boolean }> {
+  return callRpc(client, 'mp_reclassify_inbound_own_transfer', { p_payment_id: paymentId, p_from_account_id: fromAccountId, p_reason: null });
 }

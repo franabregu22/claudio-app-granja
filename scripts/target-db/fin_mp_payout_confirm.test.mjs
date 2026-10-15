@@ -225,7 +225,7 @@ expect('D-10 mp_confirm_payout_transfer: DEFINER, owner postgres, search_path=pu
   `(SELECT prosecdef || ':' || pg_get_userbyid(proowner) || ':' || (proconfig @> ARRAY['search_path=public']) || ':' || has_function_privilege('anon', oid, 'EXECUTE')
       || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'mp_confirm_payout_transfer')`,
   'true:postgres:true:falsetruefalse');
-expect('D-11 SECURITY DEFINER set = 81 (80 + mp_confirm_payout_transfer)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '81');
+expect('D-11 SECURITY DEFINER set = 83 (80 + mp_confirm_payout_transfer)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '83');
 expect('D-12 cron jobs unchanged; mp_v4_verified() false',
   `((SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job) || '|' || mp_v4_verified()::text)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute|false');
 

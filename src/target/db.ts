@@ -84,6 +84,8 @@ export const TARGET_RPCS = [
   'fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover',   // ADR-018 (0075)
   'fin_mp_payout_matches',   // ADR-018 (0084): read-only payout destination proposal (ADMIN)
   'mp_confirm_payout_transfer',   // 0087: confirm an OWN_ACCOUNT_EXACT payout as an internal transfer (ADMIN; SOURCE_ID only)
+  'mp_classify_payout_outflow', 'mp_classify_inflow_as_collection',   // 0088: classify MP outflows / DEBIN inflows (ADMIN)
+  'mp_reclassify_inbound_own_transfer',   // 0086: an inflow from an own account (ADMIN)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 
