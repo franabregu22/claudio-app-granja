@@ -143,8 +143,8 @@ const EXTERNAL = `'2850590940090418135201'`;
 const OTHER = `'2850590940090418135299'`;
 const record = (key, items) => as('service_role', null,
   `SELECT fin_record_mp_payout_destinations(${P(RES(key))}::uuid, jsonb_build_array(${items.map(([sid, v]) => `jsonb_build_object('row_number', ${rowOf(sid)}, 'value', ${v})`).join(', ')}))::text`);
-const OUT = (sid, cls, sup = null, cat = null, nature = null, role = 'authenticated', uid = ADMIN) =>
-  as(role, uid, `SELECT mp_classify_payout_outflow(${lit(sid)}, ${lit(cls)}, ${sup ? `'${sup}'::uuid` : 'NULL'}, ${cat ? `'${cat}'::uuid` : 'NULL'}, ${nature ? `'${nature}'::purchase_nature` : 'NULL'}, NULL)::text`);
+const OUT = (sid, cls, sup = null, cat = null, nature = null, role = 'authenticated', uid = ADMIN, concept = cat ? 'Repuestos bomba de agua' : null) =>
+  as(role, uid, `SELECT mp_classify_payout_outflow(${lit(sid)}, ${lit(cls)}, ${sup ? `'${sup}'::uuid` : 'NULL'}, ${cat ? `'${cat}'::uuid` : 'NULL'}, ${nature ? `'${nature}'::purchase_nature` : 'NULL'}, ${lit(concept)}, NULL)::text`);
 const PMOV = (sid) => `(SELECT m.id FROM mp_transition_identity t JOIN mp_financial_movement m ON m.id = t.mp_financial_movement_id
   WHERE t.resource_type = 'report' AND t.resource_id = '${sid}:payout:D' AND t.transition = 'PAYOUT')`;
 const OPOF = (sid) => `(SELECT financial_operation_id FROM mp_outflow_classification WHERE source_id = '${sid}')`;
@@ -173,12 +173,13 @@ add(`CREATE TEMP TABLE c1 AS ${counts()};`);
 expect('B-5 replay (same choice) → replayed, nothing written', OUT(Q1, 'SUPPLIER_PAYMENT', SUP), 'OK:%"replayed": true%');
 expect('B-6 Δ after the replay = none', `coalesce(${delta('c1')}, 'none')`, 'none');
 expect('B-7 another choice on a classified payout → ALREADY_CLASSIFIED', OUT(Q1, 'OWNER_WITHDRAWAL'), 'ERR:ALREADY_CLASSIFIED%');
+expect('B-8 the expense replays only with the same category and concept', `(${OUT(Q1, 'EXPENSE', SUP, CAT)})`, 'ERR:ALREADY_CLASSIFIED%');
 
 // C. expense (purchase + payment)
 expect('C-1 Q2 → EXPENSE (supplier + category, nature OPERATING default)', OUT(Q2, 'EXPENSE', SUP, CAT), 'OK:%"amount": 300.00%"purchase_id": "%');
-expect('C-2 purchase: supplier, payout date, total 300, category, OPERATING, no attachment, idempotency MP-OUTFLOW-PURCHASE:<id>',
-  `(SELECT pu.economic_date || ':' || pu.amount_total || ':' || (pu.expense_category_id = '${CAT}') || ':' || pu.nature || ':' || pu.idempotency_key || ':' || (SELECT count(*) FROM purchase_attachment a WHERE a.purchase_id = pu.id)
-     FROM purchases pu WHERE pu.id = (SELECT purchase_id FROM mp_outflow_classification WHERE source_id = '${Q2}'))`, `${DAY}:300.00:true:OPERATING:MP-OUTFLOW-PURCHASE:${Q2}:0`);
+expect('C-2 purchase: supplier, payout date, total 300, category, OPERATING, subcategory = the concept, no attachment, idempotency MP-OUTFLOW-PURCHASE:<id>',
+  `(SELECT pu.economic_date || ':' || pu.amount_total || ':' || (pu.expense_category_id = '${CAT}') || ':' || pu.subcategory || ':' || pu.nature || ':' || pu.idempotency_key || ':' || (SELECT count(*) FROM purchase_attachment a WHERE a.purchase_id = pu.id)
+     FROM purchases pu WHERE pu.id = (SELECT purchase_id FROM mp_outflow_classification WHERE source_id = '${Q2}'))`, `${DAY}:300.00:true:Repuestos bomba de agua:OPERATING:MP-OUTFLOW-PURCHASE:${Q2}:0`);
 expect('C-3 payment: SUPPLIER_PAYMENT MP −300', OPDESC(Q2), `SUPPLIER_PAYMENT:MP-OUTFLOW:${Q2}:${DAY}:Mercado Pago -300.00`);
 expect('C-4 supplier ledger for the expense: PURCHASE +300 and PAYMENT −300 (net 0)',
   `(SELECT string_agg(movement_type || ' ' || signed_amount, ',' ORDER BY id) FROM supplier_ledger WHERE supplier_id = '${SUP}' AND id > (SELECT min(id) FROM supplier_ledger WHERE supplier_id = '${SUP}'))`, 'PURCHASE 300.00,PAYMENT -300.00');
@@ -196,8 +197,10 @@ expect('E-3 Q6 no stored destination → refused', OUT(Q6, 'OWNER_WITHDRAWAL'), 
 expect('E-4 unknown SOURCE_ID → refused', OUT('889999999999', 'OWNER_WITHDRAWAL'), 'ERR:PAYOUT_NOT_FOUND%');
 expect('E-5 malformed SOURCE_ID / unknown classification / "OTHER" not offered',
   `(${OUT('1 OR 1=1', 'OWNER_WITHDRAWAL')} || '|' || ${OUT(Q5, 'OTHER')} || '|' || ${OUT(Q5, 'TRANSFER')})`, 'ERR:INVALID_SOURCE_ID%|ERR:INVALID_CLASSIFICATION%|ERR:INVALID_CLASSIFICATION%');
-expect('E-6 supplier payment without supplier / expense without category / withdrawal with a supplier → refused',
-  `(${OUT(Q6, 'SUPPLIER_PAYMENT')} || '|' || ${OUT(Q6, 'EXPENSE', SUP)} || '|' || ${OUT(Q6, 'OWNER_WITHDRAWAL', SUP)})`, 'ERR:%SUPPLIER_REQUIRED%|ERR:%CATEGORY_REQUIRED%|ERR:%SUPPLIER_NOT_ALLOWED%');
+expect('E-6 refused: payment without supplier / purchase without category / withdrawal with a supplier / purchase without concept / purchase without supplier (frozen model: purchases.supplier_id NOT NULL) / concept on a debt payment',
+  `(${OUT(Q6, 'SUPPLIER_PAYMENT')} || '|' || ${OUT(Q6, 'EXPENSE', SUP)} || '|' || ${OUT(Q6, 'OWNER_WITHDRAWAL', SUP)} || '|' || ${OUT(Q6, 'EXPENSE', SUP, CAT, null, 'authenticated', ADMIN, '  ')}
+    || '|' || ${OUT(Q6, 'EXPENSE', null, CAT)} || '|' || ${OUT(Q6, 'SUPPLIER_PAYMENT', SUP, null, null, 'authenticated', ADMIN, 'x')})`,
+  'ERR:%SUPPLIER_REQUIRED%|ERR:%CATEGORY_REQUIRED%|ERR:%SUPPLIER_NOT_ALLOWED%|ERR:%CONCEPT_REQUIRED%|ERR:%SUPPLIER_REQUIRED%|ERR:%CATEGORY_NOT_ALLOWED%');
 expect('E-7 a payout confirmed as an own transfer cannot be classified (already applied)',
   `(${as('authenticated', ADMIN, `SELECT mp_confirm_payout_transfer('${Q4}')::text`)} LIKE 'OK:%' AND ${OUT(Q4, 'OWNER_WITHDRAWAL')} LIKE 'ERR:PAYOUT_ALREADY_APPLIED%')::text`, 'true');
 expect('E-8 OPERATOR → FORBIDDEN; anon / service_role → no EXECUTE',
@@ -205,7 +208,7 @@ expect('E-8 OPERATOR → FORBIDDEN; anon / service_role → no EXECUTE',
   'ERR:FORBIDDEN%|ERR:permission denied%|ERR:permission denied%');
 expect('E-9 no amount / account / date parameter exists (single overload)',
   `(SELECT string_agg(pg_get_function_identity_arguments(oid), ',') FROM pg_proc WHERE proname = 'mp_classify_payout_outflow')`,
-  'p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_reason text');
+  'p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_concept text, p_reason text');
 
 // F. economy of the outflows (Q1 + Q2 + Q3 + Q4 transfer)
 expect('F-1 MP −(759.86 + 300 + 500 + 1000) once each; BNA +1000 (Q4 transfer); supplier net −759.86',
@@ -219,7 +222,7 @@ expect('F-4 no duplicate postings', `(SELECT count(*)::text FROM (SELECT financi
 const ACT = as('authenticated', ADMIN, `SELECT string_agg(source_id || ':' || coverage_status || ':' || coalesce(classification, '-') || ':' || coalesce(classification_detail, '-') || ':' || (financial_operation_id IS NOT NULL), ',' ORDER BY source_id)
   FROM fin_mp_report_activity WHERE run_id = ${P(RES('R'))}::uuid AND description = 'payout'`);
 expect('F-5 activity: Q1 supplier payment, Q2 expense (category · supplier), Q3 withdrawal, Q4 own transfer, Q5/Q6 still PAYOUT',
-  ACT, `OK:${Q1}:CLASSIFIED_OUTFLOW:SUPPLIER_PAYMENT:Proveedor META A 0088:true,${Q2}:CLASSIFIED_OUTFLOW:EXPENSE:Categoría META A 0088 · Proveedor META A 0088:true,`
+  ACT, `OK:${Q1}:CLASSIFIED_OUTFLOW:SUPPLIER_PAYMENT:Proveedor META A 0088:true,${Q2}:CLASSIFIED_OUTFLOW:EXPENSE:Repuestos bomba de agua · Categoría META A 0088 · Proveedor META A 0088:true,`
   + `${Q3}:CLASSIFIED_OUTFLOW:OWNER_WITHDRAWAL:-:true,${Q4}:OWN_TRANSFER:-:-:true,${Q5}:PAYOUT:-:-:false,${Q6}:PAYOUT:-:-:false`);
 expect('F-6 classification rows immutable; ADMIN cannot write them directly',
   `(pg_temp.err_of('UPDATE mp_outflow_classification SET amount = 1') LIKE 'ERR:%' AND ${as('authenticated', ADMIN, `DELETE FROM mp_outflow_classification RETURNING 'x'`)} LIKE 'ERR:permission denied%')::text`, 'true');

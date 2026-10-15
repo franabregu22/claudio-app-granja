@@ -3,12 +3,12 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { isMercadoPagoAccount, isVisibleActivity, MP_OUTFLOW_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowClassification, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, MP_OUTFLOW_CHOICE_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowChoice, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useClassifyMp, useConfirmPayoutTransfer, useMpActivity, useMpPayoutMatches, useOwnBankAccounts } from './useMpActivity';
 import { useBankHistory } from './useReconciliation';
-import { useAccountPostings, useClients, useExpenseCategories, useSuppliers } from './useTreasury';
+import { useAccountPostings, useClients, useExpenseCategories, useLedgerBalances, useSuppliers } from './useTreasury';
 
 type Pestana = 'erp' | 'banco' | 'mp';
 
@@ -202,53 +202,70 @@ const SELECT_CLS = 'text-xs border border-[#E4DCC8] rounded px-1 py-0.5 bg-white
 const ACCION_CLS = 'text-xs px-2 py-0.5 rounded border border-amber-300 bg-white text-amber-900 hover:bg-amber-50 disabled:opacity-50';
 
 /**
- * 0088 — "Clasificar salida" for a payout to a third party (NO_OWN_ACCOUNT_MATCH). Only identifiers are sent (SOURCE_ID,
- * choice, supplier / category / nature): amount, date and the Mercado Pago account are resolved by the server.
- * "Transferencia a cuenta propia" is not offered here: own-account payouts use their own confirmation.
+ * 0088 — "Clasificar salida" for a payout to a third party (NO_OWN_ACCOUNT_MATCH): one "Compra / gasto" or a partner
+ * withdrawal (owner CR 15/10). Only identifiers and the concept are sent: amount, date and the Mercado Pago account are
+ * resolved by the server. With a supplier that already has a debt, the user may apply the payment to that debt (no new
+ * purchase). A purchase without a registered supplier is not representable in the current model (purchases.supplier_id
+ * is NOT NULL): the option is shown disabled until the owner decides. Own-account payouts keep their own confirmation.
  */
 function ClasificarSalida({ sourceId }: { sourceId: string }) {
   const [abierto, setAbierto] = useState(false);
-  const [tipo, setTipo] = useState<MpOutflowClassification>('SUPPLIER_PAYMENT');
+  const [tipo, setTipo] = useState<MpOutflowChoice>('PURCHASE');
   const [proveedor, setProveedor] = useState('');
   const [categoria, setCategoria] = useState('');
+  const [concepto, setConcepto] = useState('');
   const [naturaleza, setNaturaleza] = useState<'OPERATING' | 'REINVESTMENT' | 'INVESTMENT'>('OPERATING');
+  const [aDeuda, setADeuda] = useState(false);
   const proveedores = useSuppliers();
   const categorias = useExpenseCategories();
+  const saldos = useLedgerBalances('SUPPLIER');
   const { outflow } = useClassifyMp();
   if (!abierto) {
     return <button type="button" className={`ml-2 ${ACCION_CLS}`} onClick={() => setAbierto(true)}>Clasificar salida</button>;
   }
-  const conProveedor = tipo !== 'OWNER_WITHDRAWAL';
-  const listo = !conProveedor || (proveedor !== '' && (tipo !== 'EXPENSE' || categoria !== ''));
+  const deuda = (saldos.data ?? []).find((x) => x.entity_id === proveedor)?.balance ?? 0;
+  const pagoDeuda = tipo === 'PURCHASE' && aDeuda && deuda > 0;
+  const listo = tipo === 'OWNER_WITHDRAWAL' || (proveedor !== '' && (pagoDeuda || (categoria !== '' && concepto.trim() !== '')));
+  const confirmar = () => outflow.mutate(tipo === 'OWNER_WITHDRAWAL' ? { sourceId, classification: 'OWNER_WITHDRAWAL' }
+    : pagoDeuda ? { sourceId, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor }
+      : { sourceId, classification: 'EXPENSE', supplierId: proveedor, expenseCategoryId: categoria, nature: naturaleza, concept: concepto.trim() });
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="Clasificar salida">
-      <select aria-label="Tipo de salida" className={SELECT_CLS} value={tipo} onChange={(e) => setTipo(e.target.value as MpOutflowClassification)}>
-        {(Object.keys(MP_OUTFLOW_LABEL) as MpOutflowClassification[]).map((k) => <option key={k} value={k}>{MP_OUTFLOW_LABEL[k]}</option>)}
+      <select aria-label="Tipo de salida" className={SELECT_CLS} value={tipo} onChange={(e) => setTipo(e.target.value as MpOutflowChoice)}>
+        {(Object.keys(MP_OUTFLOW_CHOICE_LABEL) as MpOutflowChoice[]).map((k) => <option key={k} value={k}>{MP_OUTFLOW_CHOICE_LABEL[k]}</option>)}
       </select>
-      {conProveedor && (
-        <select aria-label="Proveedor" className={SELECT_CLS} value={proveedor} onChange={(e) => setProveedor(e.target.value)}>
-          <option value="">Proveedor…</option>
-          {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-        </select>
-      )}
-      {tipo === 'EXPENSE' && (
+      {tipo === 'PURCHASE' && (
         <>
-          <select aria-label="Categoría de gasto" className={SELECT_CLS} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-            <option value="">Categoría…</option>
-            {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          <select aria-label="Proveedor" className={SELECT_CLS} value={proveedor} onChange={(e) => { setProveedor(e.target.value); setADeuda(false); }}>
+            <option value="">Proveedor…</option>
+            {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            <option value="SIN_PROVEEDOR" disabled>Sin proveedor registrado (pendiente de definición)</option>
           </select>
-          <select aria-label="Naturaleza" className={SELECT_CLS} value={naturaleza} onChange={(e) => setNaturaleza(e.target.value as typeof naturaleza)}>
-            <option value="OPERATING">Operativo</option><option value="REINVESTMENT">Reinversión</option><option value="INVESTMENT">Inversión</option>
-          </select>
+          {deuda > 0 && (
+            <label className="text-xs flex items-center gap-1">
+              <input type="checkbox" checked={aDeuda} onChange={(e) => setADeuda(e.target.checked)} />
+              Aplicar a la deuda existente del proveedor ({formatoPesos(deuda)})
+            </label>
+          )}
+          {!pagoDeuda && (
+            <>
+              <select aria-label="Categoría" className={SELECT_CLS} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+                <option value="">Categoría…</option>
+                {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+              <input aria-label="Concepto" className={SELECT_CLS} placeholder="Concepto" maxLength={100} value={concepto} onChange={(e) => setConcepto(e.target.value)} />
+              <select aria-label="Naturaleza" className={SELECT_CLS} value={naturaleza} onChange={(e) => setNaturaleza(e.target.value as typeof naturaleza)}>
+                <option value="OPERATING">Operativo</option><option value="REINVESTMENT">Reinversión</option><option value="INVESTMENT">Inversión</option>
+              </select>
+            </>
+          )}
         </>
       )}
-      <button type="button" className={ACCION_CLS} disabled={!listo || outflow.isPending}
-        onClick={() => outflow.mutate({ sourceId, classification: tipo, supplierId: conProveedor ? proveedor : null,
-          expenseCategoryId: tipo === 'EXPENSE' ? categoria : null, nature: tipo === 'EXPENSE' ? naturaleza : null })}>
+      <button type="button" className={ACCION_CLS} disabled={!listo || outflow.isPending} onClick={confirmar}>
         {outflow.isPending ? 'Confirmando...' : 'Confirmar'}
       </button>
       <button type="button" className="text-xs text-[#8A7A5C] underline" onClick={() => setAbierto(false)}>Cancelar</button>
-      {conProveedor && proveedores.data && proveedores.data.length === 0 && (
+      {tipo === 'PURCHASE' && proveedores.data && proveedores.data.length === 0 && (
         <p className="w-full text-[11px] text-amber-900">No hay proveedores activos: crealo primero en Admin → Proveedores.</p>
       )}
       {outflow.error && <p className="w-full text-[11px] text-red-700">{errorMessage(outflow.error)}</p>}

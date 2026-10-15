@@ -45,8 +45,12 @@ export const MP_STATUS_LABEL: Record<MpCoverageStatus, string> = {
   CLASSIFIED_OUTFLOW: 'Salida clasificada',
 };
 
+/** What the user chooses for a payout to a third party (owner CR 15/10): one "Compra / gasto", or a partner withdrawal. */
+export type MpOutflowChoice = 'PURCHASE' | 'OWNER_WITHDRAWAL';
+export const MP_OUTFLOW_CHOICE_LABEL: Record<MpOutflowChoice, string> = { PURCHASE: 'Compra / gasto', OWNER_WITHDRAWAL: 'Retiro de socios' };
+/** Server classification shown to the user: a purchase and a payment of an existing supplier debt are both "Compra / gasto". */
 export const MP_OUTFLOW_LABEL: Record<MpOutflowClassification, string> = {
-  SUPPLIER_PAYMENT: 'Pago a proveedor', EXPENSE: 'Gasto', OWNER_WITHDRAWAL: 'Retiro de socios',
+  SUPPLIER_PAYMENT: 'Compra / gasto', EXPENSE: 'Compra / gasto', OWNER_WITHDRAWAL: 'Retiro de socios',
 };
 
 /**
@@ -57,7 +61,8 @@ export function mpStatusLabel(r: Pick<MpActivityRow, 'coverage_status' | 'counte
   & Partial<Pick<MpActivityRow, 'classification' | 'classification_detail'>>): string {
   if (r.coverage_status === 'CLASSIFIED_OUTFLOW' && r.classification) {
     const base = MP_OUTFLOW_LABEL[r.classification];
-    return r.classification_detail ? `${base}: ${r.classification_detail}` : base;
+    const detail = r.classification === 'SUPPLIER_PAYMENT' && r.classification_detail ? `${r.classification_detail} (pago de deuda)` : r.classification_detail;
+    return detail ? `${base}: ${detail}` : base;
   }
   if (r.coverage_status === 'OWN_TRANSFER' && r.counterpart_account_name) {
     return r.description === 'payout' ? `Transferencia a ${r.counterpart_account_name}` : `Transferencia desde ${r.counterpart_account_name}`;
@@ -148,19 +153,22 @@ export async function confirmMpPayoutTransfer(client: SupabaseClient, sourceId: 
 }
 
 /**
- * 0088 — classify a payout to a third party (NO_OWN_ACCOUNT_MATCH). Only identifiers are sent: the SOURCE_ID, the choice
- * and, by choice, the supplier / expense category / nature. The server resolves amount, date and the Mercado Pago account
- * and writes through the ERP's routes (pay_supplier; register_purchase + pay_supplier; register_management_event RETIRO).
+ * 0088 — classify a payout to a third party (NO_OWN_ACCOUNT_MATCH). Only identifiers and the concept are sent: the SOURCE_ID,
+ * the classification and, by classification, the supplier / expense category / nature / concept. The server resolves amount,
+ * date and the Mercado Pago account and writes through the ERP's routes ("Compra / gasto": register_purchase + pay_supplier,
+ * or pay_supplier alone for an existing supplier debt; "Retiro de socios": register_management_event RETIRO).
  */
 export interface MpOutflowInput {
   sourceId: string; classification: MpOutflowClassification;
   supplierId?: string | null; expenseCategoryId?: string | null; nature?: 'OPERATING' | 'REINVESTMENT' | 'INVESTMENT' | null;
+  concept?: string | null;
 }
 export async function classifyMpOutflow(client: SupabaseClient, i: MpOutflowInput): Promise<{ replayed: boolean; financial_operation_id: number; amount: number }> {
   return callRpc(client, 'mp_classify_payout_outflow', {
     p_source_id: i.sourceId, p_classification: i.classification, p_supplier_id: i.classification === 'OWNER_WITHDRAWAL' ? null : i.supplierId ?? null,
     p_expense_category_id: i.classification === 'EXPENSE' ? i.expenseCategoryId ?? null : null,
-    p_nature: i.classification === 'EXPENSE' ? i.nature ?? null : null, p_reason: null });
+    p_nature: i.classification === 'EXPENSE' ? i.nature ?? null : null,
+    p_concept: i.classification === 'EXPENSE' ? i.concept?.trim() || null : null, p_reason: null });
 }
 
 /** 0088 — an account_fund + DEBIN inflow (CLASSIFY_INFLOW) is a client receipt: the server applies it; the client is optional. */

@@ -69,7 +69,7 @@ const MATCHES = 'fin_mp_payout_matches(uuid)';
 const RECLASS = 'mp_reclassify_inbound_own_transfer(text,uuid,text)';
 const GUARD = 'mp_own_transfer_allocation_guard()';
 const CONFIRM = 'mp_confirm_payout_transfer(text)';
-const OUTFLOW = 'mp_classify_payout_outflow(text,text,uuid,uuid,purchase_nature,text)';
+const OUTFLOW = 'mp_classify_payout_outflow(text,text,uuid,uuid,purchase_nature,text,text)';
 const INFLOW = 'mp_classify_inflow_as_collection(text,uuid)';
 const ADR018_DEFINERS = [
   CAPTURE, INGEST, BACKFILL, SCHEDULE, DESTINATIONS, MATCHES, RECLASS, CONFIRM, OUTFLOW, INFLOW,
@@ -115,8 +115,8 @@ const MP_BODY_FINGERPRINT_0078 = 'da5095a42f0bc74cfdb1a071f155447b';
 const AUTO_APPLICABLE_MD5 = 'a571cd9698c8d6ab067a179f807b7c17';
 const RECLASS_BODY_MD5 = 'b1d5ab111e64dda2ee8f705c797cfe6f';
 const GUARD_BODY_MD5 = 'a40b7337f7436cebb6c3e55c15a30831';
-const ACTIVITY_VIEW_MD5 = '6905a1258a18a15bcafd14f4bfc22485';   // 0088: CLASSIFIED_OUTFLOW + classification columns
-const OUTFLOW_BODY_MD5 = 'b609cdb36418039e473d59815dbbaae6';
+const ACTIVITY_VIEW_MD5 = '4f34c70cc7b4e770a50a191515fb5dec';   // 0088: CLASSIFIED_OUTFLOW + classification columns
+const OUTFLOW_BODY_MD5 = 'b4c8f3164f1ac2b05b51183d1850eb25';
 const INFLOW_BODY_MD5 = '5a2f594c0b386d39bdc29001633322d7';
 const CONFIRM_BODY_MD5 = '3a185bfcfc3b97baf408137787f5ab50';
 const PAYOUT_IDS = ['181533509871', '183527567414', '183984533002'];
@@ -412,7 +412,7 @@ export function evaluate(s, { repo, expectedLedger, deploymentCheck }) {
     ['mp_outflow_classification', 'mp_inflow_classification'].every((t) => k[t] && k[t].rls === true && JSON.stringify(k[t].policies) === JSON.stringify([`${t}_admin_select:SELECT`])
       && k[t].privileges === 'false:true:false:false' && k[t].immutable === 1), JSON.stringify(k));
   check('R classification RPCs: identifier parameters only; bodies as in 0088',
-    kf.mp_classify_payout_outflow === `p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_reason text:${OUTFLOW_BODY_MD5}`
+    kf.mp_classify_payout_outflow === `p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_concept text, p_reason text:${OUTFLOW_BODY_MD5}`
       && kf.mp_classify_inflow_as_collection === `p_payment_id text, p_client_id uuid:${INFLOW_BODY_MD5}`, JSON.stringify(kf));
   check('O scheduler log accepts PENDING (task required, no run, reason MP_TASK_PREPARING); FAILED / PENDING carry a reason; success carries a run — constraints as in 0085',
     s.schedule_checks === SCHEDULE_CHECKS_MD5, String(s.schedule_checks));

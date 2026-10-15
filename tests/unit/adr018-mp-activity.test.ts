@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import { TARGET_RPCS, TARGET_VIEWS } from '../../src/target/db';
-import { isMercadoPagoAccount, isVisibleActivity, listMpActivity, MP_OUTFLOW_LABEL, listMpPayoutMatches, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel, confirmMpPayoutTransfer, classifyMpOutflow, classifyMpInflowAsCollection, classifyMpInflowAsOwnTransfer } from '../../src/target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, listMpActivity, MP_OUTFLOW_LABEL, MP_OUTFLOW_CHOICE_LABEL, listMpPayoutMatches, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel, confirmMpPayoutTransfer, classifyMpOutflow, classifyMpInflowAsCollection, classifyMpInflowAsOwnTransfer } from '../../src/target/mpActivity';
 
 function harness(rows: unknown[]) {
   const seen: URL[] = [];
@@ -248,27 +248,27 @@ describe('MP activity — classification (0088)', () => {
     expect(payoutMatchLabel({ ...payout('900000000078'), coverage_status: 'PAYOUT' }, map)?.canClassify).toBe(false);
     expect(payoutMatchLabel({ ...payout('999999999999'), coverage_status: 'PAYOUT' }, map)).toBeNull();
   });
-  it('a classified payout shows its classification (no further action): supplier payment, expense, partner withdrawal', () => {
+  it('a classified payout shows its classification (no further action): "Compra / gasto" (purchase or debt payment) or "Retiro de socios"', () => {
     const r = (classification: 'SUPPLIER_PAYMENT' | 'EXPENSE' | 'OWNER_WITHDRAWAL', classification_detail: string | null) =>
       ({ description: 'payout', source_id: '183984533002', net_amount: -759702.86, coverage_status: 'CLASSIFIED_OUTFLOW' as MpCoverageStatus, counterpart_account_name: null, classification, classification_detail });
-    expect(mpStatusLabel(r('SUPPLIER_PAYMENT', 'Proveedor X'))).toBe('Pago a proveedor: Proveedor X');
-    expect(mpStatusLabel(r('EXPENSE', 'Mantenimiento · Proveedor X'))).toBe('Gasto: Mantenimiento · Proveedor X');
+    expect(mpStatusLabel(r('SUPPLIER_PAYMENT', 'Proveedor X'))).toBe('Compra / gasto: Proveedor X (pago de deuda)');
+    expect(mpStatusLabel(r('EXPENSE', 'Repuestos · Mantenimiento · Proveedor X'))).toBe('Compra / gasto: Repuestos · Mantenimiento · Proveedor X');
     expect(mpStatusLabel(r('OWNER_WITHDRAWAL', null))).toBe('Retiro de socios');
     expect(mpActivityType(r('SUPPLIER_PAYMENT', 'Proveedor X'))).toBe('Salida');
     expect(payoutMatchLabel(r('SUPPLIER_PAYMENT', 'Proveedor X'), map)).toBeNull();
     expect(isVisibleActivity({ coverage_status: 'CLASSIFIED_OUTFLOW' })).toBe(true);
   });
-  it('outflow classification sends only identifiers: SOURCE_ID, choice, supplier / category / nature — never an amount or account', async () => {
+  it('outflow classification sends only identifiers and the concept: SOURCE_ID, classification, supplier / category / nature / concept — never an amount or account', async () => {
     const seen: { url: URL; body: string }[] = [];
     const c = rpcClient(seen);
-    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'SUPPLIER_PAYMENT', supplierId: 'sup-1', expenseCategoryId: 'cat-ignored', nature: 'OPERATING' });
-    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'EXPENSE', supplierId: 'sup-1', expenseCategoryId: 'cat-1', nature: 'REINVESTMENT' });
+    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'SUPPLIER_PAYMENT', supplierId: 'sup-1', expenseCategoryId: 'cat-ignored', nature: 'OPERATING', concept: 'ignored' });
+    await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'EXPENSE', supplierId: 'sup-1', expenseCategoryId: 'cat-1', nature: 'REINVESTMENT', concept: '  Repuestos  ' });
     await classifyMpOutflow(c, { sourceId: '183984533002', classification: 'OWNER_WITHDRAWAL', supplierId: 'sup-ignored' });
     expect(seen.map((x) => x.url.pathname)).toEqual(Array(3).fill('/rest/v1/rpc/mp_classify_payout_outflow'));
     expect(seen.map((x) => JSON.parse(x.body))).toEqual([
-      { p_source_id: '183984533002', p_classification: 'SUPPLIER_PAYMENT', p_supplier_id: 'sup-1', p_expense_category_id: null, p_nature: null, p_reason: null },
-      { p_source_id: '183984533002', p_classification: 'EXPENSE', p_supplier_id: 'sup-1', p_expense_category_id: 'cat-1', p_nature: 'REINVESTMENT', p_reason: null },
-      { p_source_id: '183984533002', p_classification: 'OWNER_WITHDRAWAL', p_supplier_id: null, p_expense_category_id: null, p_nature: null, p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'SUPPLIER_PAYMENT', p_supplier_id: 'sup-1', p_expense_category_id: null, p_nature: null, p_concept: null, p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'EXPENSE', p_supplier_id: 'sup-1', p_expense_category_id: 'cat-1', p_nature: 'REINVESTMENT', p_concept: 'Repuestos', p_reason: null },
+      { p_source_id: '183984533002', p_classification: 'OWNER_WITHDRAWAL', p_supplier_id: null, p_expense_category_id: null, p_nature: null, p_concept: null, p_reason: null },
     ]);
     for (const x of seen) expect(x.body).not.toMatch(/amount|account|date/);
   });
@@ -286,13 +286,17 @@ describe('MP activity — classification (0088)', () => {
     for (const x of seen) expect(x.body).not.toMatch(/amount/);
     expect(TARGET_RPCS).toEqual(expect.arrayContaining(['mp_classify_payout_outflow', 'mp_classify_inflow_as_collection', 'mp_reclassify_inbound_own_transfer']));
   });
-  it('the screen: "Clasificar salida" only under a classifiable payout (Pago a proveedor / Gasto / Retiro de socios, no own transfer, no "Otra salida"); "Clasificar ingreso" only on CLASSIFY_INFLOW rows (own account / client, no "Otro ingreso")', () => {
+  it('the screen: "Clasificar salida" only under a classifiable payout ("Compra / gasto" or "Retiro de socios" only; no own transfer, no "Otra salida"); "Clasificar ingreso" only on CLASSIFY_INFLOW rows (own account / client, no "Otro ingreso")', () => {
     const s = SRC('features/caja/CuentaDetalle.tsx');
     expect(s).toMatch(/\{m\.canClassify && r\.source_id && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
     expect(s).toMatch(/\{r\.coverage_status === 'CLASSIFY_INFLOW' && r\.source_id && <ClasificarIngreso paymentId=\{r\.source_id\} \/>\}/);
-    expect(Object.values(MP_OUTFLOW_LABEL)).toEqual(['Pago a proveedor', 'Gasto', 'Retiro de socios']);
+    expect(Object.values(MP_OUTFLOW_CHOICE_LABEL)).toEqual(['Compra / gasto', 'Retiro de socios']);
+    expect(Object.values(MP_OUTFLOW_LABEL)).toEqual(['Compra / gasto', 'Compra / gasto', 'Retiro de socios']);
     const salida = s.slice(s.indexOf('function ClasificarSalida'), s.indexOf('type TipoIngreso'));
-    expect(salida).not.toMatch(/Transferencia a cuenta propia<\/option>|Otra salida/);
+    expect(salida).not.toMatch(/Transferencia a cuenta propia<\/option>|Otra salida|>Pago a proveedor<|>Gasto</);
+    expect(salida).toMatch(/<option value="SIN_PROVEEDOR" disabled>Sin proveedor registrado/);   // not representable yet (purchases.supplier_id NOT NULL)
+    expect(salida).toMatch(/aria-label="Concepto"/);
+    expect(salida).toMatch(/\{deuda > 0 && \(/);   // "apply to the existing debt" only when the supplier owes
     const ingreso = s.slice(s.indexOf('function ClasificarIngreso'));
     expect(ingreso).toMatch(/>Transferencia desde cuenta propia<\/option><option value="COLLECTION">Cobro de cliente<\/option>/);
     expect(ingreso).not.toMatch(/Otro ingreso<\/option>/);

@@ -6,13 +6,15 @@
 -- Mercado Pago account are never taken from the client).
 --
 -- OUTFLOWS — a payout (report movement 'transfer' / PAYOUT, report-only) whose destination is NO_OWN_ACCOUNT_MATCH (0084):
---   mp_classify_payout_outflow(p_source_id, p_classification, p_supplier_id, p_expense_category_id, p_nature, p_reason)
---     SUPPLIER_PAYMENT  → pay_supplier(supplier, |net|, payout date, MERCADOPAGO, MP, 'MP-OUTFLOW:<id>'):
---                         SUPPLIER_PAYMENT operation (MP −amount) + supplier_ledger PAYMENT. No P&L line (P&L is accrual:
---                         the purchase carries the cost).
---     EXPENSE           → register_purchase(supplier, payout date, |net|, category, nature, no lines, no attachment —
---                         ADR-010; the MP evidence is linked by this classification) + pay_supplier as above.
---                         P&L: the purchase, by category / nature, at the payout date.
+--   mp_classify_payout_outflow(p_source_id, p_classification, p_supplier_id, p_expense_category_id, p_nature, p_concept, p_reason)
+--   The UI shows ONE choice "Compra / gasto" (owner CR 15/10) that maps to:
+--     EXPENSE           → register_purchase(supplier, payout date, |net|, category, nature, subcategory = concept, no lines,
+--                         no attachment — ADR-010; the MP evidence is linked by this classification) + pay_supplier(supplier,
+--                         |net|, payout date, MERCADOPAGO, MP, 'MP-OUTFLOW:<id>'). P&L: the purchase, by category / nature.
+--     SUPPLIER_PAYMENT  → the same "Compra / gasto" applied to the supplier's EXISTING debt: pay_supplier only (the cost was
+--                         recognised by the original purchase). No P&L line.
+--   A supplier is required on both: purchases.supplier_id is NOT NULL in the frozen model (0019) — a purchase without a
+--   registered supplier is not representable without a model change (escalated to the owner; not done here).
 --     OWNER_WITHDRAWAL  → register_management_event(RETIRO, payout date, |net|, 'MP-OUTFLOW:<id>', MP):
 --                         OWNER_WITHDRAWAL operation (MP −amount); P&L "Retiros".
 --   The payout movement is reconciled to the operation (assigned net). Own-account payouts keep their own flow (0087):
@@ -41,6 +43,7 @@ CREATE TABLE mp_outflow_classification (
   classification             VARCHAR(20) NOT NULL,
   supplier_id                UUID        REFERENCES suppliers(id) ON DELETE RESTRICT ON UPDATE CASCADE,
   expense_category_id        UUID        REFERENCES expense_category(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+  concept                    VARCHAR(100),
   purchase_id                UUID        REFERENCES purchases(id) ON DELETE RESTRICT ON UPDATE CASCADE,
   management_event_id        UUID        REFERENCES management_event(id) ON DELETE RESTRICT ON UPDATE CASCADE,
   financial_operation_id     BIGINT      NOT NULL UNIQUE REFERENCES financial_operation(id) ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -53,7 +56,7 @@ CREATE TABLE mp_outflow_classification (
   CONSTRAINT chk_moc_classification CHECK (classification IN ('SUPPLIER_PAYMENT', 'EXPENSE', 'OWNER_WITHDRAWAL')),
   CONSTRAINT chk_moc_shape CHECK (
        (classification = 'SUPPLIER_PAYMENT' AND supplier_id IS NOT NULL AND purchase_id IS NULL AND management_event_id IS NULL)
-    OR (classification = 'EXPENSE' AND supplier_id IS NOT NULL AND expense_category_id IS NOT NULL AND purchase_id IS NOT NULL AND management_event_id IS NULL)
+    OR (classification = 'EXPENSE' AND supplier_id IS NOT NULL AND expense_category_id IS NOT NULL AND concept IS NOT NULL AND purchase_id IS NOT NULL AND management_event_id IS NULL)
     OR (classification = 'OWNER_WITHDRAWAL' AND supplier_id IS NULL AND purchase_id IS NULL AND management_event_id IS NOT NULL)),
   CONSTRAINT fk_moc_destination FOREIGN KEY (destination_run_id, destination_row_number)
     REFERENCES fin_mp_payout_destination(run_id, row_number) ON DELETE RESTRICT ON UPDATE RESTRICT
@@ -98,6 +101,7 @@ CREATE OR REPLACE FUNCTION mp_classify_payout_outflow(
   p_supplier_id         UUID DEFAULT NULL,
   p_expense_category_id UUID DEFAULT NULL,
   p_nature              purchase_nature DEFAULT NULL,
+  p_concept             TEXT DEFAULT NULL,
   p_reason              TEXT DEFAULT NULL
 )
 RETURNS JSONB
@@ -119,6 +123,7 @@ DECLARE
   v_op       BIGINT;
   v_purchase UUID;
   v_event    UUID;
+  v_concept  TEXT := nullif(btrim(p_concept), '');
 BEGIN
   IF current_app_role() IS DISTINCT FROM 'ADMIN' THEN
     RAISE EXCEPTION 'FORBIDDEN: ADMIN required';
@@ -140,8 +145,11 @@ BEGIN
     IF p_expense_category_id IS NULL OR NOT EXISTS (SELECT 1 FROM expense_category WHERE id = p_expense_category_id AND activo) THEN
       RAISE EXCEPTION 'CATEGORY_REQUIRED: an active expense category is required';
     END IF;
-  ELSIF p_expense_category_id IS NOT NULL OR p_nature IS NOT NULL THEN
-    RAISE EXCEPTION 'CATEGORY_NOT_ALLOWED: only an expense carries a category / nature';
+    IF v_concept IS NULL OR length(v_concept) > 100 THEN
+      RAISE EXCEPTION 'CONCEPT_REQUIRED: a concept of 1 to 100 characters is required';
+    END IF;
+  ELSIF p_expense_category_id IS NOT NULL OR p_nature IS NOT NULL OR v_concept IS NOT NULL THEN
+    RAISE EXCEPTION 'CATEGORY_NOT_ALLOWED: only a purchase / expense carries a category, nature and concept';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('mp_payout_outflow:' || p_source_id, 0));
 
@@ -149,7 +157,7 @@ BEGIN
   SELECT * INTO v_row FROM mp_outflow_classification WHERE source_id = p_source_id;
   IF FOUND THEN
     IF v_row.classification = p_classification AND v_row.supplier_id IS NOT DISTINCT FROM p_supplier_id
-       AND (p_classification <> 'EXPENSE' OR v_row.expense_category_id IS NOT DISTINCT FROM p_expense_category_id) THEN
+       AND (p_classification <> 'EXPENSE' OR (v_row.expense_category_id IS NOT DISTINCT FROM p_expense_category_id AND v_row.concept IS NOT DISTINCT FROM v_concept)) THEN
       RETURN jsonb_build_object('classification_id', v_row.id, 'replayed', true, 'classification', v_row.classification,
         'financial_operation_id', v_row.financial_operation_id, 'purchase_id', v_row.purchase_id, 'amount', v_row.amount);
     END IF;
@@ -195,7 +203,7 @@ BEGIN
   v_ref := 'MP-OUTFLOW:' || p_source_id;
   v_reason := coalesce(nullif(btrim(p_reason), ''),
     CASE p_classification WHEN 'SUPPLIER_PAYMENT' THEN 'Pago a proveedor por Mercado Pago (retiro ' || p_source_id || ')'
-                          WHEN 'EXPENSE' THEN 'Gasto pagado por Mercado Pago (retiro ' || p_source_id || ')'
+                          WHEN 'EXPENSE' THEN v_concept || ' — compra / gasto pagado por Mercado Pago (retiro ' || p_source_id || ')'
                           ELSE 'Retiro de socios por Mercado Pago (retiro ' || p_source_id || ')' END);
 
   IF p_classification = 'OWNER_WITHDRAWAL' THEN
@@ -204,7 +212,7 @@ BEGIN
     v_op := (v_res ->> 'financial_operation_id')::BIGINT;
   ELSE
     IF p_classification = 'EXPENSE' THEN
-      v_res := register_purchase(p_supplier_id, v_mv.occurred_date, v_amt, v_amt, p_expense_category_id, NULL,
+      v_res := register_purchase(p_supplier_id, v_mv.occurred_date, v_amt, v_amt, p_expense_category_id, v_concept,
                                  coalesce(p_nature, 'OPERATING'), '[]'::jsonb, '[]'::jsonb, 'MP-OUTFLOW-PURCHASE:' || p_source_id,
                                  NULL, NULL, NULL, NULL, v_reason);
       v_purchase := (v_res ->> 'purchase_id')::UUID;
@@ -216,9 +224,10 @@ BEGIN
   INSERT INTO mp_reconciliation (mp_financial_movement_id, financial_operation_id, financial_account_id, assigned_amount, idempotency_key, reconciled_at, reconciled_by)
   VALUES (v_mv.id, v_op, v_mp, v_mv.net_amount, v_ref, NOW(), v_uid);
 
-  INSERT INTO mp_outflow_classification (source_id, mp_financial_movement_id, classification, supplier_id, expense_category_id, purchase_id,
+  INSERT INTO mp_outflow_classification (source_id, mp_financial_movement_id, classification, supplier_id, expense_category_id, concept, purchase_id,
          management_event_id, financial_operation_id, destination_run_id, destination_row_number, amount, reason, created_by)
   VALUES (p_source_id, v_mv.id, p_classification, p_supplier_id, CASE WHEN p_classification = 'EXPENSE' THEN p_expense_category_id END,
+          CASE WHEN p_classification = 'EXPENSE' THEN v_concept END,
           v_purchase, v_event, v_op, v_dest.run_id, v_dest.row_number, v_amt, v_reason, v_uid)
   RETURNING * INTO v_row;
   INSERT INTO audit_events (entity_type, entity_id, action, after_values, reason, performed_by)
@@ -229,9 +238,9 @@ BEGIN
     'financial_operation_id', v_op, 'purchase_id', v_purchase, 'amount', v_amt);
 END;
 $$;
-ALTER FUNCTION mp_classify_payout_outflow(TEXT, TEXT, UUID, UUID, purchase_nature, TEXT) OWNER TO postgres;
-REVOKE ALL     ON FUNCTION mp_classify_payout_outflow(TEXT, TEXT, UUID, UUID, purchase_nature, TEXT) FROM PUBLIC, anon, service_role;
-GRANT  EXECUTE ON FUNCTION mp_classify_payout_outflow(TEXT, TEXT, UUID, UUID, purchase_nature, TEXT) TO authenticated;
+ALTER FUNCTION mp_classify_payout_outflow(TEXT, TEXT, UUID, UUID, purchase_nature, TEXT, TEXT) OWNER TO postgres;
+REVOKE ALL     ON FUNCTION mp_classify_payout_outflow(TEXT, TEXT, UUID, UUID, purchase_nature, TEXT, TEXT) FROM PUBLIC, anon, service_role;
+GRANT  EXECUTE ON FUNCTION mp_classify_payout_outflow(TEXT, TEXT, UUID, UUID, purchase_nature, TEXT, TEXT) TO authenticated;
 
 -- ── inflows: client receipt ─────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION mp_classify_inflow_as_collection(p_payment_id TEXT, p_client_id UUID DEFAULT NULL)
@@ -371,7 +380,7 @@ WITH a AS (
             JOIN mp_source_record ps ON ps.id = m.mp_source_record_id
            WHERE t.id = s.approval_id) AS classify_inflow,
          oc.classification AS outflow_classification,
-         CASE WHEN oc.classification = 'EXPENSE' THEN ec.nombre || ' · ' || sp.nombre ELSE sp.nombre END::TEXT AS outflow_detail
+         CASE WHEN oc.classification = 'EXPENSE' THEN oc.concept || ' · ' || ec.nombre || ' · ' || sp.nombre ELSE sp.nombre END::TEXT AS outflow_detail
     FROM s LEFT JOIN mp_inbound_reclassification ir ON ir.payment_id = s.raw_row ->> 'SOURCE_ID' AND s.raw_row ->> 'DESCRIPTION' = 'payment'
            LEFT JOIN mp_payout_transfer_confirmation pc ON pc.source_id = s.raw_row ->> 'SOURCE_ID' AND s.raw_row ->> 'DESCRIPTION' = 'payout'
            LEFT JOIN mp_outflow_classification oc ON oc.source_id = s.raw_row ->> 'SOURCE_ID' AND s.raw_row ->> 'DESCRIPTION' = 'payout'
