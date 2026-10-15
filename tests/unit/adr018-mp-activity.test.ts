@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import { TARGET_RPCS, TARGET_VIEWS } from '../../src/target/db';
-import { isMercadoPagoAccount, isVisibleActivity, listMpActivity, listMpPayoutMatches, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, payoutMatchLabel } from '../../src/target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, listMpActivity, listMpPayoutMatches, MP_STATUS_LABEL, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../src/target/mpActivity';
 
 function harness(rows: unknown[]) {
   const seen: URL[] = [];
@@ -76,7 +76,7 @@ describe('ADR-018 MP activity — screen', () => {
     for (const th of ['Fecha', 'Tipo', 'Referencia', 'Importe', 'Estado']) expect(fn).toContain(`>${th}</th>`);
     expect(fn).toMatch(/todas\.filter\(isVisibleActivity\)/);
     expect(fn).toMatch(/no modifica el saldo ERP/);
-    expect(fn).toMatch(/MP_STATUS_LABEL\[r\.coverage_status\]/);
+    expect(fn).toMatch(/mpStatusLabel\(r\)/);
   });
   it('read-only: no write, no reconciliation action; the only RPC is the read-only payout match proposal (0084)', () => {
     const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'));
@@ -168,5 +168,23 @@ describe('ADR-018 MP activity — payout own-account match (0084, read-only)', (
     const all = SRC('target/mpActivity.ts') + s;
     expect(all).not.toMatch(/normalized_value|identifier_value|original_value|expected_cbu|PAYOUT_BANK_ACCOUNT_NUMBER/);
     expect(JSON.stringify(MATCHES)).not.toMatch(/\d{22}/);
+  });
+});
+
+// ── 0086: inflows from own accounts ─────────────────────────────────────────────────────────────────────────────────
+describe('ADR-018 MP activity — own-account inflows (0086)', () => {
+  it('a reclassified inflow is a Transferencia from its own account, never a Cobro', () => {
+    const r = { description: 'payment', net_amount: 1000000, coverage_status: 'OWN_TRANSFER' as MpCoverageStatus, counterpart_account_name: 'BNA' };
+    expect([mpActivityType(r), mpStatusLabel(r)]).toEqual(['Transferencia', 'Transferencia desde BNA']);
+  });
+  it('account_fund + DEBIN waiting for classification → Ingreso / Clasificar ingreso; normal collections unchanged', () => {
+    const w = { description: 'payment', net_amount: 100000, coverage_status: 'CLASSIFY_INFLOW' as MpCoverageStatus, counterpart_account_name: null };
+    expect([mpActivityType(w), mpStatusLabel(w)]).toEqual(['Ingreso', 'Clasificar ingreso']);
+    const c = { description: 'payment', net_amount: 7500, coverage_status: 'BACKFILL_PROCESSED' as MpCoverageStatus, counterpart_account_name: null };
+    expect([mpActivityType(c), mpStatusLabel(c)]).toEqual(['Cobro', 'Recuperado del reporte']);
+  });
+  it('the list reads the counterpart account and both new statuses are visible rows', () => {
+    expect(SRC('target/mpActivity.ts')).toMatch(/financial_operation_id, counterpart_account_name'/);
+    expect([isVisibleActivity({ coverage_status: 'OWN_TRANSFER' }), isVisibleActivity({ coverage_status: 'CLASSIFY_INFLOW' })]).toEqual([true, true]);
   });
 });

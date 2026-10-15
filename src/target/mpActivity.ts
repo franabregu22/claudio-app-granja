@@ -7,15 +7,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readView } from './db';
 
 export type MpCoverageStatus =
-  | 'CONTROL' | 'PRE_CUTOVER' | 'RESERVE' | 'COVERED' | 'BACKFILL_PROCESSED' | 'BACKFILL_PENDING' | 'EXCEPTION' | 'YIELD' | 'PAYOUT' | 'OUTBOUND';
+  | 'CONTROL' | 'PRE_CUTOVER' | 'RESERVE' | 'COVERED' | 'BACKFILL_PROCESSED' | 'BACKFILL_PENDING' | 'EXCEPTION' | 'YIELD' | 'PAYOUT' | 'OUTBOUND'
+  | 'OWN_TRANSFER' | 'CLASSIFY_INFLOW';   // 0086: inflow from an own account (reclassified) / account_fund + DEBIN awaiting classification
 
 export interface MpActivityRow {
   run_id: string; row_number: number; occurred_at: string | null; business_date: string; description: string | null;
   source_id: string | null; net_amount: number | null; gross_amount: number | null; payment_method: string | null;
   payment_method_type: string | null; coverage_status: MpCoverageStatus; financial_operation_id: number | null;
+  /** 0086: the own account an inflow came from (OWN_TRANSFER), else null */
+  counterpart_account_name?: string | null;
 }
 const COLUMNS = 'run_id, row_number, occurred_at, business_date, description, source_id, net_amount, gross_amount, payment_method, '
-  + 'payment_method_type, coverage_status, financial_operation_id';
+  + 'payment_method_type, coverage_status, financial_operation_id, counterpart_account_name';
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
 /** Readable coverage status (Caja → Saldos → Mercado Pago → Actividad Mercado Pago). */
@@ -30,10 +33,20 @@ export const MP_STATUS_LABEL: Record<MpCoverageStatus, string> = {
   YIELD: 'Rendimiento',
   PAYOUT: 'Retiro',
   OUTBOUND: 'Pago saliente (sin efecto)',
+  OWN_TRANSFER: 'Transferencia entre cuentas propias',
+  CLASSIFY_INFLOW: 'Clasificar ingreso',
 };
 
+/** The status text of a row: an own-account inflow names its source account ("Transferencia desde BNA"). */
+export function mpStatusLabel(r: Pick<MpActivityRow, 'coverage_status' | 'counterpart_account_name'>): string {
+  if (r.coverage_status === 'OWN_TRANSFER' && r.counterpart_account_name) return `Transferencia desde ${r.counterpart_account_name}`;
+  return MP_STATUS_LABEL[r.coverage_status];
+}
+
 /** Movement type from the report DESCRIPTION and the sign of the net amount. */
-export function mpActivityType(r: Pick<MpActivityRow, 'description' | 'net_amount'>): string {
+export function mpActivityType(r: Pick<MpActivityRow, 'description' | 'net_amount'> & { coverage_status?: MpCoverageStatus }): string {
+  if (r.coverage_status === 'OWN_TRANSFER') return 'Transferencia';   // money from an own account is not a collection
+  if (r.coverage_status === 'CLASSIFY_INFLOW') return 'Ingreso';
   switch (r.description) {
     case 'payment': return (r.net_amount ?? 0) < 0 ? 'Pago' : 'Cobro';
     case 'asset_management': return 'Rendimiento';

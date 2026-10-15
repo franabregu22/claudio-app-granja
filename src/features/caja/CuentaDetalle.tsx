@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { isMercadoPagoAccount, isVisibleActivity, MP_STATUS_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, payoutMatchLabel } from '../../target/mpActivity';
+import { isMercadoPagoAccount, isVisibleActivity, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useMpActivity, useMpPayoutMatches } from './useMpActivity';
@@ -20,6 +20,7 @@ const MP_ESTILO: Record<MpCoverageStatus, string> = {
   CONTROL: 'bg-stone-100 text-stone-600', PRE_CUTOVER: 'bg-blue-100 text-blue-800', RESERVE: 'bg-stone-100 text-stone-600',
   COVERED: 'bg-green-100 text-green-800', BACKFILL_PROCESSED: 'bg-green-100 text-green-800', BACKFILL_PENDING: 'bg-amber-100 text-amber-900',
   EXCEPTION: 'bg-red-100 text-red-800', YIELD: 'bg-teal-100 text-teal-800', PAYOUT: 'bg-purple-100 text-purple-800', OUTBOUND: 'bg-stone-200 text-stone-700',
+  OWN_TRANSFER: 'bg-sky-100 text-sky-900', CLASSIFY_INFLOW: 'bg-amber-100 text-amber-900',
 };
 
 /**
@@ -157,7 +158,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
                 <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id ?? '—'}</td>
                 <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${(r.net_amount ?? 0) < 0 ? 'text-red-700' : 'text-green-800'}`}>{importe(r.net_amount, true)}</td>
                 <td className="px-3 py-2 whitespace-nowrap">
-                  <span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{MP_STATUS_LABEL[r.coverage_status]}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{mpStatusLabel(r)}</span>
                   <DestinoRetiro r={r} matches={matches} />
                 </td>
               </tr>

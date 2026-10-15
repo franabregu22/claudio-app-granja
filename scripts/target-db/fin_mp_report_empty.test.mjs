@@ -219,7 +219,7 @@ expect('G-3 payout movement not applied; outbound parked; payment parked DEFERRE
 expect('G-4 invalid economic row still fails closed', NORMAL({ sha: sha('regression-bad'), parser: P11, rows: rowsOf(swap(2, { DESCRIPTION: 'money_transfer' })) }), 'OK:%"status": "REJECTED"%');
 
 // ── H. perimeter ─────────────────────────────────────────────────────────────
-expect('H-1 SECURITY DEFINER set = 79 (0080 adds none; 0081, 0083, 0084 add one each)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '79');
+expect('H-1 SECURITY DEFINER set = 80 (0080 adds none; 0081, 0083, 0084, 0086 add one each)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '80');
 expect('H-2 helper fin_mp_control_row_valid: INVOKER, IMMUTABLE, owner only',
   `(SELECT prosecdef || ':' || provolatile::text || ':' || has_function_privilege('anon', oid, 'EXECUTE') || has_function_privilege('authenticated', oid, 'EXECUTE')
       || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'fin_mp_control_row_valid')`, 'false:i:falsefalsefalse');
