@@ -219,14 +219,14 @@ expect('C-6 fin_record_mp_payout_destinations: DEFINER, owner postgres, search_p
   `(SELECT prosecdef || ':' || pg_get_userbyid(proowner) || ':' || (proconfig @> ARRAY['search_path=public']) || ':' || has_function_privilege('anon', oid, 'EXECUTE')
       || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'fin_record_mp_payout_destinations')`,
   'true:postgres:true:falsefalsetrue');
-expect('C-7 SECURITY DEFINER set = 88 (77 + fin_record_mp_payout_destinations + 0084 fin_mp_payout_matches + 0086 + 0087)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '88');
-expect('C-8 ingestion functions unchanged by 0083 (still the 0080 capture / 0081 NORMAL bodies)',
+expect('C-7 SECURITY DEFINER set = 91 (77 + fin_record_mp_payout_destinations + 0084 fin_mp_payout_matches + 0086 + 0087)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '91');
+expect('C-8 ingestion functions: the 0080 capture body unchanged; the NORMAL body is the 0093 one (ADR-021 provisional per outflow)',
   `(SELECT string_agg(proname || ':' || md5(replace(prosrc, chr(13), '')), ',' ORDER BY proname) FROM pg_proc WHERE proname IN ('fin_capture_mp_release_report', 'fin_ingest_mp_release_report'))`,
-  'fin_capture_mp_release_report:ba537f978db607841cbf1e7aeaa6ebcd,fin_ingest_mp_release_report:676607433dcb030dcd4204afc80cb131');
+  'fin_capture_mp_release_report:ba537f978db607841cbf1e7aeaa6ebcd,fin_ingest_mp_release_report:9a1a33fdbda940dbf2fecb30e34de4ce');
 
 // ── D. no financial effect, nothing scheduled ───────────────────────────────
 for (const t of ['financial_operation', 'financial_posting', 'mp_reconciliation', 'fin_statement_line']) {
-  expect(`D-1 zero financial / bank effect: Δ ${t} = 0`, `(SELECT ((SELECT count(*) FROM ${t}) - b.n)::text FROM before_counts b WHERE b.t = ${lit(t)})`, '0');
+  expect(`D-1 zero financial / bank effect beyond the ADR-021 provisionals (one per payout / outbound row): Δ ${t} = 0`, `(SELECT ((SELECT count(*) FROM ${t}) - b.n${t === 'fin_statement_line' ? '' : ' - (SELECT count(*) FROM mp_pending_outflow p WHERE p.created_at = now())'})::text FROM before_counts b WHERE b.t = ${lit(t)})`, '0');
 }
 expect('D-2 cron jobs unchanged (worker + daily report + fallback)', `(SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute');
 expect('D-3 mp_v4_verified() still false', '(SELECT mp_v4_verified()::text)', 'false');

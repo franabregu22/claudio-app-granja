@@ -199,11 +199,11 @@ expect('C-3 one webhook delivery and at most one back-fill (the worker lets exac
 
 // ── D. the report never creates money or bank effects by itself ─────────────
 for (const t of ['financial_operation', 'financial_posting', 'mp_reconciliation', 'fin_statement_line']) {
-  expect(`D zero money / bank effect from the daily report: Δ ${t} = 0`, `(SELECT ((SELECT count(*) FROM ${t}) - b.n)::text FROM before_counts b WHERE b.t = ${lit(t)})`, '0');
+  expect(`D zero money / bank effect from the daily report beyond the ADR-021 provisionals (one per payout / outbound row): Δ ${t} = 0`, `(SELECT ((SELECT count(*) FROM ${t}) - b.n${t === 'fin_statement_line' ? '' : ' - (SELECT count(*) FROM mp_pending_outflow p WHERE p.created_at = now())'})::text FROM before_counts b WHERE b.t = ${lit(t)})`, '0');
 }
-expect('D the payout is only an unapplied transfer movement (0079 design: waits for the ADMIN), never reconciled',
-  `(SELECT count(*) || ':' || string_agg(m.movement_kind, ',') || ':' || bool_and(NOT EXISTS (SELECT 1 FROM mp_reconciliation r WHERE r.mp_financial_movement_id = m.id))
-     FROM mp_financial_movement m JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE '810000000%')`, '1:transfer:true');
+expect('D ADR-021: the payout and the outbound payment are reconciled ONLY to their provisional (classification still waits for the ADMIN)',
+  `(SELECT count(*) || ':' || string_agg(m.movement_kind, ',' ORDER BY m.movement_kind) || ':' || bool_and(NOT EXISTS (SELECT 1 FROM mp_reconciliation r JOIN financial_operation o ON o.id = r.financial_operation_id WHERE r.mp_financial_movement_id = m.id AND o.external_ref NOT LIKE 'MP-PENDING:%'))
+     FROM mp_financial_movement m JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id LIKE '810000000%')`, '2:outbound,transfer:true');
 
 // ── E. scheduler log ────────────────────────────────────────────────────────
 const rec = (role, uid, args) => as(role, uid, `SELECT fin_record_mp_report_schedule(${args})::text`);
@@ -274,7 +274,7 @@ expect('F-5 the URL derivation maps the worker endpoint to the daily endpoint',
   `replace('https://x.supabase.co/functions/v1/mp-worker', '/functions/v1/mp-worker', '/functions/v1/mp-report-daily')`, 'https://x.supabase.co/functions/v1/mp-report-daily');
 
 // ── G. perimeter ─────────────────────────────────────────────────────────────
-expect('G-1 SECURITY DEFINER set = 88 (76 + fin_record_mp_report_schedule + 0083 fin_record_mp_payout_destinations + 0084 fin_mp_payout_matches + 0086 mp_reclassify_inbound_own_transfer + 0087 payout confirm)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '88');
+expect('G-1 SECURITY DEFINER set = 91 (76 + fin_record_mp_report_schedule + 0083 fin_record_mp_payout_destinations + 0084 fin_mp_payout_matches + 0086 mp_reclassify_inbound_own_transfer + 0087 payout confirm)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '91');
 expect('G-2 fin_record_mp_report_schedule: DEFINER, owner postgres, EXECUTE service_role only',
   `(SELECT prosecdef || ':' || pg_get_userbyid(proowner) || ':' || has_function_privilege('anon', oid, 'EXECUTE') || has_function_privilege('authenticated', oid, 'EXECUTE')
       || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'fin_record_mp_report_schedule')`, 'true:postgres:falsefalsetrue');

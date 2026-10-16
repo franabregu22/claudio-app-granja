@@ -252,16 +252,16 @@ expect('G-1 paying from Mercado Pago without a SOURCE_ID → MP_SOURCE_REQUIRED;
 expect('G-2 wrong amount / date → refused (the payout decides)',
   `(${MPC(G1, { net: '700', total: '700' })} || '|' || ${MPC(G1, { date: '2026-10-14' })})`, 'ERR:MP_AMOUNT_MISMATCH%|ERR:MP_DATE_MISMATCH%');
 expect('G-3 G1 → casual purchase from MP (SOURCE_ID anchored)', MPC(G1), 'OK:%"replayed": false%');
-expect('G-4 the payout movement is reconciled once to the PURCHASE_PAYMENT; classification CASUAL_PURCHASE',
-  `(SELECT oc.classification || ':' || o.operation_type || ':' || o.external_ref || ':' || (SELECT string_agg(r.assigned_amount::text, ',') FROM mp_reconciliation r WHERE r.mp_financial_movement_id = oc.mp_financial_movement_id)
-     FROM mp_outflow_classification oc JOIN financial_operation o ON o.id = oc.financial_operation_id WHERE oc.source_id = '${G1}')`, `CASUAL_PURCHASE:PURCHASE_PAYMENT:MP-OUTFLOW:${G1}:-759.86`);
+expect('G-4 the payout movement: provisional and release (ADR-021), then reconciled once to the PURCHASE_PAYMENT; classification CASUAL_PURCHASE',
+  `(SELECT oc.classification || ':' || o.operation_type || ':' || o.external_ref || ':' || (SELECT string_agg(r.assigned_amount::text, ',' ORDER BY r.financial_operation_id) FROM mp_reconciliation r WHERE r.mp_financial_movement_id = oc.mp_financial_movement_id)
+     FROM mp_outflow_classification oc JOIN financial_operation o ON o.id = oc.financial_operation_id WHERE oc.source_id = '${G1}')`, `CASUAL_PURCHASE:PURCHASE_PAYMENT:MP-OUTFLOW:${G1}:-759.86,759.86,-759.86`);
 add(`CREATE TEMP TABLE c6 AS ${counts()};`);
 expect('G-5 exact replay from another entry point (other key, same data) → replayed, nothing written',
   `(${MPC(G1, { key: 'ADR019-COMPRAS-G1' })} LIKE 'OK:%"replayed": true%' AND coalesce(${delta('c6')}, 'none') = 'none')::text`, 'true');
 expect('G-6 a conflicting second classification of the same SOURCE_ID → ALREADY_CLASSIFIED', MPC(G1, { key: 'ADR019-COMPRAS-G1b', concept: 'otra cosa' }), 'ERR:ALREADY_CLASSIFIED%');
 expect('G-7 an own-account payout cannot become a purchase', MPC(G3, { net: '300.00', total: '300.00' }), 'ERR:OWN_ACCOUNT_PAYOUT%');
-expect('G-8 MP down exactly once (−759.86); supplier ledger untouched',
-  `(((SELECT ${BAL('Mercado Pago')} - mp FROM b5))::text || '|' || (${SUPLEDGER} - (SELECT led FROM b5))::text)`, '-759.86|0');
+expect('G-8 MP unchanged by the classification (down once at the ingest, ADR-021); supplier ledger untouched',
+  `(((SELECT ${BAL('Mercado Pago')} - mp FROM b5))::text || '|' || (${SUPLEDGER} - (SELECT led FROM b5))::text)`, '0.00|0');
 
 // Z. perimeter
 expect('Z-1 RPCs: DEFINER, owner postgres, search_path=public, EXECUTE authenticated only; helpers INVOKER, no API EXECUTE',
@@ -272,7 +272,7 @@ expect('Z-2 mp_outflow_classification: RLS, ADMIN SELECT only, immutable', `((SE
    AND (SELECT string_agg(policyname || ':' || cmd, ',') FROM pg_policies WHERE tablename = 'mp_outflow_classification') = 'mp_outflow_classification_admin_select:SELECT'
    AND NOT has_table_privilege('authenticated', 'mp_outflow_classification', 'INSERT,UPDATE,DELETE')
    AND pg_temp.err_of('UPDATE mp_outflow_classification SET amount = 1') LIKE 'ERR:%')::text`, 'true');
-expect('Z-3 SECURITY DEFINER set = 88 (81 + register_casual_purchase + rectify_casual_purchase_classification)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '88');
+expect('Z-3 SECURITY DEFINER set = 91 (81 + register_casual_purchase + rectify_casual_purchase_classification)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '91');
 
 add('ROLLBACK;');
 

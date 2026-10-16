@@ -144,10 +144,10 @@ expect('A-2 VALIDATION capture of the same day (other bytes)', as('service_role'
 expect('A-3 destinations on the NORMAL run (P1 BNA, P2 Patagonia, P3 third party, P4 third party)',
   record('R', [[P1, CBU('BNA')], [P2, CBU('Patagonia')], [P3, EXTERNAL], [P4, EXTERNAL]]), 'OK:4');
 expect('A-4 the VALIDATION run reports P4 elsewhere (conflict)', record('V', [[P4, OTHER]]), 'OK:1');
-expect('A-5 each payout is one report-only movement (transfer, net < 0), with no financial operation',
+expect('A-5 each payout is one report-only movement (transfer, net < 0); ADR-021 (0093): reconciled only to its provisional',
   `(SELECT string_agg(t.resource_id || ':' || m.movement_kind || ':' || m.net_amount || ':' || (SELECT count(*) FROM mp_reconciliation r WHERE r.mp_financial_movement_id = m.id), ',' ORDER BY t.resource_id)
      FROM mp_transition_identity t JOIN mp_financial_movement m ON m.id = t.mp_financial_movement_id WHERE t.resource_type = 'report' AND t.resource_id LIKE '87000000000%:payout:D')`,
-  PAYOUTS.map((s, i) => `${s}:payout:D:transfer:-${AMT[i]}:0`).join(','));
+  PAYOUTS.map((s, i) => `${s}:payout:D:transfer:-${AMT[i]}:1`).join(','));
 add(`CREATE TEMP TABLE before_counts AS ${counts()};
 CREATE TEMP TABLE before_bal AS SELECT ${BAL('Mercado Pago')} AS mp, ${BAL('BNA')} AS bna, ${BAL('Patagonia')} AS pat;
 CREATE TEMP TABLE before_dest AS SELECT md5(string_agg(d::text, '#' ORDER BY run_id, row_number)) AS h FROM fin_mp_payout_destination d;
@@ -162,9 +162,9 @@ expect('B-2 the operation: TRANSFER, external_ref MP-PAYOUT-TRANSFER:<SOURCE_ID>
   `(SELECT o.operation_type || ':' || o.external_ref || ':' || o.effective_date || ':' || (SELECT string_agg(a.nombre || ' ' || p.signed_amount, ' / ' ORDER BY p.signed_amount)
       FROM financial_posting p JOIN financial_account a ON a.id = p.financial_account_id WHERE p.financial_operation_id = o.id) FROM financial_operation o WHERE o.id = ${OP(P1)})`,
   `TRANSFER:MP-PAYOUT-TRANSFER:${P1}:${DAY}:Mercado Pago -1000.00 / BNA 1000.00`);
-expect('B-3 the movement is reconciled to the transfer (MP, −1000, same idempotency key)',
-  `(SELECT string_agg((r.financial_operation_id = ${OP(P1)})::text || ':' || a.nombre || ':' || r.assigned_amount || ':' || r.idempotency_key, ',') FROM mp_reconciliation r
-     JOIN financial_account a ON a.id = r.financial_account_id WHERE r.mp_financial_movement_id = ${MOV(P1)})`, `true:Mercado Pago:-1000.00:MP-PAYOUT-TRANSFER:${P1}`);
+expect('B-3 the movement: provisional and release (ADR-021), then reconciled to the transfer (MP, −1000, same idempotency key)',
+  `(SELECT string_agg((r.financial_operation_id = ${OP(P1)})::text || ':' || a.nombre || ':' || r.assigned_amount || ':' || r.idempotency_key, ',' ORDER BY r.financial_operation_id) FROM mp_reconciliation r
+     JOIN financial_account a ON a.id = r.financial_account_id WHERE r.mp_financial_movement_id = ${MOV(P1)})`, `false:Mercado Pago:-1000.00:MP-PENDING:${P1},false:Mercado Pago:1000.00:MP-PENDING-RELEASE:${P1},true:Mercado Pago:-1000.00:MP-PAYOUT-TRANSFER:${P1}`);
 expect('B-4 confirmation row links movement, destination evidence (the NORMAL run line), MP and BNA, the transfer',
   `(SELECT (c.mp_financial_movement_id = ${MOV(P1)}) || ':' || (c.destination_run_id::text = ${RES('R')}) || ':' || c.destination_row_number || ':' || ma.nombre || ':' || da.nombre
       || ':' || c.amount || ':' || (c.transfer_operation_id = ${OP(P1)}) || ':' || (c.created_by::text = '${ADMIN}')
@@ -195,11 +195,11 @@ expect('C-9 a second transfer with the same idempotency reference is impossible 
   'ERR:DUPLICATE_TRANSFER%');
 
 // ── D. economy, evidence, view ──────────────────────────────────────────────
-expect('D-1 Δ counts = 2 operations, 4 postings, 2 reconciliations; no movement / source / evidence / allocation / bank row',
-  delta('before_counts'), 'financial_operation=2,financial_posting=4,mp_reconciliation=2');
-expect('D-2 balances: MP −3200, BNA +1000, Patagonia +2200',
+expect('D-1 Δ counts = 2 transfers + 2 provisional releases (ADR-021): 4 operations, 6 postings, 4 reconciliations; no movement / source / evidence / allocation / bank row',
+  delta('before_counts'), 'financial_operation=4,financial_posting=6,mp_reconciliation=4');
+expect('D-2 balances: MP unchanged by the confirmations (the payouts reached MP at the ingest, ADR-021), BNA +1000, Patagonia +2200',
   `((SELECT ${BAL('Mercado Pago')} - mp FROM before_bal) || '|' || (SELECT ${BAL('BNA')} - bna FROM before_bal) || '|' || (SELECT ${BAL('Patagonia')} - pat FROM before_bal))`,
-  '-3200.00|1000.00|2200.00');
+  '0.00|1000.00|2200.00');
 expect('D-3 P&L unchanged (pnl_summary + pnl_line_item, as ADMIN)', `((SELECT h FROM before_pnl) = ${as('authenticated', ADMIN, PNL)})::text`, 'true');
 expect('D-4 no duplicate postings (operation, account, amount)',
   `(SELECT count(*)::text FROM (SELECT financial_operation_id, financial_account_id, signed_amount FROM financial_posting GROUP BY 1, 2, 3 HAVING count(*) > 1) x)`, '0');
@@ -210,8 +210,8 @@ expect('D-6 confirmation rows are immutable', `pg_temp.err_of('UPDATE mp_payout_
   'ERR:%|ERR:%');
 const ACT = as('authenticated', ADMIN, `SELECT string_agg(source_id || ':' || coverage_status || ':' || coalesce(counterpart_account_name, '-') || ':' || (financial_operation_id IS NOT NULL), ',' ORDER BY source_id)
   FROM fin_mp_report_activity WHERE run_id = ${P(RES('R'))}::uuid AND description = 'payout'`);
-expect('D-7 activity (one row per payout): P1 OWN_TRANSFER BNA, P2 OWN_TRANSFER Patagonia (operation linked), P3/P4/P5 still PAYOUT without operation',
-  ACT, `OK:${P1}:OWN_TRANSFER:BNA:true,${P2}:OWN_TRANSFER:Patagonia:true,${P3}:PAYOUT:-:false,${P4}:PAYOUT:-:false,${P5}:PAYOUT:-:false`);
+expect('D-7 activity (one row per payout): P1 OWN_TRANSFER BNA, P2 OWN_TRANSFER Patagonia (operation linked), P3/P4/P5 still PENDING_CLASSIFICATION (provisional)',
+  ACT, `OK:${P1}:OWN_TRANSFER:BNA:true,${P2}:OWN_TRANSFER:Patagonia:true,${P3}:PENDING_CLASSIFICATION:-:true,${P4}:PENDING_CLASSIFICATION:-:true,${P5}:PENDING_CLASSIFICATION:-:true`);
 expect('D-8 the destination posting (BNA +1000) exists for a later bank-line match against THIS operation',
   `(SELECT count(*)::text FROM financial_posting p JOIN financial_account a ON a.id = p.financial_account_id WHERE p.financial_operation_id = ${OP(P1)} AND a.nombre = 'BNA' AND p.signed_amount = 1000)`, '1');
 expect('D-9 table perimeter: RLS, ADMIN SELECT policy only; SELECT for authenticated only; immutable trigger',
@@ -225,7 +225,7 @@ expect('D-10 mp_confirm_payout_transfer: DEFINER, owner postgres, search_path=pu
   `(SELECT prosecdef || ':' || pg_get_userbyid(proowner) || ':' || (proconfig @> ARRAY['search_path=public']) || ':' || has_function_privilege('anon', oid, 'EXECUTE')
       || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'mp_confirm_payout_transfer')`,
   'true:postgres:true:falsetruefalse');
-expect('D-11 SECURITY DEFINER set = 88 (80 + mp_confirm_payout_transfer)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '88');
+expect('D-11 SECURITY DEFINER set = 91 (80 + mp_confirm_payout_transfer)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '91');
 expect('D-12 cron jobs unchanged; mp_v4_verified() false',
   `((SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job) || '|' || mp_v4_verified()::text)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute|false');
 

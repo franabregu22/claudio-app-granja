@@ -230,9 +230,9 @@ expect('D-2 identifier table: RLS on, one policy (service_role SELECT), no write
      AND (SELECT string_agg(policyname, ',') FROM pg_policies WHERE tablename = 'financial_account_identifier') = 'financial_account_identifier_service_select'
      AND NOT has_table_privilege('service_role', 'financial_account_identifier', 'INSERT,UPDATE,DELETE,TRUNCATE')
      AND NOT has_table_privilege('authenticated', 'financial_account_identifier', 'SELECT,INSERT,UPDATE,DELETE'))::text`, 'true');
-expect('D-3 SECURITY DEFINER set = 88 (78 + fin_mp_payout_matches + 0086 mp_reclassify_inbound_own_transfer + 0087 payout confirm)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '88');
+expect('D-3 SECURITY DEFINER set = 91 (78 + fin_mp_payout_matches + 0086 mp_reclassify_inbound_own_transfer + 0087 payout confirm)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '91');
 for (const t of ['financial_operation', 'financial_posting', 'mp_reconciliation', 'fin_statement_line']) {
-  expect(`D-4 zero financial / bank effect: Δ ${t} = 0`, `(SELECT ((SELECT count(*) FROM ${t}) - b.n)::text FROM before_counts b WHERE b.t = ${lit(t)})`, '0');
+  expect(`D-4 zero financial / bank effect beyond the ADR-021 provisionals (one per payout / outbound row): Δ ${t} = 0`, `(SELECT ((SELECT count(*) FROM ${t}) - b.n${t === 'fin_statement_line' ? '' : ' - (SELECT count(*) FROM mp_pending_outflow p WHERE p.created_at = now())'})::text FROM before_counts b WHERE b.t = ${lit(t)})`, '0');
 }
 expect('D-5 no transfer proposed is written anywhere (no TRANSFER operation created)',
   `(SELECT count(*)::text FROM financial_operation WHERE operation_type = 'TRANSFER' AND created_at >= (SELECT now()))`, '0');

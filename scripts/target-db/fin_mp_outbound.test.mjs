@@ -152,14 +152,14 @@ const EXTERNAL = `'2850590940090418135201'`;
 expect('A-1 NORMAL run of the day (5 outbound payments + 1 payout) → PARSED', NORMAL({ sha: sha('outbound-day'), actor: null, rows: rowsOf(DAYROWS) }, 'R'), 'OK:%"status": "PARSED"%');
 expect('A-2 payout destination: third party', as('service_role', null,
   `SELECT fin_record_mp_payout_destinations(${P(RES('R'))}::uuid, jsonb_build_array(jsonb_build_object('row_number', ${rowOf(PAYOUT)}, 'value', ${EXTERNAL})))::text`), 'OK:1');
-expect('A-4 before classification: outbound rows parked, no movement',
+expect('A-4 before classification: outbound rows parked (DEFERRED_V4); ADR-021 (0093): each materialized once by its provisional, no delivery',
   `((SELECT count(*) FROM mp_source_record WHERE source_type = 'csv_import' AND external_id LIKE '89000000010%:payment:D' AND processing_status = 'PENDING' AND processing_note LIKE 'DEFERRED_V4%')::text
     || ':' || (SELECT count(*) FROM mp_transition_identity WHERE resource_type = 'report' AND resource_id LIKE '89000000010%:payment:D')
-    || ':' || (SELECT count(*) FROM mp_webhook_delivery WHERE resource_id LIKE '89000000010%'))`, '5:0:0');
+    || ':' || (SELECT count(*) FROM mp_webhook_delivery WHERE resource_id LIKE '89000000010%'))`, '5:5:0');
 const ACT = as('authenticated', ADMIN, `SELECT string_agg(source_id || ':' || coverage_status || ':' || coalesce(classification, '-') || ':' || (financial_operation_id IS NOT NULL), ',' ORDER BY source_id)
   FROM fin_mp_report_activity WHERE run_id = ${P(RES('R'))}::uuid AND (description = 'payout' OR net_amount < 0)`);
-expect('A-5 activity before: 5 OUTBOUND (classifiable) + 1 PAYOUT, no operation',
-  ACT, `OK:${O1}:OUTBOUND:-:false,${O2}:OUTBOUND:-:false,${O3}:OUTBOUND:-:false,${O4}:OUTBOUND:-:false,${O5}:OUTBOUND:-:false,${PAYOUT}:PAYOUT:-:false`);
+expect('A-5 activity before: ADR-021 (0093) — 5 outbound + 1 payout PENDING_CLASSIFICATION, each with its provisional operation',
+  ACT, `OK:${O1}:PENDING_CLASSIFICATION:-:true,${O2}:PENDING_CLASSIFICATION:-:true,${O3}:PENDING_CLASSIFICATION:-:true,${O4}:PENDING_CLASSIFICATION:-:true,${O5}:PENDING_CLASSIFICATION:-:true,${PAYOUT}:PENDING_CLASSIFICATION:-:true`);
 add(`CREATE TEMP TABLE c0 AS ${counts()};
 CREATE TEMP TABLE b0 AS SELECT ${BAL('Mercado Pago')} AS mp, (SELECT coalesce(sum(signed_amount), 0) FROM supplier_ledger WHERE supplier_id = '${SUP}') AS sup;`);
 add(`CREATE TEMP TABLE p0 AS SELECT ${PNLB('COSTOS_INDIRECTOS')} AS ind, ${PNLB('RETIROS')} AS ret;`);
@@ -169,8 +169,8 @@ expect('B-1 O1 → Compra / gasto sin proveedor (EL KEROSENERO): economic amount
   'OK:%"amount": 102803.00%"replayed": false%"classification": "CASUAL_PURCHASE"%');
 expect('B-2 the outbound movement: kind outbound, gross −102,803, tax −616.82, net −103,419.82, identity OUTBOUND',
   `(SELECT m.movement_kind || ':' || m.gross_amount || ':' || m.tax_amount || ':' || m.net_amount FROM mp_financial_movement m WHERE m.id = ${OMOV(O1)})`, 'outbound:-102803.00:-616.82:-103419.82');
-expect('B-3 operations reconciled: PURCHASE_PAYMENT −102,803 (MP-OUTFLOW:<id>) + ADJUSTMENT −616.82 (MP-OUTFLOW-TAX:<id>) = net',
-  OPS(O1), `PURCHASE_PAYMENT:-102803.00:MP-OUTFLOW:${O1} ADJUSTMENT:-616.82:MP-OUTFLOW-TAX:${O1}`);
+expect('B-3 operations reconciled: provisional −103,419.82 + its release (ADR-021) + PURCHASE_PAYMENT −102,803 (MP-OUTFLOW:<id>) + ADJUSTMENT −616.82 (MP-OUTFLOW-TAX:<id>) = net',
+  OPS(O1), `ADJUSTMENT:-103419.82:MP-PENDING:${O1} ADJUSTMENT:103419.82:MP-PENDING-RELEASE:${O1} PURCHASE_PAYMENT:-102803.00:MP-OUTFLOW:${O1} ADJUSTMENT:-616.82:MP-OUTFLOW-TAX:${O1}`);
 expect('B-4 purchase: no supplier, counterparty, total 102,803 (not 103,419.82)',
   `(SELECT (supplier_id IS NULL) || ':' || counterparty_name || ':' || amount_total FROM purchases WHERE id = (SELECT purchase_id FROM mp_outflow_classification WHERE source_id = '${O1}'))`, 'true:EL KEROSENERO:102803.00');
 expect('B-5 the parked source row is now RECONCILED (processing metadata only)', SRC(O1), 'RECONCILED:ADR-020: %');
@@ -180,38 +180,40 @@ expect('B-7 conflicting classification → ALREADY_CLASSIFIED', OUT(O1, 'OWNER_W
 
 // C. #2 contador with a registered supplier (supplier path on an outbound payment)
 expect('C-1 O2 → Compra / gasto con proveedor (purchase + payment) 355,000', OUT(O2, 'EXPENSE', SUP, CAT, 'Honorarios contador'), 'OK:%"amount": 355000.00%');
-expect('C-2 operations: SUPPLIER_PAYMENT −355,000 + ADJUSTMENT −2,130', OPS(O2), `SUPPLIER_PAYMENT:-355000.00:MP-OUTFLOW:${O2} ADJUSTMENT:-2130.00:MP-OUTFLOW-TAX:${O2}`);
+expect('C-2 operations: SUPPLIER_PAYMENT −355,000 + ADJUSTMENT −2,130', OPS(O2), `ADJUSTMENT:-357130.00:MP-PENDING:${O2} ADJUSTMENT:357130.00:MP-PENDING-RELEASE:${O2} SUPPLIER_PAYMENT:-355000.00:MP-OUTFLOW:${O2} ADJUSTMENT:-2130.00:MP-OUTFLOW-TAX:${O2}`);
 expect('C-3 supplier ledger: PURCHASE +355,000, PAYMENT −355,000 (net 0)', `(SELECT string_agg(movement_type || ' ' || signed_amount, ',' ORDER BY id) FROM supplier_ledger WHERE supplier_id = '${SUP}')`, 'PURCHASE 355000.00,PAYMENT -355000.00');
 
 // D. #3 partner withdrawal on an outbound payment; #4 from the Compras entry point; #5 left unclassified
 expect('D-1 O3 → Retiro de socios 37,100 (+ tax 222.60)', OUT(O3, 'OWNER_WITHDRAWAL'), 'OK:%"amount": 37100.00%');
-expect('D-2 operations: OWNER_WITHDRAWAL −37,100 + ADJUSTMENT −222.60', OPS(O3), `OWNER_WITHDRAWAL:-37100.00:MGMT:MP-OUTFLOW:${O3} ADJUSTMENT:-222.60:MP-OUTFLOW-TAX:${O3}`);
+expect('D-2 operations: OWNER_WITHDRAWAL −37,100 + ADJUSTMENT −222.60', OPS(O3), `ADJUSTMENT:-37322.60:MP-PENDING:${O3} ADJUSTMENT:37322.60:MP-PENDING-RELEASE:${O3} OWNER_WITHDRAWAL:-37100.00:MGMT:MP-OUTFLOW:${O3} ADJUSTMENT:-222.60:MP-OUTFLOW-TAX:${O3}`);
 const CP = (amount) => as('authenticated', ADMIN, `SELECT register_casual_purchase('${DAY}'::date, ${amount}, ${amount}, '${CAT}'::uuid, 'Lubricante', 'OPERATING', ${P(MPACC)}::uuid, 'MERCADOPAGO',
   'COMPRAS-${O4}-${amount}', 'CASTROL', '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, '${O4}', NULL)::text`);
 expect('D-3 O4 from Compras: the net debit (20,286.28) is refused — the economic amount is the gross', CP('20286.28'), 'ERR:MP_AMOUNT_MISMATCH%20165.29%');
 expect('D-4 O4 from Compras with the economic amount 20,165.29 → casual purchase + tax', CP('20165.29'), 'OK:%"replayed": false%');
-expect('D-5 O4 operations', OPS(O4), `PURCHASE_PAYMENT:-20165.29:MP-OUTFLOW:${O4} ADJUSTMENT:-120.99:MP-OUTFLOW-TAX:${O4}`);
+expect('D-5 O4 operations', OPS(O4), `ADJUSTMENT:-20286.28:MP-PENDING:${O4} ADJUSTMENT:20286.28:MP-PENDING-RELEASE:${O4} PURCHASE_PAYMENT:-20165.29:MP-OUTFLOW:${O4} ADJUSTMENT:-120.99:MP-OUTFLOW-TAX:${O4}`);
 expect('D-6 O4 then from the activity with the same data → replayed (one classification per SOURCE_ID)', OUT(O4, 'CASUAL_PURCHASE', null, CAT, 'Lubricante', 'CASTROL'), 'OK:%"replayed": true%');
 expect('D-7 the payout (cartones) still classifies without tax', OUT(PAYOUT, 'CASUAL_PURCHASE', null, CAT, 'Cartones', 'Proveedor de cartones'), 'OK:%"amount": 1056890.93%');
-expect('D-8 payout operations: PURCHASE_PAYMENT −1,056,890.93 only', `(SELECT string_agg(o.operation_type || ':' || r.assigned_amount, ' ') FROM mp_reconciliation r JOIN financial_operation o ON o.id = r.financial_operation_id
-   WHERE r.mp_financial_movement_id = (SELECT mp_financial_movement_id FROM mp_outflow_classification WHERE source_id = '${PAYOUT}'))`, 'PURCHASE_PAYMENT:-1056890.93');
+expect('D-8 payout operations: provisional + release (ADR-021), then PURCHASE_PAYMENT −1,056,890.93 only', `(SELECT string_agg(o.operation_type || ':' || r.assigned_amount, ' ' ORDER BY o.id) FROM mp_reconciliation r JOIN financial_operation o ON o.id = r.financial_operation_id
+   WHERE r.mp_financial_movement_id = (SELECT mp_financial_movement_id FROM mp_outflow_classification WHERE source_id = '${PAYOUT}'))`, 'ADJUSTMENT:-1056890.93 ADJUSTMENT:1056890.93 PURCHASE_PAYMENT:-1056890.93');
 expect('D-9 unknown SOURCE_ID → refused', OUT('899999999999', 'OWNER_WITHDRAWAL'), 'ERR:PAYOUT_NOT_FOUND%');
 
 // E. economy
-expect('E-1 MP down by the net debits exactly once: 103,419.82 + 357,130 + 37,322.60 + 20,286.28 + 1,056,890.93 (O5 untouched)',
-  `((SELECT ${BAL('Mercado Pago')} - mp FROM b0))::text`, '-1575049.63');
+expect('E-1 ADR-021: the classifications never move MP again (the net debits reached MP at the ingest)',
+  `((SELECT ${BAL('Mercado Pago')} - mp FROM b0))::text`, '0.00');
+expect('E-1b the six provisionals = the net debits once: 103,419.82 + 357,130 + 37,322.60 + 20,286.28 + 48,288 + 1,056,890.93 (O5 still pending)',
+  `(SELECT sum(amount)::text || ':' || count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM mp_pending_outflow_resolution r WHERE r.pending_id = p.id)) FROM mp_pending_outflow p WHERE p.source_id LIKE '890000000%')`, '-1623337.63:1');
 expect('E-2 P&L: purchases at the economic amount only (102,803 + 355,000 + 20,165.29 + 1,056,890.93 = 1,534,859.22); withdrawal 37,100; taxes not in the P&L',
   `((${PNLB('COSTOS_INDIRECTOS')}) || '|' || (${PNLB('RETIROS')}) || ' vs ' || (SELECT ind || '|' || ret FROM p0))`, 'OK:-1534859.22|OK:-37100.00 vs OK:0|OK:0');
 expect('E-3 no duplicate postings', `(SELECT count(*)::text FROM (SELECT financial_operation_id, financial_account_id, signed_amount FROM financial_posting GROUP BY 1, 2, 3 HAVING count(*) > 1) x)`, '0');
 expect('E-4 each classified outflow fully assigned (Σ reconciliations = movement net)',
   `(SELECT count(*)::text FROM mp_outflow_classification oc JOIN mp_financial_movement m ON m.id = oc.mp_financial_movement_id
      WHERE oc.source_id LIKE '890000000%' AND m.net_amount = (SELECT sum(r.assigned_amount) FROM mp_reconciliation r WHERE r.mp_financial_movement_id = m.id))`, '5');
-expect('E-5 activity after: O1/O2/O3/O4 + payout CLASSIFIED_OUTFLOW with their operation; O5 still OUTBOUND',
+expect('E-5 activity after: O1/O2/O3/O4 + payout CLASSIFIED_OUTFLOW with their operation; O5 still PENDING_CLASSIFICATION',
   ACT, `OK:${O1}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:true,${O2}:CLASSIFIED_OUTFLOW:EXPENSE:true,${O3}:CLASSIFIED_OUTFLOW:OWNER_WITHDRAWAL:true,`
-  + `${O4}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:true,${O5}:OUTBOUND:-:false,${PAYOUT}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:true`);
+  + `${O4}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:true,${O5}:PENDING_CLASSIFICATION:-:true,${PAYOUT}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:true`);
 expect('E-6 helpers INVOKER with no API EXECUTE; SECURITY DEFINER set unchanged (85)',
   `((SELECT string_agg(proname || '=' || prosecdef || has_function_privilege('authenticated', oid, 'EXECUTE'), ',' ORDER BY proname) FROM pg_proc WHERE proname IN ('mp_outflow_resolve', 'mp_outflow_apply_charges'))
-     || '|' || (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace))`, 'mp_outflow_apply_charges=falsefalse,mp_outflow_resolve=falsefalse|88');
+     || '|' || (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace))`, 'mp_outflow_apply_charges=falsefalse,mp_outflow_resolve=falsefalse|91');
 expect('E-7 mp_v4_verified() still false', `mp_v4_verified()::text`, 'false');
 
 add('ROLLBACK;');

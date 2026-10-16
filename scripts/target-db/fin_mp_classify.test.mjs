@@ -169,8 +169,8 @@ expect('B-2 operation SUPPLIER_PAYMENT MP-OUTFLOW:<id>, payout date, MP −759.8
   OPDESC(Q1), `SUPPLIER_PAYMENT:MP-OUTFLOW:${Q1}:${DAY}:Mercado Pago -759.86`);
 expect('B-3 supplier ledger PAYMENT −759.86 (anticipo / reduces the debt — the current global supplier account)',
   `(SELECT string_agg(movement_type || ' ' || signed_amount, ',') FROM supplier_ledger WHERE supplier_id = '${SUP}' AND source_entity_id = ${OPOF(Q1)}::text)`, 'PAYMENT -759.86');
-expect('B-4 the payout movement is reconciled once to that operation (−759.86)',
-  `(SELECT string_agg((financial_operation_id = ${OPOF(Q1)})::text || ':' || assigned_amount, ',') FROM mp_reconciliation WHERE mp_financial_movement_id = ${PMOV(Q1)})`, 'true:-759.86');
+expect('B-4 the payout movement: its provisional and release (ADR-021), then reconciled once to that operation (−759.86)',
+  `(SELECT string_agg((financial_operation_id = ${OPOF(Q1)})::text || ':' || assigned_amount, ',' ORDER BY financial_operation_id) FROM mp_reconciliation WHERE mp_financial_movement_id = ${PMOV(Q1)})`, 'false:-759.86,false:759.86,true:-759.86');
 add(`CREATE TEMP TABLE c1 AS ${counts()};`);
 expect('B-5 replay (same choice) → replayed, nothing written', OUT(Q1, 'SUPPLIER_PAYMENT', SUP), 'OK:%"replayed": true%');
 expect('B-6 Δ after the replay = none', `coalesce(${delta('c1')}, 'none')`, 'none');
@@ -199,9 +199,9 @@ expect('K-1 Q7 → Compra / gasto, Sin proveedor registrado (category, concept, 
 expect('K-2 purchase: no supplier, counterparty trimmed, concept as subcategory, OPERATING, total 759,702.86, payout date, current',
   `(SELECT (p.supplier_id IS NULL) || ':' || p.counterparty_name || ':' || p.subcategory || ':' || p.nature || ':' || p.amount_total || ':' || p.economic_date || ':' || p.is_current
      FROM purchases p WHERE p.id = (SELECT purchase_id FROM mp_outflow_classification WHERE source_id = '${Q7}'))`, `true:Ferretería X:Repuestos bomba de agua:OPERATING:759702.86:${DAY}:true`);
-expect('K-3 payment: PURCHASE_PAYMENT MP-OUTFLOW:<id>, MP −759,702.86 only; the movement reconciled once',
-  `(${OPDESC(Q7)} || '|' || (SELECT string_agg(assigned_amount::text, ',') FROM mp_reconciliation WHERE mp_financial_movement_id = ${PMOV(Q7)}))`,
-  `PURCHASE_PAYMENT:MP-OUTFLOW:${Q7}:${DAY}:Mercado Pago -759702.86|-759702.86`);
+expect('K-3 payment: PURCHASE_PAYMENT MP-OUTFLOW:<id>, MP −759,702.86 only; the movement: provisional, release, then reconciled once',
+  `(${OPDESC(Q7)} || '|' || (SELECT string_agg(assigned_amount::text, ',' ORDER BY financial_operation_id) FROM mp_reconciliation WHERE mp_financial_movement_id = ${PMOV(Q7)}))`,
+  `PURCHASE_PAYMENT:MP-OUTFLOW:${Q7}:${DAY}:Mercado Pago -759702.86|-759702.86,759702.86,-759702.86`);
 expect('K-4 no supplier ledger row and no supplier created for the casual purchase',
   `((SELECT count(*) FROM supplier_ledger WHERE source_entity_id IN ((SELECT purchase_id::text FROM mp_outflow_classification WHERE source_id = '${Q7}'), ${OPOF(Q7)}::text))
      || ':' || (SELECT count(*) FROM suppliers WHERE id <> '${SUP}' AND nombre ILIKE '%Ferretería%'))`, '0:0');
@@ -240,19 +240,19 @@ expect('E-9 no amount / account / date parameter exists (single overload)',
   'p_source_id text, p_classification text, p_supplier_id uuid, p_expense_category_id uuid, p_nature purchase_nature, p_concept text, p_counterparty_name text, p_reason text');
 
 // F. economy of the outflows (Q1 + Q2 + Q3 + Q4 transfer + Q7 casual)
-expect('F-1 MP −(759.86 + 300 + 500 + 1000 + 759,702.86) once each; BNA +1000 (Q4 transfer); supplier net −759.86 (the casual purchase adds nothing)',
-  `((SELECT ${BAL('Mercado Pago')} - mp FROM b0) || '|' || (SELECT ${BAL('BNA')} - bna FROM b0) || '|' || (SELECT ${SUPBAL} - sup FROM b0))`, '-762262.72|1000.00|-759.86');
+expect('F-1 ADR-021: the classifications never move MP again (the payouts reached MP at the ingest); BNA +1000 (Q4 transfer); supplier net −759.86 (the casual purchase adds nothing)',
+  `((SELECT ${BAL('Mercado Pago')} - mp FROM b0) || '|' || (SELECT ${BAL('BNA')} - bna FROM b0) || '|' || (SELECT ${SUPBAL} - sup FROM b0))`, '0.00|1000.00|-759.86');
 expect('F-2 P&L: supplier payment and transfer neutral; expense −300 and casual purchase −759,702.86 COSTOS_INDIRECTOS (from purchases); withdrawal −500 RETIROS',
   `(((${PNLAS('COSTOS_INDIRECTOS')}) || '|' || (${PNLAS('RETIROS')})) || ' vs ' || (SELECT ind || '|' || ret FROM p0))`,
   'OK:-760002.86|OK:-500.00 vs OK:0|OK:0');
-expect('F-3 Δ: 5 operations (2 supplier payments, 1 withdrawal, 1 transfer, 1 purchase payment), 6 postings, 5 reconciliations, 2 purchases, 1 management event; no new movement / source / evidence',
-  delta('c0'), 'financial_operation=5,financial_posting=6,management_event=1,mp_reconciliation=5,purchases=2');
+expect('F-3 Δ: 5 operations (2 supplier payments, 1 withdrawal, 1 transfer, 1 purchase payment) + 5 provisional releases (ADR-021), 11 postings, 10 reconciliations, 2 purchases, 1 management event; no new movement / source / evidence',
+  delta('c0'), 'financial_operation=10,financial_posting=11,management_event=1,mp_reconciliation=10,purchases=2');
 expect('F-4 no duplicate postings', `(SELECT count(*)::text FROM (SELECT financial_operation_id, financial_account_id, signed_amount FROM financial_posting GROUP BY 1, 2, 3 HAVING count(*) > 1) x)`, '0');
 const ACT = as('authenticated', ADMIN, `SELECT string_agg(source_id || ':' || coverage_status || ':' || coalesce(classification, '-') || ':' || coalesce(classification_detail, '-') || ':' || (financial_operation_id IS NOT NULL), ',' ORDER BY source_id)
   FROM fin_mp_report_activity WHERE run_id = ${P(RES('R'))}::uuid AND description = 'payout'`);
-expect('F-5 activity: Q1 debt payment, Q2 purchase (concept · category · supplier), Q3 withdrawal, Q4 own transfer, Q5/Q6 still PAYOUT, Q7 casual (concept · category · counterparty)',
+expect('F-5 activity: Q1 debt payment, Q2 purchase (concept · category · supplier), Q3 withdrawal, Q4 own transfer, Q5/Q6 still PENDING_CLASSIFICATION (provisional), Q7 casual (concept · category · counterparty)',
   ACT, `OK:${Q1}:CLASSIFIED_OUTFLOW:SUPPLIER_PAYMENT:Proveedor META A 0088:true,${Q2}:CLASSIFIED_OUTFLOW:EXPENSE:Repuestos bomba de agua · Categoría META A 0088 · Proveedor META A 0088:true,`
-  + `${Q3}:CLASSIFIED_OUTFLOW:OWNER_WITHDRAWAL:-:true,${Q4}:OWN_TRANSFER:-:-:true,${Q5}:PAYOUT:-:-:false,${Q6}:PAYOUT:-:-:false,`
+  + `${Q3}:CLASSIFIED_OUTFLOW:OWNER_WITHDRAWAL:-:true,${Q4}:OWN_TRANSFER:-:-:true,${Q5}:PENDING_CLASSIFICATION:-:-:true,${Q6}:PENDING_CLASSIFICATION:-:-:true,`
   + `${Q7}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:Repuestos bomba de agua · Categoría META A 0088 · Ferretería X:true`);
 expect('F-6 classification rows immutable; ADMIN cannot write them directly',
   `(pg_temp.err_of('UPDATE mp_outflow_classification SET amount = 1') LIKE 'ERR:%' AND ${as('authenticated', ADMIN, `DELETE FROM mp_outflow_classification RETURNING 'x'`)} LIKE 'ERR:permission denied%')::text`, 'true');
@@ -325,7 +325,7 @@ expect('Z-2 tables: RLS, one ADMIN SELECT policy each, SELECT only for authentic
       || ':' || (SELECT count(*) FROM pg_trigger WHERE tgrelid = t::regclass AND NOT tgisinternal), ',' ORDER BY t)
      FROM unnest(ARRAY['mp_inflow_classification', 'mp_outflow_classification']) t)`,
   'mp_inflow_classification=true:mp_inflow_classification_admin_select:SELECT:truefalsefalse:1,mp_outflow_classification=true:mp_outflow_classification_admin_select:SELECT:truefalsefalse:1');
-expect('Z-3 SECURITY DEFINER set = 88 (83 after ADR-019 + the two classification RPCs)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '88');
+expect('Z-3 SECURITY DEFINER set = 91 (83 after ADR-019 + the two classification RPCs)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '91');
 expect('Z-4 cron jobs unchanged; mp_v4_verified() false',
   `((SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job) || '|' || mp_v4_verified()::text)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute|false');
 

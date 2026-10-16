@@ -182,6 +182,9 @@ DELETE FROM audit_events WHERE entity_id IN (SELECT id::TEXT FROM _src UNION ALL
 DELETE FROM mp_client_allocation WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
 DELETE FROM mp_attribution_flag WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
 DELETE FROM mp_report_match WHERE report_source_id IN (SELECT id FROM _src);
+DELETE FROM audit_events WHERE entity_type = 'mp_pending_outflow' AND entity_id IN (SELECT id::TEXT FROM mp_pending_outflow WHERE mp_financial_movement_id IN (SELECT id FROM _mv));
+DELETE FROM mp_pending_outflow_resolution WHERE pending_id IN (SELECT id FROM mp_pending_outflow WHERE mp_financial_movement_id IN (SELECT id FROM _mv) OR source_id LIKE '7779%');
+DELETE FROM mp_pending_outflow WHERE mp_financial_movement_id IN (SELECT id FROM _mv) OR source_id LIKE '7779%';   -- ADR-021 (0093) provisionals
 DELETE FROM mp_reconciliation WHERE mp_financial_movement_id IN (SELECT id FROM _mv);
 DELETE FROM financial_posting WHERE financial_operation_id IN (SELECT id FROM _op);
 DELETE FROM financial_operation WHERE id IN (SELECT id FROM _op);
@@ -218,18 +221,19 @@ check('A-6 pre-cutover row: IGNORED (ADR-017), no back-fill, no movement',
 check('A-7 yield: claimed (report / YIELD) and applied by A1 exactly once (frozen auto-applicable pair)',
   r1.yields_applied === 1 && n(`SELECT count(*) FROM mp_transition_identity WHERE resource_type = 'report' AND resource_id = '777900000001:asset_management:C' AND transition = 'YIELD';`) === 1
     && n(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id = '777900000001:asset_management:C';`) === 1);
-check('A-8 payout: movement + REPORT_ONLY, never applied (no reconciliation, no operation)',
+check('A-8 payout: movement + REPORT_ONLY, never classified; ADR-021 (0093): reconciled only to its provisional',
   n(`SELECT count(*) FROM mp_financial_movement m JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id = '777900000002:payout:D' AND m.movement_kind = 'transfer';`) === 1
-    && n(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id = '777900000002:payout:D';`) === 0);
+    && n(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id = '777900000002:payout:D';`) === 1
+    && n(`SELECT count(*) FROM mp_pending_outflow WHERE source_id = '777900000002' AND kind = 'PAYOUT';`) === 1);
 check('A-9 outbound payment: parked DEFERRED_V4, no back-fill, no movement (V-4 open)',
   owner(`SELECT processing_status || ':' || split_part(processing_note, ':', 1) FROM mp_source_record WHERE external_id = '777900000003:payment:D';`) === 'PENDING:DEFERRED_V4');
 check('A-10 reserves IGNORED (RESERVE_ROW)', n(`SELECT count(*) FROM mp_source_record WHERE external_id LIKE '777900000002:reserve_for_payout:%' AND processing_status = 'IGNORED';`) === 2);
 check('A-11 mp_v4_verified() stays false', owner(`SELECT mp_v4_verified();`) === 'f');
 
 section('B', 'coverage view before the worker');
-check('B-1 statuses: payment BACKFILL_PENDING, yield YIELD, payout PAYOUT, reserves RESERVE, outbound OUTBOUND, pre-cutover PRE_CUTOVER',
-  activity(REAL) === 'BACKFILL_PENDING' && activity('777900000001') === 'YIELD' && activity('777900000002', 'payout') === 'PAYOUT'
-    && activity('777900000002', 'reserve_for_payout') === 'RESERVE' && activity('777900000003') === 'OUTBOUND' && activity('777900000004') === 'PRE_CUTOVER',
+check('B-1 statuses: payment BACKFILL_PENDING, yield YIELD, payout / outbound PENDING_CLASSIFICATION (ADR-021), reserves RESERVE, pre-cutover PRE_CUTOVER',
+  activity(REAL) === 'BACKFILL_PENDING' && activity('777900000001') === 'YIELD' && activity('777900000002', 'payout') === 'PENDING_CLASSIFICATION'
+    && activity('777900000002', 'reserve_for_payout') === 'RESERVE' && activity('777900000003') === 'PENDING_CLASSIFICATION' && activity('777900000004') === 'PRE_CUTOVER',
   [activity(REAL), activity('777900000001'), activity('777900000002', 'payout'), activity('777900000003'), activity('777900000004')].join(' '));
 check('B-2 control rows CONTROL (2), no amount', owner(`SELECT count(*) || ':' || count(net_amount) FROM (SELECT set_config('request.jwt.claims', '{"sub":"${ADMIN_ID}","role":"authenticated"}', true)) c,
   LATERAL (SELECT * FROM fin_mp_report_activity WHERE run_id = '${r1.run_id}' AND coverage_status = 'CONTROL') v;`) === '2:0');
@@ -324,18 +328,21 @@ check('I-4 EXECUTE: both functions service_role only; view SELECT authenticated 
   || has_function_privilege('service_role', oid, 'EXECUTE') || prosecdef, ',' ORDER BY proname) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
   AND proname IN ('fin_ingest_mp_release_report', 'mp_register_report_backfill');`) === 'fin_ingest_mp_release_report:falsefalsetruetrue,mp_register_report_backfill:falsefalsetruetrue'
   && owner(`SELECT string_agg(grantee || ':' || privilege_type, ',') FROM information_schema.role_table_grants WHERE table_name = 'fin_mp_report_activity' AND grantee IN ('anon','authenticated','service_role','PUBLIC');`) === 'authenticated:SELECT');
-check('I-5 SECURITY DEFINER set = 88 (0081 scheduler log + 0083 payout destinations + 0084 payout matches + 0086 inbound reclass + 0087 payout confirm); cron = worker + 0082 daily report job + 0085 fallback; mp_register_delivery still refuses report_backfill',
-  owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '88'
+check('I-5 SECURITY DEFINER set = 91 (0081 scheduler log + 0083 payout destinations + 0084 payout matches + 0086 inbound reclass + 0087 payout confirm); cron = worker + 0082 daily report job + 0085 fallback; mp_register_delivery still refuses report_backfill',
+  owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '91'
     && owner(`SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job;`) === 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute'
     && errOf(() => svcJson(`mp_register_delivery('report_backfill', 'payment', 'payment', NULL, '1', NULL, NULL, '{}'::jsonb, false)`)).includes('origin must be webhook or chargeback_refresh'));
 
 section('K', 'financial invariants over the whole suite');
 check('K-1 per payment: ≤ 1 APPROVAL claim and ≤ 1 MP_SETTLEMENT', [REAL, W, R, '777900000015'].every((p) => approvals(p) <= 1 && settlements(p) <= 1));
-check('K-2 no operation / posting from any report payment row (only api_payment movements and the applied yield carry money)',
+check('K-2 no operation / posting from any report payment row beyond the ADR-021 provisional of an outbound payment (only api_payment movements and the applied yield carry money)',
   n(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id JOIN mp_source_record s ON s.id = m.mp_source_record_id
-      WHERE s.source_type = 'csv_import' AND s.event_data ->> 'DESCRIPTION' = 'payment';`) === 0);
-check('K-3 no money for payout, outbound or pre-cutover rows', n(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id
-  JOIN mp_source_record s ON s.id = m.mp_source_record_id WHERE s.external_id IN ('777900000002:payout:D', '777900000003:payment:D', '777900000004:payment:C', '777900000013:payment:C');`) === 0);
+      JOIN financial_operation o ON o.id = r.financial_operation_id
+      WHERE s.source_type = 'csv_import' AND s.event_data ->> 'DESCRIPTION' = 'payment' AND o.external_ref NOT LIKE 'MP-PENDING:%';`) === 0);
+check('K-3 payout / outbound: only their ADR-021 provisional (one each, pending classification); pre-cutover rows: no money', n(`SELECT count(*) FROM mp_reconciliation r JOIN mp_financial_movement m ON m.id = r.mp_financial_movement_id
+  JOIN mp_source_record s ON s.id = m.mp_source_record_id JOIN financial_operation o ON o.id = r.financial_operation_id
+  WHERE s.external_id IN ('777900000002:payout:D', '777900000003:payment:D', '777900000004:payment:C', '777900000013:payment:C') AND o.external_ref NOT LIKE 'MP-PENDING:%';`) === 0
+  && n(`SELECT count(*) FROM mp_pending_outflow WHERE source_id IN ('777900000002', '777900000003');`) === 2);
 console.log(`\n  baseline ${BASE} → end ${snapshot()} (financial_operation|financial_posting|mp_source_record|mp_transition_identity|mp_webhook_delivery|mp_reconciliation|mp_financial_movement|mp_report_match)`);
 
 cleanup();
