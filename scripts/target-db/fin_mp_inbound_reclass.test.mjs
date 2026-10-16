@@ -188,15 +188,17 @@ const P_FUND_CVU = '861000000002';     // account_fund by CVU (keeps today's beh
 const P_SALE = '861000000003';         // money_transfer (a sale)
 const P_LEGACY = '861000000004';       // account_fund + DEBIN applied before 0086 (the 3 real cases)
 const P_UNAPPLIED = '861000000005';    // account_fund + DEBIN after 0086
+const P_FUND_DEBIN_0095 = '861000000006';   // account_fund + DEBIN after 0095 (ADR-023: applied at once)
 
-// ── A. future rule: account_fund + DEBIN is not auto-applied; the others still are ─
+// ── A. 0086 left account_fund + DEBIN unapplied (P_FUND_DEBIN keeps that legacy state: never applied here); ADR-023 (0095) applies it at once ─
 payment('A1', P_FUND_DEBIN, 'account_fund', 'debin_transfer', 100000);
 payment('A2', P_FUND_CVU, 'account_fund', 'cvu', 7500);
 payment('A3', P_SALE, 'money_transfer', 'account_money', 12000);
-expect('A-1 account_fund + debin_transfer → NOT_AUTO_APPLICABLE (stays NORMALIZED for classification)', apply(P_FUND_DEBIN), 'ERR:NOT_AUTO_APPLICABLE%');
+payment('A0', P_FUND_DEBIN_0095, 'account_fund', 'debin_transfer', 5000);
+expect('A-1 ADR-023 (0095): account_fund + debin_transfer is applied at once as MP_SETTLEMENT (an inflow is never a mandatory classification)', apply(P_FUND_DEBIN_0095), 'OK:%APPLIED%');
 expect('A-2 account_fund + cvu → still applied as MP_SETTLEMENT', apply(P_FUND_CVU), 'OK:%');
 expect('A-3 money_transfer → still applied as MP_SETTLEMENT', apply(P_SALE), 'OK:%');
-expect('A-4 the DEBIN inflow has no operation yet', `(SELECT count(*)::text FROM mp_reconciliation WHERE mp_financial_movement_id = ${MV(P_FUND_DEBIN)})`, '0');
+expect('A-4 a legacy (pre-0095) unapplied DEBIN inflow has no operation yet', `(SELECT count(*)::text FROM mp_reconciliation WHERE mp_financial_movement_id = ${MV(P_FUND_DEBIN)})`, '0');
 
 // ── B. reclassify an UNAPPLIED inflow: one TRANSFER, movement reconciled to it ─
 expect('B-1 reclassify the unapplied DEBIN inflow → TRANSFER only (no reversal)', reclass('authenticated', ADMIN, P_FUND_DEBIN), 'OK:%"replayed": false%"reversal_operation_id": null%');
@@ -246,8 +248,8 @@ expect('D-9 a reclassified movement cannot be allocated to a client (trigger)',
   `pg_temp.err_of('INSERT INTO mp_client_allocation (mp_financial_movement_id) VALUES (' || ${MV(P_LEGACY)} || ')')`, 'ERR:OWN_TRANSFER_NOT_ALLOCATABLE%');
 
 // ── E. perimeter, P&L, totals ───────────────────────────────────────────────
-expect('E-1 overall: MP +100000 (unapplied DEBIN, now via TRANSFER) +7500 +12000 (applied) ; BNA −1100000',
-  `(SELECT ((${bal(MPID)}) - b.mp)::text || '|' || ((${bal(BNA)}) - b.bna)::text FROM bal0 b)`, '1119500.00|-1100000.00');
+expect('E-1 overall: MP +100000 (unapplied DEBIN, now via TRANSFER) +7500 +12000 +5000 (applied; the last one is the 0095 DEBIN) ; BNA −1100000',
+  `(SELECT ((${bal(MPID)}) - b.mp)::text || '|' || ((${bal(BNA)}) - b.bna)::text FROM bal0 b)`, '1124500.00|-1100000.00');
 expect('E-2 P&L unaffected (no fee on these inflows; P&L never reads operations)',
   `(SELECT count(*)::text FROM mp_financial_movement m WHERE m.id IN (${MV(P_FUND_DEBIN)}, ${MV(P_LEGACY)}) AND m.fee_amount <> 0)`, '0');
 expect('E-3 SECURITY DEFINER set = 93 (79 + mp_reclassify_inbound_own_transfer + 0087 mp_confirm_payout_transfer); the guard trigger function is INVOKER',

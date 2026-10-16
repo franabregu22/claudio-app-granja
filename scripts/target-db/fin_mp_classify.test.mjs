@@ -280,11 +280,13 @@ const I1 = '881000000001';   // DEBIN → client collection (with client)
 const I2 = '881000000002';   // DEBIN → collection without client
 const I3 = '881000000003';   // DEBIN → own transfer
 const I4 = '881000000004';   // account_fund + cvu (unchanged: auto-applied)
+const I0 = '881000000000';   // account_fund + DEBIN after 0095 (ADR-023: applied at once); I1–I3 keep the legacy unapplied state
 payment('I1', I1, 'account_fund', 'debin_transfer', 50000);
 payment('I2', I2, 'account_fund', 'debin_transfer', 20000);
 payment('I3', I3, 'account_fund', 'debin_transfer', 30000);
 payment('I4', I4, 'account_fund', 'cvu', 7500);
-expect('G-1 account_fund + debin_transfer is NOT auto-applied (stays for classification)', apply(I1), 'ERR:NOT_AUTO_APPLICABLE%');
+payment('I0', I0, 'account_fund', 'debin_transfer', 1000);
+expect('G-1 ADR-023 (0095): account_fund + debin_transfer is applied at once (the legacy routes below cover the pre-0095 unapplied state)', apply(I0), 'OK:%APPLIED%');
 expect('G-2 account_fund + cvu is still auto-applied as a collection (unchanged)', apply(I4), 'OK:%APPLIED%');
 add(`CREATE TEMP TABLE c2 AS ${counts()};
 CREATE TEMP TABLE b2 AS SELECT ${BAL('Mercado Pago')} AS mp, ${BAL('BNA')} AS bna;

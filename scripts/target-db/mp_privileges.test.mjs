@@ -97,7 +97,7 @@ const WANT_POLICIES = [
   `mp_reconciliation|mp_reconciliation_service_select|SELECT|${SVC_Q}|`,
   `mp_report_match|mp_match_admin_select|SELECT|${ADMIN_Q}|`,
   `mp_report_match|mp_match_service_select|SELECT|${SVC_Q}|`,
-  `mp_source_record|mp_source_admin_select|SELECT|${ADMIN_Q}|`,
+  `mp_source_record|mp_source_admin_select|SELECT|((current_app_role() = 'ADMIN'::text) AND (COALESCE((event_data ->> 'PAYOUT_BANK_ACCOUNT_NUMBER'::text), ''::text) = ''::text))|`,   // 0095: protected evidence rows hidden
   `mp_source_record|mp_source_service_insert|INSERT||((auth.role() = 'service_role'::text) AND ((source_type)::text = ANY ((ARRAY['csv_import'::character varying, 'account_money_csv'::character varying])::text[])))`,
   `mp_source_record|mp_source_service_select|SELECT|${SVC_Q}|`,
   `mp_transition_identity|mp_identity_admin_select|SELECT|${ADMIN_Q}|`,
