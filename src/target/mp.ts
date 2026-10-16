@@ -142,7 +142,8 @@ export function lookupChargebackSignals(client: SupabaseClient): Promise<Chargeb
 /** `ui:<uuid>`, generated once per form submission (never an MPA: / MPAUTO: / MPREV: prefix). */
 export const uiIdempotencyKey = (uuid: string = crypto.randomUUID()) => `ui:${uuid}`;
 
-export const allocateToClient = (c: SupabaseClient, p: { movementId: number; clienteId: string; amount: number; effectiveDate: string; idempotencyKey: string; reason: string }) =>
+/** effectiveDate null → ADR-023 §6: the movement's date when its month is OPEN, otherwise today (decided by the server). */
+export const allocateToClient = (c: SupabaseClient, p: { movementId: number; clienteId: string; amount: number; effectiveDate: string | null; idempotencyKey: string; reason: string }) =>
   callRpc<Record<string, unknown>>(c, 'mp_allocate_to_client', {
     p_movement_id: p.movementId, p_cliente_id: p.clienteId, p_amount: p.amount, p_effective_date: p.effectiveDate, p_idempotency_key: p.idempotencyKey, p_reason: p.reason,
   });

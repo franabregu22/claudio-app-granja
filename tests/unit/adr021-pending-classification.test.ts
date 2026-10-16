@@ -15,7 +15,8 @@ import {
   PENDING_ACTIVITY_NOTE,
 } from '../../src/target/mpActivity';
 import {
-  HISTORICAL_INFLOW_ACTION, listPendingClassification, listTechnicalReview, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL, postingOperationLabel, postPendingOutflow, summarizePending,
+  DESTINATION_STATUS_LABEL, HISTORICAL_ACTION, INFLOW_SUBTYPE_LABEL, linkDates, listPendingPage, listTechnicalReview, listUnlinkedPage, mandatoryPending,
+  maskedAccount, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL, postingOperationLabel, postPendingOutflow, readPendingSummary, searchClause,
 } from '../../src/target/pendingClassification';
 
 const SRC = (f: string) => readFileSync(resolve(__dirname, '../../src', f), 'utf8');
@@ -27,34 +28,68 @@ const recording = (body: unknown) => {
   }) as typeof fetch } });
   return { client, seen };
 };
+/** a recording client that also answers the exact count (content-range), as PostgREST does for count=exact */
+const counted = (body: unknown[], total: number) => {
+  const seen: { url: URL; headers: Headers }[] = [];
+  const client = createClient('http://127.0.0.1:54321', 'anon-key', { auth: { persistSession: false }, global: { fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push({ url: new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url), headers: new Headers(init?.headers) });
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json', 'content-range': `0-${Math.max(0, body.length - 1)}/${total}` } });
+  }) as typeof fetch } });
+  return { client, seen };
+};
 const row = (p: Partial<MpActivityRow>): MpActivityRow => ({
   run_id: 'r', row_number: 1, occurred_at: null, business_date: '2026-10-15', description: 'payment', source_id: null, net_amount: null, gross_amount: null,
   payment_method: null, payment_method_type: null, coverage_status: 'COVERED', financial_operation_id: null, ...p,
 });
 
 describe('ADR-021 — pending classification data', () => {
-  it('reads only fin_mp_pending_classification; numeric amounts; no balance column', async () => {
-    const { client, seen } = recording([{ pending_key: 'OUT:184280177388', source_id: '184280177388', kind: 'PAYOUT', direction: 'OUT', business_date: '2026-10-15',
+  it('mandatory pendings: one page per scope from fin_mp_pending_classification, server count, deterministic order; no balance column', async () => {
+    const { client, seen } = counted([{ pending_key: 'OUT:184280177388', source_id: '184280177388', kind: 'PAYOUT', direction: 'OUT', business_date: '2026-10-15',
       occurred_at: null, amount: '-68043.27', economic_amount: '67637.45', charges_amount: '-405.82', account_name: 'Mercado Pago', description: 'payout',
-      status: 'PENDING', already_posted: true, financial_operation_id: '7' }]);
-    const r = await listPendingClassification(client);
-    expect(r[0].amount).toBe(-68043.27);
-    expect(r[0].financial_operation_id).toBe(7);
+      status: 'PENDING', already_posted: true, financial_operation_id: '7', is_historical: false, destination_status: null, destination_last4: null, matched_account_name: null }], 1203);
+    const r = await listPendingPage(client, 'current', 2);
+    expect([r.rows[0].amount, r.rows[0].financial_operation_id, r.total, r.page]).toEqual([-68043.27, 7, 1203, 2]);
     expect(seen.map((x) => x.url.pathname)).toEqual(['/rest/v1/fin_mp_pending_classification']);
-    expect(seen[0].url.searchParams.get('select')).not.toMatch(/balance|saldo|cbu|cvu/i);
-    expect(TARGET_VIEWS).toEqual(expect.arrayContaining(['fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status']));
+    const q = seen[0].url.searchParams;
+    expect([q.get('is_historical'), q.get('order'), q.get('offset'), q.get('limit')]).toEqual(['eq.false', 'business_date.asc,source_id.asc', '100', '50']);
+    expect(seen[0].headers.get('prefer')).toMatch(/count=exact/);
+    expect(q.get('select')).not.toMatch(/balance|saldo|cbu|cvu|raw_row/i);
+    await listPendingPage(client, 'historical', 0);
+    expect(seen[1].url.searchParams.get('is_historical')).toBe('eq.true');
+    expect(TARGET_VIEWS).toEqual(expect.arrayContaining(['fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status', 'fin_mp_unlinked_inflows', 'fin_mp_pending_summary']));
   });
   it('technical exceptions come from their own view', async () => {
     const { client, seen } = recording([]);
     await listTechnicalReview(client);
     expect(seen.map((x) => x.url.pathname)).toEqual(['/rest/v1/fin_mp_technical_review']);
   });
-  it('the card totals are what is left to classify, never a balance difference (15/10: 3 outflows, 222,654.96)', () => {
-    expect(summarizePending([{ direction: 'OUT', amount: -131674.89 }, { direction: 'OUT', amount: -68043.27 }, { direction: 'OUT', amount: -22936.8 }]))
-      .toEqual({ count: 3, outgoing: 222654.96, incoming: 0 });
-    expect(summarizePending([{ direction: 'IN', amount: 100000 }])).toEqual({ count: 1, outgoing: 0, incoming: 100000 });
-    expect(summarizePending([])).toEqual({ count: 0, outgoing: 0, incoming: 0 });
+  it('the card reads the server summary (never the rows): mandatory outflows only, current + historical; unlinked inflows apart', async () => {
+    const { client, seen } = recording([{ bucket: 'PENDING_CURRENT', item_count: 3, amount: '-222654.96' }, { bucket: 'PENDING_HISTORICAL', item_count: 192, amount: '-85290319.52' },
+      { bucket: 'UNLINKED_CURRENT', item_count: 102, amount: '1000.00' }, { bucket: 'UNLINKED_HISTORICAL', item_count: 4589, amount: '87110315.50' }]);
+    const s = await readPendingSummary(client);
+    expect(seen.map((x) => x.url.pathname)).toEqual(['/rest/v1/fin_mp_pending_summary']);
+    expect(mandatoryPending(s)).toEqual({ count: 195, outgoing: 85512974.48, current: 3, historical: 192 });
+    expect(s.UNLINKED_HISTORICAL).toEqual({ count: 4589, amount: 87110315.5 });
     expect(PENDING_BALANCE_NOTE).toBe('Estos movimientos ya están incluidos en el saldo. Falta definir su clasificación.');
+  });
+  it('unlinked inflows: server-side filters, newest first, paginated; the search is a SOURCE_ID or a sanitized description', async () => {
+    const { client, seen } = counted([], 4691);
+    const r = await listUnlinkedPage(client, { scope: 'historical', from: '2026-02-01', to: '2026-02-28', min: 100, max: 7500, search: '1846' }, 1);
+    expect(r.total).toBe(4691);
+    const q = seen[0].url.searchParams;
+    expect(seen[0].url.pathname).toBe('/rest/v1/fin_mp_unlinked_inflows');
+    expect([q.get('is_historical'), q.getAll('business_date'), q.getAll('remaining_amount'), q.get('or'), q.get('order'), q.get('offset')])
+      .toEqual(['eq.true', ['gte.2026-02-01', 'lte.2026-02-28'], ['gte.100', 'lte.7500'], '(source_id.like.*1846*)', 'business_date.desc,movement_id.desc', '50']);
+    expect(q.get('select')).not.toMatch(/raw_row|cbu|cvu|event_data/i);
+    expect([searchClause('Juan Pérez'), searchClause('a),or(x.eq.1'), searchClause('  '), searchClause(')(')]).toEqual(['description.ilike.*Juan Pérez*', 'description.ilike.*aorx.eq.1*', null, null]);
+  });
+  it('labels: destination status, inflow subtype, masked account (last 4 only), the two dates of a link', () => {
+    expect(DESTINATION_STATUS_LABEL).toEqual({ OWN_ACCOUNT_TRANSFER_CANDIDATE: 'Posible transferencia a cuenta propia', THIRD_PARTY: 'Destino de terceros', UNKNOWN_DESTINATION: 'Destino desconocido' });
+    expect(INFLOW_SUBTYPE_LABEL).toEqual({ CVU: 'Transferencia (CVU)', DEBIN: 'DEBIN', RECEIPT: 'Cobro' });
+    expect([maskedAccount('0002'), maskedAccount(null), maskedAccount('2850590940090418135201')]).toEqual(['****0002', null, null]);
+    expect(linkDates({ source_date: '2026-02-12', effective_date: '2026-10-16' })).toEqual({ recibido: '2026-02-12', vinculado: '2026-10-16' });
+    expect(PENDING_KIND_LABEL).toEqual({ PAYOUT: 'Retiro', OUTBOUND: 'Pago saliente' });
+    expect(HISTORICAL_ACTION).toBe('Clasificación histórica pendiente (próxima etapa)');
   });
   it('recovery sends only the SOURCE_ID', async () => {
     const { client, seen } = recording({ outcome: 'POSTED', replayed: false });
@@ -98,19 +133,25 @@ describe('ADR-021 — activity and classification routes', () => {
     expect(mpOutflowCandidates(ACT, MATCH).map((c) => [c.sourceId, c.amount])).toEqual([['183240248717', 130889.55], ['184280177388', 67637.45]]);
     expect(mpOwnPayoutCandidates(ACT, MATCH, 'bna').map((c) => c.sourceId)).toEqual(['900']);
   });
-  it('Caja: a "Pendientes de clasificar" tab and the Saldos card; the view uses the existing routes and keeps technical exceptions apart', () => {
+  it('Caja: Pendientes (mandatory, current / historical apart, paginated), Entradas sin vincular (optional), the Saldos card from the server summary', () => {
     const app = SRC('features/caja/CajaApp.tsx');
     expect(app).toMatch(/\{ id: 'pendientes', label: 'Pendientes de clasificar' \}/);
+    expect(app).toMatch(/\{ id: 'entradas', label: 'Entradas sin vincular' \}/);
     expect(app).toMatch(/<ResumenSaldos onVerPendientes=\{\(\) => setVista\('pendientes'\)\} \/>/);
     const v = SRC('features/caja/PendientesClasificar.tsx');
-    expect(v).toMatch(/Pendientes de clasificar: \{s\.count\}/);
+    expect(v).toMatch(/Pendientes de clasificar: \{s\.count\} · \{formatoPesos\(s\.outgoing\)\}/);
     expect(v).toMatch(/Todo clasificado/);
+    expect(v).toMatch(/<ListaPendientes scope="current"/);
+    expect(v).toMatch(/<ListaPendientes scope="historical"/);
+    expect(v).toMatch(/\{r\.is_historical \? <span className="text-xs text-\[#8A7A5C\]">\{HISTORICAL_ACTION\}<\/span> : \(/);   // no unsupported action on history
     expect(v).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
     expect(v).toMatch(/\{r\.kind === 'PAYOUT' && <DestinoRetiro r=\{actividad\} matches=\{matches\} \/>\}/);
-    expect(v).toMatch(/\{r\.kind === 'CLASSIFY_INFLOW' && <ClasificarIngreso paymentId=\{r\.source_id\} \/>\}/);
-    expect(v).toMatch(/\{r\.kind === 'INFLOW' && <span className="text-xs text-\[#8A7A5C\]">\{HISTORICAL_INFLOW_ACTION\}<\/span>\}/);   // ADR-022 historical CVU / DEBIN: no action yet
-    expect([PENDING_KIND_LABEL.INFLOW, HISTORICAL_INFLOW_ACTION]).toEqual(['Ingreso CVU / DEBIN (histórico)', 'Clasificación histórica: próxima etapa']);
+    expect(v).not.toMatch(/CLASSIFY_INFLOW|ClasificarIngreso|summarizePending/);   // inflows are never a mandatory classification (ADR-023)
     expect(v).toMatch(/aria-label="Revisión técnica"/);
-    expect(v).not.toMatch(/report_mp_receipt_status|Cobros sin cliente/);   // receipts without a client are not pending classification
+    const e = SRC('features/caja/EntradasSinVincular.tsx');
+    expect(e).toMatch(/Vincular a cliente/);
+    expect(e).toMatch(/Movimiento recibido: /);
+    expect(e).toMatch(/Vinculado al cliente: /);
+    expect(e).not.toMatch(/raw_row|destination_value|PAYOUT_BANK_ACCOUNT_NUMBER/);
   });
 });

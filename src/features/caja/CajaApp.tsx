@@ -3,16 +3,18 @@ import { useAuth } from '../../auth/useAuth';
 import { Cheques } from './Cheques';
 import { CobrosClientes } from './CobrosClientes';
 import { PendientesClasificar } from './PendientesClasificar';
+import { EntradasSinVincular } from './EntradasSinVincular';
 import { Compras } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
 import { ResumenSaldos } from './ResumenSaldos';
 import { ExtractosBancarios } from './ExtractosBancarios';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 
-type Vista = 'saldos' | 'pendientes' | 'cobros' | 'pagar' | 'compras' | 'instrumentos' | 'extractos';
+type Vista = 'saldos' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'instrumentos' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'saldos', label: 'Saldos' },
   { id: 'pendientes', label: 'Pendientes de clasificar' },
+  { id: 'entradas', label: 'Entradas sin vincular' },   // ADR-023: optional, never an alert
   { id: 'cobros', label: 'Cobros de clientes' },
   { id: 'pagar', label: 'Cuentas a pagar' },
   { id: 'compras', label: 'Compras y fletes' },
@@ -67,6 +69,7 @@ export function CajaApp() {
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
           {vista === 'saldos' && <ResumenSaldos onVerPendientes={() => setVista('pendientes')} />}
           {vista === 'pendientes' && <PendientesClasificar />}
+          {vista === 'entradas' && <EntradasSinVincular />}
           {vista === 'cobros' && <CobrosClientes />}
           {vista === 'pagar' && <CuentasAPagar />}
           {vista === 'compras' && <Compras />}

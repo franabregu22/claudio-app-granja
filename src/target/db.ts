@@ -19,6 +19,7 @@ export const TARGET_VIEWS = [
   'fin_mp_report_activity',   // ADR-018 §15 (0079)
   'fin_customer_collections',   // Meta A (0092): Caja → Cobros de clientes
   'fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status',   // ADR-021 (0093)
+  'fin_mp_unlinked_inflows', 'fin_mp_pending_summary',   // ADR-023 (0095)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -127,6 +128,18 @@ export async function readView<Row>(client: SupabaseClient, view: TargetView,
   const { data, error } = await build(client.from(view).select(columns));
   if (error) throw normalizeDbError(error);
   return (data ?? []) as Row[];
+}
+
+/**
+ * One page of a view with the server's exact row count (PostgREST `range` + `count=exact`): long lists are never
+ * downloaded whole, and the 1000-row response cap can never hide rows. The ordering must be deterministic.
+ */
+export async function readViewPage<Row>(client: SupabaseClient, view: TargetView, build: (q: any) => any, columns: string,
+  page: number, pageSize: number): Promise<{ rows: Row[]; total: number }> {
+  const from = Math.max(0, Math.floor(page)) * pageSize;
+  const { data, error, count } = await build(client.from(view).select(columns, { count: 'exact' })).range(from, from + pageSize - 1);
+  if (error) throw normalizeDbError(error);
+  return { rows: (data ?? []) as Row[], total: count ?? 0 };
 }
 
 /** Read an authorized table (RLS decides the rows). */

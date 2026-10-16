@@ -1,11 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { type FinancialAccountRow, listMaster } from '../../target/masters';
 import {
   classifyMpInflowAsCollection, classifyMpInflowAsOwnTransfer, classifyMpOutflow, confirmMpPayoutTransfer, listMpActivity, listMpPayoutMatches,
   type MpOutflowInput,
 } from '../../target/mpActivity';
-import { listPendingClassification, listTechnicalReview, postPendingOutflow } from '../../target/pendingClassification';
+import { allocateToClient } from '../../target/mp';
+import {
+  listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
+} from '../../target/pendingClassification';
 
 export function useMpActivity(accountId: string) {
   return useQuery({ queryKey: ['mp-activity', accountId], queryFn: () => listMpActivity(supabase, accountId), enabled: accountId !== '' });
@@ -19,7 +22,7 @@ export function useMpPayoutMatches(accountId: string) {
 /** Every MP confirmation / classification can move account, supplier and client balances and the P&L: refresh them all. */
 function useRefreshAfterMp() {
   const qc = useQueryClient();
-  return () => Promise.all([['mp-activity'], ['mp-payout-matches'], ['mp-pending'], ['treasury'], ['pnl'], ['commercial', 'balances']]
+  return () => Promise.all([['mp-activity'], ['mp-payout-matches'], ['mp-pending'], ['treasury'], ['pnl'], ['commercial', 'balances'], ['customer-collections']]
     .map((queryKey) => qc.invalidateQueries({ queryKey })));
 }
 
@@ -45,9 +48,26 @@ export function useOwnBankAccounts() {
     select: (rows) => rows.filter((a) => a.activo && a.account_type === 'BANK_ACCOUNT') });
 }
 
-/** ADR-021 (0093): everything waiting for a classification (ADMIN). */
-export function usePendingClassification() {
-  return useQuery({ queryKey: ['mp-pending', 'list'], queryFn: () => listPendingClassification(supabase) });
+/** ADR-021 / ADR-023: one page of the mandatory pending outflows of a scope (current / historical), with the server count. */
+export function usePendingPage(scope: PendingScope, page: number) {
+  return useQuery({ queryKey: ['mp-pending', 'page', scope, page], queryFn: () => listPendingPage(supabase, scope, page), placeholderData: keepPreviousData });
+}
+
+/** ADR-023: server-side counts / totals (mandatory current / historical, unlinked current / historical). */
+export function usePendingSummary() {
+  return useQuery({ queryKey: ['mp-pending', 'summary'], queryFn: () => readPendingSummary(supabase) });
+}
+
+/** ADR-023: one page of "Entradas sin vincular" (optional; never an alert). */
+export function useUnlinkedInflows(filter: UnlinkedFilter, page: number) {
+  return useQuery({ queryKey: ['mp-pending', 'unlinked', filter, page], queryFn: () => listUnlinkedPage(supabase, filter, page), placeholderData: keepPreviousData });
+}
+
+/** ADR-023: link an inflow to a customer (no date: the server applies the closed-period rule); never moves Mercado Pago. */
+export function useLinkInflow() {
+  const onSettled = useRefreshAfterMp();
+  return useMutation({ mutationFn: (p: { movementId: number; clienteId: string; amount: number; idempotencyKey: string }) =>
+    allocateToClient(supabase, { ...p, effectiveDate: null, reason: 'Vinculación de entrada de Mercado Pago (ADR-023)' }), onSettled });
 }
 
 /** ADR-021 (0093): technical exceptions (unposted outflows, report rows in error), never mixed with the pendings. */
