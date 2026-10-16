@@ -213,7 +213,7 @@ expect('E-5 activity after: O1/O2/O3/O4 + payout CLASSIFIED_OUTFLOW with their o
   + `${O4}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:true,${O5}:PENDING_CLASSIFICATION:-:true,${PAYOUT}:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:true`);
 expect('E-6 helpers INVOKER with no API EXECUTE; SECURITY DEFINER set unchanged (85)',
   `((SELECT string_agg(proname || '=' || prosecdef || has_function_privilege('authenticated', oid, 'EXECUTE'), ',' ORDER BY proname) FROM pg_proc WHERE proname IN ('mp_outflow_resolve', 'mp_outflow_apply_charges'))
-     || '|' || (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace))`, 'mp_outflow_apply_charges=falsefalse,mp_outflow_resolve=falsefalse|91');
+     || '|' || (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace))`, 'mp_outflow_apply_charges=falsefalse,mp_outflow_resolve=falsefalse|93');
 expect('E-7 mp_v4_verified() still false', `mp_v4_verified()::text`, 'false');
 
 add('ROLLBACK;');

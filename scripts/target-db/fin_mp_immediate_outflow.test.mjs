@@ -283,11 +283,11 @@ expect('I-1 reserve / control rows never post and never become pending',
   `(SELECT count(*)::text FROM mp_source_record s WHERE s.external_id LIKE '${O1}:reserve_for_payment:%' AND EXISTS (SELECT 1 FROM mp_financial_movement m JOIN mp_reconciliation r ON r.mp_financial_movement_id = m.id WHERE m.mp_source_record_id = s.id))`, '0');
 expect('I-2 no duplicate postings', `(SELECT count(*)::text FROM (SELECT financial_operation_id, financial_account_id, signed_amount FROM financial_posting GROUP BY 1, 2, 3 HAVING count(*) > 1) x)`, '0');
 expect('I-3 pending / resolution rows are immutable', `pg_temp.err_of($q$UPDATE mp_pending_outflow SET amount = -1 WHERE source_id = '${O1}'$q$)`, 'ERR:FIN_EVIDENCE_IMMUTABLE%');
-expect('I-4 helpers INVOKER / guards DEFINER without API EXECUTE; recovery RPC for authenticated; SECURITY DEFINER set 91',
+expect('I-4 helpers INVOKER / guards DEFINER without API EXECUTE; recovery RPC for authenticated; SECURITY DEFINER set 93',
   `((SELECT string_agg(proname || '=' || prosecdef || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('anon', oid, 'EXECUTE'), ',' ORDER BY proname)
      FROM pg_proc WHERE proname IN ('mp_pending_outflow_post', 'mp_pending_outflow_release', 'mp_pending_classification_totals', 'mp_reconciliation_pending_guard', 'management_period_close_guard', 'mp_post_pending_outflow'))
      || '|' || (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace))`,
-  'management_period_close_guard=truefalsefalse,mp_pending_classification_totals=falsefalsefalse,mp_pending_outflow_post=falsefalsefalse,mp_pending_outflow_release=falsefalsefalse,mp_post_pending_outflow=truetruefalse,mp_reconciliation_pending_guard=truefalsefalse|91');
+  'management_period_close_guard=truefalsefalse,mp_pending_classification_totals=falsefalsefalse,mp_pending_outflow_post=falsefalsefalse,mp_pending_outflow_release=falsefalsefalse,mp_post_pending_outflow=truetruefalse,mp_reconciliation_pending_guard=truefalsefalse|93');
 expect('I-5 mp_v4_verified() still false', `mp_v4_verified()::text`, 'false');
 
 add('ROLLBACK;');

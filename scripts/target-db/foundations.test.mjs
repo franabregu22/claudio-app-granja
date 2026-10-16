@@ -189,6 +189,7 @@ const LATER_PHASE_TABLES = [
   'mp_source_exception',                                                                        // 0091 audited exceptions to the MP source invariant
   'collection_correction',                                                                      // 0092 manual MP collection corrections
   'mp_pending_outflow', 'mp_pending_outflow_resolution',                                       // 0093 ADR-021 pending outflows
+  'mp_historical_run', 'mp_historical_row', 'mp_historical_destination', 'mp_historical_reconstruction', 'mp_historical_payout',   // 0094 ADR-022
 ];
 const foundationFound = tableList.filter((t) => expectedTables.includes(t));
 check(`17 Foundation tables exist (found ${foundationFound.length})`, foundationFound.length === 17, foundationFound.join(','));

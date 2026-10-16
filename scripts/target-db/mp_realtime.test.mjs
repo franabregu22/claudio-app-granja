@@ -708,6 +708,7 @@ const ADR018_DEFINERS = ['register_casual_purchase', 'rectify_casual_purchase_cl
   'mp_account_posting_guard', 'mp_admin_correction',   // global MP source invariant (0091)
   'mp_correct_manual_collection',   // manual MP collection corrections (0092)
   'management_period_close_guard', 'mp_post_pending_outflow', 'mp_reconciliation_pending_guard',   // ADR-021 (0093)
+  'mp_historical_stage', 'mp_historical_reconstruct',   // ADR-022 (0094)
   'fin_capture_mp_release_report', 'fin_import_bank_statement', 'fin_ingest_mp_release_report', 'fin_match_statement_line', 'fin_mp_payout_matches', 'fin_record_mp_payout_destinations', 'fin_record_mp_report_schedule', 'fin_resolve_statement_cutover', 'fin_reverse_statement_match', 'mp_classify_inflow_as_collection', 'mp_classify_payout_outflow', 'mp_confirm_payout_transfer', 'mp_reclassify_inbound_own_transfer', 'mp_register_report_backfill'];   // ADR-018 (0075, 0078, 0079, 0081, 0083, 0084) + 0086
 const expected = [...BASELINE_DEFINERS, ...Object.keys(STEP2_DEFINERS), ...STEP6_DEFINERS, ...STEP7_DEFINERS, ...ADR007_DEFINERS, ...ADR016_DEFINERS, ...ADR018_DEFINERS].sort().join(',');
 check(`Z1 exact SECURITY DEFINER set = baseline (41) ∪ the ${Object.keys(STEP2_DEFINERS).length} Step-2 definers ∪ the Step-6 definer mp_ingest_api_snapshot ∪ the ADR-007 definers register_flock / close_flock ∪ the Step-7 definers mp_apply_transition / mp_normalize_report_fallback, by name`, definers === expected,

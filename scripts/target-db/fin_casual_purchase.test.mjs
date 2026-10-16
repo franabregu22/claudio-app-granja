@@ -272,7 +272,7 @@ expect('Z-2 mp_outflow_classification: RLS, ADMIN SELECT only, immutable', `((SE
    AND (SELECT string_agg(policyname || ':' || cmd, ',') FROM pg_policies WHERE tablename = 'mp_outflow_classification') = 'mp_outflow_classification_admin_select:SELECT'
    AND NOT has_table_privilege('authenticated', 'mp_outflow_classification', 'INSERT,UPDATE,DELETE')
    AND pg_temp.err_of('UPDATE mp_outflow_classification SET amount = 1') LIKE 'ERR:%')::text`, 'true');
-expect('Z-3 SECURITY DEFINER set = 91 (81 + register_casual_purchase + rectify_casual_purchase_classification)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '91');
+expect('Z-3 SECURITY DEFINER set = 93 (81 + register_casual_purchase + rectify_casual_purchase_classification)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '93');
 
 add('ROLLBACK;');
 

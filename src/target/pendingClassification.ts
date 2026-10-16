@@ -8,7 +8,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readView } from './db';
 
-export type PendingKind = 'PAYOUT' | 'OUTBOUND' | 'CLASSIFY_INFLOW';
+/** INFLOW (0094, ADR-022): a historical CVU / DEBIN receipt, already in the balance, awaiting classification (no action yet). */
+export type PendingKind = 'PAYOUT' | 'OUTBOUND' | 'CLASSIFY_INFLOW' | 'INFLOW';
 export interface PendingRow {
   pending_key: string; source_id: string; kind: PendingKind; direction: 'OUT' | 'IN'; business_date: string; occurred_at: string | null;
   /** signed: an outflow is the report's net debit (negative), an inflow its gross (positive) */
@@ -61,9 +62,10 @@ export function postPendingOutflow(client: SupabaseClient, sourceId: string): Pr
 }
 
 export const PENDING_BALANCE_NOTE = 'Estos movimientos ya están incluidos en el saldo. Falta definir su clasificación.';
+export const HISTORICAL_INFLOW_ACTION = 'Clasificación histórica: próxima etapa';
 export const PENDING_INFLOW_NOTE = 'Ingreso desde una cuenta propia o cobro: se suma al saldo cuando lo clasificás.';
 export const PENDING_KIND_LABEL: Record<PendingKind, string> = {
-  PAYOUT: 'Retiro', OUTBOUND: 'Pago saliente', CLASSIFY_INFLOW: 'Ingreso (cuenta propia o cobro)',
+  PAYOUT: 'Retiro', OUTBOUND: 'Pago saliente', CLASSIFY_INFLOW: 'Ingreso (cuenta propia o cobro)', INFLOW: 'Ingreso CVU / DEBIN (histórico)',
 };
 export const TECHNICAL_ISSUE_LABEL: Record<TechnicalIssue, string> = {
   UNPOSTED_OUTFLOW: 'Salida de Mercado Pago sin registrar', REPORT_ROW_ERROR: 'Fila del reporte con error',

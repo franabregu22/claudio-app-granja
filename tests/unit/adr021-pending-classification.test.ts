@@ -15,7 +15,7 @@ import {
   PENDING_ACTIVITY_NOTE,
 } from '../../src/target/mpActivity';
 import {
-  listPendingClassification, listTechnicalReview, PENDING_BALANCE_NOTE, postingOperationLabel, postPendingOutflow, summarizePending,
+  HISTORICAL_INFLOW_ACTION, listPendingClassification, listTechnicalReview, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL, postingOperationLabel, postPendingOutflow, summarizePending,
 } from '../../src/target/pendingClassification';
 
 const SRC = (f: string) => readFileSync(resolve(__dirname, '../../src', f), 'utf8');
@@ -108,6 +108,8 @@ describe('ADR-021 — activity and classification routes', () => {
     expect(v).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
     expect(v).toMatch(/\{r\.kind === 'PAYOUT' && <DestinoRetiro r=\{actividad\} matches=\{matches\} \/>\}/);
     expect(v).toMatch(/\{r\.kind === 'CLASSIFY_INFLOW' && <ClasificarIngreso paymentId=\{r\.source_id\} \/>\}/);
+    expect(v).toMatch(/\{r\.kind === 'INFLOW' && <span className="text-xs text-\[#8A7A5C\]">\{HISTORICAL_INFLOW_ACTION\}<\/span>\}/);   // ADR-022 historical CVU / DEBIN: no action yet
+    expect([PENDING_KIND_LABEL.INFLOW, HISTORICAL_INFLOW_ACTION]).toEqual(['Ingreso CVU / DEBIN (histórico)', 'Clasificación histórica: próxima etapa']);
     expect(v).toMatch(/aria-label="Revisión técnica"/);
     expect(v).not.toMatch(/report_mp_receipt_status|Cobros sin cliente/);   // receipts without a client are not pending classification
   });

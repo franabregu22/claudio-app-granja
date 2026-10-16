@@ -1,7 +1,7 @@
 import { errorMessage } from '../../target/messages';
 import { isMercadoPagoAccount, type MpActivityRow, type MpPayoutMatch } from '../../target/mpActivity';
 import {
-  PENDING_BALANCE_NOTE, PENDING_INFLOW_NOTE, PENDING_KIND_LABEL, type PendingRow, summarizePending, TECHNICAL_ISSUE_LABEL, type TechnicalRow,
+  HISTORICAL_INFLOW_ACTION, PENDING_BALANCE_NOTE, PENDING_INFLOW_NOTE, PENDING_KIND_LABEL, type PendingRow, summarizePending, TECHNICAL_ISSUE_LABEL, type TechnicalRow,
 } from '../../target/pendingClassification';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
@@ -99,6 +99,7 @@ function FilaPendiente({ r, matches }: { r: PendingRow; matches: ReadonlyMap<str
         {r.kind === 'OUTBOUND' && <ClasificarSalida sourceId={r.source_id} />}
         {r.kind === 'PAYOUT' && <DestinoRetiro r={actividad} matches={matches} />}
         {r.kind === 'CLASSIFY_INFLOW' && <ClasificarIngreso paymentId={r.source_id} />}
+        {r.kind === 'INFLOW' && <span className="text-xs text-[#8A7A5C]">{HISTORICAL_INFLOW_ACTION}</span>}
       </td>
     </tr>
   );

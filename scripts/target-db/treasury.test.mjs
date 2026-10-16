@@ -73,7 +73,8 @@ const LATER_PHASE_TABLES = ['financial_instrument', 'financial_instrument_event'
   'mp_inflow_classification', // 0089
   'mp_source_exception', // 0091
   'collection_correction', // 0092
-  'mp_pending_outflow', 'mp_pending_outflow_resolution']; // 0093
+  'mp_pending_outflow', 'mp_pending_outflow_resolution', // 0093
+  'mp_historical_run', 'mp_historical_row', 'mp_historical_destination', 'mp_historical_reconstruction', 'mp_historical_payout']; // 0094
 
 let container;
 let pass = 0;
