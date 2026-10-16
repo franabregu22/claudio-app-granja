@@ -565,10 +565,14 @@ const colTr = rpc(collectCall(cF, 7000, 'TRANSFER', `${TAG}-R-TR-1`, '2026-04-16
 check('F3 TRANSFER reduces debt by 7000.00', clientBalance(cF) === '8000.00', clientBalance(cF));
 check('F4 TRANSFER increases BNA by exactly +7000.00', accountBalance(ACC.BNA) === plus(bna0, 7000), accountBalance(ACC.BNA));
 
-const colMp = rpc(collectCall(cF, 3000, 'MERCADOPAGO', `${TAG}-R-MP-1`, '2026-04-17', ACC.MP));
-check('F5 MERCADOPAGO reduces debt by the gross amount (3000.00)', clientBalance(cF) === '5000.00', clientBalance(cF));
-check('F6 MERCADOPAGO increases the Mercado Pago account by the gross +3000.00 (no netting)',
-  accountBalance(ACC.MP) === plus(mp0, 3000), accountBalance(ACC.MP));
+// Meta A (0091, owner decision 2026-10-15): a manual collection never posts on Mercado Pago — it must come from the
+// Mercado Pago movement (mp_allocate_to_client). The manual attempt is refused at commit and writes nothing.
+r = ADMIN(`SELECT ${collectCall(cF, 3000, 'MERCADOPAGO', `${TAG}-R-MP-1`, '2026-04-17', ACC.MP)};`);
+check('F5 a manual MERCADOPAGO collection on the Mercado Pago account is refused (MP_POSTING_REQUIRES_SOURCE); debt unchanged',
+  raised(r, 'MP_POSTING_REQUIRES_SOURCE') && clientBalance(cF) === '8000.00'
+  && owner(`SELECT count(*) FROM collections WHERE receipt_id = '${TAG}-R-MP-1';`) === '0', r.err);
+check('F6 the Mercado Pago account is untouched by the refused collection', accountBalance(ACC.MP) === mp0, accountBalance(ACC.MP));
+const colMp = rpc(collectCall(cF, 3000, 'TRANSFER', `${TAG}-R-TR-2`, '2026-04-17', ACC.BNA));
 check('F7 an account not involved is untouched (Patagonia)', accountBalance(ACC.PAT) === pat0);
 
 const op = owner(`SELECT operation_type || '|' || effective_date || '|' || external_ref || '|' || source_entity_type
@@ -582,7 +586,7 @@ check('F9 exactly one posting per collection: +7000.00 on BNA at the collection 
 const colRow = owner(`SELECT payment_method || '|' || amount || '|' || receipt_id || '|' || financial_account_id || '|' || created_by
   FROM collections WHERE id = '${colMp.collection_id}';`);
 check('F10 collections row keeps method, amount, receipt, account, actor',
-  colRow === `MERCADOPAGO|3000.00|${TAG}-R-MP-1|${ACC.MP}|${ADMIN_UID}`, colRow);
+  colRow === `TRANSFER|3000.00|${TAG}-R-TR-2|${ACC.BNA}|${ADMIN_UID}`, colRow);
 
 const sep = owner(`SELECT string_agg(movement_type || ':' || source_entity_type, ',' ORDER BY id) FROM client_ledger WHERE cliente_id = '${cF}';`);
 const postingFromPedido = owner(`SELECT count(*) FROM financial_posting fp JOIN financial_operation fo ON fo.id = fp.financial_operation_id
@@ -641,9 +645,9 @@ const derivedF = owner(`SELECT (
       WHERE p.cliente_id = '${cF}' AND p.estado = 'DELIVERED' AND l.is_current)
   - (SELECT COALESCE(SUM(amount), 0) FROM collections WHERE cliente_id = '${cF}'))::NUMERIC(15,2);`);
 check('G2 ledger balance equals current delivered lines minus collections (no hidden source)', derivedF === clientBalance(cF), derivedF);
-check('G3 account balance = SUM(financial_posting.signed_amount): Caja +14000, BNA +7000, MP +3000',
-  accountBalance(ACC.CAJA) === plus(caja0, 14000) && accountBalance(ACC.BNA) === plus(bna0, 7000)
-  && accountBalance(ACC.MP) === plus(mp0, 3000));
+check('G3 account balance = SUM(financial_posting.signed_amount): Caja +14000, BNA +10000, MP unchanged (0091)',
+  accountBalance(ACC.CAJA) === plus(caja0, 14000) && accountBalance(ACC.BNA) === plus(bna0, 10000)
+  && accountBalance(ACC.MP) === mp0);
 // ADR-018 (owner decisions 2026-10-10 / 2026-10-11): exactly four (relation, column) pairs are exempt — the two
 // evidence columns and their untransformed projections in fin_statement_line_status
 const G4_QUERY = `SELECT coalesce(string_agg(table_name || '.' || column_name, ',' ORDER BY table_name, column_name), '') FROM information_schema.columns
@@ -660,7 +664,8 @@ ${G4_QUERY}
 ROLLBACK;`);
 check('G4 stays fail-closed: balance in another table, running_balance in another table and another view, opening_balance in another view are all detected',
   g4Probe === 'adr018_g4_probe.balance,adr018_g4_probe_v.opening_balance,adr018_g4_probe_v.running_balance,fin_statement_match.running_balance', g4Probe);
-const triggers = owner(`SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal
+// Meta A (0091): the one allowed trigger is the MP source guard on financial_posting — a check, it maintains no balance
+const triggers = owner(`SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname <> 'trg_mp_account_posting_source'
   AND tgrelid::regclass::TEXT IN (${COMMERCIAL_TABLES.map((t) => `'${t}'`).join(',')}, 'clients', 'financial_account');`);
 check('G5 no trigger maintains any balance (no user triggers on commercial/master tables)', triggers === '0', triggers);
 

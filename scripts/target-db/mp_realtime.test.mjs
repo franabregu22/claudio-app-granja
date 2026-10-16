@@ -234,9 +234,12 @@ function receipt({ gross = 100, fee = -5, tax = -2, date = '2026-10-05', applied
       const key = `MPA:${t}:${k}`;
       const op = owner(`INSERT INTO financial_operation (operation_type, effective_date, external_ref, source_entity_type, source_entity_id, reason)
         VALUES ('${type}', '${date}', 'MP:${TAG}:${key}', 'mp_financial_movement', '${mv}', 'fixture') RETURNING id;`);
-      owner(`INSERT INTO financial_posting (financial_operation_id, financial_account_id, signed_amount, effective_date) VALUES (${op}, '${MPACC}', ${amt}, '${date}');`);
-      owner(`INSERT INTO mp_reconciliation (mp_financial_movement_id, financial_operation_id, financial_account_id, assigned_amount, idempotency_key)
-        VALUES (${mv}, ${op}, '${MPACC}', ${amt}, '${key}');`);
+      // Meta A (0091): the MP posting and its reconciliation commit together (MP_POSTING_REQUIRES_SOURCE otherwise)
+      owner(`BEGIN;
+        INSERT INTO financial_posting (financial_operation_id, financial_account_id, signed_amount, effective_date) VALUES (${op}, '${MPACC}', ${amt}, '${date}');
+        INSERT INTO mp_reconciliation (mp_financial_movement_id, financial_operation_id, financial_account_id, assigned_amount, idempotency_key)
+          VALUES (${mv}, ${op}, '${MPACC}', ${amt}, '${key}');
+        COMMIT;`);
     }
     owner(`UPDATE mp_source_record SET processing_status = 'RECONCILED' WHERE id = '${src}';`);
   }

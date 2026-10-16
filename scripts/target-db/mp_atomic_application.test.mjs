@@ -275,11 +275,14 @@ let P1;
   const s9 = snap();
   const r9 = SVC(`SELECT mp_apply_transition(${pay.mv});`);
   const s9a = snap();
-  const tr = JSON.parse(okAs(ADMIN, `SELECT transfer_between_accounts('${MPACC}', '${OTHER}', 4970, '2026-11-08', '${TAG}-tr-${pay.mv}', '${TAG} payout link');`));
-  const trOp = tr.financial_operation_id ?? tr.operation_id ?? tr.id;
-  const r9b = ADMIN(`SELECT mp_reconcile_movement(${pay.mv}, -4970, '${TAG}-t9-${pay.mv}', '${MPACC}', 'MP_SETTLEMENT', ${trOp}, '${TAG} payout');`);
+  // Meta A (0091): an operation moving Mercado Pago must be linked to its MP movement in the SAME transaction — the
+  // transfer and its Mode-2 link are one statement (a transfer left unlinked at commit is refused: MP_POSTING_REQUIRES_SOURCE)
+  const r9b = ADMIN(`WITH t AS (SELECT transfer_between_accounts('${MPACC}', '${OTHER}', 4970, '2026-11-08', '${TAG}-tr-${pay.mv}', '${TAG} payout link') AS j)
+    SELECT mp_reconcile_movement(${pay.mv}, -4970, '${TAG}-t9-${pay.mv}', '${MPACC}', 'MP_SETTLEMENT', (SELECT (j->>'financial_operation_id')::BIGINT FROM t), '${TAG} payout');`);
+  const r9c = ADMIN(`SELECT transfer_between_accounts('${MPACC}', '${OTHER}', 10, '2026-11-08', '${TAG}-tr-unlinked-${pay.mv}', '${TAG} unlinked');`);
+  const tr = { unlinkedRefused: raised(r9c, 'MP_POSTING_REQUIRES_SOURCE') };
   check('T-9 payout → NOT_AUTO_APPLICABLE (Δ = 0); RPC 41 Mode 2 to transfer_between_accounts still links it; source RECONCILED',
-    raised(r9, 'NOT_AUTO_APPLICABLE') && r9b.ok && srcStatus(pay.mv) === 'RECONCILED', `${errOf(r9)} / ${r9b.ok ? '' : errOf(r9b)} / ${JSON.stringify(tr)}`);
+    raised(r9, 'NOT_AUTO_APPLICABLE') && r9b.ok && srcStatus(pay.mv) === 'RECONCILED' && tr.unlinkedRefused, `${errOf(r9)} / ${r9b.ok ? '' : errOf(r9b)} / ${JSON.stringify(tr)}`);
   check('T-9b the NOT_AUTO_APPLICABLE refusal wrote nothing (Δ every counted table = 0)', s9a === s9);
 
   // T-10 / M-3 yield

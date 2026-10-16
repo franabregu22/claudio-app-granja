@@ -274,7 +274,8 @@ const cons = owner(`SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_con
 check('A3 constraints: posting signed_amount <> 0, posting → operation FK, posting → account FK, UNIQUE external_ref, PKs',
   cons === 'financial_operation_created_by_fkey,financial_operation_external_ref_key,financial_operation_pkey,'
   + 'financial_posting_created_by_fkey,financial_posting_financial_account_id_fkey,financial_posting_financial_operation_id_fkey,'
-  + 'financial_posting_pkey,financial_posting_signed_amount_check', cons);
+  + 'financial_posting_pkey,financial_posting_signed_amount_check,'
+  + 'trg_mp_account_posting_source', cons);   // Meta A (0091): MP source invariant constraint trigger
 const notNull = owner(`SELECT string_agg(column_name, ',' ORDER BY column_name) FROM information_schema.columns
   WHERE table_name = 'financial_posting' AND is_nullable = 'NO';`);
 check('A4 posting always has an operation, an account, an amount and a date (NOT NULL)',
