@@ -45,7 +45,7 @@ describe('ADR-018 MP activity — data', () => {
 describe('ADR-018 MP activity — labels', () => {
   it('every coverage status has a readable label', () => {
     expect(STATUSES.map((s) => MP_STATUS_LABEL[s])).toEqual(['Control del reporte', 'Anterior al corte', 'Reserva interna', 'Cubierto',
-      'Recuperado del reporte', 'Recuperación pendiente', 'Excepción', 'Rendimiento', 'Retiro', 'Pago saliente (sin efecto)']);
+      'Recuperado del reporte', 'Recuperación pendiente', 'Excepción', 'Rendimiento', 'Retiro', 'Pago saliente sin clasificar']);
   });
   it('type from DESCRIPTION and sign (no classification by payment method)', () => {
     expect(mpActivityType({ description: 'payment', net_amount: 49.7 })).toBe('Cobro');

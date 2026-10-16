@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { isMercadoPagoAccount, isVisibleActivity, MP_OUTFLOW_CHOICE_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowChoice, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
+import { isClassifiableOutbound, isMercadoPagoAccount, isVisibleActivity, MP_OUTFLOW_CHOICE_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowChoice, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useClassifyMp, useConfirmPayoutTransfer, useMpActivity, useMpPayoutMatches, useOwnBankAccounts } from './useMpActivity';
@@ -143,7 +143,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
   }
   return (
     <div className="space-y-2">
-      <p className="text-xs text-[#8A7A5C]">Actividad informada por el reporte oficial de Mercado Pago. Es evidencia: no modifica el saldo ERP; los cobros se registran solo por el circuito de pagos de Mercado Pago. Solo &quot;Confirmar transferencia&quot; registra un retiro a una cuenta propia como transferencia interna.</p>
+      <p className="text-xs text-[#8A7A5C]">Actividad informada por el reporte oficial de Mercado Pago. Es evidencia: no modifica el saldo ERP; los cobros se registran solo por el circuito de pagos de Mercado Pago. Solo &quot;Confirmar transferencia&quot; registra un retiro a una cuenta propia como transferencia interna; &quot;Clasificar salida&quot; registra un retiro o un pago saliente a terceros (el impuesto de Mercado Pago queda aparte).</p>
       <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
         <table className="w-full text-sm" aria-label="Actividad Mercado Pago">
           <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
@@ -161,6 +161,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
                   <span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{mpStatusLabel(r)}</span>
                   <DestinoRetiro r={r} matches={matches} />
                   {r.coverage_status === 'CLASSIFY_INFLOW' && r.source_id && <ClasificarIngreso paymentId={r.source_id} />}
+                  {isClassifiableOutbound(r) && r.source_id && <ClasificarSalida sourceId={r.source_id} />}
                 </td>
               </tr>
             ))}
@@ -207,7 +208,8 @@ const ACCION_CLS = 'text-xs px-2 py-0.5 rounded border border-amber-300 bg-white
  * withdrawal. Only identifiers, the concept and the optional counterparty name are sent: amount, date and the Mercado Pago
  * account are resolved by the server. A registered supplier: purchase + payment, or the payment of its existing debt.
  * "Sin proveedor registrado" (ADR-019): a casual purchase — no supplier, no supplier debt, optional "Comercio / nombre".
- * Own-account payouts keep their own confirmation.
+ * Own-account payouts keep their own confirmation. ADR-020 (0090): an unclassified outbound payment uses the same form; the
+ * purchase gets the economic amount and the Mercado Pago tax is booked apart by the server.
  */
 function ClasificarSalida({ sourceId }: { sourceId: string }) {
   const [abierto, setAbierto] = useState(false);

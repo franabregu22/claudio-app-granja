@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
+import { mpOutflowCandidates } from '../../target/mpActivity';
 import { INSTRUMENT_TYPES, SUPPLIER_PAYMENT_METHODS, type InstrumentType, type LedgerBalance, type SupplierPaymentMethod } from '../../target/treasury';
 import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta, Modal } from './Modal';
+import { BloqueoMp, SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './MovimientoMp';
+import { useClassifyMp } from './useMpActivity';
 import { useLedgerBalances, useTreasuryMutations } from './useTreasury';
 
 const METODO: Record<SupplierPaymentMethod | InstrumentType, string> = {
@@ -15,6 +18,8 @@ const METODO: Record<SupplierPaymentMethod | InstrumentType, string> = {
  * Cuentas a pagar (F27-D): the supplier balance is the latest closing balance of the supplier ledger in
  * report_balance_period (purchases + freight − payments − issued / endorsed instruments, all booked by the backend).
  * Paying is pay_supplier; paying with a cheque or eCheq is issue_supplier_instrument (the contract's only path).
+ * Meta A (0091): paying from Mercado Pago is the payment of the supplier debt with a Mercado Pago outflow (payout to a third
+ * party or outbound payment) chosen here: mp_classify_payout_outflow SUPPLIER_PAYMENT; amount and date come from the movement.
  */
 export function CuentasAPagar() {
   const saldos = useLedgerBalances('SUPPLIER');
@@ -63,9 +68,20 @@ function PagoProveedorModal({ proveedor, onClose }: { proveedor: LedgerBalance; 
   const [clave] = useState(() => crypto.randomUUID());   // idempotency: one per opened form
   const esInstrumento = (INSTRUMENT_TYPES as readonly string[]).includes(metodo);
   const mutacion = esInstrumento ? issueInstrument : paySupplier;
-  const puede = Number(monto) > 0 && cuentaId !== '' && fecha !== '' && (!esInstrumento || (numero.trim() !== '' && vencimiento !== ''));
+  const esMp = useEsCuentaMp(cuentaId);
+  const actividadMp = useActividadMp(cuentaId, esMp && !esInstrumento);
+  const candidatosMp = mpOutflowCandidates(actividadMp.rows, actividadMp.matches);
+  const [movimientoMp, setMovimientoMp] = useState('');
+  const { outflow } = useClassifyMp();
+  const mutacionFinal = esMp && !esInstrumento ? outflow : mutacion;
+  const puede = esMp ? !esInstrumento && candidatosMp.some((c) => c.sourceId === movimientoMp)
+    : Number(monto) > 0 && cuentaId !== '' && fecha !== '' && (!esInstrumento || (numero.trim() !== '' && vencimiento !== ''));
 
   function guardar() {
+    if (esMp) {
+      if (!esInstrumento) outflow.mutate({ sourceId: movimientoMp, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor.entity_id }, { onSuccess: onClose });
+      return;
+    }
     if (esInstrumento) {
       issueInstrument.mutate({
         supplierId: proveedor.entity_id, type: metodo as InstrumentType, chequeNumber: numero.trim(), amount: Number(monto), maturityDate: vencimiento,
@@ -80,8 +96,8 @@ function PagoProveedorModal({ proveedor, onClose }: { proveedor: LedgerBalance; 
   }
 
   return (
-    <Modal titulo={`Pagar a ${proveedor.entity_name}`} onClose={onClose} onSubmit={guardar} puedeGuardar={puede} guardando={mutacion.isPending}
-      error={mutacion.error} textoGuardar={esInstrumento ? 'Emitir' : 'Registrar pago'}>
+    <Modal titulo={`Pagar a ${proveedor.entity_name}`} onClose={onClose} onSubmit={guardar} puedeGuardar={puede} guardando={mutacionFinal.isPending}
+      error={mutacionFinal.error ?? (esMp ? actividadMp.error : null)} textoGuardar={esInstrumento ? 'Emitir' : 'Registrar pago'}>
       <p className="text-sm text-gray-600">Deuda actual: <span className="font-bold text-red-600">{formatoPesos(proveedor.balance)}</span></p>
       <div className="grid grid-cols-3 gap-2">
         {[...SUPPLIER_PAYMENT_METHODS, ...INSTRUMENT_TYPES].map((m) => (
@@ -91,14 +107,18 @@ function PagoProveedorModal({ proveedor, onClose }: { proveedor: LedgerBalance; 
           </button>
         ))}
       </div>
-      <label className={etiqueta}>Monto
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
-      </label>
       <label className={etiqueta}>{esInstrumento ? 'Cuenta de emisión (se debita al cobrarse)' : 'Cuenta de la que sale el dinero'}
         <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={campo}>
           <option value="">Elegir cuenta…</option>
           {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
+      </label>
+      {esMp && (esInstrumento ? <BloqueoMp /> : (
+        <SelectorMovimientoMp titulo="Salida de Mercado Pago" candidatos={candidatosMp} cargando={actividadMp.cargando} value={movimientoMp} onChange={setMovimientoMp} />
+      ))}
+      {!esMp && <>
+      <label className={etiqueta}>Monto
+        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
       <label className={etiqueta}>{esInstrumento ? 'Fecha de emisión' : 'Fecha del pago'}
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
@@ -113,6 +133,7 @@ function PagoProveedorModal({ proveedor, onClose }: { proveedor: LedgerBalance; 
           </label>
         </>
       )}
+      </>}
       <label className={etiqueta}>Notas (opcional)
         <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
       </label>

@@ -17,6 +17,7 @@ export const TARGET_VIEWS = [
   'report_feria_closing',   // ADR-016
   'fin_statement_line_status',   // ADR-018 (0076)
   'fin_mp_report_activity',   // ADR-018 §15 (0079)
+  'fin_customer_collections',   // Meta A (0092): Caja → Cobros de clientes
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 

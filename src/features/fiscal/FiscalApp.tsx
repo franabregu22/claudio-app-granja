@@ -7,6 +7,7 @@ import {
 import { errorMessage } from '../../target/messages';
 import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
+import { BloqueoMp, useEsCuentaMp } from '../caja/MovimientoMp';
 import { useClients, useSuppliers } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
@@ -257,9 +258,10 @@ function PagoModal({ obligacion, onClose }: { obligacion: ObligationRow; onClose
   const [cuentaId, setCuentaId] = useState('');
   const [cuotaId, setCuotaId] = useState('');
   const [clave] = useState(() => `FISC-${crypto.randomUUID()}`);   // idempotency: one per opened form
+  const esMp = useEsCuentaMp(cuentaId);   // Meta A (0091): a tax payment from Mercado Pago is not a manual route
   return (
     <Modal titulo={`Pagar ${obligacion.tax_kind} ${obligacion.fiscal_period.slice(0, 7)}`} onClose={onClose}
-      puedeGuardar={Number(monto) > 0 && cuentaId !== '' && fecha !== ''} guardando={pay.isPending} error={pay.error ?? cuentas.error} textoGuardar="Registrar pago"
+      puedeGuardar={Number(monto) > 0 && cuentaId !== '' && fecha !== '' && !esMp} guardando={pay.isPending} error={pay.error ?? cuentas.error} textoGuardar="Registrar pago"
       onSubmit={() => pay.mutate({ obligationId: obligacion.id, date: fecha, amount: Number(monto), accountId: cuentaId, idempotencyKey: clave, installmentId: cuotaId || null },
         { onSuccess: onClose })}>
       <p className="text-sm text-gray-600">Obligación {formatoPesos(obligacion.amount)} · {ESTADO[obligacion.status]}</p>
@@ -279,6 +281,7 @@ function PagoModal({ obligacion, onClose }: { obligacion: ObligationRow; onClose
           {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
       </label>
+      {esMp && <BloqueoMp />}
     </Modal>
   );
 }

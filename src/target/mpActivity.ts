@@ -39,7 +39,7 @@ export const MP_STATUS_LABEL: Record<MpCoverageStatus, string> = {
   EXCEPTION: 'Excepción',
   YIELD: 'Rendimiento',
   PAYOUT: 'Retiro',
-  OUTBOUND: 'Pago saliente (sin efecto)',
+  OUTBOUND: 'Pago saliente sin clasificar',   // ADR-020 (0090): classifiable like a payout to a third party
   OWN_TRANSFER: 'Transferencia entre cuentas propias',
   CLASSIFY_INFLOW: 'Clasificar ingreso',
   CLASSIFIED_OUTFLOW: 'Salida clasificada',
@@ -184,4 +184,56 @@ export async function classifyMpInflowAsCollection(client: SupabaseClient, payme
 /** 0086 — an account_fund + DEBIN inflow came from an own account: one TRANSFER own account → Mercado Pago (server-side). */
 export async function classifyMpInflowAsOwnTransfer(client: SupabaseClient, paymentId: string, fromAccountId: string): Promise<{ replayed: boolean }> {
   return callRpc(client, 'mp_reclassify_inbound_own_transfer', { p_payment_id: paymentId, p_from_account_id: fromAccountId, p_reason: null });
+}
+
+/** ADR-020 (0090) — an unclassified outbound payment (money sent from Mercado Pago to a third party): "Clasificar salida". */
+export const isClassifiableOutbound = (r: Pick<MpActivityRow, 'coverage_status' | 'source_id' | 'net_amount'>) =>
+  r.coverage_status === 'OUTBOUND' && Boolean(r.source_id) && (r.net_amount ?? 0) < 0;
+
+/**
+ * Meta A (0091) — every operation that moves the Mercado Pago account must come from a Mercado Pago movement (SOURCE_ID).
+ * The manual forms never post on Mercado Pago by themselves: with account = Mercado Pago the user picks the movement, and
+ * the amount, date and SOURCE_ID come from it (the server resolves them again). Without a candidate the form is blocked.
+ */
+export const MP_SOURCE_MISSING_MESSAGE = 'No encontramos todavía el movimiento correspondiente en Mercado Pago. Esperá a que aparezca en Actividad Mercado Pago o registralo desde allí.';
+export const MP_ROUTE_BLOCKED_MESSAGE = 'Mercado Pago no se usa en esta operación: los movimientos de Mercado Pago se registran desde Actividad Mercado Pago.';
+
+/** A Mercado Pago movement offered to a manual form; `amount` is the absolute amount of the movement. */
+export interface MpCandidate { sourceId: string; date: string; amount: number; label: string }
+const candidate = (sourceId: string, date: string, amount: number, kind: string): MpCandidate =>
+  ({ sourceId, date, amount: Math.abs(amount), label: `${date} · ${kind} · $ ${Math.abs(amount).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · ${sourceId}` });
+
+/**
+ * Outflows to a third party not yet registered: a payout to a non-own account (NO_OWN_ACCOUNT_MATCH) or an outbound
+ * payment (ADR-020). Used by "Pagar a proveedor" and "Retiro de socios" (mp_classify_payout_outflow). Amount = |gross|.
+ */
+export function mpOutflowCandidates(rows: readonly MpActivityRow[], matches: ReadonlyMap<string, MpPayoutMatch>): MpCandidate[] {
+  return rows.filter((r) => r.source_id && ((r.description === 'payout' && r.coverage_status === 'PAYOUT' && matches.get(r.source_id)?.match_status === 'NO_OWN_ACCOUNT_MATCH')
+    || isClassifiableOutbound(r)))
+    .map((r) => candidate(r.source_id as string, r.business_date, r.gross_amount ?? r.net_amount ?? 0, r.description === 'payout' ? 'Retiro' : 'Pago saliente'));
+}
+
+/** Transfer Mercado Pago → own account: an unconfirmed payout whose destination is exactly that account (0087). */
+export function mpOwnPayoutCandidates(rows: readonly MpActivityRow[], matches: ReadonlyMap<string, MpPayoutMatch>, destAccountId: string): MpCandidate[] {
+  return rows.filter((r) => r.source_id && r.description === 'payout' && r.coverage_status === 'PAYOUT'
+    && matches.get(r.source_id)?.match_status === 'OWN_ACCOUNT_EXACT' && matches.get(r.source_id)?.matched_account_id === destAccountId)
+    .map((r) => candidate(r.source_id as string, r.business_date, r.net_amount ?? 0, 'Retiro'));
+}
+
+/** Transfer own account → Mercado Pago: an account_fund + DEBIN inflow awaiting classification (0086). */
+export function mpOwnInflowCandidates(rows: readonly MpActivityRow[]): MpCandidate[] {
+  return rows.filter((r) => r.source_id && r.coverage_status === 'CLASSIFY_INFLOW')
+    .map((r) => candidate(r.source_id as string, r.business_date, r.gross_amount ?? r.net_amount ?? 0, 'Ingreso'));
+}
+
+/**
+ * Client collection in Mercado Pago: a receipt already applied in treasury with an unassigned part (report_mp_receipt_status).
+ * The amount offered is what is left to assign (effective applied receipt − active attributions); the server re-checks it.
+ */
+export function mpReceiptCandidates(rows: readonly { mp_financial_movement_id: number; payment_id: string | null; occurred_date: string;
+  axis_a_state: string; effective_applied_receipt: number; active_attributed: number }[]): (MpCandidate & { movementId: number })[] {
+  return rows.filter((r) => r.payment_id && (r.axis_a_state === 'POSTED' || r.axis_a_state === 'REPORT_CONFIRMED')
+    && r.effective_applied_receipt - r.active_attributed > 0)
+    .map((r) => ({ ...candidate(r.payment_id as string, r.occurred_date, Math.round((r.effective_applied_receipt - r.active_attributed) * 100) / 100, 'Cobro'),
+      movementId: r.mp_financial_movement_id }));
 }

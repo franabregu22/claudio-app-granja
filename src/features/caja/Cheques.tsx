@@ -5,6 +5,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta, Modal } from './Modal';
+import { BloqueoMp, useEsCuentaMp } from './MovimientoMp';
 import { useClients, useInstrumentAction, useInstruments, useSuppliers, useTreasuryMutations, type InstrumentAction } from './useTreasury';
 
 const ESTADO: Record<InstrumentEstado, { texto: string; clase: string }> = {
@@ -151,10 +152,11 @@ function AccionModal({ action, inst, onClose }: { action: InstrumentAction; inst
   const requiereMotivo = REQUIERE_MOTIVO.includes(action);
   const puede = fecha !== '' && (!requiereMotivo || motivo.trim() !== '')
     && (action !== 'clear' || cuentaId !== '') && (action !== 'endorse' || proveedorId !== '');
+  const esMp = useEsCuentaMp(cuentaId) && action === 'clear';   // Meta A (0091): a cheque never clears into Mercado Pago
 
   return (
     <Modal titulo={`${ACCION[action]} — ${TIPO[inst.instrument_type]} ${inst.cheque_number ?? ''} (${formatoPesos(inst.amount)})`} onClose={onClose}
-      puedeGuardar={puede} guardando={mutacion.isPending} error={mutacion.error} textoGuardar={ACCION[action]}
+      puedeGuardar={puede && !esMp} guardando={mutacion.isPending} error={mutacion.error} textoGuardar={ACCION[action]}
       onSubmit={() => mutacion.mutate({
         action, instrumentId: inst.id, direction: inst.direction, date: fecha, reason: motivo, bankAccountId: cuentaId, supplierId: proveedorId,
       }, { onSuccess: onClose })}>
@@ -169,6 +171,7 @@ function AccionModal({ action, inst, onClose }: { action: InstrumentAction; inst
           </select>
         </label>
       )}
+      {esMp && <BloqueoMp />}
       {action === 'endorse' && (
         <label className={etiqueta}>Proveedor al que se endosa
           <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className={campo}>

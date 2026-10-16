@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
+import { mpOutflowCandidates } from '../../target/mpActivity';
 import { listManagementEvents, registerManagementEvent, type ManagementEventRow, type ManagementEventType } from '../../target/pnl';
 import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
+import { BloqueoMp, SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from '../caja/MovimientoMp';
+import { useClassifyMp } from '../caja/useMpActivity';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 
@@ -21,6 +24,9 @@ export function useManagementEvents() {
  *     reinvestment result (never an operating expense);
  *   - RESERVA_INTERNA: moves no money; it only separates result in the P&L.
  * A compensation (money returned / reserve released) points to an original of the same type.
+ * Meta A (0091): a withdrawal from Mercado Pago is the Mercado Pago outflow chosen here, classified as "Retiro de socios"
+ * (mp_classify_payout_outflow OWNER_WITHDRAWAL; amount and date from the movement). A return of money into Mercado Pago is
+ * registered from Actividad Mercado Pago.
  */
 export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventType; onClose: () => void }) {
   const qc = useQueryClient();
@@ -37,16 +43,20 @@ export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventTyp
   const [motivo, setMotivo] = useState('');
   const [clave] = useState(() => `GEST-${crypto.randomUUID()}`);   // idempotency: one per opened form
   const compensables = (eventos.data ?? []).filter((e: ManagementEventRow) => e.event_type === tipo && !e.compensates_event_id);
-  const puede = Number(monto) > 0 && fecha !== '' && motivo.trim() !== '' && (tipo !== 'RETIRO' || cuentaId !== '');
+  const esMp = useEsCuentaMp(cuentaId) && tipo === 'RETIRO';
+  const actividadMp = useActividadMp(cuentaId, esMp && !compensaId);
+  const candidatosMp = mpOutflowCandidates(actividadMp.rows, actividadMp.matches);
+  const [movimientoMp, setMovimientoMp] = useState('');
+  const { outflow } = useClassifyMp();
+  const puede = esMp ? !compensaId && candidatosMp.some((c) => c.sourceId === movimientoMp)
+    : Number(monto) > 0 && fecha !== '' && motivo.trim() !== '' && (tipo !== 'RETIRO' || cuentaId !== '');
   return (
-    <Modal titulo={`Registrar ${EVENTO_LABEL[tipo].toLowerCase()}`} onClose={onClose} puedeGuardar={puede} guardando={registrar.isPending}
-      error={registrar.error ?? cuentas.error ?? eventos.error} textoGuardar="Registrar"
-      onSubmit={() => registrar.mutate({
+    <Modal titulo={`Registrar ${EVENTO_LABEL[tipo].toLowerCase()}`} onClose={onClose} puedeGuardar={puede} guardando={registrar.isPending || outflow.isPending}
+      error={registrar.error ?? outflow.error ?? (esMp ? actividadMp.error : null) ?? cuentas.error ?? eventos.error} textoGuardar="Registrar"
+      onSubmit={() => (esMp ? outflow.mutate({ sourceId: movimientoMp, classification: 'OWNER_WITHDRAWAL' }, { onSuccess: onClose }) : registrar.mutate({
         type: tipo, effectiveDate: fecha, amount: Number(monto), idempotencyKey: clave, reason: motivo.trim(),
         accountId: tipo === 'RETIRO' ? cuentaId : null, compensatesEventId: compensaId || null,
-      }, { onSuccess: onClose })}>
-      <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
-      <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+      }, { onSuccess: onClose }))}>
       {tipo === 'RETIRO' && (
         <label className={etiqueta}>Cuenta de la que sale el dinero
           <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={campo}>
@@ -55,6 +65,13 @@ export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventTyp
           </select>
         </label>
       )}
+      {esMp && (compensaId ? <BloqueoMp /> : (
+        <SelectorMovimientoMp titulo="Salida de Mercado Pago" candidatos={candidatosMp} cargando={actividadMp.cargando} value={movimientoMp} onChange={setMovimientoMp} />
+      ))}
+      {!esMp && <>
+        <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+      </>}
       {compensables.length > 0 && (
         <label className={etiqueta}>{tipo === 'RETIRO' ? 'Devolución de un retiro anterior (opcional)' : 'Libera una reserva anterior (opcional)'}
           <select value={compensaId} onChange={(e) => setCompensaId(e.target.value)} className={campo}>
@@ -63,7 +80,7 @@ export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventTyp
           </select>
         </label>
       )}
-      <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
+      {!esMp && <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>}
       <p className="text-xs text-gray-500">
         {tipo === 'RETIRO'
           ? 'El retiro de socios saca dinero de la cuenta elegida. No es un gasto: no cambia el resultado operativo y aparece en Finanzas debajo del resultado.'

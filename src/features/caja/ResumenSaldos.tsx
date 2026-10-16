@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { ArrowLeftRight } from 'lucide-react';
 import { errorMessage } from '../../target/messages';
+import { mpOwnInflowCandidates, mpOwnPayoutCandidates } from '../../target/mpActivity';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import type { TransferHistoryRow } from '../../target/treasury';
 import { CuentaDetalle } from './CuentaDetalle';
 import { campo, etiqueta, Modal } from './Modal';
+import { SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './MovimientoMp';
+import { useClassifyMp, useConfirmPayoutTransfer } from './useMpActivity';
 import { useBankTaxPeriods, useLedgerBalances, useTransfers, useTreasuryMutations } from './useTreasury';
 
 const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', EXTERNAL_SERVICE: 'Servicio externo' };
@@ -138,6 +141,12 @@ function CuentaImpuesto({ transferencia, value, onChange }: { transferencia: Pic
   );
 }
 
+/**
+ * Transfer between own accounts. Meta A (0091): a transfer that touches Mercado Pago is the Mercado Pago movement chosen
+ * here — Mercado Pago → own account: the payout whose destination is exactly that account (mp_confirm_payout_transfer);
+ * own account → Mercado Pago: the inflow from an own account (mp_reclassify_inbound_own_transfer). Amount and date come
+ * from the movement; without a candidate the transfer is blocked.
+ */
 function TransferenciaModal({ onClose }: { onClose: () => void }) {
   const cuentas = useFinancialAccounts();
   const { transferWithTax } = useTreasuryMutations();
@@ -153,10 +162,25 @@ function TransferenciaModal({ onClose }: { onClose: () => void }) {
   const [operacionId, setOperacionId] = useState<number | string | null>(null);
   const [errorImpuesto, setErrorImpuesto] = useState<unknown>(null);
   const hecha = operacionId !== null;
-  const puede = origen !== '' && destino !== '' && Number(monto) > 0 && fecha !== '';
+  const origenMp = useEsCuentaMp(origen);
+  const destinoMp = useEsCuentaMp(destino);
+  const esMp = origenMp || destinoMp;
+  const actividadMp = useActividadMp(origenMp ? origen : destino, esMp);
+  const candidatosMp = origen === '' || destino === '' || origen === destino ? []
+    : origenMp ? mpOwnPayoutCandidates(actividadMp.rows, actividadMp.matches, destino) : destinoMp ? mpOwnInflowCandidates(actividadMp.rows) : [];
+  const [movimientoMp, setMovimientoMp] = useState('');
+  const confirmarRetiro = useConfirmPayoutTransfer();
+  const { ownTransfer } = useClassifyMp();
+  const mutacionMp = origenMp ? confirmarRetiro : ownTransfer;
+  const puede = esMp ? candidatosMp.some((c) => c.sourceId === movimientoMp) : origen !== '' && destino !== '' && Number(monto) > 0 && fecha !== '';
   const nombre = (id: string) => (cuentas.data ?? []).find((a) => a.id === id)?.nombre ?? '—';
 
   function guardar() {
+    if (esMp) {
+      if (origenMp) confirmarRetiro.mutate(movimientoMp, { onSuccess: onClose });
+      else ownTransfer.mutate({ paymentId: movimientoMp, fromAccountId: origen }, { onSuccess: onClose });
+      return;
+    }
     const tax = Number(impuesto) > 0 ? { accountId: cuentaImpuesto || origen, amount: Number(impuesto) } : null;
     transferWithTax.mutate({ sourceAccountId: origen, destAccountId: destino, amount: Number(monto), effectiveDate: fecha, externalRef: clave, reason: notas,
       transferOperationId: operacionId, tax }, {
@@ -167,7 +191,8 @@ function TransferenciaModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal titulo="Transferir entre cuentas" onClose={onClose} puedeGuardar={puede} guardando={transferWithTax.isPending} error={transferWithTax.error}
+    <Modal titulo="Transferir entre cuentas" onClose={onClose} puedeGuardar={puede} guardando={transferWithTax.isPending || mutacionMp.isPending}
+      error={esMp ? mutacionMp.error ?? actividadMp.error : transferWithTax.error}
       textoGuardar={hecha ? 'Reintentar impuesto' : 'Transferir'} onSubmit={guardar}>
       {hecha && (
         <div className="bg-amber-50 border border-amber-300 rounded-lg p-2 text-sm text-amber-900">
@@ -188,6 +213,10 @@ function TransferenciaModal({ onClose }: { onClose: () => void }) {
           {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
       </label>
+      {esMp && origen !== '' && destino !== '' && (
+        <SelectorMovimientoMp titulo="Movimiento de Mercado Pago" candidatos={candidatosMp} cargando={actividadMp.cargando} value={movimientoMp} onChange={setMovimientoMp} />
+      )}
+      {!esMp && <>
       <label className={etiqueta}>Monto
         <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
@@ -197,8 +226,9 @@ function TransferenciaModal({ onClose }: { onClose: () => void }) {
       <label className={etiqueta}>Notas (opcional)
         <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
       </label>
+      </>}
       </fieldset>
-      <details className="border border-[#E4DCC8] rounded-lg p-2" open={hecha}>
+      {!esMp && <details className="border border-[#E4DCC8] rounded-lg p-2" open={hecha}>
         <summary className="text-sm text-[#8A6A2E] cursor-pointer">Impuesto Débitos/Créditos (opcional)</summary>
         <label className={etiqueta}>Monto del impuesto
           <input type="number" min="0" step="0.01" value={impuesto} onChange={(e) => setImpuesto(e.target.value)} className={campo} />
@@ -207,7 +237,7 @@ function TransferenciaModal({ onClose }: { onClose: () => void }) {
           <CuentaImpuesto transferencia={{ origen: { account_id: origen, nombre: nombre(origen) }, destino: { account_id: destino, nombre: nombre(destino) } }}
             value={cuentaImpuesto || origen} onChange={setCuentaImpuesto} />
         )}
-      </details>
+      </details>}
     </Modal>
   );
 }

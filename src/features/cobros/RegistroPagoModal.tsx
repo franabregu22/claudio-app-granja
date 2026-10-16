@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { COLLECTION_METHODS, type ClientBalance, type CollectionMethod } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
+import { mpReceiptCandidates } from '../../target/mpActivity';
+import { SelectorMovimientoMp, useAsignarCobroMp, useCobrosMp, useEsCuentaMp } from '../caja/MovimientoMp';
 import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts, useRegisterCollection } from '../pedidos/useCommercial';
@@ -17,6 +19,8 @@ interface RegistroPagoModalProps {
  * Collection entry (F27-C): register_collection only. The RPC books the client-ledger decrease, the financial
  * operation and the posting on the chosen account; cheques are received through the instruments flow (F27-D).
  * The receipt id is the contract's idempotency key: one per opened form, so a double submit cannot book twice.
+ * Meta A (0091): with account = Mercado Pago the user picks the Mercado Pago receipt and the collection is its allocation
+ * to the client (mp_allocate_to_client): amount, date and SOURCE_ID come from the receipt; no receipt → blocked.
  */
 export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -29,15 +33,27 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
   const [comprobante, setComprobante] = useState('');
   const [notas, setNotas] = useState('');
   const [claveAuto] = useState(() => `COBRO-${crypto.randomUUID()}`);
+  const esMp = useEsCuentaMp(cuentaId);
+  const cobrosMp = useCobrosMp(esMp);
+  const asignar = useAsignarCobroMp();
+  const candidatosMp = mpReceiptCandidates(cobrosMp.rows);
+  const [movimientoMp, setMovimientoMp] = useState('');
+  const elegidoMp = candidatosMp.find((c) => c.sourceId === movimientoMp);
 
   useEffect(() => { dialogRef.current?.showModal(); }, []);
   const cerrar = () => { dialogRef.current?.close(); onClose(); };
   const montoNum = Number(monto);
-  const puedeGuardar = montoNum > 0 && cuentaId !== '' && fecha !== '' && !registrar.isPending;
+  const puedeGuardar = esMp ? Boolean(elegidoMp) && !asignar.isPending : montoNum > 0 && cuentaId !== '' && fecha !== '' && !registrar.isPending;
 
   function guardar(e: React.FormEvent) {
     e.preventDefault();
     if (!puedeGuardar) return;
+    if (esMp) {
+      if (!elegidoMp) return;
+      asignar.mutate({ movementId: elegidoMp.movementId, clienteId: cliente.cliente_id, amount: elegidoMp.amount, effectiveDate: elegidoMp.date,
+        idempotencyKey: `ui:${claveAuto}`, reason: notas.trim() || 'Cobro de cliente en Mercado Pago' }, { onSuccess: cerrar });
+      return;
+    }
     registrar.mutate({
       clienteId: cliente.cliente_id, amount: montoNum, method: metodo, receiptId: comprobante.trim() || claveAuto,
       effectiveDate: fecha, accountId: cuentaId, reason: notas,
@@ -55,9 +71,9 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         Saldo pendiente: <span className="font-bold text-lg text-red-600">{formatoPesos(cliente.balance)}</span>
       </div>
       <form onSubmit={guardar} className="space-y-4">
-        <label className="block text-sm font-medium text-gray-700">Monto
+        {!esMp && <label className="block text-sm font-medium text-gray-700">Monto
           <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={`${campo} mt-1`} placeholder="0" />
-        </label>
+        </label>}
         <div>
           <p className="block text-sm font-medium text-gray-700 mb-2">Método</p>
           <div className="grid grid-cols-3 gap-2">
@@ -75,23 +91,28 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
             {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
           </select>
         </label>
+        {esMp && (
+          <SelectorMovimientoMp titulo="Cobro en Mercado Pago" candidatos={candidatosMp} cargando={cobrosMp.cargando} value={movimientoMp} onChange={setMovimientoMp} />
+        )}
+        {!esMp && <>
         <label className="block text-sm font-medium text-gray-700">Fecha del cobro
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`${campo} mt-1`} />
         </label>
         <label className="block text-sm font-medium text-gray-700">Nº de comprobante (opcional)
           <input type="text" value={comprobante} onChange={(e) => setComprobante(e.target.value)} className={`${campo} mt-1`} placeholder="Se genera uno si lo dejás vacío" />
         </label>
+        </>}
         <label className="block text-sm font-medium text-gray-700">Notas (opcional)
           <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} className={`${campo} mt-1 resize-none`} />
         </label>
-        {(registrar.error || cuentas.error) && (
-          <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded-lg text-sm">{errorMessage(registrar.error ?? cuentas.error)}</div>
+        {(registrar.error || asignar.error || cobrosMp.error || cuentas.error) && (
+          <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded-lg text-sm">{errorMessage(registrar.error ?? asignar.error ?? cobrosMp.error ?? cuentas.error)}</div>
         )}
         <div className="flex gap-2 pt-2">
           <button type="button" onClick={cerrar} className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50">Cancelar</button>
           <button type="submit" disabled={!puedeGuardar}
             className="flex-1 px-4 py-2 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 disabled:opacity-50">
-            {registrar.isPending ? 'Guardando...' : 'Registrar cobro'}
+            {registrar.isPending || asignar.isPending ? 'Guardando...' : 'Registrar cobro'}
           </button>
         </div>
       </form>
