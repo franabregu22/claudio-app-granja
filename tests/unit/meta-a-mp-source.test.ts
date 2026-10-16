@@ -43,7 +43,7 @@ const MATCHES = new Map<string, MpPayoutMatch>([
 
 describe('Meta A — outbound payments (ADR-020)', () => {
   it('an unclassified outbound payment is classifiable; a classified one or a positive row is not', () => {
-    expect(MP_STATUS_LABEL.OUTBOUND).toBe('Pago saliente sin clasificar');
+    expect(MP_STATUS_LABEL.OUTBOUND).toBe('Pago saliente sin registrar');   // ADR-021: without its provisional it is a technical exception
     expect(isClassifiableOutbound(ACT[0])).toBe(true);
     expect(isClassifiableOutbound(ACT[2])).toBe(false);
     expect(isClassifiableOutbound(ACT[7])).toBe(false);

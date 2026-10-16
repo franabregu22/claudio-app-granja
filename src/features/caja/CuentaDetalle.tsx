@@ -3,7 +3,8 @@ import { X } from 'lucide-react';
 import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type StatementLine } from '../../target/bankReconciliation';
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
-import { isClassifiableOutbound, isMercadoPagoAccount, isVisibleActivity, MP_OUTFLOW_CHOICE_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowChoice, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
+import { postingOperationLabel } from '../../target/pendingClassification';
+import { isClassifiableOutbound, isMercadoPagoAccount, PENDING_ACTIVITY_NOTE, isVisibleActivity, MP_OUTFLOW_CHOICE_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowChoice, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useClassifyMp, useConfirmPayoutTransfer, useMpActivity, useMpPayoutMatches, useOwnBankAccounts } from './useMpActivity';
@@ -21,6 +22,7 @@ const MP_ESTILO: Record<MpCoverageStatus, string> = {
   COVERED: 'bg-green-100 text-green-800', BACKFILL_PROCESSED: 'bg-green-100 text-green-800', BACKFILL_PENDING: 'bg-amber-100 text-amber-900',
   EXCEPTION: 'bg-red-100 text-red-800', YIELD: 'bg-teal-100 text-teal-800', PAYOUT: 'bg-purple-100 text-purple-800', OUTBOUND: 'bg-stone-200 text-stone-700',
   OWN_TRANSFER: 'bg-sky-100 text-sky-900', CLASSIFY_INFLOW: 'bg-amber-100 text-amber-900', CLASSIFIED_OUTFLOW: 'bg-stone-200 text-stone-800',
+  PENDING_CLASSIFICATION: 'bg-amber-100 text-amber-900',
 };
 
 /**
@@ -78,7 +80,7 @@ function MovimientosErp({ accountId }: { accountId: string }) {
           {rows.map((p) => (
             <tr key={p.id} className="border-b border-stone-100 last:border-0">
               <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(p.effective_date)}</td>
-              <td className="px-3 py-2 whitespace-nowrap">{p.operation_type ?? '—'}</td>
+              <td className="px-3 py-2 whitespace-nowrap">{postingOperationLabel(p)}</td>
               <td className="px-3 py-2 max-w-[16rem] truncate" title={p.reason ?? p.external_ref ?? ''}>{p.reason || p.external_ref || '—'}</td>
               <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${p.signed_amount < 0 ? 'text-red-700' : 'text-green-800'}`}>{importe(p.signed_amount, true)}</td>
             </tr>
@@ -143,7 +145,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
   }
   return (
     <div className="space-y-2">
-      <p className="text-xs text-[#8A7A5C]">Actividad informada por el reporte oficial de Mercado Pago. Es evidencia: no modifica el saldo ERP; los cobros se registran solo por el circuito de pagos de Mercado Pago. Solo &quot;Confirmar transferencia&quot; registra un retiro a una cuenta propia como transferencia interna; &quot;Clasificar salida&quot; registra un retiro o un pago saliente a terceros (el impuesto de Mercado Pago queda aparte).</p>
+      <p className="text-xs text-[#8A7A5C]">Actividad informada por el reporte oficial de Mercado Pago. Los cobros se registran por el circuito de pagos de Mercado Pago; las salidas reales (retiros y pagos salientes) ya se incluyen en el saldo al procesar el reporte y quedan &quot;Pendiente de clasificar&quot;. &quot;Confirmar transferencia&quot; las define como transferencia a una cuenta propia y &quot;Clasificar salida&quot; como compra / gasto o retiro de socios (el impuesto de Mercado Pago queda aparte); clasificar no vuelve a mover el saldo.</p>
       <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
         <table className="w-full text-sm" aria-label="Actividad Mercado Pago">
           <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
@@ -159,6 +161,7 @@ function ActividadMercadoPago({ accountId }: { accountId: string }) {
                 <td className={`px-3 py-2 text-right whitespace-nowrap font-medium ${(r.net_amount ?? 0) < 0 ? 'text-red-700' : 'text-green-800'}`}>{importe(r.net_amount, true)}</td>
                 <td className="px-3 py-2 whitespace-nowrap">
                   <span className={`text-xs px-2 py-0.5 rounded ${MP_ESTILO[r.coverage_status]}`}>{mpStatusLabel(r)}</span>
+                  {r.coverage_status === 'PENDING_CLASSIFICATION' && <p className="text-[11px] text-[#8A7A5C] mt-0.5">{PENDING_ACTIVITY_NOTE}</p>}
                   <DestinoRetiro r={r} matches={matches} />
                   {r.coverage_status === 'CLASSIFY_INFLOW' && r.source_id && <ClasificarIngreso paymentId={r.source_id} />}
                   {isClassifiableOutbound(r) && r.source_id && <ClasificarSalida sourceId={r.source_id} />}
@@ -179,7 +182,7 @@ const DESTINO_ESTILO = { own: 'bg-sky-100 text-sky-900', classify: 'bg-amber-100
  * Payout destination proposal (0084) and its confirmation (0087). The button exists only for an unconfirmed
  * OWN_ACCOUNT_EXACT payout and sends only the SOURCE_ID: the server resolves amount, date and destination account.
  */
-function DestinoRetiro({ r, matches }: { r: MpActivityRow; matches: ReadonlyMap<string, MpPayoutMatch> }) {
+export function DestinoRetiro({ r, matches }: { r: MpActivityRow; matches: ReadonlyMap<string, MpPayoutMatch> }) {
   const m = payoutMatchLabel(r, matches);
   const confirmar = useConfirmPayoutTransfer();
   if (!m) return null;
@@ -211,7 +214,7 @@ const ACCION_CLS = 'text-xs px-2 py-0.5 rounded border border-amber-300 bg-white
  * Own-account payouts keep their own confirmation. ADR-020 (0090): an unclassified outbound payment uses the same form; the
  * purchase gets the economic amount and the Mercado Pago tax is booked apart by the server.
  */
-function ClasificarSalida({ sourceId }: { sourceId: string }) {
+export function ClasificarSalida({ sourceId }: { sourceId: string }) {
   const [abierto, setAbierto] = useState(false);
   const [tipo, setTipo] = useState<MpOutflowChoice>('PURCHASE');
   const [proveedor, setProveedor] = useState('');
@@ -286,7 +289,7 @@ type TipoIngreso = 'OWN_TRANSFER' | 'COLLECTION';
  * 0088 — "Clasificar ingreso" for an account_fund + DEBIN inflow (CLASSIFY_INFLOW): money from an own account (one
  * TRANSFER, 0086) or a client receipt (applied server-side; the client is optional). "Otro ingreso" is not offered yet.
  */
-function ClasificarIngreso({ paymentId }: { paymentId: string }) {
+export function ClasificarIngreso({ paymentId }: { paymentId: string }) {
   const [abierto, setAbierto] = useState(false);
   const [tipo, setTipo] = useState<TipoIngreso>('OWN_TRANSFER');
   const [cuenta, setCuenta] = useState('');

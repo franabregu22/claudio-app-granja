@@ -9,6 +9,7 @@ import type { TransferHistoryRow } from '../../target/treasury';
 import { CuentaDetalle } from './CuentaDetalle';
 import { campo, etiqueta, Modal } from './Modal';
 import { SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './MovimientoMp';
+import { TarjetaPendientes } from './PendientesClasificar';
 import { useClassifyMp, useConfirmPayoutTransfer } from './useMpActivity';
 import { useBankTaxPeriods, useLedgerBalances, useTransfers, useTreasuryMutations } from './useTreasury';
 
@@ -18,7 +19,7 @@ const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', 
  * Account balances (F27-D): the latest closing balance of each account in report_balance_period (Σ financial_posting).
  * An active account with no posting yet shows "Sin movimientos"; no balance is computed here.
  */
-export function ResumenSaldos() {
+export function ResumenSaldos({ onVerPendientes }: { onVerPendientes?: () => void } = {}) {
   const cuentas = useFinancialAccounts();
   const saldos = useLedgerBalances('ACCOUNT');
   const [transfiriendo, setTransfiriendo] = useState(false);
@@ -30,6 +31,8 @@ export function ResumenSaldos() {
 
   const porCuenta = new Map((saldos.data ?? []).map((s) => [s.entity_id, s]));
   return (
+    <>
+    {onVerPendientes && <TarjetaPendientes onAbrir={onVerPendientes} />}
     <div className="bg-white rounded-lg border border-[#E4DCC8] p-4">
       <div className="space-y-2">
         {(cuentas.data ?? []).map((c) => {
@@ -58,6 +61,7 @@ export function ResumenSaldos() {
       <HistorialTransferencias />
       <ImpuestoPorPeriodo />
     </div>
+    </>
   );
 }
 

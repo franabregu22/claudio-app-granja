@@ -10,7 +10,8 @@ import { callRpc, readView } from './db';
 export type MpCoverageStatus =
   | 'CONTROL' | 'PRE_CUTOVER' | 'RESERVE' | 'COVERED' | 'BACKFILL_PROCESSED' | 'BACKFILL_PENDING' | 'EXCEPTION' | 'YIELD' | 'PAYOUT' | 'OUTBOUND'
   | 'OWN_TRANSFER' | 'CLASSIFY_INFLOW'    // 0086: inflow from an own account (reclassified) / account_fund + DEBIN awaiting classification
-  | 'CLASSIFIED_OUTFLOW';                 // 0088: a payout to a third party classified (supplier payment / expense / owner withdrawal)
+  | 'CLASSIFIED_OUTFLOW'                  // 0088: a payout to a third party classified (supplier payment / expense / owner withdrawal)
+  | 'PENDING_CLASSIFICATION';             // ADR-021 (0093): a real outflow already in the balance, classification pending
 
 /** 0088: how a payout to a third party was classified. */
 export type MpOutflowClassification = 'SUPPLIER_PAYMENT' | 'EXPENSE' | 'CASUAL_PURCHASE' | 'OWNER_WITHDRAWAL';
@@ -38,11 +39,12 @@ export const MP_STATUS_LABEL: Record<MpCoverageStatus, string> = {
   BACKFILL_PENDING: 'Recuperación pendiente',
   EXCEPTION: 'Excepción',
   YIELD: 'Rendimiento',
-  PAYOUT: 'Retiro',
-  OUTBOUND: 'Pago saliente sin clasificar',   // ADR-020 (0090): classifiable like a payout to a third party
+  PAYOUT: 'Retiro sin registrar',   // ADR-021: an outflow without its provisional effect is a technical exception
+  OUTBOUND: 'Pago saliente sin registrar',
   OWN_TRANSFER: 'Transferencia entre cuentas propias',
   CLASSIFY_INFLOW: 'Clasificar ingreso',
   CLASSIFIED_OUTFLOW: 'Salida clasificada',
+  PENDING_CLASSIFICATION: 'Pendiente de clasificar',
 };
 
 /** What the user chooses for a payout to a third party (owner CR 15/10): one "Compra / gasto", or a partner withdrawal. */
@@ -186,9 +188,17 @@ export async function classifyMpInflowAsOwnTransfer(client: SupabaseClient, paym
   return callRpc(client, 'mp_reclassify_inbound_own_transfer', { p_payment_id: paymentId, p_from_account_id: fromAccountId, p_reason: null });
 }
 
-/** ADR-020 (0090) — an unclassified outbound payment (money sent from Mercado Pago to a third party): "Clasificar salida". */
-export const isClassifiableOutbound = (r: Pick<MpActivityRow, 'coverage_status' | 'source_id' | 'net_amount'>) =>
-  r.coverage_status === 'OUTBOUND' && Boolean(r.source_id) && (r.net_amount ?? 0) < 0;
+/**
+ * ADR-020 (0090) / ADR-021 (0093) — an unclassified outbound payment (money sent from Mercado Pago to a third party):
+ * "Clasificar salida". Pending classification (already in the balance) or, exceptionally, not yet registered.
+ */
+export const isClassifiableOutbound = (r: Pick<MpActivityRow, 'coverage_status' | 'source_id' | 'net_amount'> & { description?: string | null }) =>
+  (r.coverage_status === 'OUTBOUND' || (r.coverage_status === 'PENDING_CLASSIFICATION' && r.description === 'payment'))
+  && Boolean(r.source_id) && (r.net_amount ?? 0) < 0;
+
+/** ADR-021: the status note of a pending outflow (its amount is already in the balance). */
+export const PENDING_ACTIVITY_NOTE = 'Ya incluido en el saldo · pendiente de clasificar';
+const UNCLASSIFIED_PAYOUT: ReadonlySet<MpCoverageStatus> = new Set(['PAYOUT', 'PENDING_CLASSIFICATION']);
 
 /**
  * Meta A (0091) — every operation that moves the Mercado Pago account must come from a Mercado Pago movement (SOURCE_ID).
@@ -208,14 +218,14 @@ const candidate = (sourceId: string, date: string, amount: number, kind: string)
  * payment (ADR-020). Used by "Pagar a proveedor" and "Retiro de socios" (mp_classify_payout_outflow). Amount = |gross|.
  */
 export function mpOutflowCandidates(rows: readonly MpActivityRow[], matches: ReadonlyMap<string, MpPayoutMatch>): MpCandidate[] {
-  return rows.filter((r) => r.source_id && ((r.description === 'payout' && r.coverage_status === 'PAYOUT' && matches.get(r.source_id)?.match_status === 'NO_OWN_ACCOUNT_MATCH')
+  return rows.filter((r) => r.source_id && ((r.description === 'payout' && UNCLASSIFIED_PAYOUT.has(r.coverage_status) && matches.get(r.source_id)?.match_status === 'NO_OWN_ACCOUNT_MATCH')
     || isClassifiableOutbound(r)))
     .map((r) => candidate(r.source_id as string, r.business_date, r.gross_amount ?? r.net_amount ?? 0, r.description === 'payout' ? 'Retiro' : 'Pago saliente'));
 }
 
 /** Transfer Mercado Pago → own account: an unconfirmed payout whose destination is exactly that account (0087). */
 export function mpOwnPayoutCandidates(rows: readonly MpActivityRow[], matches: ReadonlyMap<string, MpPayoutMatch>, destAccountId: string): MpCandidate[] {
-  return rows.filter((r) => r.source_id && r.description === 'payout' && r.coverage_status === 'PAYOUT'
+  return rows.filter((r) => r.source_id && r.description === 'payout' && UNCLASSIFIED_PAYOUT.has(r.coverage_status)
     && matches.get(r.source_id)?.match_status === 'OWN_ACCOUNT_EXACT' && matches.get(r.source_id)?.matched_account_id === destAccountId)
     .map((r) => candidate(r.source_id as string, r.business_date, r.net_amount ?? 0, 'Retiro'));
 }

@@ -18,6 +18,7 @@ export const TARGET_VIEWS = [
   'fin_statement_line_status',   // ADR-018 (0076)
   'fin_mp_report_activity',   // ADR-018 §15 (0079)
   'fin_customer_collections',   // Meta A (0092): Caja → Cobros de clientes
+  'fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status',   // ADR-021 (0093)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -87,6 +88,7 @@ export const TARGET_RPCS = [
   'mp_confirm_payout_transfer',   // 0087: confirm an OWN_ACCOUNT_EXACT payout as an internal transfer (ADMIN; SOURCE_ID only)
   'mp_classify_payout_outflow', 'mp_classify_inflow_as_collection',   // 0088: classify MP outflows / DEBIN inflows (ADMIN)
   'mp_reclassify_inbound_own_transfer',   // 0086: an inflow from an own account (ADMIN)
+  'mp_post_pending_outflow',   // ADR-021 (0093): recovery of an outflow whose provisional could not be posted (ADMIN)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

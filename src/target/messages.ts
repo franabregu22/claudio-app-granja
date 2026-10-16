@@ -228,6 +228,10 @@ const MESSAGES: Record<string, string> = {
   INVALID_CASH_AMOUNT: 'El importe en efectivo no es válido.',
   WITHDRAWAL_REQUIRES_CASH: 'El retiro de socios necesita una parte en efectivo.',
   CASH_ACCOUNT_REQUIRED: 'Falta la cuenta de efectivo.',
+  // ADR-021 (0093): immediate balance effect of real MP outflows
+  PENDING_CLASSIFICATION: 'Hay movimientos pendientes de clasificar en este período. Clasificalos antes de cerrarlo.',
+  MP_UNPOSTED_OUTFLOWS: 'Hay salidas de Mercado Pago sin registrar en este período. Revisalas en Revisión técnica antes de cerrarlo.',
+  MP_PENDING_NOT_RELEASED: 'Ese movimiento de Mercado Pago está pendiente de clasificar: clasificalo desde Pendientes de clasificar.',
 };
 
 export function errorMessage(err: unknown): string {

@@ -5,6 +5,7 @@ import {
   classifyMpInflowAsCollection, classifyMpInflowAsOwnTransfer, classifyMpOutflow, confirmMpPayoutTransfer, listMpActivity, listMpPayoutMatches,
   type MpOutflowInput,
 } from '../../target/mpActivity';
+import { listPendingClassification, listTechnicalReview, postPendingOutflow } from '../../target/pendingClassification';
 
 export function useMpActivity(accountId: string) {
   return useQuery({ queryKey: ['mp-activity', accountId], queryFn: () => listMpActivity(supabase, accountId), enabled: accountId !== '' });
@@ -18,7 +19,7 @@ export function useMpPayoutMatches(accountId: string) {
 /** Every MP confirmation / classification can move account, supplier and client balances and the P&L: refresh them all. */
 function useRefreshAfterMp() {
   const qc = useQueryClient();
-  return () => Promise.all([['mp-activity'], ['mp-payout-matches'], ['treasury'], ['pnl'], ['commercial', 'balances']]
+  return () => Promise.all([['mp-activity'], ['mp-payout-matches'], ['mp-pending'], ['treasury'], ['pnl'], ['commercial', 'balances']]
     .map((queryKey) => qc.invalidateQueries({ queryKey })));
 }
 
@@ -42,4 +43,20 @@ export function useClassifyMp() {
 export function useOwnBankAccounts() {
   return useQuery({ queryKey: ['master', 'financial_account'], queryFn: () => listMaster<FinancialAccountRow>(supabase, 'financial_account'),
     select: (rows) => rows.filter((a) => a.activo && a.account_type === 'BANK_ACCOUNT') });
+}
+
+/** ADR-021 (0093): everything waiting for a classification (ADMIN). */
+export function usePendingClassification() {
+  return useQuery({ queryKey: ['mp-pending', 'list'], queryFn: () => listPendingClassification(supabase) });
+}
+
+/** ADR-021 (0093): technical exceptions (unposted outflows, report rows in error), never mixed with the pendings. */
+export function useTechnicalReview() {
+  return useQuery({ queryKey: ['mp-pending', 'technical'], queryFn: () => listTechnicalReview(supabase) });
+}
+
+/** ADR-021 (0093): recovery of an outflow whose provisional could not be posted (SOURCE_ID only; idempotent). */
+export function useRetryProvisional() {
+  const onSettled = useRefreshAfterMp();
+  return useMutation({ mutationFn: (sourceId: string) => postPendingOutflow(supabase, sourceId), onSettled });
 }

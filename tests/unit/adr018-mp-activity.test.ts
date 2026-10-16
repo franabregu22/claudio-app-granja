@@ -45,7 +45,7 @@ describe('ADR-018 MP activity — data', () => {
 describe('ADR-018 MP activity — labels', () => {
   it('every coverage status has a readable label', () => {
     expect(STATUSES.map((s) => MP_STATUS_LABEL[s])).toEqual(['Control del reporte', 'Anterior al corte', 'Reserva interna', 'Cubierto',
-      'Recuperado del reporte', 'Recuperación pendiente', 'Excepción', 'Rendimiento', 'Retiro', 'Pago saliente sin clasificar']);
+      'Recuperado del reporte', 'Recuperación pendiente', 'Excepción', 'Rendimiento', 'Retiro sin registrar', 'Pago saliente sin registrar']);
   });
   it('type from DESCRIPTION and sign (no classification by payment method)', () => {
     expect(mpActivityType({ description: 'payment', net_amount: 49.7 })).toBe('Cobro');
@@ -75,7 +75,8 @@ describe('ADR-018 MP activity — screen', () => {
     const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'));
     for (const th of ['Fecha', 'Tipo', 'Referencia', 'Importe', 'Estado']) expect(fn).toContain(`>${th}</th>`);
     expect(fn).toMatch(/todas\.filter\(isVisibleActivity\)/);
-    expect(fn).toMatch(/no modifica el saldo ERP/);
+    expect(fn).toMatch(/ya se incluyen en el saldo al procesar el reporte/);   // ADR-021: real outflows are in the balance at once
+    expect(fn).toMatch(/clasificar no vuelve a mover el saldo/);
     expect(fn).toMatch(/mpStatusLabel\(r\)/);
   });
   it('the list itself writes nothing; the only RPCs are the payout match proposal (0084) and the payout confirmation (0087)', () => {
