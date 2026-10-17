@@ -58,13 +58,30 @@ export async function listObligations(client: SupabaseClient, limit = 200): Prom
 export function registerFiscalDocument(client: SupabaseClient, p: {
   type: FiscalDocumentType; direction: FiscalDirection; date: string; fiscalPeriod: string; netAmount: number; totalAmount: number;
   components: ComponentInput[]; supplierId?: string | null; clienteId?: string | null; externalNumber?: string | null; reason?: string | null;
+  /** ADR-024 (0098): a received document from an issuer without a registered supplier (CUIT, 11 digits) */
+  issuerTaxId?: string | null; issuerName?: string | null;
 }) {
   return callRpc<{ fiscal_document_id: string; component_count: number }>(client, 'register_fiscal_document', {
     p_document_type: p.type, p_direction: p.direction, p_document_date: p.date, p_fiscal_period: p.fiscalPeriod, p_net_amount: p.netAmount,
     p_total_amount: p.totalAmount, p_components: p.components, p_supplier_id: p.supplierId ?? null, p_cliente_id: p.clienteId ?? null,
     p_external_number: reasonOrNull(p.externalNumber), p_reason: reasonOrNull(p.reason),
+    p_issuer_tax_id: reasonOrNull(p.issuerTaxId), p_issuer_name: reasonOrNull(p.issuerName),
   });
 }
+
+/** "PPPP-NNNNNNNN" from punto de venta and número (digits are zero-padded); either part alone is kept as typed. */
+export function documentNumber(puntoDeVenta: string, numero: string): string | null {
+  const pv = puntoDeVenta.trim();
+  const n = numero.trim();
+  if (pv === '' && n === '') return null;
+  if (pv === '' || n === '') return pv || n;
+  return `${/^\d+$/.test(pv) ? pv.padStart(4, '0') : pv}-${/^\d+$/.test(n) ? n.padStart(8, '0') : n}`;
+}
+
+/** An 11-digit CUIT (dashes / spaces ignored), or null. */
+export const cuitOrNull = (v: string) => { const d = v.replace(/[\s-]/g, ''); return /^\d{11}$/.test(d) ? d : null; };
+
+export const SOLO_IVA_NOTE = 'Solo crédito fiscal IVA: no mueve dinero de ninguna cuenta, no registra un gasto ni una deuda con el proveedor. Solo suma el IVA del comprobante como crédito fiscal del período.';
 
 export function registerFiscalObligation(client: SupabaseClient, p: {
   taxKind: TaxKind; fiscalPeriod: string; amount: number; dueDate?: string | null; installments?: InstallmentInput[] | null; reason?: string | null;

@@ -5,7 +5,7 @@ import {
   classifyMpInflowAsCollection, classifyMpInflowAsOwnTransfer, classifyMpOutflow, confirmMpPayoutTransfer, listMpActivity, listMpPayoutMatches,
   type MpOutflowInput,
 } from '../../target/mpActivity';
-import { allocateToClient } from '../../target/mp';
+import { allocateToClient, mapPayerToClient } from '../../target/mp';
 import {
   listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
 } from '../../target/pendingClassification';
@@ -61,6 +61,12 @@ export function usePendingSummary() {
 /** ADR-023: one page of "Entradas sin vincular" (optional; never an alert). */
 export function useUnlinkedInflows(filter: UnlinkedFilter, page: number) {
   return useQuery({ queryKey: ['mp-pending', 'unlinked', filter, page], queryFn: () => listUnlinkedPage(supabase, filter, page), placeholderData: keepPreviousData });
+}
+
+/** ADR-024: "Recordar este pagador" — the existing payer.id → client mapping (future payments of that payer auto-allocate). */
+export function useRememberPayer() {
+  const onSettled = useRefreshAfterMp();
+  return useMutation({ mutationFn: (p: { payerId: string; clienteId: string }) => mapPayerToClient(supabase, { ...p, reason: 'Recordar este pagador (ADR-024)' }), onSettled });
 }
 
 /** ADR-023: link an inflow to a customer (no date: the server applies the closed-period rule); never moves Mercado Pago. */

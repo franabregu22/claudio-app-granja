@@ -46,7 +46,7 @@ describe('F27-G P&L data layer', () => {
     await registerManagementEvent(client, { type: 'RESERVA_INTERNA', effectiveDate: '2026-09-30', amount: 800, idempotencyKey: 'GEST-1', reason: 'r' });
     expect(calls[0]).toEqual({ kind: 'rpc', fn: 'register_management_event', filters: [], args: {
       p_event_type: 'RESERVA_INTERNA', p_effective_date: '2026-09-30', p_amount: 800, p_idempotency_key: 'GEST-1', p_reason: 'r',
-      p_financial_account_id: null, p_compensates_event_id: null,
+      p_financial_account_id: null, p_compensates_event_id: null, p_socio_category_id: null,   // ADR-024: optional socio of a retiro
     } });
   });
 

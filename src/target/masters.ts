@@ -22,8 +22,15 @@ export type PriceList = (typeof PRICE_LISTS)[number];
 
 export interface ClientRow { id: string; nombre: string; fiscal_id: string | null; contacto: string | null; activo: boolean }
 export interface SupplierRow { id: string; nombre: string; fiscal_id: string | null; contacto: string | null; activo: boolean }
+export type PurchaseNatureValue = 'OPERATING' | 'REINVESTMENT' | 'INVESTMENT';
+/** ADR-024: an expense SUBCATEGORY (the historical `expense_category` row; id kept). `pnl_cost_class` is legacy (standby). */
 export interface ExpenseCategoryRow {
   id: string; nombre: string; description: string | null; activo: boolean; pnl_cost_class: 'DIRECT' | 'INDIRECT';
+  group_id: string; default_nature: PurchaseNatureValue | null; fiscal_reserved: boolean;
+}
+/** ADR-024: the parent expense CATEGORY. */
+export interface ExpenseCategoryGroupRow {
+  id: string; nombre: string; activo: boolean; display_order: number; kind: 'EXPENSE' | 'OWNER_WITHDRAWAL';
 }
 export interface FinancialAccountRow { id: string; nombre: string; account_type: AccountType; activo: boolean }
 export interface ProjectRow { id: string; nombre: string; descripcion: string | null; status: ProjectStatus }
@@ -40,7 +47,7 @@ export interface OperatorAssignmentRow { id: string; operator_id: string; flock_
 export interface ProfileRow { id: string; email: string; rol_type: 'ADMIN' | 'OPERATOR'; activo: boolean }
 
 /** The master tables edited through direct writes in F27-B (all INSERT / UPDATE only). */
-export type MasterTable = 'clients' | 'suppliers' | 'expense_category' | 'financial_account' | 'projects' | 'products' | 'sheds'
+export type MasterTable = 'clients' | 'suppliers' | 'expense_category' | 'expense_category_group' | 'financial_account' | 'projects' | 'products' | 'sheds'
   | 'feed_type' | 'feed_ingredient';   // Administración → Alimento (ADR-013 block 4)
 type Values = Record<string, unknown>;
 

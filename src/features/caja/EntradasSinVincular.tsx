@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import { uiIdempotencyKey } from '../../target/mp';
 import {
-  INFLOW_SUBTYPE_LABEL, linkDates, PAGE_SIZE, type UnlinkedFilter, type UnlinkedInflowRow, UNLINKED_NOTE,
+  INFLOW_SUBTYPE_LABEL, inflowTitle, linkDates, PAGE_SIZE, type UnlinkedFilter, type UnlinkedInflowRow, UNLINKED_NOTE,
 } from '../../target/pendingClassification';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { Paginador } from './PendientesClasificar';
-import { useClassifyMp, useLinkInflow, useOwnBankAccounts, usePendingSummary, useUnlinkedInflows } from './useMpActivity';
+import { useClassifyMp, useLinkInflow, useOwnBankAccounts, usePendingSummary, useRememberPayer, useUnlinkedInflows } from './useMpActivity';
 import { useClients } from './useTreasury';
 
 const campo = 'border border-[#E4DCC8] rounded px-2 py-1 text-sm bg-white';
@@ -77,12 +77,16 @@ export function EntradasSinVincular() {
 }
 
 function FilaEntrada({ r }: { r: UnlinkedInflowRow }) {
-  const [accion, setAccion] = useState<'none' | 'cliente' | 'propia'>('none');
+  const [accion, setAccion] = useState<'none' | 'cliente' | 'propia' | 'ignorada'>('none');
   return (
     <tr className="border-b border-stone-100 last:border-0 align-top">
       <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(r.business_date)}{r.is_historical && <span className="text-[11px] text-[#8A7A5C]"> · histórica</span>}</td>
       <td className="px-3 py-2 text-right whitespace-nowrap font-medium text-green-800">{formatoPesos(r.amount)}</td>
-      <td className="px-3 py-2 whitespace-nowrap">{INFLOW_SUBTYPE_LABEL[r.inflow_subtype]}</td>
+      <td className="px-3 py-2">
+        <p className="font-medium">{inflowTitle(r)}</p>
+        {r.payer_display_name && <p className="text-[11px] text-[#8A7A5C]">{INFLOW_SUBTYPE_LABEL[r.inflow_subtype]}</p>}
+        {r.mapped_client_name && <p className="text-[11px] text-green-800">Cliente asociado: {r.mapped_client_name}</p>}
+      </td>
       <td className="px-3 py-2">{r.description ?? <span className="text-[#8A7A5C]">—</span>}</td>
       <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id}</td>
       <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -92,13 +96,17 @@ function FilaEntrada({ r }: { r: UnlinkedInflowRow }) {
       <td className="px-3 py-2">
         {accion === 'none' && (
           <div className="flex flex-wrap gap-1">
-            <button type="button" onClick={() => setAccion('cliente')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Vincular a cliente</button>
+            <button type="button" onClick={() => setAccion('cliente')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">
+              {r.mapped_client_name ? `Vincular a ${r.mapped_client_name}` : 'Vincular a cliente'}
+            </button>
+            <button type="button" onClick={() => setAccion('ignorada')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Ignorar</button>
             {r.account_fund && !r.is_historical && r.allocated_amount === 0 && (
               <button type="button" onClick={() => setAccion('propia')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Transferencia desde cuenta propia</button>
             )}
           </div>
         )}
         {accion === 'cliente' && <VincularCliente r={r} onCerrar={() => setAccion('none')} />}
+        {accion === 'ignorada' && <p className="text-[11px] text-[#8A7A5C]">Queda sin vincular (es un estado válido).</p>}
         {accion === 'propia' && <TransferenciaPropia r={r} onCerrar={() => setAccion('none')} />}
       </td>
     </tr>
@@ -109,7 +117,10 @@ function FilaEntrada({ r }: { r: UnlinkedInflowRow }) {
 function VincularCliente({ r, onCerrar }: { r: UnlinkedInflowRow; onCerrar: () => void }) {
   const clientes = useClients();
   const vincular = useLinkInflow();
-  const [cliente, setCliente] = useState('');
+  const recordar = useRememberPayer();
+  const [cliente, setCliente] = useState(r.mapped_client_id ?? '');
+  const [recordarPagador, setRecordarPagador] = useState(false);
+  const puedeRecordar = r.payer_id !== null && r.mapped_client_id === null;
   const [monto, setMonto] = useState(r.remaining_amount.toFixed(2));
   const [clave] = useState(() => uiIdempotencyKey());
   const importe = Number(monto);
@@ -120,6 +131,8 @@ function VincularCliente({ r, onCerrar }: { r: UnlinkedInflowRow; onCerrar: () =
       <div className="text-xs text-green-800" role="status">
         <p>Movimiento recibido: {hecho.recibido ? formatearFechaLocal(hecho.recibido) : '—'}</p>
         <p>Vinculado al cliente: {hecho.vinculado ? formatearFechaLocal(hecho.vinculado) : '—'}</p>
+        {recordar.isSuccess && <p>Pagador recordado para próximos pagos.</p>}
+        {recordar.error && <p className="text-red-700">{errorMessage(recordar.error)}</p>}
       </div>
     );
   }
@@ -130,12 +143,22 @@ function VincularCliente({ r, onCerrar }: { r: UnlinkedInflowRow; onCerrar: () =
         {(clientes.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
       </select>
       <input aria-label="Monto a vincular" type="number" min="0.01" step="0.01" max={r.remaining_amount} className={`${campo} w-28`} value={monto} onChange={(e) => setMonto(e.target.value)} />
+      {puedeRecordar && (
+        <label className="flex items-center gap-1 text-[#6B5D45]">
+          <input type="checkbox" checked={recordarPagador} onChange={(e) => setRecordarPagador(e.target.checked)} />
+          Recordar este pagador (sus próximos pagos se vinculan solos a este cliente)
+        </label>
+      )}
       <div className="flex gap-1">
-        <button type="button" disabled={!valido || vincular.isPending} onClick={() => vincular.mutate({ movementId: r.movement_id, clienteId: cliente, amount: importe, idempotencyKey: clave })}
+        <button type="button" disabled={!valido || vincular.isPending || recordar.isPending}
+          onClick={() => vincular.mutate({ movementId: r.movement_id, clienteId: cliente, amount: importe, idempotencyKey: clave }, {
+            onSuccess: () => { if (recordarPagador && puedeRecordar && r.payer_id) recordar.mutate({ payerId: r.payer_id, clienteId: cliente }); },
+          })}
           className="px-2 py-0.5 rounded border border-[#3D3424] bg-white disabled:opacity-40">{vincular.isPending ? 'Vinculando...' : 'Vincular'}</button>
         <button type="button" onClick={onCerrar} className="px-2 py-0.5 rounded border border-[#E4DCC8] bg-white">Cancelar</button>
       </div>
       {vincular.error && <p className="text-red-700">{errorMessage(vincular.error)}</p>}
+      {recordar.error && <p className="text-red-700">{errorMessage(recordar.error)}</p>}
     </div>
   );
 }

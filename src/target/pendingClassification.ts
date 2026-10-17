@@ -67,8 +67,11 @@ export type InflowSubtype = 'CVU' | 'DEBIN' | 'RECEIPT';
 export interface UnlinkedInflowRow {
   movement_id: number; source_id: string; occurred_at: string | null; business_date: string; amount: number; net_amount: number;
   inflow_subtype: InflowSubtype; account_fund: boolean; description: string | null; is_historical: boolean; allocated_amount: number; remaining_amount: number;
+  /** ADR-024 (0097): the payer identity (Mercado Pago payer.id) and a display name (bank holder / cardholder); never email or document */
+  payer_id: string | null; payer_display_name: string | null; mapped_client_id: string | null; mapped_client_name: string | null;
 }
-const UNLINKED_COLUMNS = 'movement_id, source_id, occurred_at, business_date, amount, net_amount, inflow_subtype, account_fund, description, is_historical, allocated_amount, remaining_amount';
+const UNLINKED_COLUMNS = 'movement_id, source_id, occurred_at, business_date, amount, net_amount, inflow_subtype, account_fund, description, is_historical, allocated_amount, remaining_amount, '
+  + 'payer_id, payer_display_name, mapped_client_id, mapped_client_name';
 export interface UnlinkedFilter { scope: 'all' | PendingScope; from?: string; to?: string; min?: number; max?: number; search?: string }
 
 /** PostgREST `or` value: a SOURCE_ID (digits) or a description fragment; anything else is dropped (never injected). */
@@ -129,6 +132,11 @@ export const INFLOW_SUBTYPE_LABEL: Record<InflowSubtype, string> = { CVU: 'Trans
 export const TECHNICAL_ISSUE_LABEL: Record<TechnicalIssue, string> = {
   UNPOSTED_OUTFLOW: 'Salida de Mercado Pago sin registrar', REPORT_ROW_ERROR: 'Fila del reporte con error',
 };
+
+/** The row title: the payer's name when Mercado Pago gives one (DEBIN holder / cardholder), else the type ("Transferencia (CVU)"). */
+export function inflowTitle(r: Pick<UnlinkedInflowRow, 'payer_display_name' | 'inflow_subtype'>): string {
+  return r.payer_display_name?.trim() || INFLOW_SUBTYPE_LABEL[r.inflow_subtype];
+}
 
 /** "****1234" — the only form a payout destination is ever shown in. */
 export const maskedAccount = (last4: string | null) => (last4 && /^[0-9]{1,4}$/.test(last4) ? `****${last4}` : null);

@@ -81,9 +81,11 @@ export async function listManagementEvents(client: SupabaseClient, limit = 100):
 export function registerManagementEvent(client: SupabaseClient, p: {
   type: ManagementEventType; effectiveDate: string; amount: number; idempotencyKey: string; reason: string;
   accountId?: string | null; compensatesEventId?: string | null;
+  /** ADR-024: the optional socio of a Retiro de socios (a Retiros de socios subcategory) */
+  socioCategoryId?: string | null;
 }) {
   return callRpc<{ management_event_id: string; financial_operation_id: number | null }>(client, 'register_management_event', {
     p_event_type: p.type, p_effective_date: p.effectiveDate, p_amount: p.amount, p_idempotency_key: p.idempotencyKey, p_reason: p.reason,
-    p_financial_account_id: p.accountId ?? null, p_compensates_event_id: p.compensatesEventId ?? null,
+    p_financial_account_id: p.accountId ?? null, p_compensates_event_id: p.compensatesEventId ?? null, p_socio_category_id: p.socioCategoryId ?? null,
   });
 }

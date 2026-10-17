@@ -5,10 +5,11 @@ import { ATTACHMENT_TYPES, validateAttachments } from '../../target/attachments'
 import { UNIT_TYPES, type UnitType } from '../../target/masters';
 import { FISCAL_VACIO, fiscalInput, TAX_KINDS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
-import { PURCHASE_NATURES, type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
+import { type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { campo, etiqueta, Modal } from './Modal';
+import { SelectorCategoria } from './SelectorCategoria';
 import { useExpenseCategories, useFreight, usePurchases, useSuppliers, useTreasuryMutations } from './useTreasury';
 
 const NATURALEZA: Record<string, string> = { OPERATING: 'Operativa', REINVESTMENT: 'Reinversión', INVESTMENT: 'Inversión' };
@@ -144,12 +145,8 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
           <input type="text" value={factura} onChange={(e) => setFactura(e.target.value)} className={campo} />
         </label>
       </div>
-      <label className={etiqueta}>Categoría
-        <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} className={campo}>
-          <option value="">Elegir categoría…</option>
-          {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
-      </label>
+      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={setCategoriaId} naturaleza={naturaleza} onNaturaleza={setNaturaleza}
+        campo={campo} etiqueta={etiqueta} />
       <label className={etiqueta}>Total
         <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
       </label>
@@ -183,11 +180,6 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
       <details className="border border-[#E4DCC8] rounded-lg p-2">
         <summary className="text-sm text-[#8A6A2E] cursor-pointer">Más datos</summary>
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <label className={etiqueta}>Naturaleza
-            <select value={naturaleza} onChange={(e) => setNaturaleza(e.target.value as PurchaseNature)} className={campo}>
-              {PURCHASE_NATURES.map((n) => <option key={n} value={n}>{NATURALEZA[n]}</option>)}
-            </select>
-          </label>
           <label className={etiqueta}>Neto (si es distinto del total)
             <input type="number" min="0" step="0.01" value={neto} placeholder={total} onChange={(e) => setNeto(e.target.value)} className={campo} />
           </label>
@@ -272,12 +264,7 @@ function FleteModal({ onClose }: { onClose: () => void }) {
       <label className={etiqueta}>Monto
         <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
-      <label className={etiqueta}>Categoría de gasto
-        <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} className={campo}>
-          <option value="">Elegir categoría…</option>
-          {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
-      </label>
+      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={setCategoriaId} campo={campo} etiqueta={etiqueta} />
       <label className={etiqueta}>Transportista (opcional)
         <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className={campo}>
           <option value="">Sin proveedor</option>

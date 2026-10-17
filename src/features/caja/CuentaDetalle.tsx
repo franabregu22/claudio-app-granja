@@ -9,7 +9,8 @@ import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useClassifyMp, useConfirmPayoutTransfer, useMpActivity, useMpPayoutMatches, useOwnBankAccounts } from './useMpActivity';
 import { useBankHistory } from './useReconciliation';
-import { useAccountPostings, useClients, useExpenseCategories, useLedgerBalances, useSuppliers } from './useTreasury';
+import { SelectorCategoria } from './SelectorCategoria';
+import { useAccountPostings, useClients, useLedgerBalances, useSuppliers } from './useTreasury';
 
 type Pestana = 'erp' | 'banco' | 'mp';
 
@@ -224,7 +225,6 @@ export function ClasificarSalida({ sourceId }: { sourceId: string }) {
   const [aDeuda, setADeuda] = useState(false);
   const [comercio, setComercio] = useState('');
   const proveedores = useSuppliers();
-  const categorias = useExpenseCategories();
   const saldos = useLedgerBalances('SUPPLIER');
   const { outflow } = useClassifyMp();
   if (!abierto) {
@@ -262,14 +262,8 @@ export function ClasificarSalida({ sourceId }: { sourceId: string }) {
           )}
           {!pagoDeuda && (
             <>
-              <select aria-label="Categoría" className={SELECT_CLS} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                <option value="">Categoría…</option>
-                {(categorias.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
+              <SelectorCategoria compacto campo={SELECT_CLS} subcategoriaId={categoria} onSubcategoria={setCategoria} naturaleza={naturaleza} onNaturaleza={setNaturaleza} />
               <input aria-label="Concepto" className={SELECT_CLS} placeholder="Concepto" maxLength={100} value={concepto} onChange={(e) => setConcepto(e.target.value)} />
-              <select aria-label="Naturaleza" className={SELECT_CLS} value={naturaleza} onChange={(e) => setNaturaleza(e.target.value as typeof naturaleza)}>
-                <option value="OPERATING">Operativo</option><option value="REINVESTMENT">Reinversión</option><option value="INVESTMENT">Inversión</option>
-              </select>
             </>
           )}
         </>

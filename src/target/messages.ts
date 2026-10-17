@@ -213,6 +213,9 @@ const MESSAGES: Record<string, string> = {
   INVALID_CLASSIFICATION: 'La clasificación elegida no es válida.',
   SUPPLIER_NOT_ALLOWED: 'Esta clasificación no lleva proveedor.',
   CATEGORY_NOT_ALLOWED: 'Esta clasificación no lleva categoría.',
+  CATEGORY_NOT_SELECTABLE: 'Esa subcategoría no se usa para compras ni gastos: los retiros van por «Retiro de socios» y el IVA / Ganancias por Fiscal.',   // ADR-024
+  INVALID_SOCIO: 'El socio elegido no es válido.',   // ADR-024
+  SOCIO_NOT_ALLOWED: 'Solo un retiro de socios lleva socio.',   // ADR-024
   COUNTERPARTY_NOT_ALLOWED: 'Esta clasificación no lleva nombre de comercio.',
   RESERVED_IDEMPOTENCY_KEY: 'La clave de la operación está reservada. Volvé a abrir el formulario.',
   EVIDENCE_REQUIRED: 'Falta la evidencia de la corrección.',

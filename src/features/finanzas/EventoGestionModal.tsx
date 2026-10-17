@@ -7,6 +7,8 @@ import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
 import { BloqueoMp, SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from '../caja/MovimientoMp';
 import { useClassifyMp } from '../caja/useMpActivity';
+import { useAllExpenseSubcategories, useExpenseGroups } from '../caja/useTreasury';
+import { socios } from '../../target/expenseCategories';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 
@@ -41,6 +43,10 @@ export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventTyp
   const [cuentaId, setCuentaId] = useState('');
   const [compensaId, setCompensaId] = useState('');
   const [motivo, setMotivo] = useState('');
+  const [socioId, setSocioId] = useState('');   // ADR-024: optional (Santi / Fran / Padres)
+  const grupos = useExpenseGroups();
+  const subcategorias = useAllExpenseSubcategories();
+  const listaSocios = socios(grupos.data ?? [], subcategorias.data ?? []);
   const [clave] = useState(() => `GEST-${crypto.randomUUID()}`);   // idempotency: one per opened form
   const compensables = (eventos.data ?? []).filter((e: ManagementEventRow) => e.event_type === tipo && !e.compensates_event_id);
   const esMp = useEsCuentaMp(cuentaId) && tipo === 'RETIRO';
@@ -56,6 +62,7 @@ export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventTyp
       onSubmit={() => (esMp ? outflow.mutate({ sourceId: movimientoMp, classification: 'OWNER_WITHDRAWAL' }, { onSuccess: onClose }) : registrar.mutate({
         type: tipo, effectiveDate: fecha, amount: Number(monto), idempotencyKey: clave, reason: motivo.trim(),
         accountId: tipo === 'RETIRO' ? cuentaId : null, compensatesEventId: compensaId || null,
+        socioCategoryId: tipo === 'RETIRO' && !compensaId ? socioId || null : null,
       }, { onSuccess: onClose }))}>
       {tipo === 'RETIRO' && (
         <label className={etiqueta}>Cuenta de la que sale el dinero
@@ -77,6 +84,14 @@ export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventTyp
           <select value={compensaId} onChange={(e) => setCompensaId(e.target.value)} className={campo}>
             <option value="">No</option>
             {compensables.map((e) => <option key={e.id} value={e.id}>{e.effective_date} · {formatoPesos(e.amount)}{e.reason ? ` · ${e.reason}` : ''}</option>)}
+          </select>
+        </label>
+      )}
+      {tipo === 'RETIRO' && !esMp && !compensaId && listaSocios.length > 0 && (
+        <label className={etiqueta}>Socio (opcional)
+          <select aria-label="Socio" value={socioId} onChange={(e) => setSocioId(e.target.value)} className={campo}>
+            <option value="">Sin especificar</option>
+            {listaSocios.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
         </label>
       )}

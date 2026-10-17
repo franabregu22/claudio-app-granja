@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import {
-  FISCAL_DIRECTIONS, FISCAL_DOCUMENT_TYPES, TAX_KINDS, firstOfMonth, type ComponentInput, type FiscalDirection, type FiscalDocumentType,
+  cuitOrNull, documentNumber, FISCAL_DIRECTIONS, FISCAL_DOCUMENT_TYPES, SOLO_IVA_NOTE, TAX_KINDS, firstOfMonth, type ComponentInput, type FiscalDirection, type FiscalDocumentType,
   type InstallmentInput, type ObligationRow, type TaxKind,
 } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
@@ -142,12 +142,22 @@ function DocumentoModal({ onClose }: { onClose: () => void }) {
   const [periodo, setPeriodo] = useState(getTodayDate().slice(0, 7));
   const [contraparteId, setContraparteId] = useState('');
   const [numero, setNumero] = useState('');
+  const [puntoVenta, setPuntoVenta] = useState('');
+  const [emisorPorCuit, setEmisorPorCuit] = useState(false);   // ADR-024: issuer by CUIT, no registered supplier
+  const [cuit, setCuit] = useState('');
+  const [razonSocial, setRazonSocial] = useState('');
   const [neto, setNeto] = useState('');
   const [total, setTotal] = useState('');
   const [componentes, setComponentes] = useState<ComponentInput[]>([]);
   const setComp = (i: number, patch: Partial<ComponentInput>) => setComponentes((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const lista = direccion === 'CREDITO' ? proveedores.data ?? [] : clientes.data ?? [];
-  const puede = fecha !== '' && periodo !== '' && contraparteId !== '' && neto !== '' && Number(total) > 0;
+  const porCuit = direccion === 'CREDITO' && emisorPorCuit;
+  const contraparteOk = porCuit ? cuitOrNull(cuit) !== null : contraparteId !== '';
+  const puede = fecha !== '' && periodo !== '' && contraparteOk && neto !== '' && Number(total) > 0;
+  const soloIva = () => {   // the fiscal-only VAT credit: a received document with its IVA, nothing else
+    setDireccion('CREDITO');
+    setComponentes((cs) => (cs.some((c) => c.tax_kind === 'IVA') ? cs : [...cs, { tax_kind: 'IVA', direction: 'CREDITO', base_amount: Number(neto) || 0, rate_applied: 21, tax_amount: 0 }]));
+  };
 
   return (
     <Modal titulo="Registrar comprobante manual" onClose={onClose} puedeGuardar={puede} guardando={registrarDoc.isPending}
@@ -155,8 +165,13 @@ function DocumentoModal({ onClose }: { onClose: () => void }) {
       onSubmit={() => registrarDoc.mutate({
         type: tipo, direction: direccion, date: fecha, fiscalPeriod: firstOfMonth(`${periodo}-01`), netAmount: Number(neto), totalAmount: Number(total),
         components: componentes.map((c) => ({ ...c, direction: direccion })),
-        supplierId: direccion === 'CREDITO' ? contraparteId : null, clienteId: direccion === 'DEBITO' ? contraparteId : null, externalNumber: numero,
+        supplierId: direccion === 'CREDITO' && !porCuit ? contraparteId : null, clienteId: direccion === 'DEBITO' ? contraparteId : null,
+        externalNumber: documentNumber(puntoVenta, numero), issuerTaxId: porCuit ? cuitOrNull(cuit) : null, issuerName: porCuit ? razonSocial.trim() || null : null,
       }, { onSuccess: onClose })}>
+      <div className="bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-900 space-y-1">
+        <p>{SOLO_IVA_NOTE}</p>
+        <button type="button" onClick={soloIva} className="underline">Cargar como «Solo crédito fiscal IVA»</button>
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Tipo
           <select value={tipo} onChange={(e) => setTipo(e.target.value as FiscalDocumentType)} className={campo}>
@@ -169,17 +184,33 @@ function DocumentoModal({ onClose }: { onClose: () => void }) {
           </select>
         </label>
       </div>
-      <label className={etiqueta}>{direccion === 'CREDITO' ? 'Proveedor' : 'Cliente'}
-        <select value={contraparteId} onChange={(e) => setContraparteId(e.target.value)} className={campo}>
-          <option value="">Elegir…</option>
-          {lista.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
-        </select>
-      </label>
+      {direccion === 'CREDITO' && (
+        <label className="text-xs text-gray-600 flex items-center gap-1">
+          <input type="checkbox" checked={emisorPorCuit} onChange={(e) => setEmisorPorCuit(e.target.checked)} />
+          El emisor no es un proveedor registrado (identificarlo por CUIT)
+        </label>
+      )}
+      {porCuit ? (
+        <div className="grid grid-cols-2 gap-2">
+          <label className={etiqueta}>CUIT del emisor<input type="text" inputMode="numeric" value={cuit} onChange={(e) => setCuit(e.target.value)} placeholder="20-12345678-6" className={campo} /></label>
+          <label className={etiqueta}>Razón social (opcional)<input type="text" maxLength={120} value={razonSocial} onChange={(e) => setRazonSocial(e.target.value)} className={campo} /></label>
+        </div>
+      ) : (
+        <label className={etiqueta}>{direccion === 'CREDITO' ? 'Proveedor' : 'Cliente'}
+          <select value={contraparteId} onChange={(e) => setContraparteId(e.target.value)} className={campo}>
+            <option value="">Elegir…</option>
+            {lista.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+          </select>
+        </label>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
         <label className={etiqueta}>Período fiscal<input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={campo} /></label>
       </div>
-      <label className={etiqueta}>Número (opcional)<input type="text" value={numero} onChange={(e) => setNumero(e.target.value)} className={campo} /></label>
+      <div className="grid grid-cols-2 gap-2">
+        <label className={etiqueta}>Punto de venta (opcional)<input type="text" inputMode="numeric" value={puntoVenta} onChange={(e) => setPuntoVenta(e.target.value)} placeholder="0001" className={campo} /></label>
+        <label className={etiqueta}>Número (opcional)<input type="text" inputMode="numeric" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="00004321" className={campo} /></label>
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Neto<input type="number" min="0" step="0.01" value={neto} onChange={(e) => setNeto(e.target.value)} className={campo} /></label>
         <label className={etiqueta}>Total<input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} /></label>

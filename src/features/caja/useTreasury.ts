@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { createPurchaseWithAttachments } from '../../target/attachments';
-import { listMaster, type ClientRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
+import { listMaster, type ClientRow, type ExpenseCategoryGroupRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
 import {
   assignFreightToPurchase, cancelSupplierInstrument, listAccountPostings, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
   listInstruments, listLedgerBalances, listPnlMonths, listPurchases, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
@@ -50,6 +50,14 @@ export function useActiveMaster<Row extends { activo: boolean }>(table: 'supplie
 }
 export const useSuppliers = () => useActiveMaster<SupplierRow>('suppliers');
 export const useExpenseCategories = () => useActiveMaster<ExpenseCategoryRow>('expense_category');
+/** ADR-024: every expense subcategory (inactive included: history and the administration tree need them). */
+export function useAllExpenseSubcategories() {
+  return useQuery({ queryKey: ['master', 'expense_category', 'all'], queryFn: () => listMaster<ExpenseCategoryRow>(supabase, 'expense_category') });
+}
+/** ADR-024: the parent expense categories, in display order. */
+export function useExpenseGroups() {
+  return useQuery({ queryKey: ['master', 'expense_category_group'], queryFn: () => listMaster<ExpenseCategoryGroupRow>(supabase, 'expense_category_group', 'display_order') });
+}
 export const useClients = () => useActiveMaster<ClientRow>('clients');
 
 type Args<F> = F extends (client: never, ...rest: infer A) => unknown ? A : never;

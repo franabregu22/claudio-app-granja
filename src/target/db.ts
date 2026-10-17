@@ -38,6 +38,7 @@ export const TARGET_READ_TABLES = [
   'financial_operation', 'financial_posting', 'bank_tax_charge',   // Phase 27 acceptance fixes: transfer history (D-WALK-2) + ADR-011
   'fin_statement_account_config', 'fin_import_run',   // ADR-018 bank statement import (ADMIN policy; config read as account ids only)
   'fin_statement_match', 'fin_statement_cutover',   // ADR-018 reconciliation / cut (ADMIN policy)
+  'expense_category_group',   // ADR-024 (0096): the parent expense category (ADMIN policy)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -47,6 +48,7 @@ export const DIRECT_WRITES = {
   products: ['insert', 'update'],
   price_history: ['insert', 'update'],
   expense_category: ['insert', 'update'],
+  expense_category_group: ['insert', 'update'],   // ADR-024 (0096), audited by trigger
   financial_account: ['insert', 'update'],
   sheds: ['insert', 'update'],
   suppliers: ['insert', 'update'],
