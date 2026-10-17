@@ -21,6 +21,11 @@ the ADR-021 / ADR-022 / ADR-023 Mercado Pago semantics.
   "Imputar solo IVA" is NOT a category (§3).
 - New subcategory "Afrechillo de trigo" (Insumos alimento balanceado, OPERATING). "Gastos de Feria" (system, used by the feria
   closing by name) → Feria. Master data only, no financial operation.
+- "Cartones" (owner decision 2026-10-17): created operationally in production on 2026-10-16, after the cutover, by a real
+  Mercado Pago casual purchase (Meta A). It is a first-class active subcategory, not legacy: parent Cartones / envases
+  (= Cartones, Manga x125U - Maples30u, Manga x125U - Maples20u, Manga x125U - Docenas), default nature OPERATING. Its ID
+  and history (purchase, MP classification, P&L) are kept unchanged; 0096 only maps it, and creates it (by name, no fixed
+  UUID) where it does not exist. Totals after 0096: 14 groups, 54 subcategories (52 active; IVA / Ganancias reserved).
 - Default nature: INVESTMENT — Pollitas BB, Arreglos edilicios; REINVESTMENT — Servicios técnicos, Herramientas, Repuestos;
   OPERATING — every other expense subcategory, including Materiales, Chacra, Compras viejas, Otros, Gastos no clasificados,
   Gastos de Feria and ProPAV (owner simplification: each ProPAV installment is an ordinary expense; principal / interest are

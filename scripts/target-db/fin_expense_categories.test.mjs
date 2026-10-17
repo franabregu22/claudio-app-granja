@@ -2,7 +2,7 @@
 /**
  * ADR-024 — EXPENSE CATEGORY → SUBCATEGORY, RESERVED SUBCATEGORIES, FISCAL ROUTES (migrations 0096 / 0098). LOCAL TEST DATABASE ONLY.
  *
- * 14 parent categories over the existing subcategories (ids kept), Afrechillo de trigo, default purchase nature (pre-filled,
+ * 14 parent categories over the existing subcategories (ids kept), Afrechillo de trigo, Cartones (kept when it exists), default purchase nature (pre-filled,
  * overridable per operation), withdrawal socios and the fiscal-reserved IVA / Ganancias refused for new purchases (a legacy
  * rectification keeps its category), the optional socio of a Retiro de socios (still RETIROS), the Fiscal IVA payment and the
  * "Solo crédito fiscal IVA" document (issuer by CUIT; no money, no purchase, no payable, no P&L; IVA credit), audited ADMIN-only
@@ -143,10 +143,16 @@ expect('A-1 14 parent categories, in the authoritative order; Retiros de socios 
   `(SELECT string_agg(display_order || ':' || nombre || ':' || kind, ',' ORDER BY display_order) FROM expense_category_group)`,
   '1:Insumos alimento balanceado:EXPENSE,2:Cartones / envases:EXPENSE,3:Mano de obra:EXPENSE,4:Retiros de socios:OWNER_WITHDRAWAL,5:Combustible:EXPENSE,6:Servicios:EXPENSE,'
   + '7:Materiales / Repuestos:EXPENSE,8:Logística / Fletes:EXPENSE,9:Impuestos y tasas:EXPENSE,10:Insumos varios:EXPENSE,11:Otros:EXPENSE,12:Créditos:EXPENSE,13:Recria:EXPENSE,14:Feria:EXPENSE');
-expect('B-1 the 52 pre-existing subcategories keep their ids (created before 0096, none recreated); 53 in total',
-  `(SELECT count(*) FILTER (WHERE created_at < (SELECT applied_at FROM migration_ledger.applied WHERE version = '0096')) || ':' || count(*) FROM expense_category)`, '52:53');
+expect('B-1 the pre-existing subcategories keep their ids (created before 0096, none recreated; 52 here, 53 in production with Cartones); 54 in total, 52 active',
+  `(SELECT count(*) FILTER (WHERE created_at < (SELECT applied_at FROM migration_ledger.applied WHERE version = '0096')) + count(*) FILTER (WHERE nombre IN ('Afrechillo de trigo', 'Cartones')
+     AND created_at >= (SELECT applied_at FROM migration_ledger.applied WHERE version = '0096')) || ':' || count(*) || ':' || count(*) FILTER (WHERE activo) FROM expense_category)`, '54:54:52');
 expect('C-1 Afrechillo de trigo exactly once, under Insumos alimento balanceado, OPERATING, active', `(SELECT count(*) || ':' || min(g.nombre) || ':' || min(c.default_nature::text) || ':' || bool_and(c.activo)
    FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.nombre = 'Afrechillo de trigo')`, '1:Insumos alimento balanceado:OPERATING:true');
+expect('C-2 Cartones exactly once, under Cartones / envases, OPERATING, active, not reserved (created after the cutover by a real purchase; kept)',
+  `(SELECT count(*) || ':' || min(g.nombre) || ':' || min(c.default_nature::text) || ':' || bool_and(c.activo) || ':' || bool_and(NOT c.fiscal_reserved)
+   FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.nombre = 'Cartones')`, '1:Cartones / envases:OPERATING:true:true');
+expect('C-3 Cartones / envases lists Cartones and the three mangas', A(`SELECT string_agg(c.nombre, ',' ORDER BY c.nombre) FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.activo AND g.nombre = 'Cartones / envases'`),
+  'OK:Cartones,Manga x125U - Docenas,Manga x125U - Maples20u,Manga x125U - Maples30u');
 expect('D-1 Gastos de Feria → Feria (the feria closing still finds it by name)', `(SELECT g.nombre FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.nombre = 'Gastos de Feria')`, 'Feria');
 expect('E-1 parent backfill complete: group_id mandatory, no orphan', `((SELECT attnotnull::text FROM pg_attribute WHERE attrelid = 'expense_category'::regclass AND attname = 'group_id') || ':' || (SELECT count(*) FROM expense_category WHERE group_id IS NULL))`, 'true:0');
 expect('F-1 default nature: every active expense subcategory has one; withdrawal socios and the reserved IVA / Ganancias have none',

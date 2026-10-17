@@ -8,8 +8,9 @@
 --      nature; the operation keeps its own), fiscal_reserved (IVA / Ganancias: Fiscal route only). A new subcategory takes the
 --      legacy pnl_cost_class of its siblings (else INDIRECT) — DIRECT / INDIRECT is in standby and never asked — and, when a
 --      legacy writer sends no parent (the pre-ADR-024 master editor), the parent "Otros".
---   3. Backfill of the authoritative map (14 groups); "Afrechillo de trigo" created once; IVA / Ganancias deactivated and
---      reserved; Santi / Fran / Padres under "Retiros de socios" (OWNER_WITHDRAWAL). Any unmapped row aborts the migration.
+--   3. Backfill of the authoritative map (14 groups); "Afrechillo de trigo" and "Cartones" created once when missing
+--      ("Cartones" exists in production since 2026-10-16 — a real MP casual purchase — and keeps its ID and history; it is
+--      only given its parent "Cartones / envases" and OPERATING); IVA / Ganancias deactivated and reserved; Santi / Fran / Padres under "Retiros de socios" (OWNER_WITHDRAWAL). Any unmapped row aborts the migration.
 --   4. expense_category_selectable_guard: purchases, freight and feria cash events refuse an OWNER_WITHDRAWAL or fiscal-reserved
 --      subcategory (CATEGORY_NOT_SELECTABLE); a rectification of a legacy purchase keeps its own category.
 --   5. management_event.socio_category_id: the optional socio of a RETIRO (an OWNER_WITHDRAWAL subcategory);
@@ -80,6 +81,9 @@ INSERT INTO expense_category_group (nombre, display_order, kind) VALUES
 INSERT INTO expense_category (nombre, activo, pnl_cost_class, group_id, default_nature)
 SELECT 'Afrechillo de trigo', true, 'DIRECT', g.id, 'OPERATING' FROM expense_category_group g
  WHERE g.nombre = 'Insumos alimento balanceado' AND NOT EXISTS (SELECT 1 FROM expense_category WHERE nombre = 'Afrechillo de trigo');
+INSERT INTO expense_category (nombre, activo, pnl_cost_class, group_id, default_nature)
+SELECT 'Cartones', true, 'DIRECT', g.id, 'OPERATING' FROM expense_category_group g
+ WHERE g.nombre = 'Cartones / envases' AND NOT EXISTS (SELECT 1 FROM expense_category WHERE nombre = 'Cartones');
 
 WITH m (grupo, sub, nature) AS (VALUES
   ('Insumos alimento balanceado', 'Sal', 'OPERATING'), ('Insumos alimento balanceado', 'Metionina', 'OPERATING'),
@@ -89,7 +93,7 @@ WITH m (grupo, sub, nature) AS (VALUES
   ('Insumos alimento balanceado', 'Secuestrante Micotoxinas', 'OPERATING'), ('Insumos alimento balanceado', 'Compras viejas', 'OPERATING'),
   ('Insumos alimento balanceado', 'Carbonato de calcio', 'OPERATING'), ('Insumos alimento balanceado', 'Afrechillo de trigo', 'OPERATING'),
   ('Cartones / envases', 'Manga x125U - Maples30u', 'OPERATING'), ('Cartones / envases', 'Manga x125U - Maples20u', 'OPERATING'),
-  ('Cartones / envases', 'Manga x125U - Docenas', 'OPERATING'),
+  ('Cartones / envases', 'Manga x125U - Docenas', 'OPERATING'), ('Cartones / envases', 'Cartones', 'OPERATING'),
   ('Mano de obra', 'Sueldos empleados', 'OPERATING'), ('Mano de obra', 'Jornales', 'OPERATING'), ('Mano de obra', 'Horas extra', 'OPERATING'),
   ('Mano de obra', 'Trabajos chacra', 'OPERATING'),
   ('Retiros de socios', 'Santi', NULL), ('Retiros de socios', 'Fran', NULL), ('Retiros de socios', 'Padres', NULL),
