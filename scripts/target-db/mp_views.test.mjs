@@ -169,10 +169,10 @@ const CLI = owner(`INSERT INTO clients (nombre, activo) VALUES ('S10V client ${D
 // ═════════════════════════════════════════════════════════════════════════════
 section('V', 'definitions and privileges');
 {
-  check('V-1 the three views exist, owned by postgres, with security_invoker = true',
+  check('V-1 the three views exist, owned by postgres; security_invoker = true except report_mp_receipt_status (0097: reads the protected payload with the owner rights, ADMIN filter kept)',
     owner(`SELECT string_agg(c.relname || ':' || pg_get_userbyid(c.relowner) || ':' || (c.reloptions @> ARRAY['security_invoker=true']), ',' ORDER BY c.relname)
       FROM pg_class c WHERE c.relkind = 'v' AND c.relnamespace = 'public'::regnamespace AND c.relname IN (${VIEWS.map(q).join(',')});`)
-      === VIEWS.map((v) => `${v}:postgres:true`).join(','));
+      === VIEWS.map((v) => `${v}:postgres:${v !== 'report_mp_receipt_status'}`).join(','));
   check('V-2 privileges: SELECT for authenticated only; nothing for anon, service_role or PUBLIC; no write privilege',
     owner(`SELECT string_agg(c.relname || ':' || coalesce(r.rolname, 'PUBLIC') || ':' || a.privilege_type, ',' ORDER BY c.relname, 2, 3)
       FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a LEFT JOIN pg_roles r ON r.oid = a.grantee
@@ -185,7 +185,7 @@ section('V', 'definitions and privileges');
     owner(`SELECT count(*) FROM pg_views WHERE viewname IN (${VIEWS.map(q).join(',')})
       AND (definition ~ 'CLIENT_[A-Z_]+''::text[^,]*review' OR definition ~* 'CLIENT_(RECONCILED|UNRECONCILED|PENDING)');`) === '0');
   check('V-5 SECURITY DEFINER set unchanged by the views: exactly 67 (60 + ADR-007 RPCs 44 / 45 + ADR-011 RPC 46 + ADR-012/013 RPCs 47 / 48 + ADR-014 RPC 49 + ADR-015 RPC 50; no function added for the views)',
-    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '93');
+    owner(`SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === '94');
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

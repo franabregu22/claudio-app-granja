@@ -270,7 +270,7 @@ expect('T-2 … MP unchanged, BNA −2000, no longer an unlinked inflow', `((SEL
 // ── K / L / M. raw evidence security ──
 expect('K-1 ADMIN cannot read mp_historical_row.raw_row', as('authenticated', ADMIN, `SELECT raw_row::text FROM mp_historical_row LIMIT 1`), 'ERR:permission denied%');
 expect('K-2 ADMIN reads the safe columns of mp_historical_row', as('authenticated', ADMIN, `SELECT count(*)::text FROM (SELECT id, identity, source_id, payment_method, net_amount FROM mp_historical_row WHERE source_id LIKE '9500000%') x`), 'OK:1106');
-expect('K-3 ADMIN never sees the full account number in any source record', as('authenticated', ADMIN, `SELECT count(*)::text FROM mp_source_record WHERE event_data::text LIKE '%${SECRET}%'`), 'OK:0');
+expect('K-3 ADMIN never sees the full account number in any source record (0097: the raw payload is not API-readable at all)', as('authenticated', ADMIN, `SELECT count(*)::text FROM mp_source_record WHERE event_data::text LIKE '%${SECRET}%'`), 'ERR:permission denied%');
 expect('K-4 … nor in the curated views (last 4 only)', as('authenticated', ADMIN, `SELECT ((SELECT count(*) FROM fin_mp_pending_classification x WHERE x::text LIKE '%${SECRET}%') + (SELECT count(*) FROM fin_mp_historical_payouts x WHERE x::text LIKE '%${SECRET}%')
    + (SELECT count(*) FROM fin_mp_unlinked_inflows x WHERE x::text LIKE '%${SECRET}%') + (SELECT count(*) FROM report_mp_movement_status x WHERE x::text LIKE '%${SECRET}%') + (SELECT count(*) FROM audit_events x WHERE x::text LIKE '%${SECRET}%'))::text`), 'OK:0');
 expect('K-5 the protected movement is still listed (report_mp_movement_status keeps it)', as('authenticated', ADMIN,
@@ -286,7 +286,7 @@ expect('R-1 ADR-022 historical balance unchanged by the 0095 operations (MP as o
 expect('Q-1 current / post-cutover MP balances unchanged by linking and the own transfer (only the live receipts moved it)', `((SELECT ${BAL('Mercado Pago')} - mp FROM f0))::text`, '0.00');
 expect('Q-2 SOURCE_ID invariant holds', `pg_temp.err_of($q$SET CONSTRAINTS ALL IMMEDIATE$q$)`, 'OK');
 expect('Q-3 no duplicate postings / allocations per key', `((SELECT count(*) FROM (SELECT financial_operation_id, financial_account_id, signed_amount FROM financial_posting GROUP BY 1, 2, 3 HAVING count(*) > 1) x) + (SELECT count(*) FROM (SELECT idempotency_key FROM mp_client_allocation GROUP BY 1 HAVING count(*) > 1) x))::text`, '0');
-expect('Q-4 SECURITY DEFINER set unchanged (93)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '93');
+expect('Q-4 SECURITY DEFINER set unchanged (93)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '94');
 
 add('ROLLBACK;');
 

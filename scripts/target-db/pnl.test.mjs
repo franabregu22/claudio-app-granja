@@ -278,12 +278,14 @@ check('A1 expense_category.pnl_cost_class: enum expense_cost_class (DIRECT, INDI
      WHERE table_name = 'expense_category' AND column_name = 'pnl_cost_class';`) === 'USER-DEFINED|expense_cost_class|NO|none'
   && owner(`SELECT string_agg(enumlabel, ',' ORDER BY enumsortorder) FROM pg_enum WHERE enumtypid = 'expense_cost_class'::regtype;`) === 'DIRECT,INDIRECT');
 r = ADMIN(`INSERT INTO expense_category (nombre) VALUES ('${TAG} sin clase');`);
-check('A2 a category without an explicit class is rejected (no guessed default)', violates(r, 'pnl_cost_class'), firstErr(r));
+// ADR-024 (0096): DIRECT / INDIRECT is in standby — a new subcategory takes its siblings' legacy class (here "Otros": INDIRECT)
+check('A2 a subcategory without an explicit class takes the legacy class of its siblings (ADR-024 standby; never asked)', r.ok
+  && owner(`SELECT c.pnl_cost_class || ':' || g.nombre FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.nombre = '${TAG} sin clase';`) === 'INDIRECT:Otros', firstErr(r));
 check('A3 financial_operation_type gains OWNER_WITHDRAWAL (the treasury consequence of a RETIRO)',
   owner(`SELECT 'OWNER_WITHDRAWAL' = ANY(enum_range(NULL::financial_operation_type)::TEXT[]);`) === 't');
 check('A4 management_event: append-only source decisions (RETIRO / RESERVA_INTERNA), magnitude > 0, compensation link, treasury CHECK, reason CHECK',
   owner(`SELECT string_agg(column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = 'management_event';`)
-  === 'id,event_type,effective_date,amount,compensates_event_id,financial_account_id,financial_operation_id,idempotency_key,reason,created_at,created_by'
+  === 'id,event_type,effective_date,amount,compensates_event_id,financial_account_id,financial_operation_id,idempotency_key,reason,created_at,created_by,socio_category_id'   // 0096: optional socio
   && owner(`SELECT string_agg(conname, ',' ORDER BY conname) FROM pg_constraint WHERE conrelid = 'management_event'::regclass AND contype IN ('c','u');`)
   === 'chk_management_event_not_self,chk_management_event_reason,chk_management_event_treasury,management_event_amount_check,'
   + 'management_event_financial_operation_id_key,management_event_idempotency_key_key');

@@ -219,7 +219,7 @@ expect('C-6 fin_record_mp_payout_destinations: DEFINER, owner postgres, search_p
   `(SELECT prosecdef || ':' || pg_get_userbyid(proowner) || ':' || (proconfig @> ARRAY['search_path=public']) || ':' || has_function_privilege('anon', oid, 'EXECUTE')
       || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'fin_record_mp_payout_destinations')`,
   'true:postgres:true:falsefalsetrue');
-expect('C-7 SECURITY DEFINER set = 93 (77 + fin_record_mp_payout_destinations + 0084 fin_mp_payout_matches + 0086 + 0087)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '93');
+expect('C-7 SECURITY DEFINER set = 94 (77 + fin_record_mp_payout_destinations + 0084 fin_mp_payout_matches + 0086 + 0087)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '94');
 expect('C-8 ingestion functions: the 0080 capture body unchanged; the NORMAL body is the 0093 one (ADR-021 provisional per outflow)',
   `(SELECT string_agg(proname || ':' || md5(replace(prosrc, chr(13), '')), ',' ORDER BY proname) FROM pg_proc WHERE proname IN ('fin_capture_mp_release_report', 'fin_ingest_mp_release_report'))`,
   'fin_capture_mp_release_report:ba537f978db607841cbf1e7aeaa6ebcd,fin_ingest_mp_release_report:9a1a33fdbda940dbf2fecb30e34de4ce');

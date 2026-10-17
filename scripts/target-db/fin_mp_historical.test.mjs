@@ -230,10 +230,10 @@ expect('C-4 staging after the reconstruction is closed', STAGE('f4.csv', 'd'.rep
 expect('P-1 the reconstruction wrote into the CLOSED February; the normal guard still refuses it', `pg_temp.err_of($q$SELECT assert_period_open(DATE '2026-02-10')$q$)`, 'ERR:PERIOD_CLOSED%');
 expect('P-2 a normal route into the closed period is still refused', as('authenticated', ADMIN,
   `SELECT mp_admin_correction(1, DATE '2026-02-10', 'x', 'evidence', 'TEST94-P2')::text`), 'ERR:PERIOD_CLOSED%');
-expect('Q-3 the historical functions are DEFINER, EXECUTE for authenticated only; SECURITY DEFINER set 93',
+expect('Q-3 the historical functions are DEFINER, EXECUTE for authenticated only; SECURITY DEFINER set 94',
   `((SELECT string_agg(proname || '=' || prosecdef || has_function_privilege('authenticated', oid, 'EXECUTE') || has_function_privilege('anon', oid, 'EXECUTE'), ',' ORDER BY proname)
      FROM pg_proc WHERE proname IN ('mp_historical_stage', 'mp_historical_reconstruct')) || '|' || (SELECT count(*) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace))`,
-  'mp_historical_reconstruct=truetruefalse,mp_historical_stage=truetruefalse|93');
+  'mp_historical_reconstruct=truetruefalse,mp_historical_stage=truetruefalse|94');
 expect('Q-4 historical evidence is immutable; the destination is not readable by API roles', `(pg_temp.err_of($q$UPDATE mp_historical_row SET net_amount = 1 WHERE source_id = '${S(1)}'$q$) || '|' || has_table_privilege('authenticated', 'mp_historical_destination', 'SELECT'))`,
   'ERR:FIN_EVIDENCE_IMMUTABLE%|false');
 expect('R-1 SOURCE_ID invariant: every MP posting is linked (deferred check passes now)', `pg_temp.err_of($q$SET CONSTRAINTS ALL IMMEDIATE$q$)`, 'OK');

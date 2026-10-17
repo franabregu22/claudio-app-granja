@@ -765,7 +765,7 @@ const sigs = owner(`SELECT string_agg(proname || '(' || pg_get_function_identity
 const argNames = owner(`SELECT string_agg(array_to_string(proargnames, ','), ',') FROM pg_proc WHERE proname IN (${FISCAL_RPCS.map((p) => `'${p}'`).join(',')});`);
 check('M3 exact frozen signatures; no actor / role / user parameter',
   sigs === 'pay_fiscal_obligation(p_obligation_id uuid, p_effective_date date, p_amount numeric, p_financial_account_id uuid, p_idempotency_key character varying, p_installment_id uuid, p_reason text) ; '
-  + 'register_fiscal_document(p_document_type fiscal_document_type, p_direction fiscal_direction, p_document_date date, p_fiscal_period date, p_net_amount numeric, p_total_amount numeric, p_components jsonb, p_supplier_id uuid, p_cliente_id uuid, p_external_number character varying, p_reason text) ; '
+  + 'register_fiscal_document(p_document_type fiscal_document_type, p_direction fiscal_direction, p_document_date date, p_fiscal_period date, p_net_amount numeric, p_total_amount numeric, p_components jsonb, p_supplier_id uuid, p_cliente_id uuid, p_external_number character varying, p_reason text, p_issuer_tax_id character varying, p_issuer_name character varying) ; '   // 0098 ADR-024: issuer by CUIT
   + 'register_fiscal_obligation(p_tax_kind tax_kind, p_fiscal_period date, p_amount numeric, p_due_date date, p_installments jsonb, p_reason text)'
   && !/(user|actor|role|performed|created_by|uid)/i.test(argNames), sigs);
 

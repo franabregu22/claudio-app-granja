@@ -251,7 +251,7 @@ expect('Z-1 table: RLS, ADMIN SELECT only, immutable; RPC DEFINER, EXECUTE authe
   `((SELECT relrowsecurity FROM pg_class WHERE relname = 'collection_correction') AND (SELECT string_agg(policyname, ',') FROM pg_policies WHERE tablename = 'collection_correction') = 'collection_correction_admin_select'
      AND pg_temp.err_of('UPDATE collection_correction SET reason = ''x''') LIKE 'ERR:%'
      AND (SELECT prosecdef AND NOT has_function_privilege('anon', oid, 'EXECUTE') AND has_function_privilege('authenticated', oid, 'EXECUTE') AND NOT has_function_privilege('service_role', oid, 'EXECUTE') FROM pg_proc WHERE proname = 'mp_correct_manual_collection'))::text`, 'true');
-expect('Z-2 SECURITY DEFINER set = 93 (87 + mp_correct_manual_collection)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '93');
+expect('Z-2 SECURITY DEFINER set = 94 (87 + mp_correct_manual_collection)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '94');
 
 add('ROLLBACK;');
 

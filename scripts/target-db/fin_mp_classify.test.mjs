@@ -327,7 +327,7 @@ expect('Z-2 tables: RLS, one ADMIN SELECT policy each, SELECT only for authentic
       || ':' || (SELECT count(*) FROM pg_trigger WHERE tgrelid = t::regclass AND NOT tgisinternal), ',' ORDER BY t)
      FROM unnest(ARRAY['mp_inflow_classification', 'mp_outflow_classification']) t)`,
   'mp_inflow_classification=true:mp_inflow_classification_admin_select:SELECT:truefalsefalse:1,mp_outflow_classification=true:mp_outflow_classification_admin_select:SELECT:truefalsefalse:1');
-expect('Z-3 SECURITY DEFINER set = 93 (83 after ADR-019 + the two classification RPCs)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '93');
+expect('Z-3 SECURITY DEFINER set = 94 (83 after ADR-019 + the two classification RPCs)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '94');
 expect('Z-4 cron jobs unchanged; mp_v4_verified() false',
   `((SELECT string_agg(jobname, ',' ORDER BY jobname) FROM cron.job) || '|' || mp_v4_verified()::text)`, 'mp_release_report_daily,mp_release_report_daily_fallback,mp_worker_every_minute|false');
 

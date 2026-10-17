@@ -344,15 +344,15 @@ check('A2 every report view is security_invoker = true and owned by postgres',
 check('A3 exact grants: SELECT for authenticated only (no anon, no service_role, no PUBLIC)',
   owner(`SELECT count(DISTINCT relacl::TEXT) || ':' || min(relacl::TEXT) FROM pg_class WHERE relname IN (${VIEWS.map(q).join(',')});`)
   === '1:{postgres=arwdDxtm/postgres,authenticated=r/postgres}');
-check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) + bank_tax_charge (0062) + sales_session_closing (0070) + mp_cutover_boundary (0071) + the 6 ADR-018 tables (0073) + fin_mp_report_schedule_log (0081) + fin_mp_payout_destination (0083) + financial_account_identifier (0084) + mp_inbound_reclassification (0086) + mp_payout_transfer_confirmation (0087) + mp_outflow_classification (0088) + mp_inflow_classification (0089) + mp_source_exception (0091) + collection_correction (0092) + mp_pending_outflow / mp_pending_outflow_resolution (0093) + the 5 mp_historical_* tables (0094) = 84',
+check('A4 no materialized view; public base tables = 53 + the 6 ADR-006 tables (0047) + bank_tax_charge (0062) + sales_session_closing (0070) + mp_cutover_boundary (0071) + the 6 ADR-018 tables (0073) + fin_mp_report_schedule_log (0081) + fin_mp_payout_destination (0083) + financial_account_identifier (0084) + mp_inbound_reclassification (0086) + mp_payout_transfer_confirmation (0087) + mp_outflow_classification (0088) + mp_inflow_classification (0089) + mp_source_exception (0091) + collection_correction (0092) + mp_pending_outflow / mp_pending_outflow_resolution (0093) + the 5 mp_historical_* tables (0094) + expense_category_group (0096) = 85',
   owner(`SELECT count(*) FROM pg_matviews WHERE schemaname = 'public';`) === '0'
-  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '84');
+  && owner(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';`) === '85');
 check('A5 no SECURITY DEFINER reporting function: the definer inventory is the 41 baseline + the 16 ADR-006 Step-2 definers (0048) + the Step-6 definer mp_ingest_api_snapshot (0050) + the Step-7 definers mp_apply_transition / mp_normalize_report_fallback (0051), and no report_* function exists',
   owner(`SELECT string_agg(proname, ',' ORDER BY proname) FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace;`) === ALL_DEFINERS
   && owner(`SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname LIKE 'report%';`) === '0');
-check('A6 the only non-invoker view is still the frozen feed_formula_line_safe',
-  owner(`SELECT string_agg(relname, ',') FROM pg_class WHERE relkind = 'v' AND relnamespace = 'public'::regnamespace
-     AND NOT coalesce(reloptions @> ARRAY['security_invoker=true'], false);`) === 'feed_formula_line_safe');
+check('A6 the non-invoker views are the frozen feed_formula_line_safe + the four ADMIN-filtered MP views that read the protected payload (0097)',
+  owner(`SELECT string_agg(relname, ',' ORDER BY relname) FROM pg_class WHERE relkind = 'v' AND relnamespace = 'public'::regnamespace
+     AND NOT coalesce(reloptions @> ARRAY['security_invoker=true'], false);`) === 'feed_formula_line_safe,fin_mp_report_activity,fin_mp_technical_review,fin_mp_unlinked_inflows,report_mp_receipt_status');
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('N', 'No stored reporting values');
