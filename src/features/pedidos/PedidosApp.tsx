@@ -12,10 +12,13 @@ import { useOrderMutations, useOrders } from './useCommercial';
 type Vista = 'lista' | 'nuevo' | 'editar' | 'rectificar';
 const ITEMS_POR_PAGINA = 15;
 
-/** Short display reference of an order: its business number when it has one, else a short id. */
+/** Display reference of an order: its correlative number (0100), at least 4 digits (0001 … 9999, then 10000 …);
+ * a short id only for a row read before the number exists. */
 export function refPedido(p: Pick<OrderRow, 'id' | 'numero_pedido'>): string {
-  return p.numero_pedido !== null ? String(p.numero_pedido).padStart(3, '0') : p.id.slice(0, 8);
+  return p.numero_pedido !== null && p.numero_pedido !== undefined ? String(p.numero_pedido).padStart(4, '0') : p.id.slice(0, 8);
 }
+/** Who confirmed the delivery: never inferred (updated_by / created_by are not the responsible). */
+const entregadoPor = (p: Pick<OrderRow, 'entregado_por_email'>) => p.entregado_por_email ?? 'No disponible';
 
 /** Small "Rectificado" tag (display only; the rectification flow is unchanged). With onToggle it opens the history. */
 function EtiquetaRectificado({ seq, abierto, onToggle }: { seq: number; abierto?: boolean; onToggle?: () => void }) {
@@ -210,6 +213,7 @@ export function PedidosApp() {
                           <span className="text-gray-500 font-medium">#{refPedido(p)}</span> · {p.cliente_nombre}
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">Entregado {p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</p>
+                        <p className="text-xs text-gray-500 break-all">Entregado por: {entregadoPor(p)}</p>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
                         <span className="text-sm font-semibold text-amber-900">{formatoPesos(orderTotal(p))}</span>
@@ -239,12 +243,13 @@ export function PedidosApp() {
                       <th className="hidden md:table-cell px-4 py-2 text-left font-semibold text-amber-900">Contenido</th>
                       <th className="px-4 py-2 text-right font-semibold text-amber-900">Monto</th>
                       <th className="hidden md:table-cell px-4 py-2 text-left font-semibold text-amber-900">Fecha entrega</th>
+                      <th className="hidden md:table-cell px-4 py-2 text-left font-semibold text-amber-900">Entregado por</th>
                       <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginados.length === 0 ? (
-                      <tr><td colSpan={6} className="px-4 py-4 text-center text-gray-500">Sin entregas</td></tr>
+                      <tr><td colSpan={7} className="px-4 py-4 text-center text-gray-500">Sin entregas</td></tr>
                     ) : paginados.map((p) => (
                       <Fragment key={p.id}>
                       <tr className="border-b border-amber-100 hover:bg-amber-50">
@@ -260,6 +265,7 @@ export function PedidosApp() {
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-amber-900">{formatoPesos(orderTotal(p))}</td>
                         <td className="hidden md:table-cell px-4 py-2 text-gray-700">{p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</td>
+                        <td className={`hidden md:table-cell px-4 py-2 text-xs break-all ${p.entregado_por_email ? 'text-gray-700' : 'text-gray-400'}`}>{entregadoPor(p)}</td>
                         <td className="px-4 py-2 text-center">
                           <button onClick={() => abrir('rectificar', p)} className="text-amber-600 hover:text-amber-900 inline-flex items-center gap-1" title="Rectificar">
                             <Pencil className="w-4 h-4" />
@@ -268,7 +274,7 @@ export function PedidosApp() {
                       </tr>
                       {historialAbierto === p.id && (
                         <tr className="border-b border-amber-100 bg-[#FFF8F6]">
-                          <td colSpan={6} className="px-4 py-3"><HistorialRectificaciones p={p} /></td>
+                          <td colSpan={7} className="px-4 py-3"><HistorialRectificaciones p={p} /></td>
                         </tr>
                       )}
                       </Fragment>

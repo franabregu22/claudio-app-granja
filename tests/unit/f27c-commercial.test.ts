@@ -1,12 +1,16 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TargetDbError } from '../../src/target/db';
 import {
   buildRectifications, COLLECTION_METHODS, createPendingOrder, currentPrice, listClientBalances, listOrders, orderTotal, rectifyDeliveredOrder,
   registerCollection, updatePendingOrder, type LineInput, type VersionedLine,
 } from '../../src/target/commercial';
 import type { PriceRow } from '../../src/target/masters';
+import { refPedido } from '../../src/features/pedidos/PedidosApp';
+
+// PedidosApp is imported only for refPedido: the Supabase client is never used here (no env needed)
+vi.mock('../../src/lib/supabase', () => ({ supabase: {} }));
 
 /** PostgREST-shaped stub recording every write / rpc, answering from a queue. */
 function stub(results: { data: unknown; error: unknown }[] = []) {
@@ -164,6 +168,31 @@ describe('Pedidos — rectification history (display only, from the stored line 
     expect(orderTotal(o)).toBe(200);
     expect(o.rectificaciones).toHaveLength(1);
     expect(o.rectificaciones[0]).toMatchObject({ version: 1, by_email: 'a@x', total_antes: 300, total_despues: 200 });
+  });
+});
+
+describe('Pedidos — order number and delivery responsible (0100)', () => {
+  const raw = (o: Record<string, unknown>) => ({
+    id: 'o1', numero_pedido: 1, cliente_id: 'c1', estado: 'DELIVERED', delivered_at: 'x', delivered_date: '2026-10-14', cancelled_date: null,
+    rectification_seq: 0, created_at: 'y', clients: { nombre: 'Cliente' }, pedido_lineas: [], ...o,
+  });
+
+  it('the number is shown with at least 4 digits and is never truncated', () => {
+    expect(refPedido({ id: 'abcdef12-0000', numero_pedido: 1 })).toBe('0001');
+    expect(refPedido({ id: 'abcdef12-0000', numero_pedido: 350 })).toBe('0350');
+    expect(refPedido({ id: 'abcdef12-0000', numero_pedido: 12345 })).toBe('12345');
+    expect(refPedido({ id: 'abcdef12-0000', numero_pedido: null })).toBe('abcdef12');
+  });
+
+  it('the responsible is the delivered_by email (perfiles); without evidence it stays null — never updated_by / created_by', async () => {
+    const { client } = stub([{ data: [
+      raw({ id: 'o1', delivered_by: 'u1', entrego: { email: 'admin@x' }, updated_by: 'u9', created_by: 'u8' }),
+      raw({ id: 'o2', delivered_by: null, entrego: null, updated_by: 'u9', created_by: 'u8' }),
+      raw({ id: 'o3', delivered_by: 'u2', entrego: null }),   // profile not visible: no email invented
+    ], error: null }]);
+    const rows = await listOrders(client, ['DELIVERED']);
+    expect(rows.map((o) => [o.id, o.delivered_by, o.entregado_por_email])).toEqual([['o1', 'u1', 'admin@x'], ['o2', null, null], ['o3', 'u2', null]]);
+    expect(rows[0]).not.toHaveProperty('entrego');
   });
 });
 

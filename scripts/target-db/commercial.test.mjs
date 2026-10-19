@@ -264,6 +264,7 @@ const wantChecks = [
   'chk_collections_account_required', 'chk_collections_no_cheque',
   'chk_pedidos_aggregated_has_session',   // Phase 21 (0032): invariant 28 backstop; the 2 deferred-FK stand-ins were replaced by the frozen FKs
   'chk_pedidos_cancelled_coherent', 'chk_pedidos_delivered_coherent',
+  'chk_pedidos_numero_positive',   // 0100: the correlative order number is positive
   'client_ledger_signed_amount_check', 'collections_amount_check', 'financial_posting_signed_amount_check',
   'pedido_lineas_cantidad_check', 'pedido_lineas_precio_unitario_check',
 ];
@@ -280,12 +281,13 @@ const wantFks = [
   'pedido_lineas.created_by>perfiles', 'pedido_lineas.pedido_id>pedidos', 'pedido_lineas.producto_id>products',
   'pedidos.cliente_id>clients', 'pedidos.created_by>perfiles', 'pedidos.updated_by>perfiles',
   'pedidos.sales_session_id>sales_session', 'collections.sales_session_id>sales_session',   // frozen FKs added by Phase 21 (0032)
+  'pedidos.delivered_by>perfiles',   // 0100: the ADMIN who confirmed the delivery
 ].sort();
 const fks = owner(`SELECT string_agg(x, ',' ORDER BY x) FROM (
   SELECT c.conrelid::regclass || '.' || a.attname || '>' || c.confrelid::regclass AS x
     FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
    WHERE c.contype = 'f' AND c.conrelid::regclass::TEXT IN (${COMMERCIAL_TABLES.map((t) => `'${t}'`).join(',')})) s;`);
-check('A5 foreign keys are exactly the frozen set (16 + 2 sales_session FKs since Phase 21)', fks === wantFks.join(','), fks);
+check('A5 foreign keys are exactly the frozen set (16 + 2 sales_session FKs since Phase 21 + delivered_by since 0100)', fks === wantFks.join(','), fks);
 const notRestrict = owner(`SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND confdeltype <> 'r'
   AND conrelid::regclass::TEXT IN (${COMMERCIAL_TABLES.map((t) => `'${t}'`).join(',')});`);
 check('A6 every Commercial FK is ON DELETE RESTRICT', notRestrict === '0', notRestrict);
@@ -664,8 +666,9 @@ ${G4_QUERY}
 ROLLBACK;`);
 check('G4 stays fail-closed: balance in another table, running_balance in another table and another view, opening_balance in another view are all detected',
   g4Probe === 'adr018_g4_probe.balance,adr018_g4_probe_v.opening_balance,adr018_g4_probe_v.running_balance,fin_statement_match.running_balance', g4Probe);
-// Meta A (0091): the one allowed trigger is the MP source guard on financial_posting — a check, it maintains no balance
-const triggers = owner(`SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname <> 'trg_mp_account_posting_source'
+// Meta A (0091): the MP source guard on financial_posting; 0100: the order number / delivery responsible guard on pedidos —
+// both are checks, neither maintains a balance
+const triggers = owner(`SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname NOT IN ('trg_mp_account_posting_source', 'trg_pedidos_numero_entrega_guard')
   AND tgrelid::regclass::TEXT IN (${COMMERCIAL_TABLES.map((t) => `'${t}'`).join(',')}, 'clients', 'financial_account');`);
 check('G5 no trigger maintains any balance (no user triggers on commercial/master tables)', triggers === '0', triggers);
 

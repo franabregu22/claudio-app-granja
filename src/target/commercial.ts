@@ -24,6 +24,10 @@ export interface OrderLineRow {
 export interface OrderRow {
   id: string; numero_pedido: number | null; cliente_id: string; estado: OrderEstado; delivered_at: string | null;
   delivered_date: string | null; cancelled_date: string | null; rectification_seq: number; created_at: string;
+  /** The ADMIN who confirmed the delivery (0100, set by deliver_order); null = no verifiable evidence. */
+  delivered_by: string | null;
+  /** Email of delivered_by (perfiles, ADMIN-readable); null when unknown or not visible. Never updated_by / created_by. */
+  entregado_por_email: string | null;
   cliente_nombre: string; lineas: OrderLineRow[];
   /** Rectifications of a delivered order, oldest first (display only; built from the stored line versions). */
   rectificaciones: OrderRectification[];
@@ -55,7 +59,8 @@ export interface SalesLineRow {
 
 /** A stored line of any version, with its author (perfiles is ADMIN-readable; null when not visible). */
 export type VersionedLine = OrderLineRow & { created_at?: string | null; created_by?: string | null; perfiles?: { email: string | null } | null };
-type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas' | 'rectificaciones'> & { clients: { nombre: string } | null; pedido_lineas: VersionedLine[] };
+type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas' | 'rectificaciones' | 'entregado_por_email' | 'delivered_by'>
+  & { delivered_by?: string | null; clients: { nombre: string } | null; entrego?: { email: string | null } | null; pedido_lineas: VersionedLine[] };
 const num = (v: unknown) => Number(v ?? 0);
 
 /**
@@ -120,9 +125,11 @@ export function buildRectifications(lines: VersionedLine[]): OrderRectification[
 /** Orders in the given states, with their CURRENT line version and the history of rectified-away versions. */
 export async function listOrders(client: SupabaseClient, estados: OrderEstado[]): Promise<OrderRow[]> {
   const rows = await readTable<RawOrder>(client, 'pedidos',
-    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), pedido_lineas(*, perfiles(email))');
-  return rows.map(({ clients, pedido_lineas, ...o }) => ({
+    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), entrego:perfiles!pedidos_delivered_by_fkey(email), pedido_lineas(*, perfiles(email))');
+  return rows.map(({ clients, entrego, pedido_lineas, ...o }) => ({
     ...o,
+    delivered_by: o.delivered_by ?? null,
+    entregado_por_email: o.delivered_by ? entrego?.email ?? null : null,
     cliente_nombre: clients?.nombre ?? '—',
     lineas: (pedido_lineas ?? []).filter((l) => l.is_current)
       .map(({ perfiles: _autor, ...l }) => ({ ...l, cantidad: num(l.cantidad), precio_unitario: num(l.precio_unitario), subtotal: num(l.subtotal) })),
