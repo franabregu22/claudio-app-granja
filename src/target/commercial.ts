@@ -25,6 +25,20 @@ export interface OrderRow {
   id: string; numero_pedido: number | null; cliente_id: string; estado: OrderEstado; delivered_at: string | null;
   delivered_date: string | null; cancelled_date: string | null; rectification_seq: number; created_at: string;
   cliente_nombre: string; lineas: OrderLineRow[];
+  /** Rectifications of a delivered order, oldest first (display only; built from the stored line versions). */
+  rectificaciones: OrderRectification[];
+}
+/** One product's change between two consecutive line versions. */
+export interface LineChange {
+  producto_id: string; producto_nombre: string; tipo: 'AGREGADO' | 'ELIMINADO' | 'MODIFICADO';
+  cantidad_antes: number | null; cantidad_despues: number | null;
+  /** null when the price is unchanged, or when the product has more than one price in a version (not comparable). */
+  precio_antes: number | null; precio_despues: number | null;
+}
+/** Version N−1 → N of an order's lines: when (the new version's created_at) and by whom (its created_by). */
+export interface OrderRectification {
+  version: number; at: string | null; by_email: string | null; by_id: string | null;
+  total_antes: number; total_despues: number; cambios: LineChange[];
 }
 /** A line as entered in the order form. The subtotal is never sent: the database generates it. */
 export interface LineInput { producto_id: string; producto_nombre: string; cantidad: number; precio_unitario: number }
@@ -39,20 +53,80 @@ export interface SalesLineRow {
   pedido_linea_id: string; producto_id: string; producto_nombre: string; cantidad: number; precio_unitario: number; subtotal: number;
 }
 
-type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas'> & { clients: { nombre: string } | null; pedido_lineas: OrderLineRow[] };
+/** A stored line of any version, with its author (perfiles is ADMIN-readable; null when not visible). */
+export type VersionedLine = OrderLineRow & { created_at?: string | null; created_by?: string | null; perfiles?: { email: string | null } | null };
+type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas' | 'rectificaciones'> & { clients: { nombre: string } | null; pedido_lineas: VersionedLine[] };
 const num = (v: unknown) => Number(v ?? 0);
+
+/**
+ * Rectification history from the stored line versions (version_seq 0 = original, N = Nth rectification). Each version is
+ * compared with the PREVIOUS one only; unchanged products are omitted. Presentation only: nothing is sent back.
+ */
+export function buildRectifications(lines: VersionedLine[]): OrderRectification[] {
+  const byVersion = new Map<number, VersionedLine[]>();
+  for (const l of lines) {
+    const v = num(l.version_seq);
+    byVersion.set(v, [...(byVersion.get(v) ?? []), l]);
+  }
+  const versions = [...byVersion.keys()].sort((a, b) => a - b);
+  const porProducto = (ls: VersionedLine[]) => {
+    const m = new Map<string, { nombre: string; cantidad: number; precios: Set<number> }>();
+    for (const l of ls) {
+      const e = m.get(l.producto_id) ?? { nombre: l.producto_nombre, cantidad: 0, precios: new Set<number>() };
+      e.cantidad += num(l.cantidad);
+      e.precios.add(num(l.precio_unitario));
+      m.set(l.producto_id, e);
+    }
+    return m;
+  };
+  const precio = (p: Set<number> | undefined) => (p && p.size === 1 ? [...p][0] : null);
+  const total = (ls: VersionedLine[]) => ls.reduce((t, l) => t + num(l.subtotal), 0);
+  const out: OrderRectification[] = [];
+  for (let i = 1; i < versions.length; i++) {
+    const prev = byVersion.get(versions[i - 1])!;
+    const next = byVersion.get(versions[i])!;
+    const a = porProducto(prev);
+    const b = porProducto(next);
+    const cambios: LineChange[] = [];
+    for (const [id, x] of a) {
+      const y = b.get(id);
+      if (!y) {
+        cambios.push({ producto_id: id, producto_nombre: x.nombre, tipo: 'ELIMINADO', cantidad_antes: x.cantidad, cantidad_despues: null, precio_antes: precio(x.precios), precio_despues: null });
+        continue;
+      }
+      const pa = precio(x.precios);
+      const pb = precio(y.precios);
+      const precioCambio = pa !== null && pb !== null && pa !== pb;
+      if (x.cantidad !== y.cantidad || precioCambio) {
+        cambios.push({ producto_id: id, producto_nombre: y.nombre, tipo: 'MODIFICADO', cantidad_antes: x.cantidad, cantidad_despues: y.cantidad,
+          precio_antes: precioCambio ? pa : null, precio_despues: precioCambio ? pb : null });
+      }
+    }
+    for (const [id, y] of b) {
+      if (!a.has(id)) cambios.push({ producto_id: id, producto_nombre: y.nombre, tipo: 'AGREGADO', cantidad_antes: null, cantidad_despues: y.cantidad, precio_antes: null, precio_despues: precio(y.precios) });
+    }
+    const autor = next.find((l) => l.created_by) ?? null;
+    const fechas = next.map((l) => l.created_at).filter((d): d is string => !!d).sort();
+    out.push({
+      version: versions[i], at: fechas[0] ?? null, by_id: autor?.created_by ?? null, by_email: autor?.perfiles?.email ?? null,
+      total_antes: total(prev), total_despues: total(next), cambios,
+    });
+  }
+  return out;
+}
 
 // ── reads ───────────────────────────────────────────────────────────────────
 
-/** Orders in the given states, with their CURRENT line version (rectified-away versions are history). */
+/** Orders in the given states, with their CURRENT line version and the history of rectified-away versions. */
 export async function listOrders(client: SupabaseClient, estados: OrderEstado[]): Promise<OrderRow[]> {
   const rows = await readTable<RawOrder>(client, 'pedidos',
-    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), pedido_lineas(*)');
+    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), pedido_lineas(*, perfiles(email))');
   return rows.map(({ clients, pedido_lineas, ...o }) => ({
     ...o,
     cliente_nombre: clients?.nombre ?? '—',
     lineas: (pedido_lineas ?? []).filter((l) => l.is_current)
-      .map((l) => ({ ...l, cantidad: num(l.cantidad), precio_unitario: num(l.precio_unitario), subtotal: num(l.subtotal) })),
+      .map(({ perfiles: _autor, ...l }) => ({ ...l, cantidad: num(l.cantidad), precio_unitario: num(l.precio_unitario), subtotal: num(l.subtotal) })),
+    rectificaciones: buildRectifications(pedido_lineas ?? []),
   }));
 }
 

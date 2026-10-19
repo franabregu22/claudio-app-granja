@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TargetDbError } from '../../src/target/db';
 import {
-  COLLECTION_METHODS, createPendingOrder, currentPrice, listClientBalances, orderTotal, rectifyDeliveredOrder, registerCollection,
-  updatePendingOrder, type LineInput,
+  buildRectifications, COLLECTION_METHODS, createPendingOrder, currentPrice, listClientBalances, listOrders, orderTotal, rectifyDeliveredOrder,
+  registerCollection, updatePendingOrder, type LineInput, type VersionedLine,
 } from '../../src/target/commercial';
 import type { PriceRow } from '../../src/target/masters';
 
@@ -104,6 +104,66 @@ describe('F27-C commercial data layer', () => {
     expect(calls).toEqual([{ kind: 'rpc', fn: 'register_collection', args: {
       p_cliente_id: 'c1', p_amount: 500, p_payment_method: 'TRANSFER', p_receipt_id: 'R-1', p_effective_date: '2026-09-30', p_financial_account_id: 'a1', p_reason: null,
     } }]);
+  });
+});
+
+describe('Pedidos — rectification history (display only, from the stored line versions)', () => {
+  let n = 0;
+  const line = (v: number, producto: string, cantidad: number, precio: number, extra: Partial<VersionedLine> = {}): VersionedLine => ({
+    id: `l${n++}`, pedido_id: 'o1', producto_id: producto, producto_nombre: `Prod ${producto}`, cantidad, precio_unitario: precio,
+    subtotal: cantidad * precio, version_seq: v, is_current: false, ...extra,
+  });
+
+  it('no rectification: nothing to show', () => {
+    expect(buildRectifications([line(0, 'a', 2, 100, { is_current: true })])).toEqual([]);
+  });
+
+  it('compares each version with the PREVIOUS one, oldest first, omitting unchanged products', () => {
+    const r = buildRectifications([
+      // deliberately unordered input
+      line(2, 'a', 1, 100, { is_current: true, created_at: '2026-10-15T15:00:00Z', created_by: 'u2', perfiles: { email: 'b@x' } }),
+      line(2, 'b', 5, 50, { is_current: true, created_at: '2026-10-15T15:00:00Z', created_by: 'u2', perfiles: { email: 'b@x' } }),
+      line(0, 'a', 3, 100), line(0, 'b', 5, 50),
+      line(1, 'a', 2, 100, { created_at: '2026-10-14T12:00:00Z', created_by: 'u1', perfiles: { email: 'a@x' } }),
+      line(1, 'b', 5, 50, { created_at: '2026-10-14T12:00:00Z', created_by: 'u1', perfiles: { email: 'a@x' } }),
+    ]);
+    expect(r.map((x) => [x.version, x.at, x.by_email])).toEqual([[1, '2026-10-14T12:00:00Z', 'a@x'], [2, '2026-10-15T15:00:00Z', 'b@x']]);
+    // v1: 3 → 2 (vs the original); v2: 2 → 1 (vs v1, never vs the original); product b unchanged → omitted
+    expect(r[0].cambios).toEqual([{ producto_id: 'a', producto_nombre: 'Prod a', tipo: 'MODIFICADO', cantidad_antes: 3, cantidad_despues: 2, precio_antes: null, precio_despues: null }]);
+    expect(r[1].cambios).toEqual([{ producto_id: 'a', producto_nombre: 'Prod a', tipo: 'MODIFICADO', cantidad_antes: 2, cantidad_despues: 1, precio_antes: null, precio_despues: null }]);
+    expect([r[0].total_antes, r[0].total_despues, r[1].total_antes, r[1].total_despues]).toEqual([550, 450, 450, 350]);
+  });
+
+  it('price changes, added and removed products', () => {
+    const [r] = buildRectifications([
+      line(0, 'a', 2, 100), line(0, 'b', 1, 300),
+      line(1, 'a', 2, 120, { is_current: true }), line(1, 'c', 4, 10, { is_current: true }),
+    ]);
+    expect(r.cambios).toEqual([
+      { producto_id: 'a', producto_nombre: 'Prod a', tipo: 'MODIFICADO', cantidad_antes: 2, cantidad_despues: 2, precio_antes: 100, precio_despues: 120 },
+      { producto_id: 'b', producto_nombre: 'Prod b', tipo: 'ELIMINADO', cantidad_antes: 1, cantidad_despues: null, precio_antes: 300, precio_despues: null },
+      { producto_id: 'c', producto_nombre: 'Prod c', tipo: 'AGREGADO', cantidad_antes: null, cantidad_despues: 4, precio_antes: null, precio_despues: 10 },
+    ]);
+    expect([r.total_antes, r.total_despues]).toEqual([500, 280]);
+  });
+
+  it('missing author / email / date stay null (never invented); the rectifier is the new version author, not the deliverer', () => {
+    const [r] = buildRectifications([line(0, 'a', 1, 100), line(1, 'a', 2, 100, { created_by: 'u9', perfiles: null })]);
+    expect([r.at, r.by_id, r.by_email]).toEqual([null, 'u9', null]);
+  });
+
+  it('listOrders keeps only the current lines for totals and adds the history (author email embedded, ADMIN RLS unchanged)', async () => {
+    const { client } = stub([{ data: [{
+      id: 'o1', numero_pedido: null, cliente_id: 'c1', estado: 'DELIVERED', delivered_at: 'x', delivered_date: '2026-10-14', cancelled_date: null,
+      rectification_seq: 1, created_at: 'y', clients: { nombre: 'Cliente' },
+      pedido_lineas: [line(0, 'a', 3, '100' as never, { subtotal: '300' as never }), line(1, 'a', 2, 100, { is_current: true, created_by: 'u1', perfiles: { email: 'a@x' } })],
+    }], error: null }]);
+    const [o] = await listOrders(client, ['DELIVERED']);
+    expect(o.lineas.map((l) => [l.version_seq, l.cantidad])).toEqual([[1, 2]]);
+    expect(o.lineas[0]).not.toHaveProperty('perfiles');
+    expect(orderTotal(o)).toBe(200);
+    expect(o.rectificaciones).toHaveLength(1);
+    expect(o.rectificaciones[0]).toMatchObject({ version: 1, by_email: 'a@x', total_antes: 300, total_despues: 200 });
   });
 });
 

@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { Check, Package, Pencil, Plus, X } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { Check, ChevronDown, ChevronUp, Package, Pencil, Plus, X } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
-import { orderTotal, type OrderRow } from '../../target/commercial';
+import { orderTotal, type LineChange, type OrderRow } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { DashboardPedidos } from './DashboardPedidos';
@@ -17,13 +17,56 @@ export function refPedido(p: Pick<OrderRow, 'id' | 'numero_pedido'>): string {
   return p.numero_pedido !== null ? String(p.numero_pedido).padStart(3, '0') : p.id.slice(0, 8);
 }
 
-/** Small "Rectificado" tag (display only; the rectification flow is unchanged). */
-function EtiquetaRectificado({ seq }: { seq: number }) {
+/** Small "Rectificado" tag (display only; the rectification flow is unchanged). With onToggle it opens the history. */
+function EtiquetaRectificado({ seq, abierto, onToggle }: { seq: number; abierto?: boolean; onToggle?: () => void }) {
   if (seq <= 0) return null;
+  const texto = <>Rectificado{seq > 1 ? ` ×${seq}` : ''}</>;
+  const clase = 'inline-flex items-center gap-0.5 align-middle text-[9px] font-semibold uppercase tracking-wide bg-[#FCE4E4] text-[#A32D2D] px-1 py-px rounded';
+  if (!onToggle) return <span className={clase}>{texto}</span>;
+  const Icono = abierto ? ChevronUp : ChevronDown;
   return (
-    <span className="inline-block align-middle text-[9px] font-semibold uppercase tracking-wide bg-[#FCE4E4] text-[#A32D2D] px-1 py-px rounded">
-      Rectificado{seq > 1 ? ` ×${seq}` : ''}
-    </span>
+    <button type="button" onClick={onToggle} aria-expanded={abierto} title="Ver historial de rectificaciones" className={`${clase} hover:bg-[#F7D0D0]`}>
+      {texto}<Icono className="w-2.5 h-2.5" />
+    </button>
+  );
+}
+
+const fechaHora = (iso: string | null) => (iso
+  ? new Date(iso).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  : 'fecha no disponible');
+const cant = (n: number | null) => (n === null ? '—' : n.toLocaleString('es-AR'));
+
+function TextoCambio({ c }: { c: LineChange }) {
+  const precio = c.precio_antes !== null && c.precio_despues !== null ? ` · precio ${formatoPesos(c.precio_antes)} → ${formatoPesos(c.precio_despues)}` : '';
+  if (c.tipo === 'AGREGADO') return <>Agregado: {c.producto_nombre} {cant(c.cantidad_despues)}{c.precio_despues !== null ? ` a ${formatoPesos(c.precio_despues)}` : ''}</>;
+  if (c.tipo === 'ELIMINADO') return <>Eliminado: {c.producto_nombre} (antes {cant(c.cantidad_antes)})</>;
+  return <>{c.producto_nombre}: {c.cantidad_antes === c.cantidad_despues ? cant(c.cantidad_despues) : `${cant(c.cantidad_antes)} → ${cant(c.cantidad_despues)}`}{precio}</>;
+}
+
+/** Rectification history of a delivered order: each version against the previous one, oldest first. Who rectified
+ * is the author of the new line version — not who delivered the order. */
+function HistorialRectificaciones({ p }: { p: OrderRow }) {
+  if (p.rectificaciones.length === 0) return <p className="text-xs text-gray-500">Sin detalle de versiones anteriores disponible.</p>;
+  return (
+    <ol className="space-y-2">
+      {p.rectificaciones.map((r) => (
+        <li key={r.version} className="text-xs text-gray-700 border-l-2 border-[#E4B0B0] pl-2">
+          <p className="font-semibold text-[#2C2419]">
+            Rectificación {r.version} · {fechaHora(r.at)} · <span className="font-normal text-gray-500">rectificó {r.by_email ?? 'usuario no disponible'}</span>
+          </p>
+          {r.cambios.length === 0 ? (
+            <p className="text-gray-500">Sin cambios de productos, cantidades ni precios.</p>
+          ) : (
+            <ul className="mt-0.5 space-y-0.5">
+              {r.cambios.map((c) => <li key={`${c.tipo}-${c.producto_id}`} className="break-words"><TextoCambio c={c} /></li>)}
+            </ul>
+          )}
+          {r.total_antes !== r.total_despues && (
+            <p className="mt-0.5 font-medium">Total: {formatoPesos(r.total_antes)} → {formatoPesos(r.total_despues)}</p>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -36,6 +79,7 @@ export function PedidosApp() {
   const [vista, setVista] = useState<Vista>('lista');
   const [pedidoSel, setPedidoSel] = useState<OrderRow | null>(null);
   const [pagina, setPagina] = useState(0);
+  const [historialAbierto, setHistorialAbierto] = useState<string | null>(null);
   const pendientes = useOrders(['PENDING']);
   const entregados = useOrders(['DELIVERED']);
   const m = useOrderMutations();
@@ -65,6 +109,7 @@ export function PedidosApp() {
   const historial = entregados.data ?? [];
   const totalPaginas = Math.max(1, Math.ceil(historial.length / ITEMS_POR_PAGINA));
   const paginados = historial.slice(pagina * ITEMS_POR_PAGINA, (pagina + 1) * ITEMS_POR_PAGINA);
+  const toggleHistorial = (id: string) => setHistorialAbierto((actual) => (actual === id ? null : id));
 
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
@@ -176,7 +221,12 @@ export function PedidosApp() {
                     <p className="text-xs text-gray-700 mt-1.5 break-words">
                       {p.lineas.map((l) => `${l.cantidad} ${l.producto_nombre}`).join(' · ') || '—'}
                     </p>
-                    {p.rectification_seq > 0 && <div className="mt-1.5"><EtiquetaRectificado seq={p.rectification_seq} /></div>}
+                    {p.rectification_seq > 0 && (
+                      <div className="mt-1.5">
+                        <EtiquetaRectificado seq={p.rectification_seq} abierto={historialAbierto === p.id} onToggle={() => toggleHistorial(p.id)} />
+                        {historialAbierto === p.id && <div className="mt-2"><HistorialRectificaciones p={p} /></div>}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -196,10 +246,13 @@ export function PedidosApp() {
                     {paginados.length === 0 ? (
                       <tr><td colSpan={6} className="px-4 py-4 text-center text-gray-500">Sin entregas</td></tr>
                     ) : paginados.map((p) => (
-                      <tr key={p.id} className="border-b border-amber-100 hover:bg-amber-50">
+                      <Fragment key={p.id}>
+                      <tr className="border-b border-amber-100 hover:bg-amber-50">
                         <td className="px-4 py-2 text-gray-700 font-medium">
                           #{refPedido(p)}
-                          {p.rectification_seq > 0 && <span className="ml-1.5"><EtiquetaRectificado seq={p.rectification_seq} /></span>}
+                          {p.rectification_seq > 0 && (
+                            <span className="ml-1.5"><EtiquetaRectificado seq={p.rectification_seq} abierto={historialAbierto === p.id} onToggle={() => toggleHistorial(p.id)} /></span>
+                          )}
                         </td>
                         <td className="px-4 py-2 text-gray-700 font-medium">{p.cliente_nombre}</td>
                         <td className="hidden md:table-cell px-4 py-2 text-gray-700 text-xs">
@@ -213,6 +266,12 @@ export function PedidosApp() {
                           </button>
                         </td>
                       </tr>
+                      {historialAbierto === p.id && (
+                        <tr className="border-b border-amber-100 bg-[#FFF8F6]">
+                          <td colSpan={6} className="px-4 py-3"><HistorialRectificaciones p={p} /></td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
