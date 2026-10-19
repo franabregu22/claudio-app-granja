@@ -17,6 +17,16 @@ export function refPedido(p: Pick<OrderRow, 'id' | 'numero_pedido'>): string {
   return p.numero_pedido !== null ? String(p.numero_pedido).padStart(3, '0') : p.id.slice(0, 8);
 }
 
+/** Small "Rectificado" tag (display only; the rectification flow is unchanged). */
+function EtiquetaRectificado({ seq }: { seq: number }) {
+  if (seq <= 0) return null;
+  return (
+    <span className="inline-block align-middle text-[9px] font-semibold uppercase tracking-wide bg-[#FCE4E4] text-[#A32D2D] px-1 py-px rounded">
+      Rectificado{seq > 1 ? ` ×${seq}` : ''}
+    </span>
+  );
+}
+
 /**
  * Pedidos (F27-C, ADMIN). PENDING orders are created / edited directly; delivery, cancellation and the correction
  * of a delivered order go through RPCs 1–3. The visibility check is UX only: RLS makes orders ADMIN-only.
@@ -142,15 +152,43 @@ export function PedidosApp() {
             {entregados.error ? (
               <div className="text-sm text-[#A32D2D]">{errorMessage(entregados.error)}</div>
             ) : (
-              <div className="bg-white rounded-lg border border-amber-200 overflow-x-auto">
+              <>
+              {/* mobile: compact cards, no horizontal scroll (1 order = 1 delivery) */}
+              <div className="md:hidden space-y-2">
+                {paginados.length === 0 ? (
+                  <div className="bg-white rounded-lg border border-amber-200 px-4 py-4 text-center text-sm text-gray-500">Sin entregas</div>
+                ) : paginados.map((p) => (
+                  <div key={p.id} className="bg-white rounded-lg border border-amber-200 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-[#2C2419] truncate">
+                          <span className="text-gray-500 font-medium">#{refPedido(p)}</span> · {p.cliente_nombre}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">Entregado {p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</p>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2">
+                        <span className="text-sm font-semibold text-amber-900">{formatoPesos(orderTotal(p))}</span>
+                        <button onClick={() => abrir('rectificar', p)} className="text-amber-600 hover:text-amber-900 p-1" title="Rectificar" aria-label="Rectificar pedido">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-700 mt-1.5 break-words">
+                      {p.lineas.map((l) => `${l.cantidad} ${l.producto_nombre}`).join(' · ') || '—'}
+                    </p>
+                    {p.rectification_seq > 0 && <div className="mt-1.5"><EtiquetaRectificado seq={p.rectification_seq} /></div>}
+                  </div>
+                ))}
+              </div>
+              <div className="hidden md:block bg-white rounded-lg border border-amber-200 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-amber-50 border-b border-amber-200">
                     <tr>
                       <th className="px-4 py-2 text-left font-semibold text-amber-900">Pedido</th>
                       <th className="px-4 py-2 text-left font-semibold text-amber-900">Cliente</th>
-                      <th className="hidden lg:table-cell px-4 py-2 text-left font-semibold text-amber-900">Contenido</th>
+                      <th className="hidden md:table-cell px-4 py-2 text-left font-semibold text-amber-900">Contenido</th>
                       <th className="px-4 py-2 text-right font-semibold text-amber-900">Monto</th>
-                      <th className="hidden lg:table-cell px-4 py-2 text-left font-semibold text-amber-900">Fecha entrega</th>
+                      <th className="hidden md:table-cell px-4 py-2 text-left font-semibold text-amber-900">Fecha entrega</th>
                       <th className="px-4 py-2 text-center font-semibold text-amber-900">Acción</th>
                     </tr>
                   </thead>
@@ -161,16 +199,14 @@ export function PedidosApp() {
                       <tr key={p.id} className="border-b border-amber-100 hover:bg-amber-50">
                         <td className="px-4 py-2 text-gray-700 font-medium">
                           #{refPedido(p)}
-                          {p.rectification_seq > 0 && (
-                            <span className="ml-1.5 text-[10px] font-bold uppercase bg-[#FCE4E4] text-[#A32D2D] px-1.5 py-0.5 rounded-full">Rectificado</span>
-                          )}
+                          {p.rectification_seq > 0 && <span className="ml-1.5"><EtiquetaRectificado seq={p.rectification_seq} /></span>}
                         </td>
                         <td className="px-4 py-2 text-gray-700 font-medium">{p.cliente_nombre}</td>
-                        <td className="hidden lg:table-cell px-4 py-2 text-gray-700 text-xs">
+                        <td className="hidden md:table-cell px-4 py-2 text-gray-700 text-xs">
                           {p.lineas.map((l) => `${l.producto_nombre}: ${l.cantidad}`).join(' | ') || '—'}
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-amber-900">{formatoPesos(orderTotal(p))}</td>
-                        <td className="hidden lg:table-cell px-4 py-2 text-gray-700">{p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</td>
+                        <td className="hidden md:table-cell px-4 py-2 text-gray-700">{p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</td>
                         <td className="px-4 py-2 text-center">
                           <button onClick={() => abrir('rectificar', p)} className="text-amber-600 hover:text-amber-900 inline-flex items-center gap-1" title="Rectificar">
                             <Pencil className="w-4 h-4" />
@@ -181,6 +217,7 @@ export function PedidosApp() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
             {totalPaginas > 1 && (
               <div className="flex items-center justify-center gap-2 text-sm">

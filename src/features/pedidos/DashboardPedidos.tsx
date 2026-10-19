@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { SalesLineRow } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
-import { agregarDiasAFecha, getTodayDate } from '../../utils/dateUtils';
-import { formatoPesos } from './helpers';
+import { agregarDiasAFecha, formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { useSalesLines } from './useCommercial';
 
 type Periodo = 'semana' | 'mes' | 'personalizado';
@@ -40,6 +39,10 @@ export function DashboardPedidos() {
   const largo = diasEntre(inicio, fin);
   const compFin = agregarDiasAFecha(inicio, -1);
   const compInicio = agregarDiasAFecha(compFin, -(largo - 1));
+  // the exact ranges the queries below use (presentation only)
+  const rango = (x: string, y: string) => `${formatearFechaLocal(x)} – ${formatearFechaLocal(y)}`;
+  const textoPeriodo = rango(inicio, fin);
+  const textoComparacion = largo >= 1 ? `vs ${rango(compInicio, compFin)}` : 'Sin comparación';
   const seisSemanasDesde = agregarDiasAFecha(inicioSemana(hoy), -35);
 
   const actual = useSalesLines(inicio, fin);
@@ -66,6 +69,8 @@ export function DashboardPedidos() {
       <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{label}</p>
       <p className="text-3xl font-bold text-amber-900">{valor}</p>
       <p className="text-xs text-gray-500 mt-1">vs {anterior}</p>
+      <p className="text-[11px] leading-tight text-gray-400 mt-2">{textoPeriodo}</p>
+      <p className="text-[11px] leading-tight text-gray-400">{textoComparacion}</p>
       {cambio !== 0 && (
         <p className={`text-sm font-semibold mt-2 ${cambio > 0 ? 'text-green-600' : 'text-red-600'}`}>{cambio > 0 ? '↑' : '↓'} {Math.abs(cambio).toFixed(1)}%</p>
       )}
@@ -102,9 +107,8 @@ export function DashboardPedidos() {
         <div className="bg-[#FCE4E4] border border-[#E4B0B0] text-[#A32D2D] text-sm px-4 py-3 rounded-lg">{errorMessage(error)}</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-3 gap-3 content-start">
+          <div className="lg:col-span-3 grid grid-cols-2 gap-3 content-start">
             <Card label="Pedidos entregados" valor={String(a.entregas)} anterior={String(b.entregas)} cambio={variacion(a.entregas, b.entregas)} />
-            <Card label="Monto vendido" valor={formatoPesos(a.monto)} anterior={formatoPesos(b.monto)} cambio={variacion(a.monto, b.monto)} />
             <Card label="Unidades" valor={a.unidades.toLocaleString('es-AR')} anterior={b.unidades.toLocaleString('es-AR')} cambio={variacion(a.unidades, b.unidades)} />
           </div>
           <div className="lg:col-span-2 bg-white rounded-lg p-3 border border-amber-200 flex flex-col">
