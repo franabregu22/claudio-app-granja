@@ -275,8 +275,8 @@ let snap;
 let x;
 
 try {
-CAT = adminOk(`INSERT INTO expense_category (nombre, pnl_cost_class) VALUES ('${TAG} Insumos', 'DIRECT') RETURNING id;`);
-CAT2 = adminOk(`INSERT INTO expense_category (nombre, pnl_cost_class) VALUES ('${TAG} Fletes', 'INDIRECT') RETURNING id;`);
+CAT = adminOk(`INSERT INTO expense_category (nombre, pnl_cost_class, group_id) VALUES ('${TAG} Insumos', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')) RETURNING id;`);
+CAT2 = adminOk(`INSERT INTO expense_category (nombre, pnl_cost_class, group_id) VALUES ('${TAG} Fletes', 'INDIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')) RETURNING id;`);
 PROJ = adminOk(`INSERT INTO projects (nombre) VALUES ('${TAG} Galpón nuevo') RETURNING id;`);
 PROD = adminOk(`INSERT INTO products (nombre, product_type) VALUES ('${TAG} Maple', 'INPUT') RETURNING id;`);
 ING = adminOk(`INSERT INTO feed_ingredient (nombre) VALUES ('${TAG} Maíz') RETURNING id;`);

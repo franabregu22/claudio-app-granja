@@ -125,7 +125,7 @@ const pnlSnapshot = () => adminOk(`SELECT md5(COALESCE((SELECT string_agg(t::TEX
 try {
   const S = adminOk(`INSERT INTO suppliers (nombre) VALUES ('${TAG} proveedor') RETURNING id;`);
   const C = adminOk(`INSERT INTO clients (nombre) VALUES ('${TAG} cliente') RETURNING id;`);
-  const CAT = adminOk(`INSERT INTO expense_category (nombre, pnl_cost_class) VALUES ('${TAG} insumos', 'DIRECT') RETURNING id;`);
+  const CAT = adminOk(`INSERT INTO expense_category (nombre, pnl_cost_class, group_id) VALUES ('${TAG} insumos', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')) RETURNING id;`);
 
   section('A', 'report_fiscal_period (D-FISCAL-2 / D-FISCAL-3)');
   const pnlBefore = pnlSnapshot();

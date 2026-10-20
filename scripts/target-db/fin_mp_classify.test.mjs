@@ -128,7 +128,7 @@ const SUP = 'cccccccc-0088-0000-0000-0000000000a1';
 const CAT = 'cccccccc-0088-0000-0000-0000000000c1';
 const CLI = 'cccccccc-0088-0000-0000-0000000000d1';
 add(`INSERT INTO suppliers (id, nombre) VALUES ('${SUP}', 'Proveedor META A 0088');
-INSERT INTO expense_category (id, nombre, pnl_cost_class) VALUES ('${CAT}', 'Categoría META A 0088', 'INDIRECT');
+INSERT INTO expense_category (id, nombre, pnl_cost_class, group_id) VALUES ('${CAT}', 'Categoría META A 0088', 'INDIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'));
 INSERT INTO clients (id, nombre) VALUES ('${CLI}', 'Cliente META A 0088');`);
 
 // ── OUTFLOWS: one payout day ────────────────────────────────────────────────

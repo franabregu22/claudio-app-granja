@@ -255,7 +255,7 @@ try {
 const SUP = okAs(ADMIN, `INSERT INTO suppliers (nombre) VALUES ('${TAG} Proveedor maíz') RETURNING id;`);
 const SUP2 = okAs(ADMIN, `INSERT INTO suppliers (nombre) VALUES ('${TAG} Proveedor soja') RETURNING id;`);
 const CLI = okAs(ADMIN, `INSERT INTO clients (nombre) VALUES ('${TAG} Cliente mayorista') RETURNING id;`);
-const CAT = okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class) VALUES ('${TAG} Insumos', 'DIRECT') RETURNING id;`);
+const CAT = okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class, group_id) VALUES ('${TAG} Insumos', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')) RETURNING id;`);
 const BNA = owner(`SELECT id FROM financial_account WHERE nombre = 'BNA';`);
 const CAJA = owner(`SELECT id FROM financial_account WHERE nombre = 'Caja chica';`);
 const purchaseCall = (key, fiscal = null, invoice = null) => `register_purchase('${SUP}', '2026-05-04', 100000, 121000, '${CAT}', NULL, 'OPERATING', `

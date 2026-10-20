@@ -225,6 +225,13 @@ expect('ADM-3 every change is audited (2 creates of subcategories, 1 of the cate
 expect('ADM-4 an OPERATOR cannot create categories; nobody can delete one through the API',
   `(${as('authenticated', OPER, `INSERT INTO expense_category_group (nombre) VALUES ('x') RETURNING 'g'`)} || '|' || ${A(`DELETE FROM expense_category WHERE nombre = 'Sub alimento' RETURNING 'd'`)})`, 'ERR:%row-level security%|ERR:permission denied%');
 expect('ADM-5 duplicate category names (case-insensitive) are refused', A(`INSERT INTO expense_category_group (nombre) VALUES ('combustible') RETURNING 'g'`), 'ERR:duplicate key%');
+expect('ADM-6 (0099) a subcategory without its category is refused — ADMIN through the API and the owner; no "Otros" fallback',
+  `(${A(`INSERT INTO expense_category (nombre, default_nature) VALUES ('Sub sin padre', 'OPERATING') RETURNING 'i'`)} || '|' || pg_temp.err_of('INSERT INTO expense_category (nombre) VALUES (''Sub sin padre owner'')')
+    || '|' || (SELECT count(*) FROM expense_category WHERE nombre LIKE 'Sub sin padre%'))`,
+  'ERR:EXPENSE_CATEGORY_PARENT_REQUIRED%|ERR:EXPENSE_CATEGORY_PARENT_REQUIRED%|0');
+expect('ADM-7 (0099) moving a subcategory to another category still works; clearing its category is refused',
+  `(${A(`UPDATE expense_category SET group_id = ${P(GRP('Otros'))}::uuid WHERE nombre = 'Sub alimento' RETURNING 'm'`)} || '|' || ${A(`UPDATE expense_category SET group_id = NULL WHERE nombre = 'Sub alimento' RETURNING 'c'`)})`,
+  'OK:m|ERR:%group_id%');
 expect('R-1 the category model writes no financial row and does not change the P&L', `((SELECT v FROM r0) = (${FINSNAP}))::text || '|' || ((SELECT h FROM r0p) = ${as('authenticated', ADMIN, PNL)})::text`, 'true|true');
 expect('R-2 SECURITY DEFINER set 94 (expense_category_audit)', `(SELECT count(*)::text FROM pg_proc WHERE prosecdef AND pronamespace = 'public'::regnamespace)`, '94');
 

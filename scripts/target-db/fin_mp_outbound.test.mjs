@@ -125,7 +125,7 @@ INSERT INTO perfiles (id, email, rol_type) VALUES
 const SUP = 'cccccccc-0090-0000-0000-0000000000a1';
 const CAT = 'cccccccc-0090-0000-0000-0000000000c1';
 add(`INSERT INTO suppliers (id, nombre) VALUES ('${SUP}', 'Proveedor ADR-020');
-INSERT INTO expense_category (id, nombre, pnl_cost_class) VALUES ('${CAT}', 'Categoría ADR-020', 'INDIRECT');`);
+INSERT INTO expense_category (id, nombre, pnl_cost_class, group_id) VALUES ('${CAT}', 'Categoría ADR-020', 'INDIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'));`);
 
 // one report day: five outbound payments mirroring the real ones (economic amount + 0.6% tax), one third-party payout (cartones)
 const OB = [

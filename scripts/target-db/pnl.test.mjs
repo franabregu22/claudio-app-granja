@@ -257,7 +257,7 @@ let r;
 
 try {
 // ── masters ────────────────────────────────────────────────────────────────
-const cat = (name, cls) => okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class) VALUES ('${TAG} ${name}', '${cls}') RETURNING id;`);
+const cat = (name, cls) => okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class, group_id) VALUES ('${TAG} ${name}', '${cls}', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')) RETURNING id;`);
 const CAT_D = cat('Insumos directos', 'DIRECT');
 const CAT_I = cat('Gastos indirectos', 'INDIRECT');
 const CAT_FI = cat('Flete indirecto', 'INDIRECT');
@@ -277,8 +277,9 @@ check('A1 expense_category.pnl_cost_class: enum expense_cost_class (DIRECT, INDI
   owner(`SELECT data_type || '|' || udt_name || '|' || is_nullable || '|' || coalesce(column_default, 'none') FROM information_schema.columns
      WHERE table_name = 'expense_category' AND column_name = 'pnl_cost_class';`) === 'USER-DEFINED|expense_cost_class|NO|none'
   && owner(`SELECT string_agg(enumlabel, ',' ORDER BY enumsortorder) FROM pg_enum WHERE enumtypid = 'expense_cost_class'::regtype;`) === 'DIRECT,INDIRECT');
-r = ADMIN(`INSERT INTO expense_category (nombre) VALUES ('${TAG} sin clase');`);
-// ADR-024 (0096): DIRECT / INDIRECT is in standby — a new subcategory takes its siblings' legacy class (here "Otros": INDIRECT)
+r = ADMIN(`INSERT INTO expense_category (nombre, group_id) VALUES ('${TAG} sin clase', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'));`);
+// ADR-024 (0096): DIRECT / INDIRECT is in standby — a new subcategory takes its siblings' legacy class (here "Otros": INDIRECT);
+// 0099: the parent is explicit (no "Otros" fallback any more)
 check('A2 a subcategory without an explicit class takes the legacy class of its siblings (ADR-024 standby; never asked)', r.ok
   && owner(`SELECT c.pnl_cost_class || ':' || g.nombre FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.nombre = '${TAG} sin clase';`) === 'INDIRECT:Otros', firstErr(r));
 check('A3 financial_operation_type gains OWNER_WITHDRAWAL (the treasury consequence of a RETIRO)',

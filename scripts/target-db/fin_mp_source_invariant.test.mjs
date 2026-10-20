@@ -126,7 +126,7 @@ const SUP = 'cccccccc-0091-0000-0000-0000000000a1';
 const CAT = 'cccccccc-0091-0000-0000-0000000000c1';
 const CLI = 'cccccccc-0091-0000-0000-0000000000d1';
 add(`INSERT INTO suppliers (id, nombre) VALUES ('${SUP}', 'Proveedor 0091');
-INSERT INTO expense_category (id, nombre, pnl_cost_class) VALUES ('${CAT}', 'Categoría 0091', 'INDIRECT');
+INSERT INTO expense_category (id, nombre, pnl_cost_class, group_id) VALUES ('${CAT}', 'Categoría 0091', 'INDIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'));
 INSERT INTO clients (id, nombre) VALUES ('${CLI}', 'Cliente 0091');
 -- every call is checked as at its own COMMIT: the deferred invariant is forced at the end of the call, inside the call's
 -- subtransaction (a violation rolls the call back and is reported as its error)

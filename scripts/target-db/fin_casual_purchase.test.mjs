@@ -128,7 +128,7 @@ const SUP = 'cccccccc-0089-0000-0000-0000000000a1';
 const CAT = 'cccccccc-0089-0000-0000-0000000000c1';   // INDIRECT
 const CATD = 'cccccccc-0089-0000-0000-0000000000c2';  // DIRECT
 add(`INSERT INTO suppliers (id, nombre) VALUES ('${SUP}', 'Proveedor ADR-019');
-INSERT INTO expense_category (id, nombre, pnl_cost_class) VALUES ('${CAT}', 'Categoría ADR-019 indirecta', 'INDIRECT'), ('${CATD}', 'Categoría ADR-019 directa', 'DIRECT');`);
+INSERT INTO expense_category (id, nombre, pnl_cost_class, group_id) VALUES ('${CAT}', 'Categoría ADR-019 indirecta', 'INDIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')), ('${CATD}', 'Categoría ADR-019 directa', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'));`);
 const ACC = (n) => `(SELECT id FROM financial_account WHERE nombre = '${n}')`;
 const D = '2026-10-13';
 const CASUAL = (o = {}) => {

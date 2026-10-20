@@ -226,7 +226,7 @@ let r;
 
 try {
 // ── masters ────────────────────────────────────────────────────────────────
-const CAT = okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class) VALUES ('${TAG} Insumos', 'DIRECT') RETURNING id;`);
+const CAT = okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class, group_id) VALUES ('${TAG} Insumos', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')) RETURNING id;`);
 const SUP = okAs(ADMIN, `INSERT INTO suppliers (nombre) VALUES ('${TAG} Proveedor') RETURNING id;`);
 const CLI = okAs(ADMIN, `INSERT INTO clients (nombre) VALUES ('${TAG} Cliente') RETURNING id;`);
 const PROD = okAs(ADMIN, `INSERT INTO products (nombre, product_type) VALUES ('${TAG} Huevo', 'VENDIBLE') RETURNING id;`);

@@ -265,7 +265,7 @@ try {
 const XL = okAs(ADMIN, `INSERT INTO products (nombre, product_type) VALUES ('${TAG} Huevo XL', 'VENDIBLE') RETURNING id;`);
 const N1 = okAs(ADMIN, `INSERT INTO products (nombre, product_type) VALUES ('${TAG} Huevo N1', 'VENDIBLE') RETURNING id;`);
 const MAPLE = okAs(ADMIN, `INSERT INTO products (nombre, product_type) VALUES ('${TAG} Maple', 'VENDIBLE') RETURNING id;`);
-const CAT = okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class) VALUES ('${TAG} Gastos de feria', 'INDIRECT') RETURNING id;`);
+const CAT = okAs(ADMIN, `INSERT INTO expense_category (nombre, pnl_cost_class, group_id) VALUES ('${TAG} Gastos de feria', 'INDIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros')) RETURNING id;`);
 const MAYORISTA = okAs(ADMIN, `INSERT INTO clients (nombre) VALUES ('${TAG} Mayorista') RETURNING id;`);
 const CAJA = owner(`SELECT id FROM financial_account WHERE nombre = 'Caja chica';`);
 const BNA = owner(`SELECT id FROM financial_account WHERE nombre = 'BNA';`);
