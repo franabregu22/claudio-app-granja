@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, Package, Pencil, Plus, X } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { orderTotal, type LineChange, type OrderRow } from '../../target/commercial';
@@ -28,7 +28,7 @@ function EtiquetaRectificado({ seq, abierto, onToggle }: { seq: number; abierto?
   if (!onToggle) return <span className={clase}>{texto}</span>;
   const Icono = abierto ? ChevronUp : ChevronDown;
   return (
-    <button type="button" onClick={onToggle} aria-expanded={abierto} title="Ver historial de rectificaciones" className={`${clase} hover:bg-[#F7D0D0]`}>
+    <button type="button" onClick={(e) => { e.stopPropagation(); onToggle(); }} aria-expanded={abierto} title="Ver historial de rectificaciones" className={`${clase} hover:bg-[#F7D0D0]`}>
       {texto}<Icono className="w-2.5 h-2.5" />
     </button>
   );
@@ -73,6 +73,65 @@ function HistorialRectificaciones({ p }: { p: OrderRow }) {
   );
 }
 
+const ESTADO_LABEL: Record<OrderRow['estado'], string> = { PENDING: 'Pendiente', DELIVERED: 'Entregado', CANCELLED: 'Cancelado' };
+
+/** Mobile detail of a delivered order (display only: the same OrderRow data, the same rectification history). */
+function DetallePedido({ p, onClose }: { p: OrderRow; onClose: () => void }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+  const fila = (label: string, valor: string, extra = '') => (
+    <div className="flex justify-between gap-3 py-1.5 border-b border-amber-100 last:border-0">
+      <dt className="text-xs text-gray-500 shrink-0">{label}</dt>
+      <dd className={`text-sm text-right text-[#2C2419] min-w-0 break-words ${extra}`}>{valor}</dd>
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={`Pedido #${refPedido(p)}`} onClick={(e) => e.stopPropagation()}
+        className="w-full max-h-[85vh] overflow-y-auto bg-[#FAF6EE] rounded-t-2xl shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between px-4 py-3 border-b border-[#E4DCC8] bg-[#FAF6EE]">
+          <h2 className="text-base font-bold text-[#2C2419]">Pedido #{refPedido(p)}</h2>
+          <button type="button" onClick={onClose} aria-label="Cerrar detalle" className="p-2 -mr-2 text-[#8A7A5C] hover:text-[#2C2419]"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="px-4 py-3 space-y-4">
+          <dl>
+            {fila('Cliente', p.cliente_nombre || 'No disponible')}
+            {fila('Estado', ESTADO_LABEL[p.estado] ?? p.estado)}
+            {fila('Entrega', p.delivered_at ? fechaHora(p.delivered_at) : 'No disponible')}
+            {fila('Entregado por', entregadoPor(p), p.entregado_por_email ? 'break-all' : 'text-gray-400')}
+          </dl>
+          <div>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Productos</p>
+            {p.lineas.length === 0 ? <p className="text-sm text-gray-500">No disponible</p> : (
+              <ul className="divide-y divide-amber-100 bg-white rounded-lg border border-amber-200">
+                {p.lineas.map((l) => (
+                  <li key={l.id} className="px-3 py-2 text-sm">
+                    <p className="font-medium text-[#2C2419] break-words">{l.producto_nombre}</p>
+                    <p className="text-xs text-gray-600 flex justify-between gap-2">
+                      <span>{cant(l.cantidad)} × {formatoPesos(l.precio_unitario)}</span>
+                      <span className="font-semibold text-amber-900">{formatoPesos(l.subtotal)}</span>
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="flex justify-between mt-2 text-sm font-bold text-amber-900"><span>Total</span><span>{formatoPesos(orderTotal(p))}</span></p>
+          </div>
+          {p.rectification_seq > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Historial de rectificaciones</p>
+              <HistorialRectificaciones p={p} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Pedidos (F27-C, ADMIN). PENDING orders are created / edited directly; delivery, cancellation and the correction
  * of a delivered order go through RPCs 1–3. The visibility check is UX only: RLS makes orders ADMIN-only.
@@ -83,6 +142,7 @@ export function PedidosApp() {
   const [pedidoSel, setPedidoSel] = useState<OrderRow | null>(null);
   const [pagina, setPagina] = useState(0);
   const [historialAbierto, setHistorialAbierto] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<OrderRow | null>(null);
   const pendientes = useOrders(['PENDING']);
   const entregados = useOrders(['DELIVERED']);
   const m = useOrderMutations();
@@ -164,27 +224,29 @@ export function PedidosApp() {
                 <div className="space-y-2">
                   {(pendientes.data ?? []).map((p) => (
                     <div key={p.id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 shadow-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-[#2C2419] text-sm">#{refPedido(p)} · {p.cliente_nombre}</p>
-                          {p.lineas.length > 0 && (
-                            <p className="text-xs text-[#8A7A5C] mt-1">{p.lineas.map((l) => `${l.cantidad} ${l.producto_nombre}`).join(', ')}</p>
-                          )}
-                          <p className="text-xs text-[#A89878] mt-1">Cargado: {formatearFechaLocal(p.created_at)}</p>
-                        </div>
-                        <div className="shrink-0 flex items-center gap-2">
-                          <span className="text-sm font-bold text-[#A8552E]">{formatoPesos(orderTotal(p))}</span>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 flex-1 truncate font-semibold text-[#2C2419] text-sm" title={`#${refPedido(p)} · ${p.cliente_nombre}`}>
+                          <span className="text-[#8A7A5C] font-medium">#{refPedido(p)}</span> · {p.cliente_nombre}
+                        </p>
+                        <span className="shrink-0 text-sm font-bold text-[#A8552E]">{formatoPesos(orderTotal(p))}</span>
+                      </div>
+                      {p.lineas.length > 0 && (
+                        <p className="text-xs text-[#8A7A5C] mt-1 break-words">{p.lineas.map((l) => `${l.cantidad} ${l.producto_nombre}`).join(', ')}</p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs text-[#A89878]">Cargado: {formatearFechaLocal(p.created_at)}</p>
+                        <div className="flex items-center gap-2 ml-auto">
                           <button onClick={() => m.deliver.mutate(p.id)} disabled={m.deliver.isPending}
-                            className="flex items-center justify-center gap-1 bg-[#3B6D11] disabled:bg-[#B0C85E] text-white text-xs font-semibold px-2 py-1.5 rounded">
-                            <Check className="w-3 h-3" /> Entregar
+                            className="h-9 flex items-center justify-center gap-1 bg-[#3B6D11] disabled:bg-[#B0C85E] text-white text-xs font-semibold px-3 rounded">
+                            <Check className="w-3.5 h-3.5" /> Entregar
                           </button>
-                          <button onClick={() => abrir('editar', p)} aria-label="Editar pedido"
-                            className="w-8 h-8 flex items-center justify-center bg-[#A8552E] rounded text-white hover:bg-[#8B4423]">
-                            <Pencil className="w-3 h-3" />
+                          <button onClick={() => abrir('editar', p)} aria-label="Editar pedido" title="Editar pedido"
+                            className="w-9 h-9 flex items-center justify-center bg-[#A8552E] rounded text-white hover:bg-[#8B4423]">
+                            <Pencil className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => cancelar(p)} disabled={m.cancel.isPending} aria-label="Cancelar pedido"
-                            className="w-8 h-8 flex items-center justify-center bg-[#A8552E] rounded text-white hover:bg-[#8B4423]">
-                            <X className="w-3 h-3" />
+                          <button onClick={() => cancelar(p)} disabled={m.cancel.isPending} aria-label="Cancelar pedido" title="Cancelar pedido"
+                            className="w-9 h-9 flex items-center justify-center bg-[#A8552E] rounded text-white hover:bg-[#8B4423]">
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
@@ -206,7 +268,9 @@ export function PedidosApp() {
                 {paginados.length === 0 ? (
                   <div className="bg-white rounded-lg border border-amber-200 px-4 py-4 text-center text-sm text-gray-500">Sin entregas</div>
                 ) : paginados.map((p) => (
-                  <div key={p.id} className="bg-white rounded-lg border border-amber-200 p-3">
+                  <div key={p.id} role="button" tabIndex={0} aria-label={`Ver detalle del pedido #${refPedido(p)}`}
+                    onClick={() => setDetalle(p)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetalle(p); } }}
+                    className="bg-white rounded-lg border border-amber-200 p-3 cursor-pointer active:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A8552E]">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-[#2C2419] truncate">
@@ -217,7 +281,7 @@ export function PedidosApp() {
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
                         <span className="text-sm font-semibold text-amber-900">{formatoPesos(orderTotal(p))}</span>
-                        <button onClick={() => abrir('rectificar', p)} className="text-amber-600 hover:text-amber-900 p-1" title="Rectificar" aria-label="Rectificar pedido">
+                        <button onClick={(e) => { e.stopPropagation(); abrir('rectificar', p); }} className="text-amber-600 hover:text-amber-900 p-2 -m-1" title="Rectificar" aria-label="Rectificar pedido">
                           <Pencil className="w-4 h-4" />
                         </button>
                       </div>
@@ -228,7 +292,7 @@ export function PedidosApp() {
                     {p.rectification_seq > 0 && (
                       <div className="mt-1.5">
                         <EtiquetaRectificado seq={p.rectification_seq} abierto={historialAbierto === p.id} onToggle={() => toggleHistorial(p.id)} />
-                        {historialAbierto === p.id && <div className="mt-2"><HistorialRectificaciones p={p} /></div>}
+                        {historialAbierto === p.id && <div className="mt-2" onClick={(e) => e.stopPropagation()}><HistorialRectificaciones p={p} /></div>}
                       </div>
                     )}
                   </div>
@@ -294,6 +358,8 @@ export function PedidosApp() {
             )}
           </div>
         </div>
+
+        {detalle && <DetallePedido p={detalle} onClose={() => setDetalle(null)} />}
 
         {vista !== 'lista' && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

@@ -3,18 +3,10 @@ import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } fro
 import type { SalesLineRow } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
 import { agregarDiasAFecha, formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
+import { inicioSemana, rangosPeriodo, type Periodo } from './periodos';
 import { useSalesLines } from './useCommercial';
 
-type Periodo = 'semana' | 'mes' | 'personalizado';
 const COLORES = ['#A8552E', '#D4A574', '#8A6A2E', '#E8D4C0', '#6B7A4E', '#C9A27E', '#5C4A32', '#F5E6D3'];
-
-function inicioSemana(fecha: string): string {
-  const [a, m, d] = fecha.split('-').map(Number);
-  const dia = new Date(a, m - 1, d).getDay();
-  return agregarDiasAFecha(fecha, -(dia === 0 ? 6 : dia - 1));
-}
-const inicioMes = (fecha: string) => `${fecha.slice(0, 8)}01`;
-const diasEntre = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000) + 1;
 
 /** Presentation-only sums over report_sales_line rows (delivered sales; plan §4 allows exactly this). */
 function resumen(rows: SalesLineRow[]) {
@@ -32,26 +24,20 @@ export function DashboardPedidos() {
   const [desde, setDesde] = useState(agregarDiasAFecha(hoy, -1));
   const [hasta, setHasta] = useState(agregarDiasAFecha(hoy, -1));
 
-  let inicio = inicioSemana(hoy);
-  let fin = hoy;
-  if (periodo === 'mes') inicio = inicioMes(hoy);
-  if (periodo === 'personalizado') { inicio = desde; fin = hasta; }
-  const largo = diasEntre(inicio, fin);
-  const compFin = agregarDiasAFecha(inicio, -1);
-  const compInicio = agregarDiasAFecha(compFin, -(largo - 1));
-  // the exact ranges the queries below use (presentation only)
-  const rango = (x: string, y: string) => `${formatearFechaLocal(x)} – ${formatearFechaLocal(y)}`;
-  const textoPeriodo = rango(inicio, fin);
-  const textoComparacion = largo >= 1 ? `vs ${rango(compInicio, compFin)}` : 'Sin comparación';
+  // the ranges used by the queries, the variations and the labels alike (periodos.ts)
+  const { actual: rActual, anterior: rAnterior } = rangosPeriodo(periodo, hoy, desde, hasta);
+  const rango = (r: { desde: string; hasta: string }) => `${formatearFechaLocal(r.desde)} – ${formatearFechaLocal(r.hasta)}`;
+  const textoPeriodo = rango(rActual);
+  const textoComparacion = rAnterior ? `vs ${rango(rAnterior)}` : 'Sin comparación';
   const seisSemanasDesde = agregarDiasAFecha(inicioSemana(hoy), -35);
 
-  const actual = useSalesLines(inicio, fin);
-  const comparacion = useSalesLines(compInicio, compFin);
+  const actual = useSalesLines(rActual.desde, rActual.hasta);
+  const comparacion = useSalesLines(rAnterior?.desde ?? rActual.desde, rAnterior?.hasta ?? rActual.hasta, rAnterior !== null);
   const semanas = useSalesLines(seisSemanasDesde, hoy);
   const error = actual.error ?? comparacion.error ?? semanas.error;
 
   const a = resumen(actual.data ?? []);
-  const b = resumen(comparacion.data ?? []);
+  const b = resumen(rAnterior ? comparacion.data ?? [] : []);
   const variacion = (x: number, y: number) => (y === 0 ? 0 : ((x - y) / y) * 100);
 
   const productos = [...new Set((semanas.data ?? []).map((r) => r.producto_nombre))];
@@ -68,7 +54,7 @@ export function DashboardPedidos() {
     <div className="bg-white rounded-lg p-4 border border-amber-200">
       <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{label}</p>
       <p className="text-3xl font-bold text-amber-900">{valor}</p>
-      <p className="text-xs text-gray-500 mt-1">vs {anterior}</p>
+      <p className="text-xs text-gray-500 mt-1">{rAnterior ? `vs ${anterior}` : 'Sin comparación'}</p>
       <p className="text-[11px] leading-tight text-gray-400 mt-2">{textoPeriodo}</p>
       <p className="text-[11px] leading-tight text-gray-400">{textoComparacion}</p>
       {cambio !== 0 && (

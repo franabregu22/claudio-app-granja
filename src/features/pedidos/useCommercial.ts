@@ -74,6 +74,6 @@ export function useRegisterCollection() {
   });
 }
 
-export function useSalesLines(from: string, to: string) {
-  return useQuery({ queryKey: [...SALES, from, to], queryFn: () => listSalesLines(supabase, from, to) });
+export function useSalesLines(from: string, to: string, enabled = true) {
+  return useQuery({ queryKey: [...SALES, from, to], queryFn: () => listSalesLines(supabase, from, to), enabled });
 }
