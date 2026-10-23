@@ -1,0 +1,17 @@
+# ADR-025 — never commit secrets, environment data, run outputs or generated n8n builds
+.wa-gateway-secrets.json
+.edge-secrets.env
+.staging-users.json
+*.env
+.sandbox-tmp/
+supabase/.temp/
+*-output.txt
+!wa-gateway/n8n/eval/eval-output.txt
+*-snapshot.txt
+*.bak
+*.bak-*
+build.bak-*/
+wa-gateway/n8n/staging-catalog.json
+wa-gateway/n8n/build/
+wa-gateway/n8n/preflight/*.json
+wa-gateway/n8n/preflight/v2*.js

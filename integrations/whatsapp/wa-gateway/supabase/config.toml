@@ -1,0 +1,5 @@
+# ADR-025 staging — minimal CLI config for deploying wa-gateway to AppGranja ONLY (always with --project-ref aplbsutpzgemexayldct).
+project_id = "wa-gateway-staging"
+
+[functions.wa-gateway]
+verify_jwt = false

@@ -1,0 +1,29 @@
+{
+ "ar_strip_9": true,
+ "default_category_id": "aaaaaaaa-0025-0000-0000-0000000000c1",
+ "categories": [
+  {
+   "id": "aaaaaaaa-0025-0000-0000-0000000000c1",
+   "nombre": "Insumos",
+   "keywords": [
+    "insumo",
+    "alimento"
+   ]
+  }
+ ],
+ "accounts": {
+  "CASH": {
+   "id": "PLACEHOLDER",
+   "nombre": "Caja chica"
+  },
+  "TRANSFER": {
+   "id": "PLACEHOLDER",
+   "nombre": "BNA"
+  },
+  "MERCADOPAGO": {
+   "id": "PLACEHOLDER",
+   "nombre": "Mercado Pago"
+  }
+ },
+ "phone_number_id": "PLACEHOLDER"
+}
