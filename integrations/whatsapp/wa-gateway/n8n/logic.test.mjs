@@ -102,3 +102,17 @@ test('L-7 correction header + marked fields; duplicate references (same category
   const failed = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 2 } }, 200, { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0011', error: 'X' } }, null, CFG);
   assert.match(failed.graph.text.body, /Decime qué corregir o escribí "cancelar"/);
 });
+
+test('L-8 live hierarchy in texts; a subcategory deactivated before confirming → clear message, draft kept for a category-only correction', () => {
+  const cfg = { categories: [{ id: 'id-nafta', nombre: 'Nafta', grupo: 'Combustible' }, { id: 'id-gasoil', nombre: 'Gasoil', grupo: 'Combustible' }], accounts: CFG.accounts };
+  const r = { ok: true, draft_id: D, short_code: 'W-0020', state: 'DRAFT', version: 2, possible_duplicates: 0, duplicates: [],
+    payload: { total: 5000, concept: 'nafta', category_id: 'id-gasoil', account_id: 'acc-cash', method: 'CASH', date: '2026-10-22' } };
+  const b = WA.compose({ to: '1', request: { action: 'correct' }, changes: [{ field: 'category_id', from: 'id-nafta', to: 'id-gasoil' }] }, 200, { ok: true, result: r }, null, cfg).graph.interactive.body.text;
+  assert.match(b, /Categoría Combustible › Nafta → Combustible › Gasoil/); assert.match(b, /Categoría: Combustible › Gasoil ✏️/);
+  const gone = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 2 } }, 200,
+    { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0020', error: 'WA_CATEGORY_NOT_SELECTABLE: subcategory Gasoil is inactive' } }, null, cfg);
+  assert.match(gone.graph.text.body, /W-0020: la subcategoría elegida ya no está disponible.*el resto del gasto se mantiene/s);
+  assert.equal(gone.state.open.state, 'FAILED');
+  const refused = WA.compose({ to: '1', request: { action: 'propose' } }, 422, { ok: false, error: { code: 'WA_CATEGORY_NOT_SELECTABLE' } }, null, cfg);
+  assert.match(refused.graph.text.body, /ya no está disponible/);
+});

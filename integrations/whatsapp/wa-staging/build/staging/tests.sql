@@ -158,10 +158,10 @@ SELECT pg_temp.expect('D-2 the same message again → replay of the same draft',
   'OK:%"replay": true%"draft_id": "' || pg_temp.get('dA') || '"%');
 SELECT pg_temp.expect('D-3 a second open draft of the same sender is refused', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'otro'), 'CASUAL_EXPENSE', pg_temp.cash(200)), 'ERR:WA_OPEN_DRAFT_EXISTS%');
 SELECT pg_temp.expect('D-4 fiscal-reserved subcategory is refused', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'iva'), 'CASUAL_EXPENSE',
-  pg_temp.cash(10) || jsonb_build_object('category_id', (SELECT id FROM expense_category WHERE fiscal_reserved ORDER BY id LIMIT 1))), 'ERR:WA_INVALID_PAYLOAD%');
+  pg_temp.cash(10) || jsonb_build_object('category_id', (SELECT id FROM expense_category WHERE fiscal_reserved ORDER BY id LIMIT 1))), 'ERR:WA_CATEGORY_NOT_SELECTABLE%');
 SELECT pg_temp.expect('D-5 owner-withdrawal subcategory is refused', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'retiro'), 'CASUAL_EXPENSE',
   pg_temp.cash(10) || jsonb_build_object('category_id', (SELECT c.id FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id
-                                                         WHERE g.kind = 'OWNER_WITHDRAWAL' AND c.activo ORDER BY c.id LIMIT 1))), 'ERR:WA_INVALID_PAYLOAD%');
+                                                         WHERE g.kind = 'OWNER_WITHDRAWAL' AND c.activo ORDER BY c.id LIMIT 1))), 'ERR:WA_CATEGORY_NOT_SELECTABLE%');
 SELECT pg_temp.expect('D-6 a message already used cannot drive another action', pg_temp.confirm(pg_temp.get('mA1')::bigint, pg_temp.get('dA'), 1), 'ERR:WA_MESSAGE_ALREADY_USED%');
 SELECT pg_temp.expect('D-7 admin B cannot correct A''s draft', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'corrijo'), pg_temp.get('dA'), 1, pg_temp.cash(1600)), 'ERR:WA_NOT_DRAFT_OWNER%');
 SELECT pg_temp.expect('D-8 correction on a stale version is refused', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_a'), 'corrijo'), pg_temp.get('dA'), 7, pg_temp.cash(1600)), 'ERR:WA_VERSION_CHANGED%');
@@ -333,5 +333,61 @@ SELECT pg_temp.expect('D-7 a viewer that is not an active mapped ADMIN gets only
   (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_array_elements(wa.duplicate_refs(pg_temp.cash(4321, 'x'), pg_temp.v('oper')::uuid)) e, jsonb_object_keys(e) k), 'date,same_category,total');
 SELECT pg_temp.expect('D-8 the API roles cannot call wa.duplicate_refs directly',
   pg_temp.as_('authenticated', pg_temp.v('admin_b'), format('SELECT wa.duplicate_refs(%L::jsonb, %L::uuid)::text', pg_temp.cash(4321, 'x'), pg_temp.v('admin_b'))), 'ERR:permission denied%');
+
+-- ── K. live ERP catalog: hierarchy, add / rename / move / deactivate, change between proposal and confirmation ──
+SELECT pg_temp.cancel(pg_temp.msg(pg_temp.v('phone_b'), 'cancelar'), pg_temp.get('dD1'), (SELECT version FROM wa.draft WHERE id = pg_temp.get('dD1')::uuid)) \g /dev/null
+INSERT INTO expense_category_group (id, nombre, kind) VALUES ('aaaaaaaa-0025-0000-0000-0000000000e1', 'WA Grupo K1', 'EXPENSE'), ('aaaaaaaa-0025-0000-0000-0000000000e2', 'WA Grupo K2', 'EXPENSE');
+INSERT INTO expense_category (id, nombre, group_id, pnl_cost_class) VALUES
+  ('aaaaaaaa-0025-0000-0000-0000000000f1', 'WA Sub Nafta K', 'aaaaaaaa-0025-0000-0000-0000000000e1', 'INDIRECT'),
+  ('aaaaaaaa-0025-0000-0000-0000000000f2', 'WA Sub Gasoil K', 'aaaaaaaa-0025-0000-0000-0000000000e1', 'INDIRECT'),
+  ('aaaaaaaa-0025-0000-0000-0000000000f3', 'WA Sub Otro K', 'aaaaaaaa-0025-0000-0000-0000000000e1', 'INDIRECT'),
+  ('aaaaaaaa-0025-0000-0000-0000000000f4', 'WA Sub Grupo2 K', 'aaaaaaaa-0025-0000-0000-0000000000e2', 'INDIRECT');
+CREATE FUNCTION pg_temp.kcat(p_id TEXT) RETURNS JSONB LANGUAGE sql AS $f$
+  SELECT c FROM jsonb_array_elements(pg_temp.j(pg_temp.ctx(pg_temp.msg(pg_temp.v('phone_b'), 'catalogo'))) -> 'catalog' -> 'categories') c WHERE c ->> 'id' = p_id $f$;
+SELECT pg_temp.expect('K-1 a new category and its subcategories appear in the next context, with the hierarchy (id, name, category id + name)',
+  (SELECT (c ->> 'nombre') || '|' || (c ->> 'grupo') || '|' || (c ->> 'grupo_id') FROM pg_temp.kcat('aaaaaaaa-0025-0000-0000-0000000000f1') c),
+  'WA Sub Nafta K|WA Grupo K1|aaaaaaaa-0025-0000-0000-0000000000e1');
+UPDATE expense_category SET nombre = 'WA Sub Nafta K2' WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000f1';
+SELECT pg_temp.expect('K-2 a renamed subcategory keeps its id and shows the new name (no redeploy)',
+  (SELECT (c ->> 'id') || '|' || (c ->> 'nombre') FROM pg_temp.kcat('aaaaaaaa-0025-0000-0000-0000000000f1') c), 'aaaaaaaa-0025-0000-0000-0000000000f1|WA Sub Nafta K2');
+UPDATE expense_category SET group_id = 'aaaaaaaa-0025-0000-0000-0000000000e2' WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000f2';
+SELECT pg_temp.expect('K-3 a subcategory moved to another category shows its new parent',
+  (SELECT (c ->> 'grupo') || '|' || (c ->> 'grupo_id') FROM pg_temp.kcat('aaaaaaaa-0025-0000-0000-0000000000f2') c), 'WA Grupo K2|aaaaaaaa-0025-0000-0000-0000000000e2');
+UPDATE expense_category SET activo = false WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000f2';
+SELECT pg_temp.expect('K-4 a deactivated subcategory leaves the catalog and a proposal with it is refused',
+  (SELECT (pg_temp.kcat('aaaaaaaa-0025-0000-0000-0000000000f2') IS NULL)::text) || '|'
+  || pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'gasoil'), 'CASUAL_EXPENSE', pg_temp.cash(5150, 'K gasoil') || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000f2"}'),
+  'true|ERR:WA_CATEGORY_NOT_SELECTABLE: subcategory WA Sub Gasoil K is inactive%');
+UPDATE expense_category_group SET activo = false WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000e1';
+SELECT pg_temp.expect('K-5 deactivating a category removes its subcategories from the catalog and refuses them',
+  (SELECT (pg_temp.kcat('aaaaaaaa-0025-0000-0000-0000000000f1') IS NULL)::text) || '|'
+  || pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'nafta'), 'CASUAL_EXPENSE', pg_temp.cash(5150, 'K nafta') || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000f1"}'),
+  'true|ERR:WA_CATEGORY_NOT_SELECTABLE: category WA Grupo K1 is inactive%');
+UPDATE expense_category_group SET activo = true WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000e1';
+SELECT pg_temp.put('dK', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'nafta 5151'), 'CASUAL_EXPENSE',
+  pg_temp.cash(5151, 'K concepto') || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000f1"}')));
+UPDATE expense_category SET activo = false WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000f1';   -- after the proposal, before the confirmation
+SELECT pg_temp.put('rK', pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dK'), 1), pg_temp.get('dK'), 1));
+SELECT pg_temp.expect('K-6 subcategory deactivated between proposal and confirmation → refused inside the confirmation (FAILED), nothing recorded',
+  (pg_temp.get('rK') LIKE '%"ok": false%')::text || '|' || (pg_temp.get('rK') LIKE '%WA_CATEGORY_NOT_SELECTABLE: subcategory WA Sub Nafta K2 is inactive%')::text
+  || '|' || pg_temp.state(pg_temp.get('dK')) || '|' || pg_temp.cnt(format('SELECT count(*) FROM purchases WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dK') || ':%')),
+  'true|true|FAILED|0');
+SELECT pg_temp.put('rK2', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'era otro'), pg_temp.get('dK'), 1,
+  pg_temp.cash(5151, 'K concepto') || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000f3"}'));
+SELECT pg_temp.expect('K-7 only the subcategory is corrected (v2 DRAFT) and the confirmation records the purchase with every other field intact',
+  (pg_temp.j(pg_temp.get('rK2')) ->> 'state') || '|v' || (pg_temp.j(pg_temp.get('rK2')) ->> 'version') || '|'
+  || (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dK'), 2), pg_temp.get('dK'), 2) LIKE '%"state": "CONFIRMED"%')::text || '|'
+  || pg_temp.cnt(format('SELECT expense_category_id || %L || amount_total || %L || economic_date FROM purchases WHERE idempotency_key = %L', '|', '|', 'WA:' || pg_temp.get('dK') || ':v2')),
+  'DRAFT|v2|true|aaaaaaaa-0025-0000-0000-0000000000f3|5151.00|2026-10-20');
+SELECT pg_temp.put('dK3', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'grupo2'), 'CASUAL_EXPENSE',
+  pg_temp.cash(5152, 'K grupo2') || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000f4"}')));
+UPDATE expense_category_group SET activo = false WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000e2';   -- the parent category, after the proposal
+SELECT pg_temp.expect('K-8 parent category deactivated between proposal and confirmation → refused (FAILED), nothing recorded',
+  (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dK3'), 1), pg_temp.get('dK3'), 1) LIKE '%WA_CATEGORY_NOT_SELECTABLE: category WA Grupo K2 is inactive%')::text
+  || '|' || pg_temp.state(pg_temp.get('dK3')) || '|' || pg_temp.cnt(format('SELECT count(*) FROM purchases WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dK3') || ':%')),
+  'true|FAILED|0');
+SELECT pg_temp.expect('K-9 catalog = wa.selectable_categories (one rule) and no fiscal-reserved / owner-withdrawal / inactive entry',
+  (SELECT (count(*) FILTER (WHERE s.id IS NULL))::text FROM jsonb_array_elements(pg_temp.j(pg_temp.ctx(pg_temp.msg(pg_temp.v('phone_b'), 'cat'))) -> 'catalog' -> 'categories') c
+     LEFT JOIN wa.selectable_categories() s ON s.id = (c ->> 'id')::uuid), '0');
 
 SELECT 'SUMMARY|' || count(*) FILTER (WHERE ok) || '|' || count(*) FILTER (WHERE NOT ok) FROM t_result;

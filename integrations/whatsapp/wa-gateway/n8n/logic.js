@@ -78,15 +78,17 @@ const WA = (() => {
     WA_DRAFT_NOT_CANCELLABLE: 'Ese borrador ya no se puede cancelar.',
     WA_DRAFT_NOT_EDITABLE: 'Ese borrador ya no se puede corregir.',
     WA_INVALID_PAYLOAD: 'No pude armar el gasto con esos datos.',
+    WA_CATEGORY_NOT_SELECTABLE: 'Esa subcategoría ya no está disponible en el ERP. Decime cuál usar (el resto del gasto se mantiene).',
     WA_OWNER_NOT_AUTHORIZED: 'Tu número ya no está autorizado.',
   };
   const text = (to, body) => ({ messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: body.slice(0, 4000) } });
   const buttons = (to, body, id, v) => ({ messaging_product: 'whatsapp', to, type: 'interactive', interactive: { type: 'button', body: { text: body.slice(0, 1000) },
     action: { buttons: [{ type: 'reply', reply: { id: `CONFIRM:${id}:${v}`, title: 'Confirmar' } }, { type: 'reply', reply: { id: `CANCEL:${id}:${v}`, title: 'Cancelar' } }] } } });
   // corrected fields (from the interpreter: { field: total|concept|category_id|method|date, from, to }) → labelled, formatted values
+  const catLabel = (cfg, id) => { const c = (cfg.categories || []).find((x) => x.id === id); return c ? (c.grupo ? `${c.grupo} › ${c.nombre}` : c.nombre) : '(ya no disponible)'; };
   const FIELD = { total: 'Importe', concept: 'Concepto', category_id: 'Categoría', method: 'Pago', date: 'Fecha' };
   const fmtField = (f, v, cfg) => f === 'total' ? money(v) : f === 'date' ? ddmmyyyy(v) : f === 'method' ? (METHOD[v] || v)
-    : f === 'category_id' ? (((cfg.categories || []).find((c) => c.id === v) || {}).nombre || '?') : `"${String(v ?? '').slice(0, 60)}"`;
+    : f === 'category_id' ? catLabel(cfg, v) : `"${String(v ?? '').slice(0, 60)}"`;
   const changeLine = (r, changes, cfg) => {
     const ch = (changes || []).filter((c) => c && FIELD[c.field]);
     return ch.length ? `✏️ Corregí ${r.short_code} (v${r.version}): ${ch.map((c) => `${FIELD[c.field]} ${fmtField(c.field, c.from, cfg)} → ${fmtField(c.field, c.to, cfg)}`).join('; ')}\n\n` : '';
@@ -103,11 +105,10 @@ const WA = (() => {
   const summary = (r, cfg, changes) => {
     const p = r.payload || {};
     const mark = (f) => ((changes || []).some((c) => c && c.field === f) ? ' ✏️' : '');
-    const cat = (cfg.categories || []).find((c) => c.id === p.category_id);
     const acc = Object.values(cfg.accounts || {}).find((a) => a && a.id === p.account_id);
     return changeLine(r, changes, cfg)
       + `Borrador ${r.short_code} (v${r.version}) — STAGING, simulación\nTotal: ${money(p.total)}${mark('total')}\nConcepto: ${p.concept}${mark('concept')}\n`
-      + `Categoría: ${cat ? cat.nombre : '?'}${mark('category_id')}\nPago: ${METHOD[p.method] || p.method}${acc ? ' (' + acc.nombre + ')' : ''}${mark('method')}\n`
+      + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${METHOD[p.method] || p.method}${acc ? ' (' + acc.nombre + ')' : ''}${mark('method')}\n`
       + `Fecha: ${ddmmyyyy(p.date)}${mark('date')}` + dupLines(r);
   };
   const ASK = '¿Confirmás? Si algo está mal decime solo lo que cambia (por ejemplo "eran 15 mil" o "era transferencia"). "cancelar" lo descarta.';
@@ -129,7 +130,11 @@ const WA = (() => {
     if (r.ok === false) {
       if (r.error === 'WA_DRAFT_EXPIRED') return { graph: text(ctx.to, ERR.WA_DRAFT_EXPIRED), state: drop(st, req.draft_id) };
       const open = st.open && st.open.draft_id === r.draft_id ? { ...st.open, state: 'FAILED' } : { draft_id: r.draft_id, version: req.expected_version, state: 'FAILED', code: r.short_code };
-      return { graph: text(ctx.to, `No se pudo registrar ${r.short_code || ''}: ${String(r.error || '').slice(0, 120)}.\nDecime qué corregir o escribí "cancelar".`), state: { ...st, open } };
+      // the subcategory was deactivated / moved after the proposal: refused inside the confirmation, nothing recorded
+      const body = /^WA_CATEGORY_NOT_SELECTABLE/.test(String(r.error || ''))
+        ? `No se registró ${r.short_code || ''}: la subcategoría elegida ya no está disponible en el ERP. Decime cuál usar (el resto del gasto se mantiene) o escribí "cancelar".`
+        : `No se pudo registrar ${r.short_code || ''}: ${String(r.error || '').slice(0, 120)}.\nDecime qué corregir o escribí "cancelar".`;
+      return { graph: text(ctx.to, body), state: { ...st, open } };
     }
     if (r.already_confirmed) return { graph: text(ctx.to, `${r.short_code} ya estaba registrado.`), state: drop(st, r.draft_id) };
     if (r.state === 'CONFIRMED') return { graph: text(ctx.to, `✅ Registrado ${r.short_code} (simulación STAGING; no afecta la contabilidad real).`), state: drop(st, r.draft_id) };

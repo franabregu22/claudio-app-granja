@@ -153,9 +153,40 @@ LANGUAGE sql SET search_path = __PATH__ AS $$
   SELECT p_result;
 $$;
 
+-- >>> category_rule
+-- THE selectability rule of the bot, read live from the ERP catalog on every call (no copy, no cache): an active subcategory,
+-- not fiscal-reserved, inside an active EXPENSE category. Used by the catalog sent to the interpreter (wa_context), by the
+-- proposal / correction validation and by the re-check inside the confirmation transaction.
+CREATE FUNCTION wa.selectable_categories() RETURNS TABLE (id UUID, nombre TEXT, grupo_id UUID, grupo TEXT)
+LANGUAGE sql STABLE SET search_path = __PATH__ AS $$
+  SELECT c.id, c.nombre::text, g.id, g.nombre::text FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id
+   WHERE c.activo AND NOT c.fiscal_reserved AND g.kind::text = 'EXPENSE' AND g.activo
+$$;
+-- why a subcategory is NOT selectable right now (NULL = selectable). p_lock: FOR SHARE on the subcategory and its category, so a
+-- concurrent deactivation / move waits until the confirming transaction ends.
+CREATE FUNCTION wa.category_check(p_id UUID, p_lock BOOLEAN) RETURNS TEXT LANGUAGE plpgsql SET search_path = __PATH__ AS $$
+DECLARE v RECORD;
+BEGIN
+  IF p_id IS NULL THEN RETURN 'subcategory required'; END IF;
+  IF p_lock THEN
+    SELECT c.nombre, c.activo, c.fiscal_reserved, g.nombre AS grupo, g.kind::text AS kind, g.activo AS grupo_activo INTO v
+      FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.id = p_id FOR SHARE OF c, g;
+  ELSE
+    SELECT c.nombre, c.activo, c.fiscal_reserved, g.nombre AS grupo, g.kind::text AS kind, g.activo AS grupo_activo INTO v
+      FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.id = p_id;
+  END IF;
+  IF NOT FOUND THEN RETURN 'unknown subcategory'; END IF;
+  IF NOT v.activo THEN RETURN 'subcategory ' || v.nombre || ' is inactive'; END IF;
+  IF v.fiscal_reserved OR v.kind <> 'EXPENSE' THEN RETURN 'subcategory ' || v.nombre || ' is not selectable for expenses'; END IF;
+  IF NOT v.grupo_activo THEN RETURN 'category ' || v.grupo || ' is inactive'; END IF;
+  RETURN NULL;
+END $$;
+-- <<< category_rule
+
+-- >>> validate_payload
 -- payload validation against the accounting catalogs (the RPCs re-validate everything at confirmation)
 CREATE FUNCTION wa.validate_payload(p_type TEXT, p_payload JSONB) RETURNS JSONB LANGUAGE plpgsql SET search_path = __PATH__ AS $$
-DECLARE p JSONB := p_payload; v_total NUMERIC; v_cat RECORD; v_acc RECORD; v_today DATE := (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date;
+DECLARE p JSONB := p_payload; v_total NUMERIC; v_why TEXT; v_acc RECORD; v_today DATE := (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date;
 BEGIN
   IF jsonb_typeof(p) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: object required'; END IF;
   p := p || jsonb_build_object('date', coalesce(p ->> 'date', v_today::text));
@@ -164,10 +195,9 @@ BEGIN
   IF v_total IS NULL OR v_total <= 0 THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: total > 0 required'; END IF;
   IF p ? 'net' AND ((p ->> 'net')::numeric <= 0 OR (p ->> 'net')::numeric > v_total) THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: 0 < net <= total'; END IF;
   IF p_type <> 'VAT_ONLY_DOCUMENT' THEN
-    SELECT c.activo, c.fiscal_reserved, g.kind INTO v_cat
-      FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.id = (p ->> 'category_id')::uuid;
-    IF NOT FOUND OR NOT v_cat.activo THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: unknown or inactive subcategory'; END IF;
-    IF v_cat.fiscal_reserved OR v_cat.kind = 'OWNER_WITHDRAWAL' THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: subcategory not selectable'; END IF;
+    IF coalesce(p ->> 'category_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: category_id'; END IF;
+    v_why := wa.category_check((p ->> 'category_id')::uuid, false);
+    IF v_why IS NOT NULL THEN RAISE EXCEPTION 'WA_CATEGORY_NOT_SELECTABLE: %', v_why; END IF;
     IF coalesce(p ->> 'nature', '') NOT IN ('OPERATING', 'REINVESTMENT', 'INVESTMENT') THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: nature'; END IF;
   END IF;
   IF p_type IN ('CASUAL_EXPENSE', 'CASUAL_WITH_INVOICE') THEN
@@ -188,6 +218,7 @@ BEGIN
   END IF;
   RETURN p;
 END $$;
+-- <<< validate_payload
 
 -- possible duplicates already recorded (a warning for the confirmation text; never a block)
 CREATE FUNCTION wa.duplicate_hint(p JSONB) RETURNS INTEGER LANGUAGE sql STABLE SET search_path = __PATH__ AS $$
@@ -449,10 +480,11 @@ BEGIN
   RETURN wa.use_inbound(p_inbound_id, 'LINK_MP', d.id, r);
 END $$;
 
+-- >>> wa_confirm
 -- 6. confirm: explicit button of THIS version, by the owner, in time → delegated identity → accounting (§14.3)
 CREATE FUNCTION public.wa_confirm(p_inbound_id BIGINT, p_draft_id UUID, p_expected_version INTEGER) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = __PATH__ AS $$
-DECLARE ci RECORD; d wa.draft; v_key TEXT; v_old_sub TEXT; v_old_claims TEXT; v_inside UUID; v_role TEXT; v_res JSONB; v_err TEXT; r JSONB;
+DECLARE ci RECORD; d wa.draft; v_key TEXT; v_old_sub TEXT; v_old_claims TEXT; v_inside UUID; v_role TEXT; v_res JSONB; v_err TEXT; v_why TEXT; r JSONB;
 BEGIN
   PERFORM wa.gate();
   SELECT * INTO ci FROM wa.claim_inbound(p_inbound_id, 'CONFIRM', p_draft_id);
@@ -474,6 +506,11 @@ BEGIN
   UPDATE wa.draft SET state = 'CONFIRMING', updated_at = now() WHERE id = d.id;
   v_key := 'WA:' || d.id || ':v' || d.version;
   BEGIN   -- subtransaction: an accounting refusal rolls back only the accounting part; the draft records the failure
+    -- the subcategory chosen at proposal time may have been deactivated / moved since: re-check it NOW, locked until commit
+    IF d.type <> 'VAT_ONLY_DOCUMENT' THEN
+      v_why := wa.category_check((d.payload ->> 'category_id')::uuid, true);
+      IF v_why IS NOT NULL THEN RAISE EXCEPTION 'WA_CATEGORY_NOT_SELECTABLE: %', v_why; END IF;
+    END IF;
     v_old_sub := current_setting('request.jwt.claim.sub', true);
     v_old_claims := current_setting('request.jwt.claims', true);
     PERFORM set_config('request.jwt.claim.sub', d.owner_perfil_id::text, true);
@@ -497,6 +534,7 @@ BEGIN
   r := jsonb_build_object('ok', true, 'draft_id', d.id, 'short_code', d.short_code, 'state', 'CONFIRMED', 'result', v_res);
   RETURN wa.use_inbound(p_inbound_id, 'CONFIRM', d.id, r);
 END $$;
+-- <<< wa_confirm
 
 -- 7. expiry sweep (called by the scheduler of the gateway)
 CREATE FUNCTION public.wa_expire() RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = __PATH__ AS $$
@@ -529,9 +567,9 @@ BEGIN
   SELECT coalesce(jsonb_agg(jsonb_build_object('draft_id', d.id, 'short_code', d.short_code, 'version', d.version,
                                                'total', d.payload -> 'total', 'date', d.payload -> 'date') ORDER BY d.created_at), '[]'::jsonb)
     INTO v_waiting FROM wa.draft d WHERE d.owner_perfil_id = m.sender_perfil_id AND d.state = 'WAITING_MP' AND d.expires_at > now();
-  SELECT coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'nombre', c.nombre) ORDER BY c.nombre), '[]'::jsonb) INTO v_cats
-    FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id
-   WHERE c.activo AND NOT c.fiscal_reserved AND g.kind::text = 'EXPENSE' AND g.activo;
+  -- the live ERP catalog with its hierarchy (category → subcategory); ids are what the draft and the accounting call use
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'nombre', s.nombre, 'grupo_id', s.grupo_id, 'grupo', s.grupo) ORDER BY s.grupo, s.nombre), '[]'::jsonb)
+    INTO v_cats FROM wa.selectable_categories() s;
   SELECT coalesce(jsonb_agg(jsonb_build_object('id', a.id, 'nombre', a.nombre, 'account_type', a.account_type::text) ORDER BY a.nombre), '[]'::jsonb) INTO v_accs
     FROM financial_account a WHERE a.activo;
   RETURN jsonb_build_object('ok', true, 'open', v_open, 'waiting', v_waiting, 'catalog', jsonb_build_object('categories', v_cats, 'accounts', v_accs));

@@ -28,9 +28,9 @@ BEGIN
   SELECT coalesce(jsonb_agg(jsonb_build_object('draft_id', d.id, 'short_code', d.short_code, 'version', d.version,
                                                'total', d.payload -> 'total', 'date', d.payload -> 'date') ORDER BY d.created_at), '[]'::jsonb)
     INTO v_waiting FROM wa.draft d WHERE d.owner_perfil_id = m.sender_perfil_id AND d.state = 'WAITING_MP' AND d.expires_at > now();
-  SELECT coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'nombre', c.nombre) ORDER BY c.nombre), '[]'::jsonb) INTO v_cats
-    FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id
-   WHERE c.activo AND NOT c.fiscal_reserved AND g.kind::text = 'EXPENSE' AND g.activo;
+  -- the live ERP catalog with its hierarchy (category → subcategory); ids are what the draft and the accounting call use
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'nombre', s.nombre, 'grupo_id', s.grupo_id, 'grupo', s.grupo) ORDER BY s.grupo, s.nombre), '[]'::jsonb)
+    INTO v_cats FROM wa.selectable_categories() s;
   SELECT coalesce(jsonb_agg(jsonb_build_object('id', a.id, 'nombre', a.nombre, 'account_type', a.account_type::text) ORDER BY a.nombre), '[]'::jsonb) INTO v_accs
     FROM financial_account a WHERE a.activo;
   RETURN jsonb_build_object('ok', true, 'open', v_open, 'waiting', v_waiting, 'catalog', jsonb_build_object('categories', v_cats, 'accounts', v_accs));

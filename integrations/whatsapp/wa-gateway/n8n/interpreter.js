@@ -12,8 +12,26 @@ const WAI = (() => {
   const METHOD_ES = { CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'Mercado Pago' };
   const addDays = (iso, n) => new Date(Date.parse(iso + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10);
 
-  /** strict Structured Outputs schema; category is an enum of the CURRENT selectable catalog (from the database) */
-  function schema(categoryNames) {
+  /** the LIVE ERP catalog of this message (public.wa_context, never cached) → one opaque code per selectable subcategory
+   *  (S1…Sn, in the database order). GPT answers a code; the code maps back to the subcategory id (the accounting key). */
+  const options = (catalog) => (catalog?.categories || []).map((c, i) => ({ code: 'S' + (i + 1), id: c.id, nombre: c.nombre, grupo: c.grupo ?? null }));
+  const label = (o) => (o.grupo ? `${o.grupo} › ${o.nombre}` : o.nombre);
+  const words = (s) => norm(s).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 4);
+  const mentions = (text, name) => { const t = ' ' + norm(text).replace(/[^a-z0-9ñ]+/g, ' ') + ' '; return words(name).some((w) => t.includes(' ' + w)); };
+  /** ambiguity guard: the text names a CATEGORY with several subcategories but not the chosen subcategory → ask, never guess */
+  function ambiguity(text, opt, opts) {
+    if (!opt || !opt.grupo || mentions(text, opt.nombre) || !mentions(text, opt.grupo)) return null;
+    const subs = opts.filter((o) => o.grupo === opt.grupo);
+    return subs.length > 1 ? `¿Qué tipo de ${opt.grupo}? ${subs.slice(0, 10).map((o) => o.nombre).join(', ')}.` : null;
+  }
+  const askCategory = (opts) => {
+    const groups = [...new Set(opts.map((o) => o.grupo).filter(Boolean))];
+    return groups.length ? `¿En qué categoría va? Por ejemplo: ${groups.slice(0, 12).join(', ')}. Decime el tipo (por ejemplo "${opts[0].nombre}").`
+                         : `¿En qué categoría va? (${opts.map((o) => o.nombre).slice(0, 10).join(', ')})`;
+  };
+
+  /** strict Structured Outputs schema; category is an enum of the codes of the CURRENT selectable catalog (from the database) */
+  function schema(categoryCodes) {
     const ns = (desc) => ({ type: ['string', 'null'], description: desc });
     return { type: 'object', additionalProperties: false, required: ['intent', ...FIELDS.flatMap((f) => f === 'amount' ? ['amount', 'amount_evidence'] : [f]), 'changed_fields', 'clarification_question'],
       properties: {
@@ -21,7 +39,7 @@ const WAI = (() => {
         amount: { type: ['number', 'null'], description: 'importe en pesos argentinos' },
         amount_evidence: ns('fragmento EXACTO del mensaje del que sale el importe, copiado literalmente'),
         concept: ns('qué se compró o pagó, breve, sin importe ni medio de pago'),
-        category: { type: ['string', 'null'], enum: [...categoryNames, null] },
+        category: { type: ['string', 'null'], enum: [...categoryCodes, null], description: 'código (S1, S2…) de la subcategoría del catálogo' },
         method: { type: ['string', 'null'], enum: [...METHODS, null] },
         date: ns('YYYY-MM-DD'),
         changed_fields: { type: 'array', items: { type: 'string', enum: FIELDS } },
@@ -36,7 +54,8 @@ const WAI = (() => {
     'amount_evidence: copiá LITERALMENTE el fragmento del mensaje del que sacaste el importe (por ejemplo "18mil").',
     'intent = new_expense si el mensaje describe un gasto nuevo. intent = correct_draft solo si hay borrador_abierto y el mensaje pide cambiar datos de ese borrador ("corregí", "cambiá", "era", "eran", "no era", "en realidad", "mejor").',
     'En correct_draft: changed_fields lista SOLO los campos que el usuario pidió cambiar; completá solo esos campos y dejá los demás en null.',
-    'En new_expense: concept = qué se compró o pagó (máximo 60 caracteres, sin importe, sin medio de pago, sin verbos como "gasté"); category = la categoría del catálogo que corresponda o null si ninguna corresponde; method: efectivo = CASH, transferencia = TRANSFER, mercado pago o mp = MERCADOPAGO, null si no se menciona; date: "hoy" = la fecha de hoy, "ayer" = hoy menos un día, fecha explícita en YYYY-MM-DD, null si no se menciona.',
+    'En new_expense: concept = qué se compró o pagó (máximo 60 caracteres, sin importe, sin medio de pago, sin verbos como "gasté"); category = el código (S1, S2…) de la subcategoría del catálogo que corresponda, o null si ninguna corresponde (el catálogo trae categoría y subcategoría; elegí siempre una subcategoría); method: efectivo = CASH, transferencia = TRANSFER, mercado pago o mp = MERCADOPAGO, null si no se menciona; date: "hoy" = la fecha de hoy, "ayer" = hoy menos un día, fecha explícita en YYYY-MM-DD, null si no se menciona.',
+    'Si el mensaje nombra una categoría que tiene varias subcategorías y no queda claro cuál, usá intent = clarify y preguntá cuál, nombrando esas subcategorías.',
     'Usá intent = clarify con una pregunta corta si hay más de un importe, un importe vago ("y pico", "más o menos"), o no está claro si es un gasto nuevo o una corrección.',
     '"sí", "confirmo", "dale" = confirm_request. "cancelá", "anulá", "borralo" = cancel_request. Preguntas sobre el borrador o lo pendiente = status_query. Saludos o pedidos de ayuda = help. Otra cosa = other.',
     'Nunca inventes datos que el mensaje no dice.',
@@ -44,15 +63,15 @@ const WAI = (() => {
 
   /** the ONLY data sent to OpenAI: the message, today's date, category names and the open draft's business fields */
   function buildRequest({ text, today, context, model, effort, maxOutputTokens }) {
-    const cats = (context.catalog?.categories || []).map((c) => c.nombre);
+    const opts = options(context.catalog);
     const o = context.open;
-    const catName = (id) => (context.catalog?.categories || []).find((c) => c.id === id)?.nombre ?? null;
-    const sent = { hoy: today, mensaje: String(text).slice(0, 1000), categorias: cats,
+    const catName = (id) => { const x = opts.find((c) => c.id === id); return x ? label(x) : null; };
+    const sent = { hoy: today, mensaje: String(text).slice(0, 1000), categorias: opts.map((x) => ({ codigo: x.code, categoria: x.grupo, subcategoria: x.nombre })),
       borrador_abierto: o ? { codigo: o.short_code, estado: o.state, importe: o.payload?.total ?? null, concepto: o.payload?.concept ?? null,
                               categoria: catName(o.payload?.category_id), medio: o.payload?.method ?? null, fecha: o.payload?.date ?? null } : null };
     const body = { model, store: false, max_output_tokens: maxOutputTokens || 600,
       input: [{ role: 'system', content: SYSTEM }, { role: 'user', content: JSON.stringify(sent) }],
-      text: { format: { type: 'json_schema', name: 'interpretacion_gasto', strict: true, schema: schema(cats) } } };
+      text: { format: { type: 'json_schema', name: 'interpretacion_gasto', strict: true, schema: schema(opts.map((x) => x.code)) } } };
     if (effort) body.reasoning = { effort };
     return { body, sent };
   }
@@ -121,8 +140,8 @@ const WAI = (() => {
     const cap = amountCap || 10000000;
     const g = gpt || {};
     if (!INTENTS.includes(g.intent)) return clar('No pude interpretar el mensaje. ¿Me lo escribís de nuevo?', 'invalid_intent');
-    const cats = ctx.catalog?.categories || [];
-    const catByName = (name) => cats.find((c) => norm(c.nombre) === norm(name)) || null;
+    const opts = options(ctx.catalog);
+    const byCode = (code) => opts.find((o) => o.code === code) || null;   // only a code of THIS message's live catalog is valid
     const o = ctx.open;
     switch (g.intent) {
       case 'confirm_request': return { reply: o ? `Para registrar ${o.short_code} tocá el botón Confirmar del último resumen.` : 'No tenés un borrador para confirmar.', outcome: 'confirm_by_button_only' };
@@ -136,8 +155,10 @@ const WAI = (() => {
         if (total === null) return clar('¿Cuál es el importe exacto?', 'amount_unverified');
         const concept = String(g.concept || '').trim().slice(0, 100);
         if (!concept) return clar('¿Qué compraste o pagaste?', 'no_concept');
-        const cat = g.category ? catByName(g.category) : null;
-        if (!cat) return clar(`¿En qué categoría va? (${cats.map((c) => c.nombre).slice(0, 10).join(', ')})`, 'no_category');
+        const cat = g.category ? byCode(g.category) : null;
+        if (!cat) return clar(askCategory(opts), 'no_category');
+        const amb = ambiguity(text, cat, opts);
+        if (amb) return clar(amb, 'ambiguous_category');
         const method = g.method === null || g.method === undefined ? 'CASH' : g.method;
         if (!METHODS.includes(method)) return clar('¿Cómo lo pagaste: efectivo, transferencia o Mercado Pago?', 'bad_method');
         const acc = accountFor(method, ctx, accountByMethod);
@@ -155,7 +176,8 @@ const WAI = (() => {
         const p = { ...o.payload }; delete p.needs_mp;
         if (ch.includes('amount')) { const v = validAmount(g, text, cap); if (v === null) return clar('¿Cuál es el importe correcto?', 'amount_unverified'); p.total = v; delete p.net; }
         if (ch.includes('concept')) { const c = String(g.concept || '').trim().slice(0, 100); if (!c) return clar('¿Cuál es el concepto correcto?', 'no_concept'); p.concept = c; }
-        if (ch.includes('category')) { const c = g.category ? catByName(g.category) : null; if (!c) return clar(`¿En qué categoría va? (${cats.map((x) => x.nombre).slice(0, 10).join(', ')})`, 'no_category'); p.category_id = c.id; }
+        if (ch.includes('category')) { const c = g.category ? byCode(g.category) : null; if (!c) return clar(askCategory(opts), 'no_category');
+          const amb = ambiguity(text, c, opts); if (amb) return clar(amb, 'ambiguous_category'); p.category_id = c.id; }
         if (ch.includes('method')) {
           if (!METHODS.includes(g.method)) return clar('¿Cómo lo pagaste: efectivo, transferencia o Mercado Pago?', 'bad_method');
           const acc = accountFor(g.method, ctx, accountByMethod); if (!acc) return clar('No encuentro la cuenta para ese medio de pago.', 'no_account');
@@ -177,5 +199,5 @@ const WAI = (() => {
   const cfgFromContext = (ctx) => ({ categories: ctx?.catalog?.categories || [],
     accounts: Object.fromEntries((ctx?.catalog?.accounts || []).map((a) => [a.id, a])) });
 
-  return { schema, SYSTEM, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
+  return { schema, SYSTEM, options, label, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
 })();

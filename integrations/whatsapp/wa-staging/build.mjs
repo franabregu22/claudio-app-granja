@@ -42,6 +42,16 @@ const files = {
     + ['wa_propose', 'wa_correct'].map((f) => between(fill(core, 'staging'), `-- >>> ${f}`, `-- <<< ${f}`).replace(`CREATE FUNCTION public.${f}(`, `CREATE OR REPLACE FUNCTION public.${f}(`)).join('')
     + ['public.wa_propose(bigint, text, jsonb)', 'public.wa_correct(bigint, uuid, integer, jsonb)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
       + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join(''),
+  // live ERP catalog with hierarchy (one selectability rule) + re-check of the subcategory inside the confirmation transaction
+  'staging/upgrade-004-catalog-rule.sql': src('guard-upgrade-staging.sql') + `SET LOCAL search_path = ${PATHS.staging};\n`
+    + 'DROP FUNCTION IF EXISTS wa.selectable_categories();\nDROP FUNCTION IF EXISTS wa.category_check(uuid, boolean);\n'
+    + between(fill(core, 'staging'), '-- >>> category_rule', '-- <<< category_rule')
+    + [['validate_payload', 'wa.validate_payload'], ['wa_confirm', 'public.wa_confirm'], ['wa_context', 'public.wa_context']]
+      .map(([m, f]) => between(fill(core, 'staging'), `-- >>> ${m}`, `-- <<< ${m}`).replace(`CREATE FUNCTION ${f}(`, `CREATE OR REPLACE FUNCTION ${f}(`)).join('')
+    + ['wa.selectable_categories()', 'wa.category_check(uuid, boolean)', 'wa.validate_payload(text, jsonb)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
+      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\n`).join('')
+    + ['public.wa_confirm(bigint, uuid, integer)', 'public.wa_context(bigint)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
+      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join(''),
   'candidate/0101_wa_whatsapp_gateway.candidate.sql':
     '-- ADR-025 CANDIDATE migration (NOT in supabase/target-migrations; never applied without an owner GO).\n'
     + '-- Generated from src/wa-core.template.sql with search_path = public, pg_temp (real accounting RPCs). wa.config is NOT\n'

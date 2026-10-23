@@ -38,7 +38,7 @@ echo "guard re-run on the installed database (must refuse): $($PG -f - < "$HERE/
 echo "ERP-refusal: the staging guard on the local ERP → $(docker exec -i $C psql -U postgres -X -q -t -A -f - < "$HERE/build/staging/00-guard.sql" 2>&1 | grep -o 'STAGING_GUARD: .*' | cut -c1-90)"
 
 echo "== 2b staging upgrades on the installed database (idempotent re-application)"
-for u in upgrade-001-wa-context upgrade-002-sim-categories upgrade-003-duplicate-refs; do { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/build/staging/$u.sql"; echo 'COMMIT;'; } | $PG -f - 2>&1 | grep -E "GUARD|ERROR" | sed "s/^/  $u: /"; done
+for u in upgrade-001-wa-context upgrade-002-sim-categories upgrade-003-duplicate-refs upgrade-004-catalog-rule; do { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/build/staging/$u.sql"; echo 'COMMIT;'; } | $PG -f - 2>&1 | grep -E "GUARD|ERROR" | sed "s/^/  $u: /"; done
 echo "after upgrades: $($PG -c "SELECT 'public_wa_functions=' || (SELECT count(*) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'wa\_%') || ' selectable_sim_categories=' || (SELECT count(*) FROM sim.expense_category c JOIN sim.expense_category_group g ON g.id=c.group_id WHERE c.activo AND NOT c.fiscal_reserved AND g.kind='EXPENSE')")"
 echo "== 3 suite (one transaction, ROLLBACK)"
 { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/build/staging/tests.sql"; echo 'ROLLBACK;'; } | $PG $VARS -f - 2>&1 | grep -E "FAIL|SUMMARY|ERROR" | sed 's/^psql:<stdin>:[0-9]*: //'

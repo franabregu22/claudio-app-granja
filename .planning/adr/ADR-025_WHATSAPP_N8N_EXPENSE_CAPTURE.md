@@ -6,7 +6,8 @@ remediated with project privileges** (§17.2), so the gateway channel is re-prop
 PostgREST instead of a custom LOGIN role (P-12, §17.3). **Update 2026-10-23 (§19):** the minimal staging of §18 is built and
 running end to end on AppGranja (text expenses with OpenAI interpretation, corrections, confirmation, cancellation, duplicate
 references); the production read-only PR-5 passed on 2026-10-21. Still **PROPOSED**: no production migration, function or
-deployment exists; the production cutover is blocked by the owner decisions and the parity check of §19.4.
+deployment exists. Production parity (B-4) passed read-only on 2026-10-23; the cutover is still blocked by the production
+Meta configuration (B-1) and the live payment accounts (D-3) — §19.4–§19.6.
 **DATE:** 2026-10-21 (security review and local proof of concept the same day); staging results 2026-10-22 / 23 (§19)
 **AMENDS:** nothing yet. If accepted: a new `wa` schema, a dedicated LOGIN role `wa_gateway`, one Supabase Edge Function.
 **NOT AFFECTED:** every accounting RPC and table (`register_casual_purchase`, `register_purchase`,
@@ -687,16 +688,16 @@ catalog (`staging-catalog.json`), generated n8n builds, hosted workflow exports 
 Latest results: SQL staging sandbox 85/85; SQL candidate on the local ERP (0001–0100) 85/85, no residue; n8n logic 7/7,
 interpreter 12/12, workflow 12/12 (also against a copy of the published v2); Edge 14/14; n8n preflight 11/11.
 
-### 19.4 Production cutover — blockers (open)
+### 19.4 Production cutover — blockers
 
-| # | Blocker | Owner of the decision |
+| # | Blocker | Status |
 |---|---|---|
-| B-1 | Production Meta: real number, production app / WABA (one app has one webhook; reusing the test app would end staging) and a **permanent System User token** | owner |
-| B-2 | Transfer account: production has BNA and Patagonia; the interpreter maps TRANSFER to one account by name | owner |
-| B-3 | Cutover scope: `CASUAL_EXPENSE` from text only (cash / transfer / Mercado Pago with `SOURCE_ID`); invoices, credit purchases, VAT-only documents and audio later | owner |
-| B-4 | Production parity, read-only: migration ledger = 0100, the four RPC signatures, real account and subcategory names, the two ADMIN profile ids; PR-5 re-run | owner shell |
-| B-5 | Artifacts versioned in the repository (this section) — done on branch `adr025-whatsapp-gateway`, pending review | — |
-| B-6 | ADR-025 to ACCEPTED after B-1…B-4 | owner |
+| B-1 | Production Meta: real number, production app / WABA (one app has one webhook; reusing the test app would end staging) and a **permanent System User token** | **open** — independent production configuration, pending (owner) |
+| B-2 | Transfer account: production has BNA and Patagonia | **decided** (owner): when the account is not stated, ask which one before a confirmable draft; accounts read live from the ERP (D-3, §19.6) |
+| B-3 | Cutover scope | **decided** (owner): `CASUAL_EXPENSE` from text only (cash / transfer / Mercado Pago with `SOURCE_ID`); audio, invoices, credit purchases and VAT-only documents out of the cutover |
+| B-4 | Production parity, read-only | **CLOSED — PASS** (2026-10-23): `integrations/whatsapp/production/b4-parity-readonly.sh`, one READ ONLY transaction, rolled back, 0 writes. Eight groups PASS: identity (ledger 0100, `auth.uid()` unchanged), the four RPC signatures / owner / grants and every column 0101 reads, PR-5 security (0 PUBLIC-executable definers, no custom LOGIN role, `service_role` 0/11 financial writes), accounts (Caja chica, BNA, Patagonia, Mercado Pago `EXTERNAL_SERVICE`), 49 selectable subcategories with unique names, payment methods, no `wa` / `sim` objects and no `wa-gateway` function. The ERP has 4 active ADMIN profiles (more than two is allowed); the pilot profiles are **owner `7986da00`** and **brother `b4305ca5`** (8-char id prefixes; validated by `b4-admin-candidates.sh`: A-1 ≥ 2 eligible ADMIN with a valid Auth user, A-2 prefixes unique, A-3 two distinct prefixes, A-4 each matches exactly one eligible ADMIN — all PASS). The identification (`b4-admin-emails.sh`) shows Auth emails on the owner's terminal only and is not to be repeated. |
+| B-5 | Artifacts versioned in the repository | **done** — commit `55aa19f` on branch `adr025-whatsapp-gateway` (local, not pushed) |
+| B-6 | ADR-025 to ACCEPTED | **open** — after B-1 and D-3 |
 
 Isolation STAGING ↔ production rests on independent barriers: different Meta app secrets (a staging signature does not
 verify in production), different Edge ↔ n8n tokens and webhook paths, project-ref constants in the Edge Function, and the
@@ -711,3 +712,33 @@ gateway Auth user, `wa.sender`, Vault secret → Edge deploy + probes → Meta w
 published → flag on, propose + cancel → one real low-value expense (§18.5) → pilot. Rollback, fastest first:
 `wa.config.enabled = false`; unpublish the PROD workflow; unsubscribe the production webhook; migration 0101 is additive
 (drop `wa_*` and schema `wa` only after keeping its evidence); confirmed purchases are rectified through the ERP, never deleted.
+
+### 19.5 D-1 — live ERP catalog of categories and subcategories (approved by the owner 2026-10-23; local, not deployed)
+
+- **Single source of truth**: the ERP catalog, read live on every message by `wa_context` through `wa.selectable_categories()`
+  (subcategory id and name, parent category id and name). Nothing is hard-coded in n8n, the Edge Function, the interpreter or
+  the OpenAI prompt; nothing is kept in n8n static data (only nonces, seen messages and the hourly limit). Additions,
+  renames, moves and deactivations are visible on the next message, without redeploy.
+- **Interpretation**: GPT receives "category › subcategory" with an opaque code per option (`S1…Sn`, built per message);
+  the Structured Outputs enum allows only those codes; the code maps to the subcategory **id**, the only key of the draft and
+  of the accounting call (ids are never sent to OpenAI). If the message names a category with several subcategories and
+  not which one (e.g. "combustible" → Nafta / Gasoil), the bot asks; it never guesses.
+- **One selectability rule** (`wa.category_check`): active subcategory, not fiscal-reserved, inside an **active EXPENSE
+  category**. Used by the catalog, by `wa_propose` / `wa_correct` (`WA_CATEGORY_NOT_SELECTABLE`) and **inside the
+  confirmation transaction** before the accounting RPC, with `FOR SHARE` on the subcategory and its category (a concurrent
+  deactivation waits for the commit). A refused confirmation leaves the draft `FAILED` with 0 purchases; a category-only
+  correction keeps every other field and the draft can be confirmed.
+- **Owner decision**: this rule is **stricter than the current ERP interface**, which can still record an active
+  subcategory whose parent category is inactive (the real `register_casual_purchase` checks the subcategory only; the 0096
+  guard rejects reserved / owner-withdrawal subcategories). The ERP interface is **not** changed in this scope; the
+  accounting RPCs are not modified.
+- Staging upgrade `upgrade-004-catalog-rule.sql` (prepared, **not applied**): additive; the published staging workflow
+  ignores the new catalog fields. `upgrade-001` is regenerated with the new `wa_context` and must not be re-applied.
+- Tests: SQL staging 94/94 and candidate on the local ERP 94/94 (K-1…K-9: new, renamed, moved, deactivated subcategory,
+  deactivated category, change between proposal and confirmation, category-only fix); n8n logic 8/8, interpreter 15/15
+  (codes, hierarchy, catalog changes, ambiguity), workflow 13/13 (end to end); Edge 14/14.
+
+### 19.6 D-3 — live payment accounts (in progress, local)
+
+Decided (B-2): accounts are read from the ERP; when TRANSFER fits several enabled accounts and the user does not name one,
+the bot asks before proposing a confirmable draft; the account is re-validated inside the confirmation transaction.

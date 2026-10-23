@@ -13,7 +13,7 @@ const PHONE = '+5491155551234';
 
 /** a fresh simulated world: fake wa_* database behind the Edge, fake OpenAI, fake Graph, n8n static data, logs */
 function world() {
-  const W = { drafts: [], seq: 9, edgeCalls: [], openaiBodies: [], sent: [], logs: [], staticData: {}, gpt: null, openaiStatus: 200, nextInbound: 100 };
+  const W = { catalog: JSON.parse(JSON.stringify(CATALOG)), drafts: [], seq: 9, edgeCalls: [], openaiBodies: [], sent: [], logs: [], staticData: {}, gpt: null, openaiStatus: 200, nextInbound: 100 };
   const edge = (item) => {
     const req = JSON.parse(item.raw); W.edgeCalls.push(req);
     if (!/^[0-9]{10}$/.test(item.h['x-wa-timestamp']) || !/^[0-9a-f]{32}$/.test(item.h['x-wa-nonce'])) return { statusCode: 401, body: { error: 'unauthorized' } };
@@ -23,18 +23,21 @@ function world() {
       ...(W.dups ? { possible_duplicates: W.dups.length, duplicates: W.dups } : {}) });
     const err = (code) => ({ statusCode: 422, body: { ok: false, error: { code, message: code } } });
     const find = () => W.drafts.find((d) => d.id === req.draft_id);
+    const selectable = (id) => W.catalog.categories.some((c) => c.id === id);
     switch (req.action) {
-      case 'context': return { statusCode: 200, body: { ok: true, result: { ok: true, open: open && { draft_id: open.id, short_code: open.code, state: open.state, version: open.version, payload: { ...open.payload, needs_mp: false } }, waiting: [], catalog: CATALOG } } };
+      case 'context': return { statusCode: 200, body: { ok: true, result: { ok: true, open: open && { draft_id: open.id, short_code: open.code, state: open.state, version: open.version, payload: { ...open.payload, needs_mp: false } }, waiting: [], catalog: W.catalog } } };
       case 'propose': {
+        if (!selectable(req.payload.category_id)) return err('WA_CATEGORY_NOT_SELECTABLE');
         if (W.drafts.some((d) => d.state === 'DRAFT')) return err('WA_OPEN_DRAFT_EXISTS');
         const d = { id: `00000000-0000-4000-8000-${String(++W.seq).padStart(12, '0')}`, code: `W-${String(W.seq).padStart(4, '0')}`, state: 'DRAFT', version: 1, payload: req.payload };
         W.drafts.push(d); return { statusCode: 200, body: { ok: true, result: view(d) } };
       }
-      case 'correct': { const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND'); if (d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
+      case 'correct': { if (!selectable(req.payload.category_id)) return err('WA_CATEGORY_NOT_SELECTABLE'); const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND'); if (d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
         d.version++; d.payload = req.payload; d.state = 'DRAFT'; return { statusCode: 200, body: { ok: true, result: view(d) } }; }
       case 'cancel': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED'); d.state = 'CANCELLED';
         return { statusCode: 200, body: { ok: true, result: { ok: true, draft_id: d.id, short_code: d.code, state: 'CANCELLED' } } }; }
-      case 'confirm': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED'); d.state = 'CONFIRMED';
+      case 'confirm': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
+        if (!selectable(d.payload.category_id)) { d.state = 'FAILED'; return { statusCode: 200, body: { ok: true, result: { ok: false, draft_id: d.id, short_code: d.code, error: 'WA_CATEGORY_NOT_SELECTABLE: subcategory is inactive' } } }; } d.state = 'CONFIRMED';
         return { statusCode: 200, body: { ok: true, result: { ok: true, draft_id: d.id, short_code: d.code, state: 'CONFIRMED', result: { purchase_id: 'p' } } } }; }
       case 'expire': return { statusCode: 200, body: { ok: true, result: { ok: true, expired: 0 } } };
       default: return { statusCode: 400, body: { error: 'invalid action' } };
@@ -86,8 +89,11 @@ const capOf = (id) => `v1.${id}.${Math.floor(Date.now() / 1000) + 900}.${'c'.rep
 let nn = 0;
 const inbound = (W, ev) => { const id = W.nextInbound++; return [{ body: { ts: String(Math.floor(Date.now() / 1000)), nonce: (++nn).toString(16).padStart(32, 'a'),
   event: { type: 'wa.message', inbound_id: id, kind: 'text', phone: PHONE, cap: capOf(id), ...ev } }, headers: {} }]; };
-const G = (o) => ({ intent: 'new_expense', amount: null, amount_evidence: null, concept: null, category: null, method: null, date: null, changed_fields: [], clarification_question: null, ...o });
-const say = (W, text, gpt) => { W.gpt = gpt; return run(W, 'Edge → n8n', inbound(W, { text })); };
+const WAI = new Function(readFileSync(new URL('./interpreter.js', import.meta.url), 'utf8') + '\nreturn WAI;')();
+let CUR = CATALOG;   // the catalog the next GPT answer refers to (set by say)
+const G = (o) => { const g = { intent: 'new_expense', amount: null, amount_evidence: null, concept: null, category: null, method: null, date: null, changed_fields: [], clarification_question: null, ...o };
+  return { ...g, category: g.category == null ? null : (WAI.options(CUR).find((x) => x.nombre === g.category)?.code ?? g.category) }; };
+const say = (W, text, gpt) => { W.gpt = typeof gpt === 'function' ? gpt() : gpt; return run(W, 'Edge → n8n', inbound(W, { text })); };
 const actions = (W) => W.edgeCalls.map((c) => c.action);
 
 test('WF-1 W-0009 #1 fixed: "gaste 18mil en combustible en efectivo" → draft of $18.000 with category Combustible', async () => {
@@ -224,4 +230,37 @@ test('WF-12 "perdón eran 15mil": correction header + marked amount, duplicate r
   assert.equal(W.sent.at(-1).interactive.action.buttons[0].reply.id, `CONFIRM:${W.drafts[0].id}:2`);
   assert.ok(!W.edgeCalls.some((c) => 'changes' in c)); assert.ok(!JSON.stringify(W.openaiBodies).includes('changes'));
   assert.ok(!W.logs.join('\n').includes('15mil') && !W.logs.join('\n').includes('Alimento'));
+});
+
+test('WF-13 live ERP catalog end to end: ambiguity, hierarchy, rename, deactivation between proposal and confirmation, category-only fix', async () => {
+  const W = world();
+  W.catalog.categories = [{ id: 'id-nafta', nombre: 'Nafta', grupo_id: 'g-comb', grupo: 'Combustible' }, { id: 'id-gasoil', nombre: 'Gasoil', grupo_id: 'g-comb', grupo: 'Combustible' },
+                          { id: C1, nombre: 'Maiz', grupo_id: 'g-ins', grupo: 'Insumos alimento balanceado' }];
+  CUR = W.catalog;
+  // 1. "combustible" names a category with two subcategories → the bot asks, nothing proposed
+  await say(W, 'gasté 5000 en combustible', G({ amount: 5000, amount_evidence: '5000', concept: 'combustible', category: 'Nafta', method: 'CASH' }));
+  assert.deepEqual(actions(W), ['context']); assert.match(W.sent.at(-1).text.body, /¿Qué tipo de Combustible\? Nafta, Gasoil/);
+  assert.deepEqual(W.openaiBodies[0].input[1].content.includes('"subcategoria":"Gasoil"'), true);
+  // 2. explicit subcategory → proposal with the subcategory ID; the summary shows category › subcategory
+  await say(W, 'gasté 5000 de nafta', G({ amount: 5000, amount_evidence: '5000', concept: 'nafta', category: 'Nafta', method: 'CASH' }));
+  assert.equal(W.edgeCalls.at(-1).action, 'propose'); assert.equal(W.edgeCalls.at(-1).payload.category_id, 'id-nafta');
+  assert.match(W.sent.at(-1).interactive.body.text, /Categoría: Combustible › Nafta\n/);
+  // 3. renamed in the ERP → the next message already uses the new name (same id), no redeploy
+  W.catalog.categories[0].nombre = 'Nafta súper';
+  await say(W, 'era transferencia', G({ intent: 'correct_draft', changed_fields: ['method'], method: 'TRANSFER' }));
+  assert.equal(W.edgeCalls.at(-1).payload.category_id, 'id-nafta'); assert.match(W.sent.at(-1).interactive.body.text, /Combustible › Nafta súper/);
+  // 4. deactivated in the ERP after the proposal → the confirmation is refused (FAILED), the reply says so, nothing recorded
+  W.catalog.categories = W.catalog.categories.filter((c) => c.id !== 'id-nafta');
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${W.drafts[0].id}:2` }));
+  assert.equal(W.drafts[0].state, 'FAILED'); assert.match(W.sent.at(-1).text.body, /la subcategoría elegida ya no está disponible/);
+  // 5. category-only correction keeps every other field (total, concept, method, account, date), then the confirmation works
+  CUR = W.catalog;
+  await say(W, 'era gasoil', G({ intent: 'correct_draft', changed_fields: ['category'], category: 'Gasoil' }));
+  const fix = W.edgeCalls.at(-1);
+  assert.equal(fix.action, 'correct'); assert.deepEqual(fix.payload, { ...W.drafts[0].payload, category_id: 'id-gasoil' });
+  assert.deepEqual([fix.payload.total, fix.payload.concept, fix.payload.method, fix.payload.account_id], [5000, 'nafta', 'TRANSFER', 'acc-bna']);
+  assert.match(W.sent.at(-1).interactive.body.text, /✏️ Corregí W-0010 \(v3\): Categoría \(ya no disponible\) → Combustible › Gasoil/);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${W.drafts[0].id}:3` }));
+  assert.equal(W.drafts[0].state, 'CONFIRMED');
+  CUR = CATALOG;
 });

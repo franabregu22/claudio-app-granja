@@ -11,7 +11,10 @@ const AM = { CASH: 'Caja chica', TRANSFER: 'BNA', MERCADOPAGO: 'Mercado Pago' };
 const open = { draft_id: D, short_code: 'W-0009', state: 'DRAFT', version: 2,
   payload: { date: '2026-10-22', total: 18, concept: 'Combustible', category_id: C4, nature: 'OPERATING', account_id: 'acc-cash', method: 'CASH', needs_mp: false } };
 const ctxNone = { ok: true, open: null, waiting: [], catalog }, ctxOpen = { ok: true, open, waiting: [], catalog };
-const G = (o) => ({ intent: 'new_expense', amount: null, amount_evidence: null, concept: null, category: null, method: null, date: null, changed_fields: [], clarification_question: null, ...o });
+// GPT answers the CODE of a subcategory of the live catalog; tests name subcategories and get their code (unknown names stay as-is → invalid)
+const code = (name) => WAI.options(catalog).find((x) => x.nombre === name)?.code ?? name;
+const G = (o) => { const g = { intent: 'new_expense', amount: null, amount_evidence: null, concept: null, category: null, method: null, date: null, changed_fields: [], clarification_question: null, ...o };
+  return { ...g, category: g.category == null ? null : code(g.category) }; };
 const decide = (gpt, text, ctx) => WAI.decide({ gpt, text, ctx, today: '2026-10-22', accountByMethod: AM, amountCap: 10000000 });
 
 test('I-1 W-0009 #1: "18mil" → 18000 with literal evidence; concept / category / method / date mapped from the database catalog', () => {
@@ -92,7 +95,8 @@ test('I-9 request to OpenAI: minimal data (no phone, no uuid, no account), store
   const sch = body.text.format.schema;
   assert.equal(body.text.format.strict, true); assert.equal(sch.additionalProperties, false);
   assert.deepEqual([...sch.required].sort(), Object.keys(sch.properties).sort());
-  assert.deepEqual(sch.properties.category.enum, ['Combustible', 'Insumos', 'Limpieza', null]);
+  assert.deepEqual(sch.properties.category.enum, ['S1', 'S2', 'S3', null]);
+  assert.deepEqual(sent.categorias, [{ codigo: 'S1', categoria: null, subcategoria: 'Combustible' }, { codigo: 'S2', categoria: null, subcategoria: 'Insumos' }, { codigo: 'S3', categoria: null, subcategoria: 'Limpieza' }]);
   assert.equal(WAI.buildRequest({ text: 'x', today: '2026-10-22', context: ctxNone, model: 'm', effort: null }).body.reasoning, undefined);
 });
 
@@ -121,4 +125,51 @@ test('I-12 help explains partial corrections (only what changes) and that regist
   const h = WAI.preRoute('ayuda', ctxNone).reply;
   assert.match(h, /decime solo lo que cambia/); assert.match(h, /eran 15 mil/); assert.match(h, /era transferencia/); assert.match(h, /tocá Confirmar/);
   assert.doesNotMatch(h, /mandá el gasto de nuevo/);
+});
+
+// ── live ERP catalog with hierarchy (category › subcategory); codes are per message, ids are the accounting key ──
+const H = (cats) => ({ ok: true, open: null, waiting: [], catalog: { categories: cats, accounts: catalog.accounts } });
+const NAFTA = { id: 'id-nafta', nombre: 'Nafta', grupo_id: 'g-comb', grupo: 'Combustible' };
+const GASOIL = { id: 'id-gasoil', nombre: 'Gasoil', grupo_id: 'g-comb', grupo: 'Combustible' };
+const MAIZ = { id: 'id-maiz', nombre: 'Maiz', grupo_id: 'g-ins', grupo: 'Insumos alimento balanceado' };
+const pick = (cats, name) => WAI.options({ categories: cats }).find((o) => o.nombre === name).code;
+const say = (cats, text, o) => decide({ ...G({ amount: 5000, amount_evidence: '5000', concept: 'x', ...o }), category: o.category === undefined ? null : o.category }, text, H(cats));
+
+test('I-13 GPT receives the live hierarchy and answers a code; the code maps to the subcategory id (never the name)', () => {
+  const cats = [NAFTA, GASOIL, MAIZ];
+  const { body, sent } = WAI.buildRequest({ text: 'gasté 5000 de nafta', today: '2026-10-22', context: H(cats), model: 'm', effort: 'none' });
+  assert.deepEqual(sent.categorias, [{ codigo: 'S1', categoria: 'Combustible', subcategoria: 'Nafta' }, { codigo: 'S2', categoria: 'Combustible', subcategoria: 'Gasoil' },
+    { codigo: 'S3', categoria: 'Insumos alimento balanceado', subcategoria: 'Maiz' }]);
+  assert.deepEqual(body.text.format.schema.properties.category.enum, ['S1', 'S2', 'S3', null]);
+  assert.ok(!JSON.stringify(body).includes('id-nafta'), 'ids never go to OpenAI');
+  assert.equal(say(cats, 'gasté 5000 de nafta', { category: pick(cats, 'Nafta') }).request.payload.category_id, 'id-nafta');
+  assert.equal(say(cats, 'gasté 5000 de nafta', { category: 'Nafta' }).outcome, 'no_category', 'a name is not a valid answer');
+  assert.equal(say(cats, 'gasté 5000 de nafta', { category: 'S9' }).outcome, 'no_category', 'a code outside this catalog is invalid');
+});
+
+test('I-14 catalog changes are picked up on the next message: new, renamed, moved, deactivated (no redeploy, no cache)', () => {
+  const added = [NAFTA, GASOIL, MAIZ, { id: 'id-urea', nombre: 'Urea', grupo_id: 'g-fert', grupo: 'Fertilizantes' }];
+  assert.equal(say(added, 'urea 5000', { category: pick(added, 'Urea') }).request.payload.category_id, 'id-urea');
+  const renamed = [{ ...NAFTA, nombre: 'Nafta súper' }, GASOIL, MAIZ];
+  const r = WAI.buildRequest({ text: 'x', today: '2026-10-22', context: H(renamed), model: 'm' }).sent.categorias[0];
+  assert.deepEqual([r.subcategoria, say(renamed, 'nafta súper 5000', { category: pick(renamed, 'Nafta súper') }).request.payload.category_id], ['Nafta súper', 'id-nafta']);
+  const moved = [NAFTA, { ...GASOIL, grupo_id: 'g-maq', grupo: 'Maquinaria' }, MAIZ];
+  assert.equal(WAI.buildRequest({ text: 'x', today: '2026-10-22', context: H(moved), model: 'm' }).sent.categorias.find((c) => c.subcategoria === 'Gasoil').categoria, 'Maquinaria');
+  const off = [NAFTA, MAIZ];   // Gasoil deactivated in the ERP: gone from the catalog, its old code now points elsewhere or nowhere
+  assert.ok(!WAI.buildRequest({ text: 'x', today: '2026-10-22', context: H(off), model: 'm' }).sent.categorias.some((c) => c.subcategoria === 'Gasoil'));
+  assert.equal(say(off, 'gasoil 5000', { category: 'S3' }).outcome, 'no_category');
+});
+
+test('I-15 ambiguity: the message names a category with several subcategories but not which one → ask, never guess', () => {
+  const cats = [NAFTA, GASOIL, MAIZ];
+  const amb = say(cats, 'gasté 5000 en combustible', { category: pick(cats, 'Nafta') });
+  assert.equal(amb.request, undefined); assert.equal(amb.outcome, 'ambiguous_category'); assert.match(amb.reply, /Combustible\? Nafta, Gasoil/);
+  assert.equal(say(cats, 'gasté 5000 en nafta para la camioneta', { category: pick(cats, 'Nafta') }).request.payload.category_id, 'id-nafta');
+  assert.equal(say(cats, 'combustible: gasoil 5000', { category: pick(cats, 'Gasoil') }).request.payload.category_id, 'id-gasoil');
+  const one = [NAFTA, MAIZ];   // a category with ONE subcategory is not ambiguous
+  assert.equal(say(one, 'gasté 5000 en combustible', { category: pick(one, 'Nafta') }).request.payload.category_id, 'id-nafta');
+  const ask = say(cats, 'gasté 5000', { category: null });
+  assert.equal(ask.outcome, 'no_category'); assert.match(ask.reply, /Combustible, Insumos alimento balanceado/);
+  const corr = decide(G({ intent: 'correct_draft', changed_fields: ['category'], category: pick(cats, 'Gasoil') }), 'era combustible', { ...H(cats), open: { ...open, payload: { ...open.payload, category_id: 'id-maiz' } } });
+  assert.equal(corr.outcome, 'ambiguous_category', 'corrections are checked too');
 });
