@@ -48,8 +48,9 @@ const WA = (() => {
   function route(event, cfg) {
     const ctx = { to: toNumber(event.phone, cfg), inbound_id: event.inbound_id };
     const b = String(event.button_payload || '');
-    const bm = b.match(new RegExp(`^(CONFIRM|CANCEL):(${UUID}):([0-9]{1,5})$`));
-    if (bm) return { ...ctx, request: { action: bm[1] === 'CONFIRM' ? 'confirm' : 'cancel', inbound_id: event.inbound_id, cap: event.cap, draft_id: bm[2], expected_version: Number(bm[3]) } };
+    // CONFIRM / UNCLASSIFIED ("Confirmar sin clasificar") both go to wa_confirm, which reads the button from the stored message
+    const bm = b.match(new RegExp(`^(CONFIRM|UNCLASSIFIED|CANCEL):(${UUID}):([0-9]{1,5})$`));
+    if (bm) return { ...ctx, request: { action: bm[1] === 'CANCEL' ? 'cancel' : 'confirm', inbound_id: event.inbound_id, cap: event.cap, draft_id: bm[2], expected_version: Number(bm[3]) } };
     if (b) return { ...ctx, reply: 'Ese botón no es válido.' };
     if (event.kind !== 'text') return { ...ctx, reply: 'Por ahora solo proceso mensajes de texto.' };
     if (!String(event.text || '').trim()) return { ...ctx, reply: 'Mandame el gasto en una línea, por ejemplo: "gasté 18 mil de combustible en efectivo".' };
@@ -78,17 +79,42 @@ const WA = (() => {
     WA_DRAFT_NOT_CANCELLABLE: 'Ese borrador ya no se puede cancelar.',
     WA_DRAFT_NOT_EDITABLE: 'Ese borrador ya no se puede corregir.',
     WA_INVALID_PAYLOAD: 'No pude armar el gasto con esos datos.',
+    WA_CATEGORY_REQUIRED: 'Primero decime el tipo de gasto (la subcategoría).',
+    WA_ACCOUNT_REQUIRED: 'Primero decime desde qué cuenta lo pagaste.',
+    WA_ACCOUNT_NOT_SELECTABLE: 'Esa cuenta no está habilitada en el ERP para ese medio de pago. Decime desde qué cuenta lo pagaste.',
     WA_CATEGORY_NOT_SELECTABLE: 'Esa subcategoría ya no está disponible en el ERP. Decime cuál usar (el resto del gasto se mantiene).',
     WA_OWNER_NOT_AUTHORIZED: 'Tu número ya no está autorizado.',
+    WA_UNCLASSIFIED_NOT_ALLOWED: 'Ese borrador ya tiene subcategoría: usá el botón Confirmar del último resumen.',
   };
   const text = (to, body) => ({ messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: body.slice(0, 4000) } });
-  const buttons = (to, body, id, v) => ({ messaging_product: 'whatsapp', to, type: 'interactive', interactive: { type: 'button', body: { text: body.slice(0, 1000) },
-    action: { buttons: [{ type: 'reply', reply: { id: `CONFIRM:${id}:${v}`, title: 'Confirmar' } }, { type: 'reply', reply: { id: `CANCEL:${id}:${v}`, title: 'Cancelar' } }] } } });
+  // reply buttons (Meta: at most 3, title at most 20 characters). Owner decision: "Registrar sin clasif." — 21 characters with the
+  // final period, so it is shown without it: "Registrar sin clasif" (20). The button id stays UNCLASSIFIED:<draft>:<version>.
+  const UNCLASSIFIED_TITLE = 'Registrar sin clasif';
+  const buttons = (to, body, id, v, first = 'CONFIRM') => ({ messaging_product: 'whatsapp', to, type: 'interactive', interactive: { type: 'button', body: { text: body.slice(0, 1000) },
+    action: { buttons: [{ type: 'reply', reply: { id: `${first}:${id}:${v}`, title: first === 'UNCLASSIFIED' ? UNCLASSIFIED_TITLE : 'Confirmar' } },
+                        { type: 'reply', reply: { id: `CANCEL:${id}:${v}`, title: 'Cancelar' } }] } } });
   // corrected fields (from the interpreter: { field: total|concept|category_id|method|date, from, to }) → labelled, formatted values
-  const catLabel = (cfg, id) => { const c = (cfg.categories || []).find((x) => x.id === id); return c ? (c.grupo ? `${c.grupo} › ${c.nombre}` : c.nombre) : '(ya no disponible)'; };
-  const FIELD = { total: 'Importe', concept: 'Concepto', category_id: 'Categoría', method: 'Pago', date: 'Fecha' };
+  const catLabel = (cfg, id) => { if (!id) return '(sin elegir)'; const c = (cfg.categories || []).find((x) => x.id === id);
+    return c ? (c.grupo ? `${c.grupo} › ${c.nombre}` : c.nombre) : '(ya no disponible)'; };
+  // the data still to choose on a draft (subcategory / paying account) and the question for each — no confirm button meanwhile
+  const pendingQuestions = (p, cfg) => {
+    const q = [];
+    if (p.category_pending) {
+      const offered = (p.category_options || []).map((id) => (cfg.categories || []).find((c) => c.id === id)).filter(Boolean);
+      const groups = [...new Set((cfg.categories || []).map((c) => c.grupo).filter(Boolean))];
+      q.push(offered.length ? `¿Qué tipo de ${offered[0].grupo || 'gasto'}? ${offered.map((c) => c.nombre).join(' o ')}.`
+        : `¿En qué categoría va?${groups.length ? ' Por ejemplo: ' + groups.slice(0, 12).join(', ') + '.' : ''} Decime el tipo.`);
+    }
+    if (p.account_pending) q.push(`¿Desde qué cuenta lo pagaste? ${accList(cfg).filter((a) => a.method === p.method).map((a) => a.nombre).join(' o ')}.`);
+    return q;
+  };
+  // paying accounts come live from the ERP (context); the method of each comes from the database (older contexts: from its type)
+  const TYPE_METHOD = { CASH: 'CASH', BANK_ACCOUNT: 'TRANSFER', EXTERNAL_SERVICE: 'MERCADOPAGO' };
+  const accList = (cfg) => Object.values(cfg.accounts || {}).filter(Boolean).map((a) => ({ ...a, method: a.method || TYPE_METHOD[a.account_type] }));
+  const accName = (cfg, id) => (id ? ((accList(cfg).find((a) => a.id === id) || {}).nombre || '(ya no habilitada)') : '(sin elegir)');
+  const FIELD = { total: 'Importe', concept: 'Concepto', category_id: 'Categoría', method: 'Pago', account_id: 'Cuenta', date: 'Fecha' };
   const fmtField = (f, v, cfg) => f === 'total' ? money(v) : f === 'date' ? ddmmyyyy(v) : f === 'method' ? (METHOD[v] || v)
-    : f === 'category_id' ? catLabel(cfg, v) : `"${String(v ?? '').slice(0, 60)}"`;
+    : f === 'category_id' ? catLabel(cfg, v) : f === 'account_id' ? accName(cfg, v) : `"${String(v ?? '').slice(0, 60)}"`;
   const changeLine = (r, changes, cfg) => {
     const ch = (changes || []).filter((c) => c && FIELD[c.field]);
     return ch.length ? `✏️ Corregí ${r.short_code} (v${r.version}): ${ch.map((c) => `${FIELD[c.field]} ${fmtField(c.field, c.from, cfg)} → ${fmtField(c.field, c.to, cfg)}`).join('; ')}\n\n` : '';
@@ -105,10 +131,10 @@ const WA = (() => {
   const summary = (r, cfg, changes) => {
     const p = r.payload || {};
     const mark = (f) => ((changes || []).some((c) => c && c.field === f) ? ' ✏️' : '');
-    const acc = Object.values(cfg.accounts || {}).find((a) => a && a.id === p.account_id);
+    const acc = p.account_id ? ' (' + accName(cfg, p.account_id) + ')' : (p.account_pending ? ' (cuenta a elegir)' : '');
     return changeLine(r, changes, cfg)
       + `Borrador ${r.short_code} (v${r.version}) — STAGING, simulación\nTotal: ${money(p.total)}${mark('total')}\nConcepto: ${p.concept}${mark('concept')}\n`
-      + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${METHOD[p.method] || p.method}${acc ? ' (' + acc.nombre + ')' : ''}${mark('method')}\n`
+      + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${METHOD[p.method] || p.method}${acc}${mark('method') || mark('account_id')}\n`
       + `Fecha: ${ddmmyyyy(p.date)}${mark('date')}` + dupLines(r);
   };
   const ASK = '¿Confirmás? Si algo está mal decime solo lo que cambia (por ejemplo "eran 15 mil" o "era transferencia"). "cancelar" lo descarta.';
@@ -131,12 +157,23 @@ const WA = (() => {
       if (r.error === 'WA_DRAFT_EXPIRED') return { graph: text(ctx.to, ERR.WA_DRAFT_EXPIRED), state: drop(st, req.draft_id) };
       const open = st.open && st.open.draft_id === r.draft_id ? { ...st.open, state: 'FAILED' } : { draft_id: r.draft_id, version: req.expected_version, state: 'FAILED', code: r.short_code };
       // the subcategory was deactivated / moved after the proposal: refused inside the confirmation, nothing recorded
-      const body = /^WA_CATEGORY_NOT_SELECTABLE/.test(String(r.error || ''))
+      const e = String(r.error || '');
+      const body = /^WA_CATEGORY_NOT_SELECTABLE/.test(e)
         ? `No se registró ${r.short_code || ''}: la subcategoría elegida ya no está disponible en el ERP. Decime cuál usar (el resto del gasto se mantiene) o escribí "cancelar".`
-        : `No se pudo registrar ${r.short_code || ''}: ${String(r.error || '').slice(0, 120)}.\nDecime qué corregir o escribí "cancelar".`;
+        : /^WA_ACCOUNT_NOT_SELECTABLE/.test(e)   // the paying account was disabled after the proposal
+          ? `No se registró ${r.short_code || ''}: la cuenta elegida ya no está habilitada en el ERP. Decime desde qué cuenta lo pagaste (el resto del gasto se mantiene) o escribí "cancelar".`
+          : `No se pudo registrar ${r.short_code || ''}: ${e.slice(0, 120)}.\nDecime qué corregir o escribí "cancelar".`;
       return { graph: text(ctx.to, body), state: { ...st, open } };
     }
     if (r.already_confirmed) return { graph: text(ctx.to, `${r.short_code} ya estaba registrado.`), state: drop(st, r.draft_id) };
+    if (r.state === 'CONFIRMED' && r.unclassified) {
+      // "Confirmar sin clasificar": the money is recorded (or, for Mercado Pago, already was), the subcategory is chosen in the ERP
+      const x = r.result || {};
+      const body = x.financial_effect === 'EXISTING_MP_OUTFLOW'
+        ? `✅ ${r.short_code} confirmado SIN CLASIFICAR. El egreso de Mercado Pago${x.amount ? ' de ' + money(x.amount) : ''} ya figura en el ERP como pendiente de clasificar; no se registró otro movimiento.`
+        : `✅ Registré el egreso ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''}: ya descuenta de la cuenta. Queda SIN CLASIFICAR: la subcategoría se elige después en el ERP (sin otro movimiento).`;
+      return { graph: text(ctx.to, body + ' (simulación STAGING; no afecta la contabilidad real).'), state: drop(st, r.draft_id) };
+    }
     if (r.state === 'CONFIRMED') return { graph: text(ctx.to, `✅ Registrado ${r.short_code} (simulación STAGING; no afecta la contabilidad real).`), state: drop(st, r.draft_id) };
     if (r.state === 'CANCELLED') return { graph: text(ctx.to, `Cancelado ${r.short_code}.`), state: drop(st, r.draft_id) };
     if (r.state === 'WAITING_MP') {
@@ -146,7 +183,22 @@ const WA = (() => {
     }
     if (r.state === 'DRAFT') {
       const s = drop(st, r.draft_id);
-      return { graph: buttons(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + ASK, r.draft_id, r.version),
+      const p = r.payload || {};
+      // a mandatory datum is still to choose. The account (a financial datum) pending → NO confirmation at all. Only the
+      // subcategory pending → answer it, or the explicit "Confirmar sin clasificar" (the money now, the subcategory later in the ERP)
+      const q = pendingQuestions(p, cfg);
+      const onlyCategory = p.category_pending && !p.account_pending && p.account_id;
+      const graph = !q.length
+        ? buttons(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + ASK, r.draft_id, r.version)
+        : onlyCategory
+          ? buttons(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + q[0] + `\nRespondé con el nombre, o tocá "${UNCLASSIFIED_TITLE}": `
+                            + (p.method === 'MERCADOPAGO'
+                              ? 'el egreso de Mercado Pago ya está en el ERP y queda pendiente de clasificar (no se registra otro movimiento).'
+                              : 'registro el egreso ahora (descuenta de la cuenta) y la subcategoría se elige después en el ERP.')
+                            + ' "cancelar" lo descarta.', r.draft_id, r.version, 'UNCLASSIFIED')
+          : text(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + (q.length > 1 ? 'Me faltan dos datos:\n• ' + q.join('\n• ') : q[0])
+                         + '\nRespondé con el nombre; "cancelar" lo descarta.');
+      return { graph,
                state: { open: { draft_id: r.draft_id, version: r.version, state: 'DRAFT', code: r.short_code }, waiting: s.waiting } };
     }
     return { graph: null, state: st };

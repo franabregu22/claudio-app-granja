@@ -7,6 +7,7 @@ DO $$ BEGIN
 END $$;
 DROP FUNCTION IF EXISTS public.wa_context(bigint), public.wa_ingest(text, text), public.wa_propose(bigint, text, jsonb), public.wa_correct(bigint, uuid, integer, jsonb),
   public.wa_cancel(bigint, uuid, integer), public.wa_link_mp(bigint, uuid, integer, text), public.wa_confirm(bigint, uuid, integer), public.wa_expire();
+DROP VIEW IF EXISTS public.fin_mp_whatsapp_notes;
 DROP SCHEMA IF EXISTS wa CASCADE;
 DROP SCHEMA IF EXISTS sim CASCADE;
 DELETE FROM vault.secrets WHERE name = 'wa_meta_app_secret';

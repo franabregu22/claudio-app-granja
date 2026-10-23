@@ -13,7 +13,7 @@ const PHONE = '+5491155551234';
 
 /** a fresh simulated world: fake wa_* database behind the Edge, fake OpenAI, fake Graph, n8n static data, logs */
 function world() {
-  const W = { catalog: JSON.parse(JSON.stringify(CATALOG)), drafts: [], seq: 9, edgeCalls: [], openaiBodies: [], sent: [], logs: [], staticData: {}, gpt: null, openaiStatus: 200, nextInbound: 100 };
+  const W = { catalog: JSON.parse(JSON.stringify(CATALOG)), drafts: [], seq: 9, edgeCalls: [], openaiBodies: [], sent: [], logs: [], staticData: {}, gpt: null, openaiStatus: 200, nextInbound: 100, buttons: {}, pending: [] };
   const edge = (item) => {
     const req = JSON.parse(item.raw); W.edgeCalls.push(req);
     if (!/^[0-9]{10}$/.test(item.h['x-wa-timestamp']) || !/^[0-9a-f]{32}$/.test(item.h['x-wa-nonce'])) return { statusCode: 401, body: { error: 'unauthorized' } };
@@ -23,20 +23,46 @@ function world() {
       ...(W.dups ? { possible_duplicates: W.dups.length, duplicates: W.dups } : {}) });
     const err = (code) => ({ statusCode: 422, body: { ok: false, error: { code, message: code } } });
     const find = () => W.drafts.find((d) => d.id === req.draft_id);
+    // the fake database mirrors the rules: a selectable subcategory / an enabled account, or none yet (pending: never confirmable)
     const selectable = (id) => W.catalog.categories.some((c) => c.id === id);
+    const catOk = (p) => (p.category_id ? selectable(p.category_id) : (p.category_options || []).every(selectable));
+    const usable = (p) => !p.account_id || W.catalog.accounts.some((a) => a.id === p.account_id);
+    const stored = (p) => { const x = { ...p };
+      if (x.account_id) delete x.account_pending; else x.account_pending = true;
+      if (x.category_id) { delete x.category_pending; delete x.category_options; } else { x.category_pending = true; x.category_options = x.category_options || []; }
+      return x; };
     switch (req.action) {
       case 'context': return { statusCode: 200, body: { ok: true, result: { ok: true, open: open && { draft_id: open.id, short_code: open.code, state: open.state, version: open.version, payload: { ...open.payload, needs_mp: false } }, waiting: [], catalog: W.catalog } } };
       case 'propose': {
-        if (!selectable(req.payload.category_id)) return err('WA_CATEGORY_NOT_SELECTABLE');
+        if (!catOk(req.payload)) return err('WA_CATEGORY_NOT_SELECTABLE');
+        if (!usable(req.payload)) return err('WA_ACCOUNT_NOT_SELECTABLE');
         if (W.drafts.some((d) => d.state === 'DRAFT')) return err('WA_OPEN_DRAFT_EXISTS');
-        const d = { id: `00000000-0000-4000-8000-${String(++W.seq).padStart(12, '0')}`, code: `W-${String(W.seq).padStart(4, '0')}`, state: 'DRAFT', version: 1, payload: req.payload };
+        const d = { id: `00000000-0000-4000-8000-${String(++W.seq).padStart(12, '0')}`, code: `W-${String(W.seq).padStart(4, '0')}`, state: 'DRAFT', version: 1, payload: stored(req.payload) };
         W.drafts.push(d); return { statusCode: 200, body: { ok: true, result: view(d) } };
       }
-      case 'correct': { if (!selectable(req.payload.category_id)) return err('WA_CATEGORY_NOT_SELECTABLE'); const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND'); if (d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
-        d.version++; d.payload = req.payload; d.state = 'DRAFT'; return { statusCode: 200, body: { ok: true, result: view(d) } }; }
+      case 'correct': { if (!catOk(req.payload)) return err('WA_CATEGORY_NOT_SELECTABLE'); if (!usable(req.payload)) return err('WA_ACCOUNT_NOT_SELECTABLE'); const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND'); if (d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
+        d.version++; d.payload = stored(req.payload); d.state = 'DRAFT'; return { statusCode: 200, body: { ok: true, result: view(d) } }; }
       case 'cancel': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED'); d.state = 'CANCELLED';
         return { statusCode: 200, body: { ok: true, result: { ok: true, draft_id: d.id, short_code: d.code, state: 'CANCELLED' } } }; }
-      case 'confirm': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
+      case 'confirm': { const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND');
+        if (d.state === 'CONFIRMED') return { statusCode: 200, body: { ok: true, result: { ok: true, already_confirmed: true, draft_id: d.id, short_code: d.code } } };
+        if (d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
+        // like wa_confirm: the button is read from the STORED message; CONFIRM = classified, UNCLASSIFIED = "Confirmar sin clasificar"
+        const b = W.buttons[req.inbound_id] || '';
+        const mode = b === `CONFIRM:${d.id}:${d.version}` ? 'CLASSIFIED' : b === `UNCLASSIFIED:${d.id}:${d.version}` ? 'UNCLASSIFIED' : null;
+        if (!mode) return err('WA_CONFIRMATION_NOT_EXPLICIT');
+        if (mode === 'UNCLASSIFIED') {
+          if (d.payload.category_id) return err('WA_UNCLASSIFIED_NOT_ALLOWED');
+          if (!d.payload.account_id) return err('WA_ACCOUNT_REQUIRED');
+          d.state = 'CONFIRMED';
+          const mp = d.payload.method === 'MERCADOPAGO';
+          if (!mp) W.pending.push({ key: `WA:${d.id}:v${d.version}`, amount: d.payload.total, account_id: d.payload.account_id });
+          return { statusCode: 200, body: { ok: true, result: { ok: true, draft_id: d.id, short_code: d.code, state: 'CONFIRMED', unclassified: true,
+            result: { unclassified: true, amount: d.payload.total, status: 'SIN_CLASIFICAR', financial_effect: mp ? 'EXISTING_MP_OUTFLOW' : 'PAYMENT_POSTED' } } } };
+        }
+        if (!d.payload.category_id) return err('WA_CATEGORY_REQUIRED');
+        if (!d.payload.account_id) return err('WA_ACCOUNT_REQUIRED');
+        if (!usable(d.payload)) { d.state = 'FAILED'; return { statusCode: 200, body: { ok: true, result: { ok: false, draft_id: d.id, short_code: d.code, error: 'WA_ACCOUNT_NOT_SELECTABLE: account is inactive' } } }; }
         if (!selectable(d.payload.category_id)) { d.state = 'FAILED'; return { statusCode: 200, body: { ok: true, result: { ok: false, draft_id: d.id, short_code: d.code, error: 'WA_CATEGORY_NOT_SELECTABLE: subcategory is inactive' } } }; } d.state = 'CONFIRMED';
         return { statusCode: 200, body: { ok: true, result: { ok: true, draft_id: d.id, short_code: d.code, state: 'CONFIRMED', result: { purchase_id: 'p' } } } }; }
       case 'expire': return { statusCode: 200, body: { ok: true, result: { ok: true, expired: 0 } } };
@@ -87,7 +113,7 @@ async function run(W, start, items) {
 }
 const capOf = (id) => `v1.${id}.${Math.floor(Date.now() / 1000) + 900}.${'c'.repeat(64)}`;
 let nn = 0;
-const inbound = (W, ev) => { const id = W.nextInbound++; return [{ body: { ts: String(Math.floor(Date.now() / 1000)), nonce: (++nn).toString(16).padStart(32, 'a'),
+const inbound = (W, ev) => { const id = W.nextInbound++; if (ev && ev.button_payload) W.buttons[id] = ev.button_payload; return [{ body: { ts: String(Math.floor(Date.now() / 1000)), nonce: (++nn).toString(16).padStart(32, 'a'),
   event: { type: 'wa.message', inbound_id: id, kind: 'text', phone: PHONE, cap: capOf(id), ...ev } }, headers: {} }]; };
 const WAI = new Function(readFileSync(new URL('./interpreter.js', import.meta.url), 'utf8') + '\nreturn WAI;')();
 let CUR = CATALOG;   // the catalog the next GPT answer refers to (set by say)
@@ -144,7 +170,7 @@ test('WF-5 GPT cannot confirm: "sí, confirmá" → reply only; the confirm butt
   await say(W, 'gaste 18000 en combustible', G({ amount: 18000, amount_evidence: '18000', concept: 'Combustible', category: 'Combustible' }));
   W.edgeCalls.length = 0; W.openaiBodies.length = 0;
   await say(W, 'sí, confirmá', G({ intent: 'confirm_request' }));
-  assert.deepEqual(actions(W), ['context']); assert.match(W.sent.at(-1).text.body, /botón Confirmar/);
+  assert.deepEqual(actions(W), ['context']); assert.match(W.sent.at(-1).text.body, /botón del último resumen \(Confirmar/);
   W.edgeCalls.length = 0; W.openaiBodies.length = 0;
   await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${W.drafts[0].id}:1` }));
   assert.deepEqual(actions(W), ['confirm']); assert.equal(W.openaiBodies.length, 0);
@@ -237,30 +263,155 @@ test('WF-13 live ERP catalog end to end: ambiguity, hierarchy, rename, deactivat
   W.catalog.categories = [{ id: 'id-nafta', nombre: 'Nafta', grupo_id: 'g-comb', grupo: 'Combustible' }, { id: 'id-gasoil', nombre: 'Gasoil', grupo_id: 'g-comb', grupo: 'Combustible' },
                           { id: C1, nombre: 'Maiz', grupo_id: 'g-ins', grupo: 'Insumos alimento balanceado' }];
   CUR = W.catalog;
-  // 1. "combustible" names a category with two subcategories → the bot asks, nothing proposed
+  // 1. "combustible" names a category with two subcategories → a draft with the subcategory PENDING (amount kept); no normal
+  //    Confirmar: only the explicit "Confirmar sin clasificar" (the cash account is known) — or the answer
   await say(W, 'gasté 5000 en combustible', G({ amount: 5000, amount_evidence: '5000', concept: 'combustible', category: 'Nafta', method: 'CASH' }));
-  assert.deepEqual(actions(W), ['context']); assert.match(W.sent.at(-1).text.body, /¿Qué tipo de Combustible\? Nafta, Gasoil/);
+  assert.deepEqual(actions(W), ['context', 'propose']); assert.deepEqual(W.edgeCalls.at(-1).payload.category_options, ['id-nafta', 'id-gasoil']);
+  assert.equal(W.sent.at(-1).type, 'interactive'); assert.match(W.sent.at(-1).interactive.body.text, /¿Qué tipo de Combustible\? Nafta o Gasoil\./);
+  assert.deepEqual(W.sent.at(-1).interactive.action.buttons.map((b) => b.reply.id), [`UNCLASSIFIED:${W.drafts[0].id}:1`, `CANCEL:${W.drafts[0].id}:1`]);
   assert.deepEqual(W.openaiBodies[0].input[1].content.includes('"subcategoria":"Gasoil"'), true);
-  // 2. explicit subcategory → proposal with the subcategory ID; the summary shows category › subcategory
-  await say(W, 'gasté 5000 de nafta', G({ amount: 5000, amount_evidence: '5000', concept: 'nafta', category: 'Nafta', method: 'CASH' }));
-  assert.equal(W.edgeCalls.at(-1).action, 'propose'); assert.equal(W.edgeCalls.at(-1).payload.category_id, 'id-nafta');
-  assert.match(W.sent.at(-1).interactive.body.text, /Categoría: Combustible › Nafta\n/);
+  // 2. the answer "nafta" sets the subcategory ID (deterministic, no GPT); the summary shows category › subcategory + confirm button
+  await say(W, 'nafta', G({ intent: 'other' }));
+  assert.equal(W.edgeCalls.at(-1).action, 'correct'); assert.equal(W.drafts[0].payload.category_id, 'id-nafta'); assert.equal(W.drafts[0].payload.total, 5000);
+  assert.match(W.sent.at(-1).interactive.body.text, /Categoría: Combustible › Nafta ✏️\n/);
   // 3. renamed in the ERP → the next message already uses the new name (same id), no redeploy
   W.catalog.categories[0].nombre = 'Nafta súper';
   await say(W, 'era transferencia', G({ intent: 'correct_draft', changed_fields: ['method'], method: 'TRANSFER' }));
   assert.equal(W.edgeCalls.at(-1).payload.category_id, 'id-nafta'); assert.match(W.sent.at(-1).interactive.body.text, /Combustible › Nafta súper/);
   // 4. deactivated in the ERP after the proposal → the confirmation is refused (FAILED), the reply says so, nothing recorded
   W.catalog.categories = W.catalog.categories.filter((c) => c.id !== 'id-nafta');
-  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${W.drafts[0].id}:2` }));
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${W.drafts[0].id}:3` }));
   assert.equal(W.drafts[0].state, 'FAILED'); assert.match(W.sent.at(-1).text.body, /la subcategoría elegida ya no está disponible/);
   // 5. category-only correction keeps every other field (total, concept, method, account, date), then the confirmation works
   CUR = W.catalog;
   await say(W, 'era gasoil', G({ intent: 'correct_draft', changed_fields: ['category'], category: 'Gasoil' }));
   const fix = W.edgeCalls.at(-1);
   assert.equal(fix.action, 'correct'); assert.deepEqual(fix.payload, { ...W.drafts[0].payload, category_id: 'id-gasoil' });
-  assert.deepEqual([fix.payload.total, fix.payload.concept, fix.payload.method, fix.payload.account_id], [5000, 'nafta', 'TRANSFER', 'acc-bna']);
-  assert.match(W.sent.at(-1).interactive.body.text, /✏️ Corregí W-0010 \(v3\): Categoría \(ya no disponible\) → Combustible › Gasoil/);
-  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${W.drafts[0].id}:3` }));
+  assert.deepEqual([fix.payload.total, fix.payload.concept, fix.payload.method, fix.payload.account_id], [5000, 'combustible', 'TRANSFER', 'acc-bna']);
+  assert.match(W.sent.at(-1).interactive.body.text, /✏️ Corregí W-0010 \(v4\): Categoría \(ya no disponible\) → Combustible › Gasoil/);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${W.drafts[0].id}:4` }));
   assert.equal(W.drafts[0].state, 'CONFIRMED');
   CUR = CATALOG;
+});
+
+test('WF-14 live paying accounts end to end: ask BNA / Patagonia, no confirm while pending, answer by name, disabled before confirming, account-only fix', async () => {
+  const W = world();
+  W.catalog.accounts.push({ id: 'acc-pat', nombre: 'Patagonia', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' });
+  CUR = W.catalog;
+  // 1. transfer, account not named, two enabled banks → a draft WITHOUT account, sent with NO confirm button, asking which account
+  await say(W, 'transferí 5000 del flete', G({ amount: 5000, amount_evidence: '5000', concept: 'flete', category: 'Insumos', method: 'TRANSFER' }));
+  const d = W.drafts[0];
+  assert.equal(W.edgeCalls.at(-1).action, 'propose'); assert.equal(W.edgeCalls.at(-1).payload.account_id, undefined); assert.equal(d.payload.account_pending, true);
+  assert.equal(W.sent.at(-1).type, 'text'); assert.match(W.sent.at(-1).text.body, /¿Desde qué cuenta lo pagaste\? BNA o Patagonia\./);
+  // 2. a confirm button of that version (e.g. an old / forged one) is refused by the database: nothing recorded, still DRAFT
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:1` }));
+  assert.equal(d.state, 'DRAFT'); assert.match(W.sent.at(-1).text.body, /Primero decime desde qué cuenta/);
+  // 3. "Patagonia" answers it deterministically (no OpenAI call), keeping every other field; now the confirm button appears
+  const gptCalls = W.openaiBodies.length;
+  await say(W, 'Patagonia', G({ intent: 'other' }));
+  assert.equal(W.openaiBodies.length, gptCalls, 'no GPT call for the account answer');
+  assert.equal(W.edgeCalls.at(-1).action, 'correct'); assert.equal(d.payload.account_id, 'acc-pat'); assert.equal(d.payload.account_pending, undefined);
+  assert.deepEqual([d.payload.total, d.payload.concept, d.payload.category_id], [5000, 'flete', C1]);
+  assert.equal(W.sent.at(-1).type, 'interactive'); assert.match(W.sent.at(-1).interactive.body.text, /Cuenta \(sin elegir\) → Patagonia/);
+  // 4. the account is disabled in the ERP before confirming → refused inside the confirmation (FAILED), the reply explains it
+  W.catalog.accounts = W.catalog.accounts.filter((a) => a.id !== 'acc-pat');
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:2` }));
+  assert.equal(d.state, 'FAILED'); assert.match(W.sent.at(-1).text.body, /la cuenta elegida ya no está habilitada/);
+  // 5. "era BNA": account-only correction (amount, concept, category untouched), then the confirmation works
+  await say(W, 'era BNA', G({ intent: 'correct_draft', changed_fields: [] }));
+  assert.equal(W.edgeCalls.at(-1).action, 'correct'); assert.equal(d.payload.account_id, 'acc-bna');
+  assert.deepEqual([d.payload.total, d.payload.concept, d.payload.category_id, d.payload.method], [5000, 'flete', C1, 'TRANSFER']);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:3` }));
+  assert.equal(d.state, 'CONFIRMED');
+  assert.ok(!JSON.stringify(W.openaiBodies).match(/acc-|Patagonia"|"BNA"|Caja chica/), 'no account id or name ever sent to OpenAI');
+  CUR = CATALOG;
+});
+
+test('WF-15 several clarifications end to end: ambiguous subcategory AND transfer account → one draft, no confirm until both, nothing lost or duplicated', async () => {
+  const W = world();
+  W.catalog.categories = [{ id: 'id-nafta', nombre: 'Nafta', grupo_id: 'g-comb', grupo: 'Combustible' }, { id: 'id-gasoil', nombre: 'Gasoil', grupo_id: 'g-comb', grupo: 'Combustible' },
+                          { id: C1, nombre: 'Maiz', grupo_id: 'g-ins', grupo: 'Insumos alimento balanceado' }];
+  W.catalog.accounts.push({ id: 'acc-pat', nombre: 'Patagonia', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' });
+  CUR = W.catalog;
+  await say(W, 'ayer transferí 5000 en combustible para el tractor', G({ amount: 5000, amount_evidence: '5000', concept: 'combustible tractor', category: 'Nafta', method: 'TRANSFER', date: '2026-10-21' }));
+  const d = W.drafts[0];
+  assert.equal(W.drafts.length, 1); assert.deepEqual([d.payload.category_pending, d.payload.account_pending], [true, true]);
+  assert.equal(W.sent.at(-1).type, 'text', 'no confirm button while data are missing');
+  assert.match(W.sent.at(-1).text.body, /Me faltan dos datos:\n• ¿Qué tipo de Combustible\? Nafta o Gasoil\.\n• ¿Desde qué cuenta lo pagaste\? BNA o Patagonia\./);
+  // a confirm button of that version is refused by the database
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:1` }));
+  assert.equal(d.state, 'DRAFT'); assert.match(W.sent.at(-1).text.body, /Primero decime el tipo de gasto/);
+  // answer 1: the subcategory only (no GPT) → still no confirm button, the account is asked again
+  const gpt = W.openaiBodies.length;
+  await say(W, 'gasoil', G({ intent: 'other' }));
+  assert.equal(W.openaiBodies.length, gpt); assert.equal(d.payload.category_id, 'id-gasoil'); assert.equal(d.payload.account_pending, true);
+  assert.equal(W.sent.at(-1).type, 'text'); assert.match(W.sent.at(-1).text.body, /Categoría \(sin elegir\) → Combustible › Gasoil[\s\S]*¿Desde qué cuenta lo pagaste\? BNA o Patagonia\./);
+  // answer 2: the account → now the confirm button appears; amount, concept and date kept from the first message
+  await say(W, 'patagonia', G({ intent: 'other' }));
+  assert.equal(W.openaiBodies.length, gpt, 'no GPT call for either answer');
+  assert.deepEqual([d.payload.total, d.payload.concept, d.payload.date, d.payload.category_id, d.payload.account_id], [5000, 'combustible tractor', '2026-10-21', 'id-gasoil', 'acc-pat']);
+  assert.equal(W.sent.at(-1).type, 'interactive'); assert.equal(W.sent.at(-1).interactive.action.buttons[0].reply.id, `CONFIRM:${d.id}:3`);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:3` }));
+  assert.equal(d.state, 'CONFIRMED'); assert.equal(W.drafts.length, 1, 'one draft, one confirmation');
+  assert.deepEqual(actions(W).filter((a) => a === 'propose').length, 1);
+  CUR = CATALOG;
+});
+
+test('WF-16 "Confirmar sin clasificar" end to end: explicit button, money once, double tap, incomplete financial data, then the normal flow', async () => {
+  const W = world();
+  W.catalog.categories = [{ id: 'id-nafta', nombre: 'Nafta', grupo_id: 'g-comb', grupo: 'Combustible' }, { id: 'id-gasoil', nombre: 'Gasoil', grupo_id: 'g-comb', grupo: 'Combustible' },
+                          { id: C1, nombre: 'Maiz', grupo_id: 'g-ins', grupo: 'Insumos alimento balanceado' }];
+  W.catalog.accounts.push({ id: 'acc-pat', nombre: 'Patagonia', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' });
+  CUR = W.catalog;
+  // 1. clasificación dudosa, cash: the draft offers "Registrar sin clasif" (≤ 20 chars, Meta) and explains the effect; never a guessed subcategory
+  await say(W, 'gasté 5000 en combustible en efectivo', G({ amount: 5000, amount_evidence: '5000', concept: 'combustible', category: 'Nafta', method: 'CASH' }));
+  const d = W.drafts[0];
+  assert.equal(d.payload.category_id, undefined); assert.equal(d.payload.category_pending, true);
+  const bt = W.sent.at(-1).interactive.action.buttons;
+  assert.deepEqual(bt.map((b) => [b.reply.id, b.reply.title]), [[`UNCLASSIFIED:${d.id}:1`, 'Registrar sin clasif'], [`CANCEL:${d.id}:1`, 'Cancelar']]);
+  assert.ok(bt.every((b) => b.reply.title.length <= 20));
+  assert.match(W.sent.at(-1).interactive.body.text, /tocá "Registrar sin clasif": registro el egreso ahora \(descuenta de la cuenta\) y la subcategoría se elige después en el ERP/);
+  // 2. the button → wa_confirm (no GPT); the money once; the reply says SIN CLASIFICAR
+  const gpt = W.openaiBodies.length;
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `UNCLASSIFIED:${d.id}:1` }));
+  assert.equal(W.openaiBodies.length, gpt); assert.equal(W.edgeCalls.at(-1).action, 'confirm');
+  assert.equal(d.state, 'CONFIRMED'); assert.equal(W.pending.length, 1); assert.equal(W.pending[0].key, `WA:${d.id}:v1`);
+  assert.match(W.sent.at(-1).text.body, /✅ Registré el egreso W-0010 de \$ 5\.000,00: ya descuenta de la cuenta\. Queda SIN CLASIFICAR/);
+  // 3. double tap: a second press → "ya estaba registrado", still ONE pending
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `UNCLASSIFIED:${d.id}:1` }));
+  assert.match(W.sent.at(-1).text.body, /W-0010 ya estaba registrado/); assert.equal(W.pending.length, 1);
+  // 4. datos financieros incompletos (transfer, account not said): NO button at all; a forged button is refused by the database
+  await say(W, 'transferí 3000 de combustible', G({ amount: 3000, amount_evidence: '3000', concept: 'combustible', category: 'Nafta', method: 'TRANSFER' }));
+  const e = W.drafts[1];
+  assert.equal(W.sent.at(-1).type, 'text'); assert.match(W.sent.at(-1).text.body, /Me faltan dos datos/);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `UNCLASSIFIED:${e.id}:1` }));
+  assert.equal(e.state, 'DRAFT'); assert.match(W.sent.at(-1).text.body, /Primero decime desde qué cuenta lo pagaste/); assert.equal(W.pending.length, 1);
+  // 5. the account answered → now "Registrar sin clasif" appears (the subcategory is the only datum left)
+  await say(W, 'patagonia', G({ intent: 'other' }));
+  assert.equal(e.payload.account_id, 'acc-pat');
+  assert.equal(W.sent.at(-1).interactive.action.buttons[0].reply.id, `UNCLASSIFIED:${e.id}:2`);
+  // 6. the subcategory answered → the normal Confirmar; the previous "sin clasificar" button is refused (old version / now classified)
+  await say(W, 'gasoil', G({ intent: 'other' }));
+  assert.equal(e.payload.category_id, 'id-gasoil');
+  assert.deepEqual(W.sent.at(-1).interactive.action.buttons.map((b) => b.reply.id), [`CONFIRM:${e.id}:3`, `CANCEL:${e.id}:3`]);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `UNCLASSIFIED:${e.id}:2` }));
+  assert.equal(e.state, 'DRAFT'); assert.match(W.sent.at(-1).text.body, /versión anterior/);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `UNCLASSIFIED:${e.id}:3` }));
+  assert.equal(e.state, 'DRAFT'); assert.match(W.sent.at(-1).text.body, /ya tiene subcategoría: usá el botón Confirmar/);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${e.id}:3` }));
+  assert.equal(e.state, 'CONFIRMED'); assert.equal(W.pending.length, 1, 'the classified expense is not a pending one');
+  CUR = CATALOG;
+});
+
+test('WF-17 Mercado Pago with an ambiguous subcategory: after linking, "Registrar sin clasif" records NO movement (the ERP outflow already exists)', () => {
+  const r = { ok: true, draft_id: '00000000-0000-4000-8000-000000000077', short_code: 'W-0077', state: 'DRAFT', version: 2,
+    payload: { date: '2026-10-20', total: 2500, concept: 'mp', method: 'MERCADOPAGO', account_id: 'acc-mp', mp_source_id: '930000025002', category_pending: true, category_options: [] } };
+  const WAx = new Function(readFileSync(new URL('./logic.js', import.meta.url), 'utf8') + '\nreturn WA;')();
+  const cfg = { categories: CATALOG.categories, accounts: Object.fromEntries(CATALOG.accounts.map((a) => [a.id, a])) };
+  const g = WAx.compose({ to: '1', request: { action: 'link_mp' } }, 200, { ok: true, result: r }, null, cfg).graph;
+  assert.equal(g.interactive.action.buttons[0].reply.id, `UNCLASSIFIED:${r.draft_id}:2`);
+  assert.match(g.interactive.body.text, /el egreso de Mercado Pago ya está en el ERP y queda pendiente de clasificar \(no se registra otro movimiento\)/);
+  const done = WAx.compose({ to: '1', request: { action: 'confirm', draft_id: r.draft_id } }, 200, { ok: true, result: { ok: true, state: 'CONFIRMED', unclassified: true,
+    draft_id: r.draft_id, short_code: 'W-0077', result: { unclassified: true, financial_effect: 'EXISTING_MP_OUTFLOW', amount: 2500 } } }, null, cfg).graph;
+  assert.match(done.text.body, /W-0077 confirmado SIN CLASIFICAR\. El egreso de Mercado Pago de \$ 2\.500,00 ya figura en el ERP como pendiente de clasificar; no se registró otro movimiento/);
 });

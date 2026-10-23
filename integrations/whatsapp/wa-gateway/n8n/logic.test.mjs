@@ -116,3 +116,38 @@ test('L-8 live hierarchy in texts; a subcategory deactivated before confirming �
   const refused = WA.compose({ to: '1', request: { action: 'propose' } }, 422, { ok: false, error: { code: 'WA_CATEGORY_NOT_SELECTABLE' } }, null, cfg);
   assert.match(refused.graph.text.body, /ya no está disponible/);
 });
+
+test('L-9 a draft whose account is pending has NO confirm button and asks which account; account errors are explained', () => {
+  const cfg = { categories: CFG.categories, accounts: { 'acc-bna': { id: 'acc-bna', nombre: 'BNA', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' },
+    'acc-pat': { id: 'acc-pat', nombre: 'Patagonia', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' }, 'acc-cash': { id: 'acc-cash', nombre: 'Caja chica', account_type: 'CASH', method: 'CASH' } } };
+  const r = { ok: true, draft_id: D, short_code: 'W-0030', state: 'DRAFT', version: 1, possible_duplicates: 0, duplicates: [],
+    payload: { total: 5000, concept: 'flete', category_id: 'c1', method: 'TRANSFER', account_pending: true, date: '2026-10-22' } };
+  const g = WA.compose({ to: '1', request: { action: 'propose' } }, 200, { ok: true, result: r }, null, cfg).graph;
+  assert.equal(g.type, 'text', 'no interactive confirm button while the account is pending');
+  assert.match(g.text.body, /Pago: Transferencia \(cuenta a elegir\)/); assert.match(g.text.body, /¿Desde qué cuenta lo pagaste\? BNA o Patagonia\./);
+  const set = WA.compose({ to: '1', request: { action: 'correct' }, changes: [{ field: 'account_id', from: null, to: 'acc-pat' }] }, 200,
+    { ok: true, result: { ...r, version: 2, payload: { ...r.payload, account_pending: undefined, account_id: 'acc-pat' } } }, null, cfg).graph;
+  assert.equal(set.type, 'interactive'); assert.match(set.interactive.body.text, /Cuenta \(sin elegir\) → Patagonia/); assert.match(set.interactive.body.text, /Transferencia \(Patagonia\) ✏️/);
+  assert.match(WA.compose({ to: '1', request: { action: 'confirm' } }, 422, { ok: false, error: { code: 'WA_ACCOUNT_REQUIRED' } }, null, cfg).graph.text.body, /desde qué cuenta/);
+  const gone = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 2 } }, 200,
+    { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0030', error: 'WA_ACCOUNT_NOT_SELECTABLE: account Patagonia is inactive' } }, null, cfg);
+  assert.match(gone.graph.text.body, /la cuenta elegida ya no está habilitada.*el resto del gasto se mantiene/s); assert.equal(gone.state.open.state, 'FAILED');
+});
+
+test('L-10 "Confirmar sin clasificar": route, buttons only when the subcategory is the ONLY datum left, texts', () => {
+  assert.deepEqual(WA.route(ev({ kind: 'interactive', button_payload: `UNCLASSIFIED:${D}:4` }), CFG).request,
+    { action: 'confirm', inbound_id: 10, cap: CAP, draft_id: D, expected_version: 4 });
+  assert.equal(WA.route(ev({ kind: 'interactive', button_payload: `UNCLASSIFIED:${D}:x` }), CFG).reply, 'Ese botón no es válido.');
+  const base = { ok: true, draft_id: D, short_code: 'W-0005', state: 'DRAFT', version: 1, possible_duplicates: 0 };
+  const pay = { date: '2026-10-22', total: 3000, concept: 'algo', method: 'CASH', category_pending: true, category_options: [] };
+  const only = WA.compose({ to: '1', request: { action: 'propose' } }, 200, { ok: true, result: { ...base, payload: { ...pay, account_id: 'acc-cash' } } }, null, CFG).graph;
+  assert.deepEqual(only.interactive.action.buttons.map((b) => [b.reply.id, b.reply.title]), [[`UNCLASSIFIED:${D}:1`, 'Registrar sin clasif'], [`CANCEL:${D}:1`, 'Cancelar']]);
+  assert.match(only.interactive.body.text, /¿En qué categoría va\?/);
+  const noAcc = WA.compose({ to: '1', request: { action: 'propose' } }, 200, { ok: true, result: { ...base, payload: { ...pay, method: 'TRANSFER', account_pending: true } } }, null, CFG).graph;
+  assert.equal(noAcc.type, 'text', 'financial data incomplete: no confirmation offered');
+  const done = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D } }, 200, { ok: true, result: { ok: true, state: 'CONFIRMED', unclassified: true, draft_id: D,
+    short_code: 'W-0005', result: { unclassified: true, financial_effect: 'PAYMENT_POSTED', amount: 3000 } } }, null, CFG).graph;
+  assert.match(done.text.body, /Registré el egreso W-0005 de \$ 3\.000,00: ya descuenta de la cuenta\. Queda SIN CLASIFICAR/);
+  assert.equal(WA.compose({ to: '1', request: { action: 'confirm', draft_id: D } }, 422, { ok: false, error: { code: 'WA_UNCLASSIFIED_NOT_ALLOWED' } }, null, CFG).graph.text.body,
+    'Ese borrador ya tiene subcategoría: usá el botón Confirmar del último resumen.');
+});

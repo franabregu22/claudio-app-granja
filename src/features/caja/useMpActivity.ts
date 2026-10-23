@@ -7,7 +7,7 @@ import {
 } from '../../target/mpActivity';
 import { allocateToClient, mapPayerToClient } from '../../target/mp';
 import {
-  listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
+  listMpWhatsappNotes, listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
 } from '../../target/pendingClassification';
 
 export function useMpActivity(accountId: string) {
@@ -54,6 +54,10 @@ export function usePendingPage(scope: PendingScope, page: number) {
 }
 
 /** ADR-023: server-side counts / totals (mandatory current / historical, unlinked current / historical). */
+/** ADR-025 stage 3: the WhatsApp notes of the listed pending outflows (read-only). */
+export function useMpWhatsappNotes(sourceIds: readonly string[]) {
+  return useQuery({ queryKey: ['mp-pending', 'wa-notes', [...sourceIds].sort()], queryFn: () => listMpWhatsappNotes(supabase, sourceIds), enabled: sourceIds.length > 0 });
+}
 export function usePendingSummary() {
   return useQuery({ queryKey: ['mp-pending', 'summary'], queryFn: () => readPendingSummary(supabase) });
 }

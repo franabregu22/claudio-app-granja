@@ -147,9 +147,23 @@ export function linkDates(r: { source_date?: unknown; effective_date?: unknown }
   return { recibido: d(r.source_date), vinculado: d(r.effective_date) };
 }
 
+// ── ADR-025 stage 3: the WhatsApp concept of a pending outflow ("Registrar sin clasif" wrote nothing in the ERP) ──
+export interface MpWhatsappNote { source_id: string; draft_short_code: string; concept: string; confirmed_at: string }
+/** Notes of the given SOURCE_IDs (ADMIN view, read-only; one per SOURCE_ID). Only digit ids are sent (never injected). */
+export async function listMpWhatsappNotes(client: SupabaseClient, sourceIds: readonly string[]): Promise<Map<string, MpWhatsappNote>> {
+  const ids = [...new Set(sourceIds.filter((s) => /^[0-9]{1,20}$/.test(s)))];
+  if (ids.length === 0) return new Map();
+  const rows = await readView<MpWhatsappNote>(client, 'fin_mp_whatsapp_notes', (q) => q.in('source_id', ids),
+    'source_id, draft_short_code, concept, confirmed_at');
+  return new Map(rows.map((r) => [r.source_id, r]));
+}
+/** "WhatsApp W-0042: combustible" — shown on the pending row; it changes nothing. */
+export const whatsappNoteText = (n: Pick<MpWhatsappNote, 'draft_short_code' | 'concept'>) => `WhatsApp ${n.draft_short_code}: ${n.concept}`;
+
 /** User-facing name of a posting's operation: the ADR-021 provisional and its release are never a generic "Ajuste". */
 export function postingOperationLabel(p: { operation_type: string | null; external_ref: string | null }): string {
   if (p.external_ref?.startsWith('MP-PENDING-RELEASE:')) return 'Clasificación de salida';
   if (p.external_ref?.startsWith('MP-PENDING:')) return 'Pendiente de clasificar';
+  if (p.external_ref?.startsWith('EXPENSE-PENDING:')) return 'Gasto (sin clasificar al registrarse)';   // ADR-025 (0102): the payment never changes
   return p.operation_type ?? '—';
 }

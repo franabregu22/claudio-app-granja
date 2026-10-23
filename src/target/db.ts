@@ -20,6 +20,8 @@ export const TARGET_VIEWS = [
   'fin_customer_collections',   // Meta A (0092): Caja → Cobros de clientes
   'fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status',   // ADR-021 (0093)
   'fin_mp_unlinked_inflows', 'fin_mp_pending_summary',   // ADR-023 (0095)
+  'fin_expense_pending_classification',   // ADR-025 stage 3 (0102): Caja → Gastos sin clasificar (ADMIN)
+  'fin_mp_whatsapp_notes',   // ADR-025 stage 3 (0101): the WhatsApp concept of a pending MP outflow (ADMIN, read-only)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -92,6 +94,7 @@ export const TARGET_RPCS = [
   'mp_classify_payout_outflow', 'mp_classify_inflow_as_collection',   // 0088: classify MP outflows / DEBIN inflows (ADMIN)
   'mp_reclassify_inbound_own_transfer',   // 0086: an inflow from an own account (ADMIN)
   'mp_post_pending_outflow',   // ADR-021 (0093): recovery of an outflow whose provisional could not be posted (ADMIN)
+  'classify_pending_expense',   // ADR-025 stage 3 (0102): classify an expense already paid (no new movement; ADMIN)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

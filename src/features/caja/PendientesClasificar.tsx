@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import { isMercadoPagoAccount, type MpActivityRow, type MpPayoutMatch } from '../../target/mpActivity';
 import {
-  DESTINATION_STATUS_LABEL, HISTORICAL_ACTION, HISTORICAL_PENDING_NOTE, mandatoryPending, maskedAccount, PAGE_SIZE, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL,
+  DESTINATION_STATUS_LABEL, HISTORICAL_ACTION, type MpWhatsappNote, whatsappNoteText, HISTORICAL_PENDING_NOTE, mandatoryPending, maskedAccount, PAGE_SIZE, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL,
   type PendingRow, type PendingScope, TECHNICAL_ISSUE_LABEL, type TechnicalRow,
 } from '../../target/pendingClassification';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { ClasificarSalida, DestinoRetiro } from './CuentaDetalle';
-import { useMpPayoutMatches, usePendingPage, usePendingSummary, useRetryProvisional, useTechnicalReview } from './useMpActivity';
+import { useMpPayoutMatches, useMpWhatsappNotes, usePendingPage, usePendingSummary, useRetryProvisional, useTechnicalReview } from './useMpActivity';
 
 const hora = (ts: string | null) => (ts ? new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' }) : '');
 
@@ -71,6 +71,7 @@ function ListaPendientes({ scope, titulo, nota, matches, total }: {
   const [pagina, setPagina] = useState(0);
   const q = usePendingPage(scope, pagina);
   const filas = q.data?.rows ?? [];
+  const notas = useMpWhatsappNotes(scope === 'current' ? filas.map((r) => r.source_id) : []);
   const cantidad = q.data?.total ?? 0;
   const paginas = Math.max(1, Math.ceil(cantidad / PAGE_SIZE));
   return (
@@ -90,7 +91,7 @@ function ListaPendientes({ scope, titulo, nota, matches, total }: {
                     <th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Nº Mercado Pago</th><th className="px-3 py-2">Destino</th>
                     <th className="px-3 py-2">Estado</th><th className="px-3 py-2">Acción requerida</th>
                   </tr></thead>
-                  <tbody>{filas.map((r) => <FilaPendiente key={r.pending_key} r={r} matches={matches} />)}</tbody>
+                  <tbody>{filas.map((r) => <FilaPendiente key={r.pending_key} r={r} matches={matches} nota={notas.data?.get(r.source_id)} />)}</tbody>
                 </table>
               </div>
               <Paginador pagina={pagina} paginas={paginas} total={cantidad} onCambiar={setPagina} />
@@ -111,7 +112,7 @@ export function Paginador({ pagina, paginas, total, onCambiar }: { pagina: numbe
   );
 }
 
-function FilaPendiente({ r, matches }: { r: PendingRow; matches: ReadonlyMap<string, MpPayoutMatch> }) {
+function FilaPendiente({ r, matches, nota }: { r: PendingRow; matches: ReadonlyMap<string, MpPayoutMatch>; nota?: MpWhatsappNote }) {
   const actividad = { description: r.description, source_id: r.source_id, coverage_status: 'PENDING_CLASSIFICATION' } as MpActivityRow;
   const destino = r.destination_status ? DESTINATION_STATUS_LABEL[r.destination_status] : null;
   const cuenta = r.matched_account_name ?? maskedAccount(r.destination_last4);
@@ -125,7 +126,13 @@ function FilaPendiente({ r, matches }: { r: PendingRow; matches: ReadonlyMap<str
           <p className="text-[11px] text-[#8A7A5C] font-normal">{formatoPesos(r.economic_amount)} + impuesto {formatoPesos(Math.abs(r.charges_amount))}</p>
         )}
       </td>
-      <td className="px-3 py-2 whitespace-nowrap">{PENDING_KIND_LABEL[r.kind]}{r.is_historical && <span className="text-[11px] text-[#8A7A5C]"> · histórico</span>}</td>
+      <td className="px-3 py-2 whitespace-nowrap">{PENDING_KIND_LABEL[r.kind]}{r.is_historical && <span className="text-[11px] text-[#8A7A5C]"> · histórico</span>}
+        {nota && (
+          <p className="text-[11px] text-[#2C5E3A] whitespace-normal mt-0.5" title={`Confirmado por WhatsApp el ${formatearFechaLocal(nota.confirmed_at.slice(0, 10))}; no generó otro movimiento`}>
+            {whatsappNoteText(nota)}
+          </p>
+        )}
+      </td>
       <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id}</td>
       <td className="px-3 py-2">{destino ? <>{destino}{cuenta && <span className="text-[#8A7A5C]"> · {cuenta}</span>}</> : <span className="text-[#8A7A5C]">—</span>}</td>
       <td className="px-3 py-2">
@@ -135,7 +142,7 @@ function FilaPendiente({ r, matches }: { r: PendingRow; matches: ReadonlyMap<str
       <td className="px-3 py-2">
         {r.is_historical ? <span className="text-xs text-[#8A7A5C]">{HISTORICAL_ACTION}</span> : (
           <>
-            {r.kind === 'OUTBOUND' && <ClasificarSalida sourceId={r.source_id} />}
+            {r.kind === 'OUTBOUND' && <ClasificarSalida sourceId={r.source_id} conceptoInicial={nota?.concept} />}
             {r.kind === 'PAYOUT' && <DestinoRetiro r={actividad} matches={matches} />}
           </>
         )}

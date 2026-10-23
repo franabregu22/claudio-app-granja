@@ -738,7 +738,185 @@ published → flag on, propose + cancel → one real low-value expense (§18.5) 
   deactivated category, change between proposal and confirmation, category-only fix); n8n logic 8/8, interpreter 15/15
   (codes, hierarchy, catalog changes, ambiguity), workflow 13/13 (end to end); Edge 14/14.
 
-### 19.6 D-3 — live payment accounts (in progress, local)
+### 19.6 D-3 — live paying accounts (local, not deployed; pending owner review)
 
-Decided (B-2): accounts are read from the ERP; when TRANSFER fits several enabled accounts and the user does not name one,
-the bot asks before proposing a confirmable draft; the account is re-validated inside the confirmation transaction.
+- **Single source of truth**: the enabled paying accounts are read live on every message by `wa_context` through
+  `wa.selectable_accounts()` (id, name, type and the **method** each one serves). No account name exists in n8n, the
+  interpreter, its configuration (`account_by_method` removed) or the OpenAI prompt; account names are **not sent to
+  OpenAI** at all. Additions, renames and deactivations are visible on the next message, without redeploy.
+- **One account rule** (`wa.account_check`): an active account whose type gives the method — `CASH` → cash,
+  `BANK_ACCOUNT` → transfer, and the Mercado Pago account the ERP itself recognises in `register_casual_purchase` (name
+  "Mercado Pago", `EXTERNAL_SERVICE`) → Mercado Pago; any other account is not offered. **Stricter than the ERP RPC**,
+  which does not tie the method to the account type. Used by `wa_propose` / `wa_correct` (`WA_ACCOUNT_NOT_SELECTABLE`) and
+  **inside the confirmation transaction** with `FOR SHARE` (a disabled account → `FAILED`, 0 purchases).
+- **Choosing the account (deterministic, safe)**: in a new expense an account is taken only when the message contains its
+  **whole name as a phrase** (whole words, contiguous — "cajas" is not "Caja", "pago en el mercado" is not "Mercado Pago");
+  among several matches only the most specific survives ("banco nación" → "Banco Nación", not "Banco"); two different
+  accounts named → asked, never auto-selected. Naming one decides the method; a contradiction ("en efectivo desde
+  Patagonia") is asked. With a single enabled account for the method no question is asked. When **answering** the
+  account question, a whole word that identifies exactly one offered account is enough ("galicia" → "Banco Galicia"; "banco"
+  with two "Banco …" offered → asked again). The selection always resolves to the account **id**.
+- **Several clarifications on one draft**: a subcategory that is ambiguous ("combustible" → Nafta / Gasoil) or not stated is
+  also kept **pending** (`category_pending`, the offered `category_options` validated by the database) instead of asking
+  without a draft — amount, concept and date are never lost. A draft with any datum pending has **no confirm button** and
+  lists every question ("Me faltan dos datos: …"); the database refuses its confirmation (`WA_CATEGORY_REQUIRED` /
+  `WA_ACCOUNT_REQUIRED`, the draft stays `DRAFT`, nothing recorded). Each answer sets only its datum, deterministically
+  (no GPT), one per message or both at once; one draft, one confirmation, one purchase.
+- **Differences with the ERP accounting RPC (`register_casual_purchase`, not modified)**: the RPC accepts any active account
+  with any method except `CHEQUE`; the bot ties the method to the account type and offers no `EXTERNAL_SERVICE` account other
+  than the ERP's Mercado Pago account (the RPC would book such an account as a plain payment). The rules that remain the
+  RPC's own and surface as a `FAILED` draft with its error: Mercado Pago requires a payout `SOURCE_ID` (the bot keeps the
+  draft `WAITING_MP`), `MP_AMOUNT_MISMATCH` / `MP_DATE_MISMATCH`, `ALREADY_CLASSIFIED`, `OWN_ACCOUNT_PAYOUT`,
+  `DESTINATION_REVIEW_REQUIRED`, `PERIOD_CLOSED`, `DUPLICATE_PURCHASE`. Subcategories: the RPC checks the subcategory is
+  active and the 0096 guard rejects reserved / owner-withdrawal ones; the bot also requires an active parent category.
+- **Several accounts, none named** (B-2): the draft is created **without account** (`account_pending`), shown **without
+  the confirm button**, and the bot asks "¿Desde qué cuenta lo pagaste? BNA o Patagonia". The database refuses to confirm
+  it (`WA_ACCOUNT_REQUIRED`, the draft stays `DRAFT`, nothing recorded). The answer ("Patagonia") is applied without GPT as
+  an account-only correction; later corrections ("era BNA") change only the account (and its method), never the amount,
+  concept or category. The correction header shows "Cuenta antes → después".
+- Compatibility: the staging upgrade `upgrade-004-catalog-rule.sql` (prepared, **not applied**) now carries D-1 and D-3; a
+  context without the account method (staging today) falls back to the account **type**, never to a name.
+- Tests: SQL staging 108/108 and candidate on the local ERP 108/108 (P-1…P-9 accounts; M-1…M-5 subcategory AND account
+  pending on one draft, each refused at confirmation until set, one purchase at the end); n8n logic 9/9, interpreter 21/21
+  (incl. I-19 safe account matching, I-20 several clarifications, I-21 answers by a distinctive word), workflow 15/15
+  (WF-14 accounts, WF-15 several clarifications end to end); Edge 14/14.
+- **Model evaluation v2** (`n8n/eval/golden-set-v2.json`, 34 cases: categories with hierarchy, several clarifications,
+  BNA / Patagonia transfers, future and similar account names, account correction, ambiguous messages, injection). The
+  harness runs the production path (preRoute → GPT → decide). Offline harness test (`eval-offline.mjs`, simulated answers on
+  127.0.0.1): 34/34 with the ideal answers and the sabotage run caught (wrong amount HARD; guessed subcategory kept pending;
+  contradicted method asked; obeyed injection refused) — this validates the harness only. **The real-model evaluation is
+  PENDING**: `eval-models.sh` (key typed privately by the owner); no real-model PASS is claimed.
+
+### 19.7 C01 / C03 — no arbitrary rewrite of the concept (owner decisions 2026-10-23; local)
+
+- Real-model evaluation of 2026-10-23 (n8n credential `STAGING_OPENAI_GRANJA`, temporary workflow, archived): `luna/low` 32/34,
+  `luna/none` 31/34; hard failures C01 ("era Patagonia" also rewrote the concept) and C03 ("era gasoil" rewrote the concept).
+- **C01**: a message that only names the paying account ("era Patagonia", "no, desde BNA") corrects ONLY the account and its
+  method; whatever the model proposes for concept, amount, subcategory or date is ignored (deterministic).
+- **C03**: on a subcategory correction the concept follows ONLY when it is exactly the replaced subcategory ("Nafta" + "era
+  gasoil" → concept and subcategory "Gasoil"); a descriptive concept ("Combustible para tractor", also "nafta para el tractor")
+  is kept. Otherwise a concept change is accepted only with all its words in the message; the model never rewrites it.
+- Re-judging the recorded real answers with these guards: `luna/low` 34/34, 0 hard; `luna/none` 33/34 (A07). A focused real
+  re-evaluation (C01, C03, C05–C08) is prepared and NOT run.
+
+### 19.8 Unclassified expenses with financial effect (owner decisions 2026-10-23; local — ERP candidate 0102 + wa stage 2)
+
+**Decisions (approved).**
+1. The money event and the classification are separate. A confirmed expense whose subcategory is doubtful is recorded at once:
+   ONE `PURCHASE_PAYMENT` operation, ONE posting on the paying account (the balance drops now), ONE pending classification. The
+   classification later (ERP) only adds the purchase on THAT payment — no new purchase, payment, movement or balance change.
+2. Never a fictitious category, "Otros" or a default subcategory. Unclassified expenses appear in the P&L as
+   `GASTOS_SIN_CLASIFICAR`, inside the operating result and every later subtotal; classifying moves the line, the total does not change.
+3. A month with unclassified expenses cannot be closed (same criterion as the Mercado Pago pending outflows).
+4. Mercado Pago: its outflow already reaches the balance through the ADR-021 provisional and waits in its own pending list;
+   WhatsApp never records a second outflow (the ERP RPC refuses the Mercado Pago account: `MP_USE_PENDING_OUTFLOW`).
+5. WhatsApp: classified → "Confirmar" (unchanged); doubtful classification → the explicit, separate button "Confirmar sin
+   clasificar" (Meta limits a reply-button title to 20 characters; owner decision of stage 3: **"Registrar sin clasif"** — "Registrar sin clasif." has 21 characters, so it is shown without the final period; the button id stays `UNCLASSIFIED:<draft>:<version>`). Both require the
+   explicit button of the current version; without every financial datum (amount, date, account, method) no confirmation is
+   offered and the database refuses it (`WA_ACCOUNT_REQUIRED`).
+6. `classify_pending_expense` requires the subcategory AND its category active (the bot's selectability rule); the general
+   purchase validation of the ERP is not changed.
+
+**ERP — candidate `supabase/target-candidates/0102/` (not applied anywhere).** Tables `expense_pending_classification` /
+`expense_pending_resolution` (immutable, RLS ADMIN read-only, no API write); RPCs `register_unclassified_expense` (ADMIN,
+idempotent by key, same lock namespace as `register_casual_purchase`) and `classify_pending_expense` (ADMIN, row lock,
+replay / `ALREADY_CLASSIFIED`; reclassification through the existing `rectify_casual_purchase_classification`); deferred
+integrity triggers (no `EXPENSE-PENDING` payment without its pending and exactly one posting, no purchase on a pending payment
+without its classification); a separate period-close trigger (`PENDING_EXPENSE_CLASSIFICATION`); view
+`fin_expense_pending_classification`; `pnl_line_item` / `pnl_summary` with the new bucket / appended column. Not modified:
+`register_casual_purchase`, `rectify_casual_purchase_classification`, ADR-021 / 0091 functions and triggers,
+`management_period_close_guard`, `fin_match_statement_line`. Bank lines (BNA, Patagonia) reconcile against the single posting
+before and after the classification.
+
+**WhatsApp — stage 2 (`wa-staging/src`, n8n `logic.js`).** `wa_confirm` reads the stored button: `CONFIRM:<draft>:<v>` →
+classified (unchanged); `UNCLASSIFIED:<draft>:<v>` → only for a `CASUAL_EXPENSE` whose subcategory is still to choose and whose
+account is set; cash / bank → `wa.dispatch_unclassified` → `register_unclassified_expense` with the draft key
+`WA:<draft>:v<n>` (one draft version = one expense, whichever button), origin `WHATSAPP` and the draft reference; Mercado Pago
+(linked to its SOURCE_ID, still pending) → no accounting call, the draft records the explicit confirmation. Edge Function
+unchanged (button ids are passed through; action `confirm`). n8n: the button appears only when the subcategory is the ONLY
+datum left, with the explanation of the effect; the reply after confirming says SIN CLASIFICAR. Staging: a `sim` double of
+the RPC; `upgrade-004` extended additively (the `CONFIRM` button keeps its exact behaviour for the deployed workflows) — NOT applied.
+
+**Tests (local).** ERP 0102: 57/57 (rolled back on the local ERP) + 13/13 concurrency / real COMMIT on a disposable clone;
+WhatsApp SQL: staging sandbox 124/124 + races R1–R5 (R5: two simultaneous "Confirmar sin clasificar" → one pending, one
+confirmation), candidate on the local ERP with 0102 124/124 (section U: safe / ambiguous classification, unclassified and
+normal confirmation, retries and double tap, incomplete financial data, corrections before confirming, deactivated
+subcategory, Mercado Pago without a second outflow, later classification without balance change); n8n logic 10/10,
+interpreter 24/24, workflow 17/17 (WF-16 / WF-17); Edge 14/14; offline evaluation harnesses 37/37.
+
+**Residual risks.**
+- Order of application: the WhatsApp migration (0101) calls `register_unclassified_expense` (0102). 0102 must be applied first
+  (or the two renumbered at merge time); otherwise an unclassified confirmation ends `FAILED` with the missing-function error
+  (nothing recorded).
+- The ERP P&L screen does not show `gastos_sin_clasificar` yet (stage 3); it is already inside the operating result.
+- No ERP screen yet to list / classify pending expenses (stage 3); the view and the RPC are ready and permission-checked.
+- A Mercado Pago "sin clasificar" confirmation records nothing in the ERP; the concept typed in WhatsApp stays only in the draft
+  (not yet shown next to the MP pending outflow).
+- The same expense entered by hand in the ERP and by WhatsApp is still possible (pre-existing risk; duplicate references remain
+  a warning).
+- The real-model evaluation did not include "Confirmar sin clasificar" (a button, no model involved) — nothing to evaluate there.
+
+### 19.9 Stage 3 — ERP screen "Gastos sin clasificar" (owner GO 2026-10-23; local, frontend + 0102 contract)
+
+**Decisions.** WhatsApp button title "Registrar sin clasif" (§19.8). Mandatory order of application **0102 → 0101** until the
+final numbering is reviewed at the cutover. `classify_pending_expense` requires the subcategory AND its category active.
+
+**Screen (Caja → "Gastos sin clasificar", ADMIN only — Caja is an ADMIN module and refuses any other role).** Indicator (server
+count of unclassified expenses, also as a badge on the tab), filters by status / date range / account / origin (server-side),
+paginated list from `fin_expense_pending_classification` (date, amount, concept, account, origin "WhatsApp W-0042" or "ERP", who
+registered it, status, category and classifier once classified). "Clasificar" opens the form: category → subcategory (only
+selectable ones: active subcategory in an active EXPENSE category, reserved ones never offered), nature (pre-filled from the
+subcategory, editable), concept (registered one, editable), counterparty (optional), audit note. The only write is the RPC
+`classify_pending_expense`; the list, the P&L and the treasury views are refreshed after it (also after a concurrent
+`ALREADY_CLASSIFIED`). Mercado Pago pendings are shown as a summary with a shortcut to "Pendientes de clasificar" (their
+ADR-021 routes), never duplicated. Finanzas: the P&L shows the line **"Gastos sin clasificar"** just before "Resultado
+operativo" (a component, read from `pnl_summary`, never re-added) and the drill-down labels the `GASTOS_SIN_CLASIFICAR` bucket.
+The account history labels an `EXPENSE-PENDING:` payment "Gasto (sin clasificar al registrarse)".
+
+**Contracts.** Covered by the 0102 view and RPC (UI-1…UI-4 in `tests-0102.sql` use the screen's exact columns, filters and named
+parameters). Not covered, not blocking: a server-side TOTAL in pesos for the indicator (the count is server-side; the monthly
+total is the P&L line) — an optional `fin_expense_pending_summary` view.
+
+**Proposal (SQL, NOT implemented) — the WhatsApp concept next to a Mercado Pago pending outflow.** A "Registrar sin clasif" of a
+Mercado Pago expense writes nothing in the ERP (§19.8); its concept lives in `wa.draft`, which the ERP API cannot read. Proposed
+addition to the WhatsApp migration (0101): a read-only view `public.fin_mp_whatsapp_notes` owned by `postgres` (not
+security_invoker, so it can read `wa.draft`), `WHERE current_app_role() = 'ADMIN'`, exposing only `source_id`, `draft_short_code`,
+`concept`, `confirmed_at` of drafts CONFIRMED with `result.financial_effect = 'EXISTING_MP_OUTFLOW'`; SELECT for `authenticated`.
+The MP pending list would show "WhatsApp W-0042: <concept>" on the row and pre-fill the concept of "Clasificar salida". No
+movement, no write, no change to the ADR-021 routes. Requires owner approval before implementing.
+
+**Tests (local).** ERP 0102 61/61 (rolled back; UI contract included) and 13/13 concurrency (disposable clone); WhatsApp SQL
+124/124 staging + 124/124 candidate; n8n 10/24/17; Edge 14/14; frontend unit 382/382 (new `adr025-unclassified-expenses`:
+data layer, filters never injected, RPC-only writes, ADMIN-only module, P&L line not re-added), `tsc -b` clean, `oxlint` with no
+warning in the new / changed files.
+
+**Residual risks.** The screen is verified by unit tests and SQL contract tests, not yet by a browser walkthrough against an ERP
+with 0102 applied (manual procedure in the delivery). The indicator has no peso total (count only). The Mercado Pago concept
+from WhatsApp is not visible in the ERP until the proposal above is approved.
+
+### 19.10 Stage 3 — Mercado Pago WhatsApp notes and browser validation (owner GO 2026-10-23; local)
+
+**`fin_mp_whatsapp_notes` (implemented in the WhatsApp migration 0101 and in `upgrade-004`, not applied).** Read-only view owned
+by `postgres` (it reads `wa.draft`), **`security_barrier = true`** (the ADMIN condition is evaluated before any filter or function
+of the caller), rows only for an active ADMIN profile of `auth.uid()`, exactly four columns: SOURCE_ID, draft code, concept,
+confirmation date — of drafts CONFIRMED with `financial_effect = EXISTING_MP_OUTFLOW` (security review 2026-10-23: the first
+version lacked `security_barrier` and exposed amount / date; both corrected before any commit). Tie to the ADR-021 pending:
+the SOURCE_ID (one live / confirmed draft per SOURCE_ID — existing unique index `wa_draft_mp_source_once`; one pending outflow per
+SOURCE_ID) — no financial contract changed. SELECT only for `authenticated`. Screen: Caja → Pendientes de clasificar shows
+"WhatsApp W-…: <concept>" on the row and pre-fills the concept of the existing "Clasificar salida" route (applied when the form
+opens). Tests N-1…N-9 (staging 133/133, candidate 133/133): ADMIN reads the note, tied to the same pending, one per SOURCE_ID,
+OPERATOR / no-profile JWT 0 rows, anon and service_role refused, no write possible, `security_barrier` and the exact four columns,
+no leak to a non-leakproof function in the caller's filter, identity parity with `current_app_role()` in every session context,
+nothing financial changed. Identity note: like every RLS policy and RPC of the ERP, the view trusts `auth.uid()`; a SQL session
+able to set `request.jwt.*` could impersonate anyone platform-wide — not reachable through the API (PostgREST sets only the signed
+JWT claims; `set_config` is not exposed). The WhatsApp migration 0101 DEPENDS ON 0102 (stated in its header).
+
+**Browser walkthrough (disposable stack `adr025_e2e_disposable`, own ports / containers / volumes; app schema copied read-only
+from the local ERP — 123 functions, identical fingerprint — plus 0102 → 0101; fictitious data; local test identities; the dev
+server verified to point at the disposable API before opening).** PASS: navigation, badge / count 53, filters (account + origin →
+8; date range → 5), pagination (2 pages), classification through the RPC (count 53 → 52; Caja chica balance and the ledger — 58
+operations / 58 postings — unchanged; purchase on the same payment), P&L before / after (35 000 moved from "Gastos sin
+clasificar" to "Costos indirectos", operating result unchanged), two tabs on the same expense (the second shows "ya fue
+clasificado", one purchase, no movement), OPERATOR (no Caja; views 0 rows; RPC FORBIDDEN; direct insert 403), Mercado Pago note
+and concept pre-fill. Found and fixed during the walkthrough: the concept pre-fill (the note arrives after the row mounts) and
+the badge accessible name. The disposable stack was destroyed; the usual local containers, volumes and database are unchanged.

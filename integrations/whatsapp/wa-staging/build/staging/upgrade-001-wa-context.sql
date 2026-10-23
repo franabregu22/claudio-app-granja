@@ -31,8 +31,9 @@ BEGIN
   -- the live ERP catalog with its hierarchy (category → subcategory); ids are what the draft and the accounting call use
   SELECT coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'nombre', s.nombre, 'grupo_id', s.grupo_id, 'grupo', s.grupo) ORDER BY s.grupo, s.nombre), '[]'::jsonb)
     INTO v_cats FROM wa.selectable_categories() s;
-  SELECT coalesce(jsonb_agg(jsonb_build_object('id', a.id, 'nombre', a.nombre, 'account_type', a.account_type::text) ORDER BY a.nombre), '[]'::jsonb) INTO v_accs
-    FROM financial_account a WHERE a.activo;
+  -- the live enabled paying accounts with the method each one serves (ids are what the draft and the accounting call use)
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'nombre', s.nombre, 'account_type', s.account_type, 'method', s.method) ORDER BY s.method, s.nombre), '[]'::jsonb)
+    INTO v_accs FROM wa.selectable_accounts() s;
   RETURN jsonb_build_object('ok', true, 'open', v_open, 'waiting', v_waiting, 'catalog', jsonb_build_object('categories', v_cats, 'accounts', v_accs));
 END $$;
 -- <<< wa_context

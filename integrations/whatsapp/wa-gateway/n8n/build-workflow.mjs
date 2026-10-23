@@ -28,7 +28,7 @@ if (!allowPlaceholder && !/^[0-9]{6,20}$/.test(String(catalog.phone_number_id)))
 if (!allowPlaceholder && (!/^[a-z0-9][a-z0-9.\-]{2,60}$/.test(conf.model) || conf.model === 'PENDING_EVAL')) throw new Error('interpreter-config.json: model not chosen yet (run the evaluation)');
 const CFG = JSON.stringify({ ar_strip_9: !!catalog.ar_strip_9 });
 const ICONF = JSON.stringify({ model: conf.model, effort: conf.reasoning_effort, maxOutputTokens: conf.max_output_tokens, amountCap: conf.amount_cap,
-  perHour: conf.gpt_calls_per_hour_per_sender, accountByMethod: conf.account_by_method });
+  perHour: conf.gpt_calls_per_hour_per_sender });   // paying accounts come live from the ERP (wa_context), never from config
 const PNID = JSON.stringify(String(catalog.phone_number_id));
 const TEXT = `const PNID = ${PNID};
 const textMsg = (to, body) => ({ messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: String(body).slice(0, 4000) } });`;
@@ -78,7 +78,7 @@ const pre = WAI.preRoute(ctx.text, context);
 if (pre) {
   console.log(JSON.stringify({ evt: 'command', inbound_id: ctx.inbound_id, action: pre.request ? pre.request.action : 'reply' }));
   return { json: pre.request
-    ? { mode: 'action', to: ctx.to, context, request: { ...pre.request, inbound_id: ctx.inbound_id, cap: ctx.request.cap } }
+    ? { mode: 'action', to: ctx.to, context, changes: pre.changes || null, request: { ...pre.request, inbound_id: ctx.inbound_id, cap: ctx.request.cap } }
     : { mode: 'reply', graph: textMsg(ctx.to, pre.reply), phone_number_id: PNID } };
 }
 const sd = $getWorkflowStaticData('global'); sd.gpt = sd.gpt || {};
@@ -104,7 +104,7 @@ if (!p.ok) {
   console.log(JSON.stringify({ evt: 'gpt_failed', inbound_id: a.inbound_id, reason: p.reason, model: IC.model }));
   return { json: { mode: 'reply', graph: textMsg(a.to, 'No pude interpretar el mensaje ahora; probá de nuevo en un rato.'), phone_number_id: PNID } };
 }
-const d = WAI.decide({ gpt: p.data, text: a.text, ctx: a.context, today: WA.today(Date.now()), accountByMethod: IC.accountByMethod, amountCap: IC.amountCap });
+const d = WAI.decide({ gpt: p.data, text: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap });
 console.log(JSON.stringify({ evt: 'gpt', inbound_id: a.inbound_id, model: IC.model, intent: p.data.intent, outcome: d.outcome, changed: d.changed || null,
   tokens_in: p.usage ? p.usage.input : null, tokens_out: p.usage ? p.usage.output : null }));
 return { json: d.request

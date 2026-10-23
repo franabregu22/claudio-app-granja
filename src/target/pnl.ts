@@ -17,6 +17,7 @@ export const PNL_LINES = [
   ['costos_directos', 'Costos directos'],
   ['costos_indirectos', 'Costos indirectos'],
   ['diferencia_caja', 'Diferencia de caja'],   // ADR-016: Feria counted − expected (shortage < 0, overage > 0)
+  ['gastos_sin_clasificar', 'Gastos sin clasificar'],   // ADR-025 (0102): paid expenses whose category is still pending (inside the operating result)
   ['resultado_operativo', 'Resultado operativo'],
   ['otros_ingresos_financieros', 'Otros ingresos financieros'],
   ['resultado_antes_de_reinversion', 'Resultado antes de reinversión'],

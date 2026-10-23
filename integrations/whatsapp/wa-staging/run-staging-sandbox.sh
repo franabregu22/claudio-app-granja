@@ -94,6 +94,16 @@ SQL
 ACC=$($PG -c "SELECT id FROM sim.financial_account WHERE nombre='Caja chica'")
 CASH="jsonb_build_object('date','2026-10-20','total',90,'category_id','aaaaaaaa-0025-0000-0000-0000000000c1','nature','OPERATING','concept','conc','account_id','$ACC','method','CASH')"
 race R4 "SELECT public.wa_propose($(fx p1), 'CASUAL_EXPENSE', $CASH)::text" "SELECT public.wa_propose($(fx p2), 'CASUAL_EXPENSE', $CASH)::text"
+# race 5 — stage 2: two "Confirmar sin clasificar" messages for the same draft at the same time (one pending, one confirmation)
+setup >> "$TMP/fx.txt" <<SQL
+SELECT pg_temp.cancel(pg_temp.msg(pg_temp.v('phone_a'), 'cancelar'), '$(fx wA)', 2) \g /dev/null
+SELECT pg_temp.put('dU', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'conc sin clasificar'), 'CASUAL_EXPENSE',
+  pg_temp.cash(730) - 'category_id' || '{"category_options": []}'::jsonb))) \g /dev/null
+SELECT 'fx|dU|' || pg_temp.get('dU');
+SELECT 'fx|u1|' || pg_temp.msg(pg_temp.v('phone_a'), NULL, 'UNCLASSIFIED:' || pg_temp.get('dU') || ':1');
+SELECT 'fx|u2|' || pg_temp.msg(pg_temp.v('phone_a'), NULL, 'UNCLASSIFIED:' || pg_temp.get('dU') || ':1');
+SQL
+race R5 "SELECT public.wa_confirm($(fx u1), '$(fx dU)', 1)::text" "SELECT public.wa_confirm($(fx u2), '$(fx dU)', 1)::text"
 grep -E "ERROR" "$TMP/fx.txt" | head -3
 echo "== 4 verdicts"
 $PG <<SQL
@@ -102,6 +112,9 @@ SELECT 'R1|purchases_for_draft=' || (SELECT count(*) FROM sim.purchases WHERE id
 SELECT 'R2|A_actor_ok=' || (SELECT created_by = '$A' FROM sim.purchases WHERE idempotency_key = 'WA:$(fx dA2):v1') || ' B_actor_ok=' || (SELECT created_by = '$B' FROM sim.purchases WHERE idempotency_key = 'WA:$(fx dB):v1');
 SELECT 'R3|drafts_holding_25002=' || (SELECT count(*) FROM wa.draft WHERE payload ->> 'mp_source_id' = '930000025002');
 SELECT 'R4|open_drafts_of_B=' || (SELECT count(*) FROM wa.draft WHERE owner_perfil_id = '$B' AND state IN ('DRAFT', 'CONFIRMING'));
+SELECT 'R5|pending_for_draft=' || (SELECT count(*) FROM sim.expense_pending_classification WHERE idempotency_key LIKE 'WA:$(fx dU):%')
+       || ' purchases_for_draft=' || (SELECT count(*) FROM sim.purchases WHERE idempotency_key LIKE 'WA:$(fx dU):%')
+       || ' confirmations=' || (SELECT count(*) FROM wa.confirmation WHERE draft_id = '$(fx dU)') || ' state=' || (SELECT state FROM wa.draft WHERE id = '$(fx dU)');
 SQL
 
 echo "== 5 teardown"

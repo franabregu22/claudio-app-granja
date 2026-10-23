@@ -390,4 +390,269 @@ SELECT pg_temp.expect('K-9 catalog = wa.selectable_categories (one rule) and no 
   (SELECT (count(*) FILTER (WHERE s.id IS NULL))::text FROM jsonb_array_elements(pg_temp.j(pg_temp.ctx(pg_temp.msg(pg_temp.v('phone_b'), 'cat'))) -> 'catalog' -> 'categories') c
      LEFT JOIN wa.selectable_categories() s ON s.id = (c ->> 'id')::uuid), '0');
 
+-- ── P. live paying accounts: add / rename / disable, method ↔ account, account still to choose, change before confirmation ──
+SELECT pg_temp.cancel(pg_temp.msg(pg_temp.v('phone_b'), 'cancelar'), pg_temp.get('dK3'), (SELECT version FROM wa.draft WHERE id = pg_temp.get('dK3')::uuid)) \g /dev/null
+INSERT INTO financial_account (id, nombre, account_type) VALUES ('aaaaaaaa-0025-0000-0000-0000000000a7', 'Banco WA P1', 'BANK_ACCOUNT'),
+  ('aaaaaaaa-0025-0000-0000-0000000000a8', 'Billetera WA P', 'EXTERNAL_SERVICE');
+CREATE FUNCTION pg_temp.pacc(p_id TEXT) RETURNS JSONB LANGUAGE sql AS $f$
+  SELECT a FROM jsonb_array_elements(pg_temp.j(pg_temp.ctx(pg_temp.msg(pg_temp.v('phone_b'), 'cuentas'))) -> 'catalog' -> 'accounts') a WHERE a ->> 'id' = p_id $f$;
+CREATE FUNCTION pg_temp.tr(p_total NUMERIC, p_account TEXT) RETURNS JSONB LANGUAGE sql AS $f$
+  SELECT (pg_temp.cash(p_total, 'P transferencia') - 'account_id') || jsonb_build_object('method', 'TRANSFER') || CASE WHEN p_account IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('account_id', p_account) END $f$;
+SELECT pg_temp.expect('P-1 a new bank account appears in the next context with the method it serves (TRANSFER)',
+  (SELECT (a ->> 'nombre') || '|' || (a ->> 'method') FROM pg_temp.pacc('aaaaaaaa-0025-0000-0000-0000000000a7') a), 'Banco WA P1|TRANSFER');
+UPDATE financial_account SET nombre = 'Banco WA P1 renombrado' WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000a7';
+SELECT pg_temp.expect('P-2 a renamed account keeps its id and shows the new name', (SELECT a ->> 'nombre' FROM pg_temp.pacc('aaaaaaaa-0025-0000-0000-0000000000a7') a), 'Banco WA P1 renombrado');
+SELECT pg_temp.expect('P-3 only accounts that can pay are offered (another EXTERNAL_SERVICE account is not)', (pg_temp.pacc('aaaaaaaa-0025-0000-0000-0000000000a8') IS NULL)::text, 'true');
+SELECT pg_temp.expect('P-4 the account must match the method (cash method with a bank account → refused)',
+  pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'efectivo del banco'), 'CASUAL_EXPENSE', pg_temp.tr(5300, 'aaaaaaaa-0025-0000-0000-0000000000a7') || '{"method": "CASH"}'),
+  'ERR:WA_ACCOUNT_NOT_SELECTABLE: account Banco WA P1 renombrado does not match the method CASH%');
+SELECT pg_temp.put('rP', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'transferi 5301'), 'CASUAL_EXPENSE', pg_temp.tr(5301, NULL)));
+SELECT pg_temp.put('dP', pg_temp.did(pg_temp.get('rP')));
+SELECT pg_temp.expect('P-5 transfer without a stated account → DRAFT with the account pending; confirming it is refused (stays DRAFT, nothing recorded)',
+  (pg_temp.j(pg_temp.get('rP')) ->> 'state') || '|' || (pg_temp.j(pg_temp.get('rP')) -> 'payload' ->> 'account_pending') || '|'
+  || left(pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dP'), 1), pg_temp.get('dP'), 1), 23) || '|' || pg_temp.state(pg_temp.get('dP'))
+  || '|' || pg_temp.cnt(format('SELECT count(*) FROM purchases WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dP') || ':%')),
+  'DRAFT|true|ERR:WA_ACCOUNT_REQUIRED|DRAFT|0');
+SELECT pg_temp.put('rP2', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'por el banco nuevo'), pg_temp.get('dP'), 1, pg_temp.tr(5301, 'aaaaaaaa-0025-0000-0000-0000000000a7')));
+SELECT pg_temp.expect('P-6 the account is set by a correction (every other field intact) and the draft becomes confirmable',
+  (pg_temp.j(pg_temp.get('rP2')) ->> 'version') || '|' || coalesce(pg_temp.j(pg_temp.get('rP2')) -> 'payload' ->> 'account_pending', 'none') || '|'
+  || (pg_temp.j(pg_temp.get('rP2')) -> 'payload' ->> 'total') || '|' || (pg_temp.j(pg_temp.get('rP2')) -> 'payload' ->> 'concept'), '2|none|5301|P transferencia');
+UPDATE financial_account SET activo = false WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000a7';   -- after the proposal, before the confirmation
+SELECT pg_temp.expect('P-7 account disabled between proposal and confirmation → refused inside the confirmation (FAILED), nothing recorded',
+  (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dP'), 2), pg_temp.get('dP'), 2) LIKE '%WA_ACCOUNT_NOT_SELECTABLE: account Banco WA P1 renombrado is inactive%')::text
+  || '|' || pg_temp.state(pg_temp.get('dP')) || '|' || pg_temp.cnt(format('SELECT count(*) FROM purchases WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dP') || ':%')),
+  'true|FAILED|0');
+SELECT pg_temp.expect('P-8 the disabled account is gone from the catalog and a new proposal with it is refused',
+  (pg_temp.pacc('aaaaaaaa-0025-0000-0000-0000000000a7') IS NULL)::text || '|'
+  || left(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'banco viejo'), 'CASUAL_EXPENSE', pg_temp.tr(5302, 'aaaaaaaa-0025-0000-0000-0000000000a7')), 29), 'true|ERR:WA_ACCOUNT_NOT_SELECTABLE');
+SELECT pg_temp.expect('P-9 an account-only correction to another enabled bank account → confirmed with every other field intact',
+  (pg_temp.j(pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'era BNA'), pg_temp.get('dP'), 2, pg_temp.tr(5301, (SELECT id::text FROM financial_account WHERE nombre = 'BNA')))) ->> 'version') || '|'
+  || (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dP'), 3), pg_temp.get('dP'), 3) LIKE '%"state": "CONFIRMED"%')::text || '|'
+  || pg_temp.cnt(format('SELECT amount_total || %L || economic_date FROM purchases WHERE idempotency_key = %L', '|', 'WA:' || pg_temp.get('dP') || ':v3')),
+  '3|true|5301.00|2026-10-20');
+
+-- ── M. several clarifications on one draft: subcategory AND account to choose; nothing confirmable until both are set ──
+INSERT INTO expense_category_group (id, nombre, kind) VALUES ('aaaaaaaa-0025-0000-0000-0000000000e3', 'WA Grupo M', 'EXPENSE');
+INSERT INTO expense_category (id, nombre, group_id, pnl_cost_class) VALUES
+  ('aaaaaaaa-0025-0000-0000-0000000000b7', 'WA Sub M Nafta', 'aaaaaaaa-0025-0000-0000-0000000000e3', 'INDIRECT'),
+  ('aaaaaaaa-0025-0000-0000-0000000000b8', 'WA Sub M Gasoil', 'aaaaaaaa-0025-0000-0000-0000000000e3', 'INDIRECT');
+INSERT INTO financial_account (id, nombre, account_type) VALUES ('aaaaaaaa-0025-0000-0000-0000000000a9', 'Banco WA M', 'BANK_ACCOUNT');
+CREATE FUNCTION pg_temp.mm(p_total NUMERIC) RETURNS JSONB LANGUAGE sql AS $f$
+  SELECT (pg_temp.cash(p_total, 'M combustible') - 'account_id' - 'category_id')
+         || '{"method": "TRANSFER", "category_options": ["aaaaaaaa-0025-0000-0000-0000000000b7", "aaaaaaaa-0025-0000-0000-0000000000b8"]}' $f$;
+SELECT pg_temp.put('rM', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'combustible 5400 por transferencia'), 'CASUAL_EXPENSE', pg_temp.mm(5400)));
+SELECT pg_temp.put('dM', pg_temp.did(pg_temp.get('rM')));
+SELECT pg_temp.expect('M-1 subcategory AND account still to choose → ONE draft (amount, concept, date kept) with both pending',
+  (SELECT (j ->> 'state') || '|' || (j -> 'payload' ->> 'category_pending') || '|' || jsonb_array_length(j -> 'payload' -> 'category_options') || '|'
+          || (j -> 'payload' ->> 'account_pending') || '|' || (j -> 'payload' ->> 'total') || '|' || (j -> 'payload' ->> 'concept') || '|' || (j -> 'payload' ->> 'date')
+     FROM (SELECT pg_temp.j(pg_temp.get('rM')) j) x), 'DRAFT|true|2|true|5400|M combustible|2026-10-20');
+SELECT pg_temp.expect('M-2 confirming with the subcategory pending is refused (stays DRAFT, nothing recorded)',
+  left(pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dM'), 1), pg_temp.get('dM'), 1), 24) || '|' || pg_temp.state(pg_temp.get('dM'))
+  || '|' || pg_temp.cnt(format('SELECT count(*) FROM purchases WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dM') || ':%')), 'ERR:WA_CATEGORY_REQUIRED|DRAFT|0');
+SELECT pg_temp.put('rM2', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'nafta'), pg_temp.get('dM'), 1,
+  pg_temp.mm(5400) - 'category_options' || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000b7"}'));
+SELECT pg_temp.expect('M-3 the subcategory answer clears only that pending datum; the account is still pending and the confirmation still refused',
+  (SELECT (j ->> 'version') || '|' || coalesce(j -> 'payload' ->> 'category_pending', 'none') || '|' || coalesce(j -> 'payload' ->> 'category_options', 'none') || '|'
+          || (j -> 'payload' ->> 'account_pending') || '|' || (j -> 'payload' ->> 'total') FROM (SELECT pg_temp.j(pg_temp.get('rM2')) j) x)
+  || '|' || left(pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dM'), 2), pg_temp.get('dM'), 2), 23),
+  '2|none|none|true|5400|ERR:WA_ACCOUNT_REQUIRED');
+SELECT pg_temp.put('rM3', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'banco wa m'), pg_temp.get('dM'), 2,
+  pg_temp.mm(5400) - 'category_options' || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000b7", "account_id": "aaaaaaaa-0025-0000-0000-0000000000a9"}'));
+SELECT pg_temp.expect('M-4 with both data set the draft is confirmable: exactly ONE purchase, with the original amount and date',
+  coalesce(pg_temp.j(pg_temp.get('rM3')) -> 'payload' ->> 'account_pending', 'none') || '|'
+  || (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dM'), 3), pg_temp.get('dM'), 3) LIKE '%"state": "CONFIRMED"%')::text || '|'
+  || pg_temp.cnt(format('SELECT count(*) || %L || min(amount_total) || %L || min(economic_date) FROM purchases WHERE idempotency_key LIKE %L', '|', '|', 'WA:' || pg_temp.get('dM') || ':%')),
+  'none|true|1|5400.00|2026-10-20');
+UPDATE expense_category SET activo = false WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000b8';
+SELECT pg_temp.expect('M-5 an offered option must be selectable now (a disabled option → refused)',
+  left(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'otra'), 'CASUAL_EXPENSE', pg_temp.mm(5401)), 30), 'ERR:WA_CATEGORY_NOT_SELECTABLE');
+
+-- ── U. "Confirmar sin clasificar" (stage 2): the money now, the subcategory later in the ERP; never a second movement ──
+-- real ERP (candidate: 0102 + 0101) checks operations / postings / balances; the staging doubles have no ledger (marked "real only")
+CREATE FUNCTION pg_temp.is_real() RETURNS BOOLEAN LANGUAGE sql AS $f$ SELECT to_regnamespace('sim') IS NULL $f$;
+CREATE FUNCTION pg_temp.uc(p_total NUMERIC, p_acc TEXT DEFAULT 'Caja chica', p_method TEXT DEFAULT 'CASH') RETURNS JSONB LANGUAGE sql AS $f$
+  SELECT (pg_temp.cash(p_total, 'U gasto dudoso') - 'category_id' - 'account_id') || jsonb_build_object('method', p_method, 'category_options', '[]'::jsonb)
+         || CASE WHEN p_acc IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('account_id', (SELECT id FROM financial_account WHERE nombre = p_acc)) END $f$;
+CREATE FUNCTION pg_temp.ubtn(p_phone TEXT, p_draft TEXT, p_ver INT) RETURNS BIGINT LANGUAGE sql AS $f$
+  SELECT pg_temp.msg(p_phone, NULL, 'UNCLASSIFIED:' || p_draft || ':' || p_ver) $f$;
+-- pending rows / purchases of one draft (any version), and the ledger of the real ERP (ops | postings | balance of an account)
+CREATE FUNCTION pg_temp.upend(p_draft TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$ BEGIN
+  RETURN (SELECT count(*) || '|' || coalesce(min(amount)::text, '-') FROM expense_pending_classification WHERE idempotency_key LIKE 'WA:' || p_draft || ':%'); END $f$;
+CREATE FUNCTION pg_temp.upur(p_draft TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$ BEGIN
+  RETURN (SELECT count(*)::text FROM purchases WHERE idempotency_key LIKE 'WA:' || p_draft || ':%'); END $f$;
+CREATE FUNCTION pg_temp.ledger(p_acc TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
+DECLARE v TEXT;
+BEGIN
+  IF NOT pg_temp.is_real() THEN RETURN 'sim'; END IF;
+  EXECUTE format('SELECT (SELECT count(*) FROM public.financial_operation) || ''|'' || (SELECT count(*) FROM public.financial_posting) || ''|''
+                  || (SELECT coalesce(sum(signed_amount), 0) FROM public.financial_posting WHERE financial_account_id = (SELECT id FROM public.financial_account WHERE nombre = %L))', p_acc) INTO v;
+  RETURN v;
+END $f$;
+CREATE FUNCTION pg_temp.ldelta(p_before TEXT, p_acc TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
+DECLARE a TEXT[] := string_to_array(p_before, '|'); b TEXT[];
+BEGIN
+  IF p_before = 'sim' THEN RETURN 'sim'; END IF;
+  b := string_to_array(pg_temp.ledger(p_acc), '|');
+  RETURN 'ops+' || (b[1]::int - a[1]::int) || ' postings+' || (b[2]::int - a[2]::int) || ' balance' || (b[3]::numeric - a[3]::numeric);
+END $f$;
+
+-- datos financieros incompletos: subcategory AND account to choose → not even "Confirmar sin clasificar"
+SELECT pg_temp.put('dU', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'gasté 3500 en algo por transferencia'), 'CASUAL_EXPENSE', pg_temp.uc(3500, NULL, 'TRANSFER'))));
+SELECT pg_temp.expect('U-1 financial data incomplete (account to choose): "Confirmar sin clasificar" refused, stays DRAFT, nothing recorded',
+  left(pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU'), 1), pg_temp.get('dU'), 1), 23) || '|' || pg_temp.state(pg_temp.get('dU'))
+  || '|' || pg_temp.upend(pg_temp.get('dU')) || '|' || pg_temp.upur(pg_temp.get('dU')), 'ERR:WA_ACCOUNT_REQUIRED|DRAFT|0|-|0');
+SELECT pg_temp.put('rU2', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'desde BNA'), pg_temp.get('dU'), 1, pg_temp.uc(3500, 'BNA', 'TRANSFER')));
+SELECT pg_temp.expect('U-2 account set, subcategory still to choose: the NORMAL confirmation is still refused (WA_CATEGORY_REQUIRED)',
+  (pg_temp.j(pg_temp.get('rU2')) ->> 'version') || '|' || left(pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dU'), 2), pg_temp.get('dU'), 2), 24),
+  '2|ERR:WA_CATEGORY_REQUIRED');
+SELECT pg_temp.expect('U-3 explicit button only: the button of v1 → refused (version); a v1 button sent with v2 → not explicit; another ADMIN → not the owner',
+  left(pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU'), 1), pg_temp.get('dU'), 1), 22) || '|'
+  || left(pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU'), 1), pg_temp.get('dU'), 2), 32) || '|'
+  || left(pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_a'), pg_temp.get('dU'), 2), pg_temp.get('dU'), 2), 23) || '|' || pg_temp.upend(pg_temp.get('dU')),
+  'ERR:WA_VERSION_CHANGED|ERR:WA_CONFIRMATION_NOT_EXPLICIT|ERR:WA_NOT_DRAFT_OWNER|0|-');
+SELECT pg_temp.put('lU', pg_temp.ledger('BNA')) \g /dev/null
+SELECT pg_temp.put('iU', pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU'), 2)::text) \g /dev/null
+SELECT pg_temp.put('cU', pg_temp.confirm(pg_temp.get('iU')::bigint, pg_temp.get('dU'), 2)) \g /dev/null
+SELECT pg_temp.expect('U-4 "Confirmar sin clasificar" → CONFIRMED (unclassified): ONE pending with the amount, NO purchase, by the owner',
+  pg_temp.get('cU') || '|' || pg_temp.upend(pg_temp.get('dU')) || '|' || pg_temp.upur(pg_temp.get('dU')) || '|'
+  || (SELECT (created_by::text = pg_temp.v('admin_b')) || ':' || origin || ':' || (origin_ref ->> 'draft_short_code' = (SELECT short_code FROM wa.draft WHERE id = pg_temp.get('dU')::uuid))
+        FROM expense_pending_classification WHERE idempotency_key = 'WA:' || pg_temp.get('dU') || ':v2'),
+  'OK:%"state": "CONFIRMED"%"unclassified": true%|1|3500.00|0|true:WHATSAPP:true');
+SELECT pg_temp.expect('U-5 the money left at once (real ERP: exactly ONE operation and ONE posting −3 500 on BNA)', pg_temp.ldelta(pg_temp.get('lU'), 'BNA'),
+  CASE WHEN pg_temp.is_real() THEN 'ops+1 postings+1 balance-3500.00' ELSE 'sim' END);
+SELECT pg_temp.expect('U-6 double tap (new message, same button) → already confirmed; the same message again → replay; still ONE pending, nothing posted',
+  (pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU'), 2), pg_temp.get('dU'), 2) LIKE '%"already_confirmed": true%')::text || '|'
+  || (pg_temp.confirm(pg_temp.get('iU')::bigint, pg_temp.get('dU'), 2) LIKE '%"replay": true%')::text || '|' || pg_temp.upend(pg_temp.get('dU'))
+  || '|' || pg_temp.ldelta(pg_temp.get('lU'), 'BNA'),
+  'true|true|1|3500.00|' || CASE WHEN pg_temp.is_real() THEN 'ops+1 postings+1 balance-3500.00' ELSE 'sim' END);
+SELECT pg_temp.expect('U-7 trace: the confirmation key is the ERP key; the wa audit records the mode',
+  (SELECT x.idempotency_key = 'WA:' || pg_temp.get('dU') || ':v2' FROM wa.confirmation x WHERE x.draft_id = pg_temp.get('dU')::uuid)::text || '|'
+  || (SELECT string_agg(e.detail ->> 'mode', ',') FROM wa.audit_event e WHERE e.draft_id = pg_temp.get('dU')::uuid AND e.action = 'CONFIRM' AND e.outcome = 'CONFIRMED'),
+  'true|UNCLASSIFIED');
+SELECT pg_temp.expect('U-8 later classification in the ERP (real only): the purchase on the SAME payment, no new operation / posting, balance unchanged',
+  CASE WHEN pg_temp.is_real() THEN
+    (pg_temp.as_('authenticated', pg_temp.v('admin_a'), format('SELECT classify_pending_expense(%s, %L::uuid, ''OPERATING'')::text',
+       (SELECT id FROM expense_pending_classification WHERE idempotency_key = 'WA:' || pg_temp.get('dU') || ':v2'), 'aaaaaaaa-0025-0000-0000-0000000000c1')) LIKE 'OK:%"CLASIFICADO"%')::text
+    || '|' || pg_temp.ldelta(pg_temp.get('lU'), 'BNA') || '|' || pg_temp.upur(pg_temp.get('dU'))
+    || '|' || pg_temp.cnt(format('SELECT count(*) FROM public.purchases pu JOIN public.expense_pending_classification p ON p.payment_operation_id = pu.paid_operation_id WHERE p.idempotency_key = %L AND pu.is_current',
+                                 'WA:' || pg_temp.get('dU') || ':v2'))
+  ELSE 'true|ops+1 postings+1 balance-3500.00|0|1' END,
+  'true|ops+1 postings+1 balance-3500.00|0|1');
+
+-- clasificación segura: a draft WITH its subcategory keeps the normal flow; "Confirmar sin clasificar" is not accepted for it
+SELECT pg_temp.put('dU2', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'gasté 700 en insumos'), 'CASUAL_EXPENSE', pg_temp.cash(700, 'U insumos'))));
+SELECT pg_temp.expect('U-9 classified draft: "Confirmar sin clasificar" refused; Confirmar → ONE purchase, NO pending',
+  left(pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU2'), 1), pg_temp.get('dU2'), 1), 31) || '|'
+  || (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dU2'), 1), pg_temp.get('dU2'), 1) LIKE '%"state": "CONFIRMED"%"unclassified": false%')::text
+  || '|' || pg_temp.upur(pg_temp.get('dU2')) || '|' || pg_temp.upend(pg_temp.get('dU2')),
+  'ERR:WA_UNCLASSIFIED_NOT_ALLOWED|true|1|0|-');
+
+-- correcciones antes de confirmar: the confirmed expense is the LAST version (amount corrected), once
+SELECT pg_temp.put('dU3', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'gasté 4000 en efectivo, no sé de qué'), 'CASUAL_EXPENSE', pg_temp.uc(4000))));
+SELECT pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'eran 4200'), pg_temp.get('dU3'), 1, pg_temp.uc(4200)) \g /dev/null
+SELECT pg_temp.expect('U-10 correction before confirming: the v1 button is refused; the v2 button records 4 200 once',
+  left(pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU3'), 1), pg_temp.get('dU3'), 1), 22) || '|'
+  || (pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU3'), 2), pg_temp.get('dU3'), 2) LIKE '%"unclassified": true%')::text
+  || '|' || pg_temp.upend(pg_temp.get('dU3')) || '|' || pg_temp.upur(pg_temp.get('dU3')),
+  'ERR:WA_VERSION_CHANGED|true|1|4200.00|0');
+
+-- categoría desactivada: the chosen subcategory disappears before confirming → refused (nothing recorded); the user can then leave it
+-- unclassified and confirm the money explicitly
+INSERT INTO expense_category (id, nombre, group_id, pnl_cost_class) VALUES ('aaaaaaaa-0025-0000-0000-0000000000ba', 'WA Sub U', 'aaaaaaaa-0025-0000-0000-0000000000e3', 'INDIRECT');
+SELECT pg_temp.put('dU4', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'gasté 900 de sub u'), 'CASUAL_EXPENSE',
+  pg_temp.cash(900, 'U sub') || '{"category_id": "aaaaaaaa-0025-0000-0000-0000000000ba"}')));
+UPDATE expense_category SET activo = false WHERE id = 'aaaaaaaa-0025-0000-0000-0000000000ba';
+SELECT pg_temp.expect('U-11 subcategory deactivated before confirming → FAILED, nothing recorded',
+  (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dU4'), 1), pg_temp.get('dU4'), 1) LIKE '%WA_CATEGORY_NOT_SELECTABLE%')::text || '|'
+  || pg_temp.state(pg_temp.get('dU4')) || '|' || pg_temp.upur(pg_temp.get('dU4')) || '|' || pg_temp.upend(pg_temp.get('dU4')), 'true|FAILED|0|0|-');
+SELECT pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'dejalo sin clasificar'), pg_temp.get('dU4'), 1, pg_temp.uc(900)) \g /dev/null
+SELECT pg_temp.expect('U-12 corrected to "subcategory to choose" (v2) → "Confirmar sin clasificar" records the money once',
+  (pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU4'), 2), pg_temp.get('dU4'), 2) LIKE '%"state": "CONFIRMED"%"unclassified": true%')::text
+  || '|' || pg_temp.upend(pg_temp.get('dU4')) || '|' || pg_temp.upur(pg_temp.get('dU4')), 'true|1|900.00|0');
+
+-- Mercado Pago: the outflow already moved the balance in the ERP (ADR-021) → never a second outflow from WhatsApp
+SELECT pg_temp.put('lMP', pg_temp.ledger('Mercado Pago')),
+       pg_temp.put('rec0', CASE WHEN pg_temp.is_real() THEN pg_temp.cnt('SELECT count(*) FROM public.mp_reconciliation') ELSE 'sim' END) \g /dev/null
+SELECT pg_temp.put('dU5', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'pagué 2500 por MP, no sé de qué'), 'CASUAL_EXPENSE',
+  pg_temp.uc(2500, 'Mercado Pago', 'MERCADOPAGO'))));
+SELECT pg_temp.expect('U-13 MP unclassified before linking the outflow → WAITING_MP, not confirmable',
+  pg_temp.state(pg_temp.get('dU5')) || '|' || left(pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU5'), 1), pg_temp.get('dU5'), 1), 17),
+  'WAITING_MP|ERR:WA_WAITING_MP');
+SELECT pg_temp.link(pg_temp.msg(pg_temp.v('phone_b'), 'es el 25002'), pg_temp.get('dU5'), 1, '930000025002') \g /dev/null
+SELECT pg_temp.expect('U-14 linked → "Confirmar sin clasificar" confirms WITHOUT any accounting write: no pending, no purchase, the outflow still pending in the ERP',
+  (pg_temp.confirm(pg_temp.ubtn(pg_temp.v('phone_b'), pg_temp.get('dU5'), 2), pg_temp.get('dU5'), 2) LIKE '%"state": "CONFIRMED"%"financial_effect": "EXISTING_MP_OUTFLOW"%')::text
+  || '|' || pg_temp.upend(pg_temp.get('dU5')) || '|' || pg_temp.upur(pg_temp.get('dU5')) || '|' || pg_temp.pending_as(pg_temp.v('admin_b'), '930000025002'),
+  'true|0|-|0|1');
+SELECT pg_temp.expect('U-15 Mercado Pago ledger untouched (real ERP: no operation, no posting, no reconciliation)',
+  pg_temp.ldelta(pg_temp.get('lMP'), 'Mercado Pago') || '|' || CASE WHEN pg_temp.is_real() THEN (pg_temp.cnt('SELECT count(*) FROM public.mp_reconciliation')::int - pg_temp.get('rec0')::int)::text ELSE 'sim' END,
+  CASE WHEN pg_temp.is_real() THEN 'ops+0 postings+0 balance0.00|0' ELSE 'sim|sim' END);
+SELECT pg_temp.expect('U-16 the accounting RPC itself refuses Mercado Pago (no bypass of ADR-021)',
+  left(pg_temp.as_('postgres', pg_temp.v('admin_b'), format('SELECT register_unclassified_expense(%L::date, 10, %L, %L::uuid, %L, %L)::text',
+       '2026-10-20', 'x', (SELECT id FROM financial_account WHERE nombre = 'Mercado Pago'), 'MERCADOPAGO', 'U-MP-DIRECT')), 26), 'ERR:MP_USE_PENDING_OUTFLOW');
+
+-- ── N. fin_mp_whatsapp_notes (stage 3): the WhatsApp concept next to the ADR-021 pending outflow; read-only, ADMIN only ──
+-- financial snapshot before the section (real ERP: operations, postings, MP reconciliations / releases; doubles: purchases + pendings)
+CREATE FUNCTION pg_temp.fin_snap() RETURNS TEXT LANGUAGE plpgsql AS $f$
+DECLARE v TEXT;
+BEGIN
+  IF pg_temp.is_real() THEN
+    EXECUTE 'SELECT (SELECT count(*) FROM public.financial_operation) || ''|'' || (SELECT count(*) FROM public.financial_posting) || ''|''
+             || (SELECT count(*) FROM public.mp_reconciliation) || ''|'' || (SELECT count(*) FROM public.mp_pending_outflow_resolution) || ''|''
+             || (SELECT count(*) FROM public.purchases)' INTO v;
+  ELSE
+    v := (SELECT count(*) FROM purchases) || '|' || (SELECT count(*) FROM expense_pending_classification) || '|'
+         || (SELECT count(*) FROM mp_pending_outflow WHERE classified_as IS NULL);
+  END IF;
+  RETURN v;
+END $f$;
+SELECT pg_temp.put('finN', pg_temp.fin_snap()) \g /dev/null
+-- a NON-leakproof probe the caller puts in its own filter: it records every value it is shown (SECURITY DEFINER only to write the record)
+CREATE TEMP TABLE t_leak (seen TEXT);
+CREATE FUNCTION pg_temp.leak(t TEXT) RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER COST 0.0000001 AS $f$ BEGIN INSERT INTO t_leak VALUES (t); RETURN true; END $f$;
+GRANT EXECUTE ON FUNCTION pg_temp.leak(text) TO authenticated, anon, service_role;
+
+SELECT pg_temp.expect('N-1 an ADMIN (not the draft owner) reads the note of the outflow confirmed "Registrar sin clasif": SOURCE_ID, draft code, concept, confirmation',
+  pg_temp.as_('authenticated', pg_temp.v('admin_a'), 'SELECT string_agg(source_id || ''|'' || draft_short_code || ''|'' || concept || ''|'' || (confirmed_at IS NOT NULL), '','') FROM public.fin_mp_whatsapp_notes'),
+  'OK:930000025002|' || (SELECT short_code FROM wa.draft WHERE id = pg_temp.get('dU5')::uuid) || '|U gasto dudoso|true');
+SELECT pg_temp.expect('N-2 tied to the SAME pending outflow (still in the ADR-021 pending list); a classified outflow (25001) has no note',
+  pg_temp.pending_as(pg_temp.v('admin_a'), '930000025002') || '|'
+  || pg_temp.as_('authenticated', pg_temp.v('admin_a'), 'SELECT count(*)::text FROM public.fin_mp_whatsapp_notes WHERE source_id = ''930000025001'''), '1|OK:0');
+SELECT pg_temp.expect('N-3 no duplicates: one note per SOURCE_ID (a second draft on the same outflow is impossible: wa_draft_mp_source_once)',
+  pg_temp.as_('authenticated', pg_temp.v('admin_a'), 'SELECT count(*) || ''='' || count(DISTINCT source_id) FROM public.fin_mp_whatsapp_notes') || '|'
+  || pg_temp.cnt('SELECT count(*)::text FROM pg_indexes WHERE indexname = ''wa_draft_mp_source_once'' AND indexdef LIKE ''CREATE UNIQUE INDEX%''')
+  || '|' || pg_temp.cnt('SELECT count(*)::text FROM wa.draft WHERE payload ->> ''mp_source_id'' = ''930000025002'' AND state IN (''DRAFT'', ''WAITING_MP'', ''CONFIRMING'', ''CONFIRMED'')'),
+  'OK:1=1|1|1');
+SELECT pg_temp.expect('N-4 OPERATOR: 0 rows; a JWT without an ERP profile (the gateway): 0 rows; anon and service_role: no privilege',
+  pg_temp.as_('authenticated', pg_temp.v('oper'), 'SELECT count(*)::text FROM public.fin_mp_whatsapp_notes') || '|'
+  || pg_temp.gw('SELECT count(*)::text FROM public.fin_mp_whatsapp_notes') || '|'
+  || left(pg_temp.as_('anon', NULL, 'SELECT count(*)::text FROM public.fin_mp_whatsapp_notes'), 22) || '|'
+  || left(pg_temp.as_('service_role', NULL, 'SELECT count(*)::text FROM public.fin_mp_whatsapp_notes'), 22),
+  'OK:0|OK:0|ERR:permission denied%|ERR:permission denied%');
+SELECT pg_temp.expect('N-5 read-only: no write privilege for any API role; a write attempt is refused',
+  (has_table_privilege('authenticated', 'public.fin_mp_whatsapp_notes', 'INSERT') OR has_table_privilege('authenticated', 'public.fin_mp_whatsapp_notes', 'UPDATE')
+   OR has_table_privilege('authenticated', 'public.fin_mp_whatsapp_notes', 'DELETE') OR has_table_privilege('service_role', 'public.fin_mp_whatsapp_notes', 'SELECT')
+   OR has_table_privilege('anon', 'public.fin_mp_whatsapp_notes', 'SELECT'))::text || '|'
+  || left(pg_temp.as_('authenticated', pg_temp.v('admin_a'), 'INSERT INTO public.fin_mp_whatsapp_notes (source_id) VALUES (''1'') RETURNING source_id'), 4),
+  'false|ERR:');
+SELECT pg_temp.expect('N-6 security_barrier = true; EXACTLY four columns leave wa.draft (source_id, draft_short_code, concept, confirmed_at); owner postgres',
+  (SELECT array_to_string(c.reloptions, ',') || '|' || pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid = 'public.fin_mp_whatsapp_notes'::regclass) || '|'
+  || (SELECT string_agg(attname, ',' ORDER BY attnum) FROM pg_attribute WHERE attrelid = 'public.fin_mp_whatsapp_notes'::regclass AND attnum > 0 AND NOT attisdropped),
+  'security_barrier=true|postgres|source_id,draft_short_code,concept,confirmed_at');
+SELECT pg_temp.expect('N-7 no leak through query filters / functions: a non-leakproof probe in the caller''s filter sees NO value for OPERATOR or a no-profile JWT; ADMIN still filters normally',
+  pg_temp.as_('authenticated', pg_temp.v('oper'), 'SELECT count(*)::text FROM public.fin_mp_whatsapp_notes WHERE pg_temp.leak(concept) AND pg_temp.leak(draft_short_code)') || '|'
+  || pg_temp.gw('SELECT count(*)::text FROM public.fin_mp_whatsapp_notes WHERE pg_temp.leak(source_id) OR concept LIKE ''%''') || '|'
+  || pg_temp.as_('authenticated', pg_temp.v('oper'), 'SELECT count(*)::text FROM public.fin_mp_whatsapp_notes WHERE concept ILIKE ''%gasto%'' OR source_id > ''0''') || '|'
+  || pg_temp.cnt('SELECT count(*)::text FROM t_leak') || '|'
+  || pg_temp.as_('authenticated', pg_temp.v('admin_a'), 'SELECT count(*)::text FROM public.fin_mp_whatsapp_notes WHERE pg_temp.leak(concept)'),
+  'OK:0|OK:0|OK:0|0|OK:1');
+SELECT pg_temp.expect('N-8 identity parity with the ERP: in every session context the view admits exactly when current_app_role() = ADMIN (operator, no profile, ADMIN; a forged legacy sub is the platform-wide auth.uid() model, never settable through the API)',
+  pg_temp.as_('postgres', pg_temp.v('oper'), 'SELECT (SELECT count(*) FROM public.fin_mp_whatsapp_notes) || '':'' || current_app_role()') || '|'
+  || pg_temp.as_('postgres', pg_temp.v('admin_a'), 'SELECT (SELECT count(*) FROM public.fin_mp_whatsapp_notes) || '':'' || current_app_role()') || '|'
+  || pg_temp.as_('postgres', pg_temp.v('oper'), 'SELECT (SELECT count(*) FROM public.fin_mp_whatsapp_notes) || '':'' || current_app_role()', pg_temp.v('admin_a')) || '|'
+  || left(pg_temp.as_('postgres', pg_temp.v('gw'), 'SELECT (SELECT count(*) FROM public.fin_mp_whatsapp_notes) || '':'' || current_app_role()'), 4) || '|'
+  || coalesce(nullif(current_setting('request.jwt.claims', true), ''), '-'),
+  'OK:0:OPERATOR|OK:1:ADMIN|OK:1:ADMIN|ERR:|-');
+SELECT pg_temp.expect('N-9 reading the notes changes nothing financial (and the ADR-021 pending is untouched)',
+  pg_temp.fin_snap() || '|' || pg_temp.pending_as(pg_temp.v('admin_a'), '930000025002'), pg_temp.get('finN') || '|1');
+
 SELECT 'SUMMARY|' || count(*) FILTER (WHERE ok) || '|' || count(*) FILTER (WHERE NOT ok) FROM t_result;

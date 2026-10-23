@@ -3,6 +3,8 @@ import { useAuth } from '../../auth/useAuth';
 import { Cheques } from './Cheques';
 import { CobrosClientes } from './CobrosClientes';
 import { PendientesClasificar } from './PendientesClasificar';
+import { GastosSinClasificar } from './GastosSinClasificar';
+import { useBadgeSinClasificar } from './useUnclassified';
 import { EntradasSinVincular } from './EntradasSinVincular';
 import { Compras } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
@@ -10,9 +12,10 @@ import { ResumenSaldos } from './ResumenSaldos';
 import { ExtractosBancarios } from './ExtractosBancarios';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 
-type Vista = 'saldos' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'instrumentos' | 'extractos';
+type Vista = 'saldos' | 'sinclasificar' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'instrumentos' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'saldos', label: 'Saldos' },
+  { id: 'sinclasificar', label: 'Gastos sin clasificar' },   // ADR-025 (0102): paid expenses whose category is pending
   { id: 'pendientes', label: 'Pendientes de clasificar' },
   { id: 'entradas', label: 'Entradas sin vincular' },   // ADR-023: optional, never an alert
   { id: 'cobros', label: 'Cobros de clientes' },
@@ -31,6 +34,7 @@ export function CajaApp() {
   const { rol } = useAuth();
   const [vista, setVista] = useState<Vista>('saldos');
   const [retiro, setRetiro] = useState(false);
+  const sinClasificar = useBadgeSinClasificar();
 
   if (rol !== 'ADMIN') {
     return (
@@ -62,12 +66,14 @@ export function CajaApp() {
               <button key={v.id} onClick={() => setVista(v.id)}
                 className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-medium ${vista === v.id ? 'bg-[#A8552E] text-white' : 'bg-white text-[#6B5D45] border border-[#E4DCC8] hover:bg-stone-50'}`}>
                 {v.label}
+                {v.id === 'sinclasificar' && sinClasificar > 0 && <span className="ml-1.5 inline-block min-w-5 px-1.5 rounded-full bg-amber-500 text-white text-xs" aria-label={`${sinClasificar} pendientes`}>{sinClasificar}</span>}
               </button>
             ))}
           </nav>
         </header>
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
           {vista === 'saldos' && <ResumenSaldos onVerPendientes={() => setVista('pendientes')} />}
+          {vista === 'sinclasificar' && <GastosSinClasificar onVerPendientesMp={() => setVista('pendientes')} />}
           {vista === 'pendientes' && <PendientesClasificar />}
           {vista === 'entradas' && <EntradasSinVincular />}
           {vista === 'cobros' && <CobrosClientes />}

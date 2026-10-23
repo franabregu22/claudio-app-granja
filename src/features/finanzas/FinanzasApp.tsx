@@ -22,7 +22,7 @@ const periodoAtras = (date: string, n: number) => {
 const BUCKET: Record<string, string> = {
   VENTAS_NETAS: 'Ventas netas', COSTOS_DIRECTOS: 'Costos directos', COSTOS_INDIRECTOS: 'Costos indirectos', DIFERENCIA_CAJA: 'Diferencia de caja',
   OTROS_INGRESOS_FINANCIEROS: 'Otros ingresos financieros', REINVERSION: 'Reinversión', RETIROS: 'Retiros de socios',
-  RESERVAS_INTERNAS: 'Reservas internas', INVERSIONES: 'Inversiones',
+  RESERVAS_INTERNAS: 'Reservas internas', INVERSIONES: 'Inversiones', GASTOS_SIN_CLASIFICAR: 'Gastos sin clasificar',
 };
 const PNL = ['pnl'];
 
@@ -98,7 +98,8 @@ export function FinanzasApp() {
                         <tr key={col} className={`border-b border-amber-100 ${resultado ? 'bg-amber-50 font-semibold' : ''}`}>
                           <td className="px-3 py-2 text-left whitespace-nowrap">{label}</td>
                           {filas.map((f) => (
-                            <td key={f.period} className={`px-3 py-2 text-right whitespace-nowrap ${resultado && f[col] < 0 ? 'text-red-700' : ''}`}>{formatoPesos(f[col])}</td>
+                            <td key={f.period} className={`px-3 py-2 text-right whitespace-nowrap ${resultado && f[col] < 0 ? 'text-red-700' : ''} ${col === 'gastos_sin_clasificar' && f[col] !== 0 ? 'text-amber-800 font-medium' : ''}`}
+                              title={col === 'gastos_sin_clasificar' && f[col] !== 0 ? 'Egresos ya pagados sin categoría (incluidos en el resultado). Clasificalos en Caja → Gastos sin clasificar.' : undefined}>{formatoPesos(f[col])}</td>
                           ))}
                         </tr>
                       );

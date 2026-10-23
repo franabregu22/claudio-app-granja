@@ -24,7 +24,7 @@ const tests = src('tests.template.sql');
 
 const files = {
   'staging/00-guard.sql': src('guard-staging.sql'),
-  'staging/01-sim.sql': src('sim.staging-only.sql'),
+  'staging/01-sim.sql': src('sim.staging-only.sql') + src('sim-unclassified.sql'),
   'staging/02-wa-core.sql': fill(core, 'staging'),
   'staging/03-seed.sql': src('seed-staging.sql'),
   'staging/tests.sql': fill(tests, 'staging'),
@@ -42,20 +42,29 @@ const files = {
     + ['wa_propose', 'wa_correct'].map((f) => between(fill(core, 'staging'), `-- >>> ${f}`, `-- <<< ${f}`).replace(`CREATE FUNCTION public.${f}(`, `CREATE OR REPLACE FUNCTION public.${f}(`)).join('')
     + ['public.wa_propose(bigint, text, jsonb)', 'public.wa_correct(bigint, uuid, integer, jsonb)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
       + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join(''),
-  // live ERP catalog with hierarchy (one selectability rule) + re-check of the subcategory inside the confirmation transaction
-  'staging/upgrade-004-catalog-rule.sql': src('guard-upgrade-staging.sql') + `SET LOCAL search_path = ${PATHS.staging};\n`
+  // live ERP catalog (categories with hierarchy, D-1) and paying accounts (D-3): one rule each, re-checked inside the confirmation;
+  // stage 2 (additive): the sim double of register_unclassified_expense + wa.dispatch_unclassified + the UNCLASSIFIED button in
+  // wa_confirm (the CONFIRM button keeps its exact behaviour, so the workflows already deployed keep working unchanged)
+  'staging/upgrade-004-catalog-rule.sql': src('guard-upgrade-staging.sql') + src('sim-unclassified.sql') + `SET LOCAL search_path = ${PATHS.staging};\n`
     + 'DROP FUNCTION IF EXISTS wa.selectable_categories();\nDROP FUNCTION IF EXISTS wa.category_check(uuid, boolean);\n'
+    + 'DROP FUNCTION IF EXISTS wa.dispatch_unclassified(wa.draft, text, bigint);\n'
+    + 'DROP FUNCTION IF EXISTS wa.selectable_accounts();\nDROP FUNCTION IF EXISTS wa.account_check(uuid, text, boolean);\n'
     + between(fill(core, 'staging'), '-- >>> category_rule', '-- <<< category_rule')
     + [['validate_payload', 'wa.validate_payload'], ['wa_confirm', 'public.wa_confirm'], ['wa_context', 'public.wa_context']]
       .map(([m, f]) => between(fill(core, 'staging'), `-- >>> ${m}`, `-- <<< ${m}`).replace(`CREATE FUNCTION ${f}(`, `CREATE OR REPLACE FUNCTION ${f}(`)).join('')
-    + ['wa.selectable_categories()', 'wa.category_check(uuid, boolean)', 'wa.validate_payload(text, jsonb)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
+    + ['wa.selectable_categories()', 'wa.category_check(uuid, boolean)', 'wa.selectable_accounts()', 'wa.account_check(uuid, text, boolean)',
+       'wa.validate_payload(text, jsonb)', 'wa.dispatch_unclassified(wa.draft, text, bigint)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
       + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\n`).join('')
     + ['public.wa_confirm(bigint, uuid, integer)', 'public.wa_context(bigint)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
-      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join(''),
+      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join('')
+    // stage 3: the ADMIN read model of the WhatsApp concept of a Mercado Pago outflow (read-only; re-creatable)
+    + 'DROP VIEW IF EXISTS public.fin_mp_whatsapp_notes;\n' + between(fill(core, 'staging'), '-- >>> mp_notes', '-- <<< mp_notes'),
   'candidate/0101_wa_whatsapp_gateway.candidate.sql':
     '-- ADR-025 CANDIDATE migration (NOT in supabase/target-migrations; never applied without an owner GO).\n'
     + '-- Generated from src/wa-core.template.sql with search_path = public, pg_temp (real accounting RPCs). wa.config is NOT\n'
     + '-- seeded: until the owner inserts the gateway user and sets enabled = true, every public.wa_* call is refused.\n'
+    + '-- DEPENDS ON the ERP candidate 0102 (supabase/target-candidates/0102, unclassified expenses): wa.dispatch_unclassified calls\n'
+    + '-- register_unclassified_expense. Mandatory order: 0102 BEFORE this migration (final numbering to be reviewed at the cutover).\n'
     + src('guard-candidate.sql') + '\n' + fill(core, 'candidate'),
   'candidate/fixtures.sql': src('fixtures-candidate.sql'),
   'candidate/tests.sql': fill(tests, 'candidate'),

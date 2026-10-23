@@ -3,10 +3,5 @@
  "reasoning_effort": "none",
  "max_output_tokens": 600,
  "amount_cap": 10000000,
- "gpt_calls_per_hour_per_sender": 30,
- "account_by_method": {
-  "CASH": "Caja chica",
-  "TRANSFER": "BNA",
-  "MERCADOPAGO": "Mercado Pago"
- }
+ "gpt_calls_per_hour_per_sender": 30
 }

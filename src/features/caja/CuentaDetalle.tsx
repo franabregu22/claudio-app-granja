@@ -215,12 +215,12 @@ const ACCION_CLS = 'text-xs px-2 py-0.5 rounded border border-amber-300 bg-white
  * Own-account payouts keep their own confirmation. ADR-020 (0090): an unclassified outbound payment uses the same form; the
  * purchase gets the economic amount and the Mercado Pago tax is booked apart by the server.
  */
-export function ClasificarSalida({ sourceId }: { sourceId: string }) {
+export function ClasificarSalida({ sourceId, conceptoInicial }: { sourceId: string; /** ADR-025: the WhatsApp concept, pre-filled (editable) */ conceptoInicial?: string }) {
   const [abierto, setAbierto] = useState(false);
   const [tipo, setTipo] = useState<MpOutflowChoice>('PURCHASE');
   const [proveedor, setProveedor] = useState('');
   const [categoria, setCategoria] = useState('');
-  const [concepto, setConcepto] = useState('');
+  const [concepto, setConcepto] = useState(conceptoInicial ?? '');
   const [naturaleza, setNaturaleza] = useState<'OPERATING' | 'REINVESTMENT' | 'INVESTMENT'>('OPERATING');
   const [aDeuda, setADeuda] = useState(false);
   const [comercio, setComercio] = useState('');
@@ -228,7 +228,8 @@ export function ClasificarSalida({ sourceId }: { sourceId: string }) {
   const saldos = useLedgerBalances('SUPPLIER');
   const { outflow } = useClassifyMp();
   if (!abierto) {
-    return <button type="button" className={`ml-2 ${ACCION_CLS}`} onClick={() => setAbierto(true)}>Clasificar salida</button>;
+    // the WhatsApp concept arrives after the row is mounted: it is applied when the form opens (never over a typed concept)
+    return <button type="button" className={`ml-2 ${ACCION_CLS}`} onClick={() => { if (concepto === '' && conceptoInicial) setConcepto(conceptoInicial); setAbierto(true); }}>Clasificar salida</button>;
   }
   const sinProveedor = proveedor === SIN_PROVEEDOR;
   const deuda = sinProveedor ? 0 : (saldos.data ?? []).find((x) => x.entity_id === proveedor)?.balance ?? 0;
