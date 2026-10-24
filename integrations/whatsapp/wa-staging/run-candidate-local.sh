@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ADR-025 §18.4 — candidate migration + suite on the LOCAL full ERP (docker supabase_db_Claudio_app_Granja), ONE transaction, ROLLBACK.
+# ADR-025 §18.4 — ERP migrations 0101 → 0102 + suite on the LOCAL full ERP (docker supabase_db_Claudio_app_Granja), ONE transaction, ROLLBACK.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DB=supabase_db_Claudio_app_Granja
@@ -8,7 +8,7 @@ VARS=(-v admin_a=aaaaaaaa-0025-0000-0000-00000000ad0a -v admin_b=aaaaaaaa-0025-0
 before=$(docker exec -i $DB psql -U postgres -X -q -t -A -c "SELECT (to_regnamespace('wa') IS NULL) || '|' || (SELECT count(*) FROM purchases) || '|' || (SELECT count(*) FROM vault.secrets) || '|' || (SELECT max(version) FROM migration_ledger.applied)")
 { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'
   cat "$HERE/../../../supabase/target-migrations/0101_unclassified_expenses.sql"; echo   # 0101 first (register_unclassified_expense)
-  cat "$HERE/build/candidate/0101_wa_whatsapp_gateway.candidate.sql"; echo
+  cat "$HERE/../../../supabase/target-migrations/0102_wa_whatsapp_gateway.sql"; echo
   cat "$HERE/build/candidate/fixtures.sql"; echo
   cat "$HERE/build/candidate/tests.sql"; echo
   echo 'ROLLBACK;'; } | docker exec -i $DB psql -U postgres -X -q -t -A "${VARS[@]}" -f - 2>&1 | grep -E "PASS|FAIL|SUMMARY|ERROR|GUARD" | sed 's/^psql:<stdin>:[0-9]*: //'

@@ -1,4 +1,5 @@
--- ADR-025 — candidate precondition: an ERP database at 0100 or later, with the four accounting RPCs, no wa schema and no staging-only schema.
+-- ADR-025 — precondition of 0102: an ERP database at 0100 or later with 0101 (register_unclassified_expense), the four accounting RPCs,
+-- no wa schema and no staging-only schema.
 DO $$
 DECLARE v_problems TEXT[] := '{}';
 BEGIN
@@ -12,6 +13,8 @@ BEGIN
     THEN v_problems := array_append(v_problems, 'register_purchase_with_fiscal_document signature'); END IF;
   IF to_regprocedure('public.register_fiscal_document(fiscal_document_type,fiscal_direction,date,date,numeric,numeric,jsonb,uuid,uuid,varchar,text,varchar,varchar)') IS NULL
     THEN v_problems := array_append(v_problems, 'register_fiscal_document signature'); END IF;
+  IF to_regprocedure('public.register_unclassified_expense(date,numeric,varchar,uuid,payment_method,varchar,varchar,varchar,jsonb,text)') IS NULL
+    THEN v_problems := array_append(v_problems, 'migration 0101 (register_unclassified_expense) is not applied'); END IF;
   IF to_regnamespace('wa') IS NOT NULL THEN v_problems := array_append(v_problems, 'schema wa already exists'); END IF;
   IF to_regnamespace('sim') IS NOT NULL THEN v_problems := array_append(v_problems, 'the staging-only schema exists in an ERP database'); END IF;
   IF cardinality(v_problems) > 0 THEN RAISE EXCEPTION 'CANDIDATE_GUARD: %', array_to_string(v_problems, '; '); END IF;

@@ -5,12 +5,13 @@ Una plantilla, dos builds (`node build.mjs`). Las dos difieren **solo** en `sear
 | Build | Destino | Contenido |
 |---|---|---|
 | `build/staging/` | AppGranja (bot staging) | `00-guard` (solo DB vacía; rechaza el ERP) · `01-sim` (dobles de contrato) · `02-wa-core` (`sim` primero) · `03-seed` (datos sintéticos) · `tests` · `teardown` |
-| `build/candidate/` | ERP local (y, con GO, producción) | `0101_wa_whatsapp_gateway.candidate.sql` (guarda ERP ≥ 0100 + RPC reales; **sin `sim`**; `wa.config` vacío ⇒ todo `wa_*` rechaza) · `fixtures` · `tests` |
+| `build/production/` | ERP (local; producción con GO) | `0102_wa_whatsapp_gateway.sql`, promovida una sola vez a `supabase/target-migrations/` (guarda ERP ≥ 0100 + 0101 + RPC reales; **sin `sim`**; `wa.config` vacío ⇒ todo `wa_*` rechaza) |
+| `build/candidate/` | ERP local | `fixtures` · `tests` de la suite ERP |
 
 Fuentes en `src/`. `build/SHA256SUMS` = el build revisado. El runner de AppGranja se niega si el build no coincide.
 
 ## Ejecutado (solo local)
-- `bash run-candidate-local.sh`: migración candidata + fixtures + suite sobre el ERP local (0001–0100), todo en **una transacción con ROLLBACK**. Imprime una línea de residuo antes/después.
+- `bash run-candidate-local.sh`: migraciones 0101 → 0102 + fixtures + suite sobre el ERP local (0001–0100), todo en **una transacción con ROLLBACK**. Imprime una línea de residuo antes/después.
 - `bash run-staging-sandbox.sh`: crea una DB local descartable que imita AppGranja reseteado. Pasos: instalar → suite (ROLLBACK) → 4 carreras de concurrencia → teardown → eliminar la DB.
 
 ## Pendiente de GO del owner (no ejecutado)
