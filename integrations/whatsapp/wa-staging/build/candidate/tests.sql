@@ -158,10 +158,10 @@ SELECT pg_temp.expect('D-2 the same message again → replay of the same draft',
   'OK:%"replay": true%"draft_id": "' || pg_temp.get('dA') || '"%');
 SELECT pg_temp.expect('D-3 a second open draft of the same sender is refused', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'otro'), 'CASUAL_EXPENSE', pg_temp.cash(200)), 'ERR:WA_OPEN_DRAFT_EXISTS%');
 SELECT pg_temp.expect('D-4 fiscal-reserved subcategory is refused', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'iva'), 'CASUAL_EXPENSE',
-  pg_temp.cash(10) || jsonb_build_object('category_id', (SELECT id FROM expense_category WHERE fiscal_reserved ORDER BY id LIMIT 1))), 'ERR:WA_CATEGORY_NOT_SELECTABLE%');
+  pg_temp.cash(10) || jsonb_build_object('category_id', (SELECT id FROM expense_category WHERE fiscal_reserved ORDER BY id LIMIT 1))), 'ERR:WA_INVALID_PAYLOAD%');
 SELECT pg_temp.expect('D-5 owner-withdrawal subcategory is refused', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'retiro'), 'CASUAL_EXPENSE',
   pg_temp.cash(10) || jsonb_build_object('category_id', (SELECT c.id FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id
-                                                         WHERE g.kind = 'OWNER_WITHDRAWAL' AND c.activo ORDER BY c.id LIMIT 1))), 'ERR:WA_CATEGORY_NOT_SELECTABLE%');
+                                                         WHERE g.kind = 'OWNER_WITHDRAWAL' AND c.activo ORDER BY c.id LIMIT 1))), 'ERR:WA_INVALID_PAYLOAD%');
 SELECT pg_temp.expect('D-6 a message already used cannot drive another action', pg_temp.confirm(pg_temp.get('mA1')::bigint, pg_temp.get('dA'), 1), 'ERR:WA_MESSAGE_ALREADY_USED%');
 SELECT pg_temp.expect('D-7 admin B cannot correct A''s draft', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'corrijo'), pg_temp.get('dA'), 1, pg_temp.cash(1600)), 'ERR:WA_NOT_DRAFT_OWNER%');
 SELECT pg_temp.expect('D-8 correction on a stale version is refused', pg_temp.correct(pg_temp.msg(pg_temp.v('phone_a'), 'corrijo'), pg_temp.get('dA'), 7, pg_temp.cash(1600)), 'ERR:WA_VERSION_CHANGED%');

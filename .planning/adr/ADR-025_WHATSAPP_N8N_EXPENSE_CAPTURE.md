@@ -724,7 +724,9 @@ published → flag on, propose + cancel → one real low-value expense (§18.5) 
   of the accounting call (ids are never sent to OpenAI). If the message names a category with several subcategories and
   not which one (e.g. "combustible" → Nafta / Gasoil), the bot asks; it never guesses.
 - **One selectability rule** (`wa.category_check`): active subcategory, not fiscal-reserved, inside an **active EXPENSE
-  category**. Used by the catalog, by `wa_propose` / `wa_correct` (`WA_CATEGORY_NOT_SELECTABLE`) and **inside the
+  category**. Used by the catalog, by `wa_propose` / `wa_correct` (a deactivated subcategory or category →
+  `WA_CATEGORY_NOT_SELECTABLE`; a subcategory that can never be an expense — unknown, fiscal-reserved, owner withdrawal →
+  `WA_INVALID_PAYLOAD`, the error contract of the published V2, both refused) and **inside the
   confirmation transaction** before the accounting RPC, with `FOR SHARE` on the subcategory and its category (a concurrent
   deactivation waits for the commit). A refused confirmation leaves the draft `FAILED` with 0 purchases; a category-only
   correction keeps every other field and the draft can be confirmed.

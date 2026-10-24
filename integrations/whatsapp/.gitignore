@@ -8,6 +8,7 @@ supabase/.temp/
 *-output.txt
 !wa-gateway/n8n/eval/eval-output.txt
 *-snapshot.txt
+wa-staging/hosted/rollback-004-*.sql
 *.bak
 *.bak-*
 build.bak-*/

@@ -200,8 +200,9 @@ BEGIN
       FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.id = p_id;
   END IF;
   IF NOT FOUND THEN RETURN 'unknown subcategory'; END IF;
-  IF NOT v.activo THEN RETURN 'subcategory ' || v.nombre || ' is inactive'; END IF;
+  -- structural reasons first (never an expense, whatever its state), then the live catalog state
   IF v.fiscal_reserved OR v.kind <> 'EXPENSE' THEN RETURN 'subcategory ' || v.nombre || ' is not selectable for expenses'; END IF;
+  IF NOT v.activo THEN RETURN 'subcategory ' || v.nombre || ' is inactive'; END IF;
   IF NOT v.grupo_activo THEN RETURN 'category ' || v.grupo || ' is inactive'; END IF;
   RETURN NULL;
 END $$;
@@ -247,6 +248,9 @@ BEGIN
   v_total := (p ->> 'total')::numeric;
   IF v_total IS NULL OR v_total <= 0 THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: total > 0 required'; END IF;
   IF p ? 'net' AND ((p ->> 'net')::numeric <= 0 OR (p ->> 'net')::numeric > v_total) THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: 0 < net <= total'; END IF;
+  -- error contract (kept from the published V2): a subcategory that can NEVER be used for an expense (unknown id, fiscal-reserved,
+  -- owner withdrawal / non-EXPENSE group) is an invalid payload (WA_INVALID_PAYLOAD); only the live catalog state (subcategory or
+  -- category deactivated) is WA_CATEGORY_NOT_SELECTABLE. Both are refused; inside the confirmation every refusal is NOT_SELECTABLE.
   IF p_type <> 'VAT_ONLY_DOCUMENT' THEN
     IF p ->> 'category_id' IS NULL AND p_type IN ('CASUAL_EXPENSE', 'CASUAL_WITH_INVOICE') THEN
       -- the subcategory is still to choose (ambiguous or not stated): the draft keeps amount / concept / date but can NOT be
@@ -257,13 +261,13 @@ BEGIN
       FOR v_opt IN SELECT jsonb_array_elements_text(coalesce(p -> 'category_options', '[]'::jsonb)) LOOP
         IF v_opt !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: category_options'; END IF;
         v_why := wa.category_check(v_opt::uuid, false);
-        IF v_why IS NOT NULL THEN RAISE EXCEPTION 'WA_CATEGORY_NOT_SELECTABLE: %', v_why; END IF;
+        IF v_why IS NOT NULL THEN RAISE EXCEPTION '%: %', CASE WHEN v_why = 'unknown subcategory' OR v_why LIKE '% is not selectable for expenses' THEN 'WA_INVALID_PAYLOAD' ELSE 'WA_CATEGORY_NOT_SELECTABLE' END, v_why; END IF;
       END LOOP;
       p := p || jsonb_build_object('category_pending', true, 'category_options', coalesce(p -> 'category_options', '[]'::jsonb));
     ELSE
       IF coalesce(p ->> 'category_id', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: category_id'; END IF;
       v_why := wa.category_check((p ->> 'category_id')::uuid, false);
-      IF v_why IS NOT NULL THEN RAISE EXCEPTION 'WA_CATEGORY_NOT_SELECTABLE: %', v_why; END IF;
+      IF v_why IS NOT NULL THEN RAISE EXCEPTION '%: %', CASE WHEN v_why = 'unknown subcategory' OR v_why LIKE '% is not selectable for expenses' THEN 'WA_INVALID_PAYLOAD' ELSE 'WA_CATEGORY_NOT_SELECTABLE' END, v_why; END IF;
       p := p - 'category_pending' - 'category_options';
     END IF;
     IF coalesce(p ->> 'nature', '') NOT IN ('OPERATING', 'REINVESTMENT', 'INVESTMENT') THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: nature'; END IF;
