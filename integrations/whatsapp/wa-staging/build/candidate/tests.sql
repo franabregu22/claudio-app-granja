@@ -655,4 +655,69 @@ SELECT pg_temp.expect('N-8 identity parity with the ERP: in every session contex
 SELECT pg_temp.expect('N-9 reading the notes changes nothing financial (and the ADR-021 pending is untouched)',
   pg_temp.fin_snap() || '|' || pg_temp.pending_as(pg_temp.v('admin_a'), '930000025002'), pg_temp.get('finN') || '|1');
 
+-- ── W. the payment method is NEVER presumed (owner, 2026-10-24): pending method, WA_METHOD_REQUIRED, METHOD buttons ──
+UPDATE wa.draft SET state = 'CANCELLED' WHERE state IN ('DRAFT', 'CONFIRMING', 'WAITING_MP', 'FAILED');   -- a clean start for both admins
+CREATE FUNCTION pg_temp.nm(p_total NUMERIC) RETURNS JSONB LANGUAGE sql AS $f$ SELECT pg_temp.cash(p_total, 'W sin medio') - 'method' - 'account_id' $f$;
+CREATE FUNCTION pg_temp.mbtn(p_phone TEXT, p_draft TEXT, p_ver INT, p_method TEXT) RETURNS BIGINT LANGUAGE sql AS $f$
+  SELECT pg_temp.msg(p_phone, NULL, 'METHOD:' || p_draft || ':' || p_ver || ':' || p_method) $f$;
+CREATE FUNCTION pg_temp.wpay(p_total NUMERIC, p_method TEXT, p_acc TEXT) RETURNS JSONB LANGUAGE sql AS $f$
+  SELECT pg_temp.nm(p_total) || jsonb_build_object('method', p_method, 'account_id', (SELECT id FROM financial_account WHERE nombre = p_acc)) $f$;
+SELECT pg_temp.put('rW', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'gasté 6100 en insumos'), 'CASUAL_EXPENSE', pg_temp.nm(6100))) \g /dev/null
+SELECT pg_temp.put('dW', pg_temp.did(pg_temp.get('rW'))) \g /dev/null
+SELECT pg_temp.expect('W-1 no method → DRAFT with the method AND the account pending; amount / concept / date / subcategory kept',
+  (SELECT (j ->> 'state') || '|' || (j -> 'payload' ->> 'method_pending') || '|' || (j -> 'payload' ->> 'account_pending') || '|' || coalesce(j -> 'payload' ->> 'method', '-')
+          || '|' || coalesce(j -> 'payload' ->> 'account_id', '-') || '|' || (j -> 'payload' ->> 'total') || '|' || (j -> 'payload' ->> 'concept') || '|' || (j -> 'payload' ->> 'date')
+          || '|' || (j -> 'payload' ->> 'category_id') FROM (SELECT pg_temp.j(pg_temp.get('rW')) j) x),
+  'DRAFT|true|true|-|-|6100|W sin medio|2026-10-20|aaaaaaaa-0025-0000-0000-0000000000c1');
+SELECT pg_temp.expect('W-2 a paying account without its method is refused (the database never infers one from the other)',
+  pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'x'), 'CASUAL_EXPENSE', pg_temp.cash(6101) - 'method'), 'ERR:WA_INVALID_PAYLOAD: a paying account without%');
+SELECT pg_temp.expect('W-3 an unknown method is refused', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'x'), 'CASUAL_EXPENSE',
+  pg_temp.cash(6102) || '{"method": "TARJETA"}'), 'ERR:WA_INVALID_PAYLOAD: method%');
+SELECT pg_temp.expect('W-4 the context exposes the pending method of the open draft (the interpreter asks for it)',
+  (pg_temp.j(pg_temp.ctx(pg_temp.msg(pg_temp.v('phone_b'), 'estado'))) -> 'open' -> 'payload' ->> 'method_pending'), 'true');
+SELECT pg_temp.expect('W-5 CONFIRM while the method is pending → WA_METHOD_REQUIRED; still DRAFT; nothing recorded',
+  left(pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dW'), 1), pg_temp.get('dW'), 1), 22) || '|' || pg_temp.state(pg_temp.get('dW'))
+  || '|' || pg_temp.cnt(format('SELECT count(*) FROM purchases WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dW') || ':%')), 'ERR:WA_METHOD_REQUIRED|DRAFT|0');
+SELECT pg_temp.expect('W-6 "Registrar sin clasif" (UNCLASSIFIED) while the method is pending → WA_METHOD_REQUIRED too; nothing recorded',
+  left(pg_temp.confirm(pg_temp.msg(pg_temp.v('phone_b'), NULL, 'UNCLASSIFIED:' || pg_temp.get('dW') || ':1'), pg_temp.get('dW'), 1), 22) || '|'
+  || pg_temp.cnt(format('SELECT count(*) FROM expense_pending_classification WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dW') || ':%')), 'ERR:WA_METHOD_REQUIRED|0');
+SELECT pg_temp.expect('W-7 another person''s METHOD button on the draft → WA_NOT_DRAFT_OWNER',
+  pg_temp.correct(pg_temp.mbtn(pg_temp.v('phone_a'), pg_temp.get('dW'), 1, 'CASH'), pg_temp.get('dW'), 1, pg_temp.wpay(6100, 'CASH', 'Caja chica')), 'ERR:WA_NOT_DRAFT_OWNER%');
+SELECT pg_temp.expect('W-8 a METHOD button can only set the method it names (TRANSFER button, CASH payload) → WA_BUTTON_MISMATCH',
+  pg_temp.correct(pg_temp.mbtn(pg_temp.v('phone_b'), pg_temp.get('dW'), 1, 'TRANSFER'), pg_temp.get('dW'), 1, pg_temp.wpay(6100, 'CASH', 'Caja chica')), 'ERR:WA_BUTTON_MISMATCH%');
+SELECT pg_temp.expect('W-9 a CONFIRM button can not drive a correction → WA_BUTTON_MISMATCH',
+  pg_temp.correct(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dW'), 1), pg_temp.get('dW'), 1, pg_temp.wpay(6100, 'CASH', 'Caja chica')), 'ERR:WA_BUTTON_MISMATCH%');
+SELECT pg_temp.put('mW', pg_temp.mbtn(pg_temp.v('phone_b'), pg_temp.get('dW'), 1, 'CASH')::text) \g /dev/null
+SELECT pg_temp.put('rW2', pg_temp.correct(pg_temp.get('mW')::bigint, pg_temp.get('dW'), 1, pg_temp.wpay(6100, 'CASH', 'Caja chica'))) \g /dev/null
+SELECT pg_temp.expect('W-10 its own METHOD:CASH button of THIS version → v2 DRAFT, CASH, nothing pending; amount / concept / date / subcategory kept',
+  (SELECT (j ->> 'state') || '|v' || (j ->> 'version') || '|' || (j -> 'payload' ->> 'method') || '|' || (j -> 'payload' ? 'method_pending')::text || '|' || (j -> 'payload' ? 'account_pending')::text
+          || '|' || (j -> 'payload' ->> 'total') || '|' || (j -> 'payload' ->> 'concept') || '|' || (j -> 'payload' ->> 'date') || '|' || (j -> 'payload' ->> 'category_id')
+     FROM (SELECT pg_temp.j(pg_temp.get('rW2')) j) x), 'DRAFT|v2|CASH|false|false|6100|W sin medio|2026-10-20|aaaaaaaa-0025-0000-0000-0000000000c1');
+SELECT pg_temp.expect('W-11 the same button message again → replay of the same result (no v3)',
+  (pg_temp.correct(pg_temp.get('mW')::bigint, pg_temp.get('dW'), 1, pg_temp.wpay(6100, 'CASH', 'Caja chica')) LIKE '%"replay": true%')::text || '|'
+  || pg_temp.cnt(format('SELECT max(version) FROM wa.draft_version WHERE draft_id = %L', pg_temp.get('dW'))), 'true|2');
+SELECT pg_temp.expect('W-12 an OLD (v1) METHOD button tapped again: on v1 → WA_VERSION_CHANGED; claimed as v2 → WA_BUTTON_MISMATCH',
+  left(pg_temp.correct(pg_temp.mbtn(pg_temp.v('phone_b'), pg_temp.get('dW'), 1, 'TRANSFER'), pg_temp.get('dW'), 1, pg_temp.wpay(6100, 'TRANSFER', 'BNA')), 22) || '|'
+  || left(pg_temp.correct(pg_temp.mbtn(pg_temp.v('phone_b'), pg_temp.get('dW'), 1, 'TRANSFER'), pg_temp.get('dW'), 2, pg_temp.wpay(6100, 'TRANSFER', 'BNA')), 22),
+  'ERR:WA_VERSION_CHANGED|ERR:WA_BUTTON_MISMATCH');
+SELECT pg_temp.expect('W-13 change of method by text ("era transferencia desde BNA") → v3 TRANSFER / BNA; the rest kept',
+  (SELECT (j -> 'payload' ->> 'method') || '|' || (j -> 'payload' ->> 'total') || '|' || (j -> 'payload' ->> 'category_id') || '|v' || (j ->> 'version')
+     FROM (SELECT pg_temp.j(pg_temp.correct(pg_temp.msg(pg_temp.v('phone_b'), 'era transferencia desde BNA'), pg_temp.get('dW'), 2, pg_temp.wpay(6100, 'TRANSFER', 'BNA'))) j) x),
+  'TRANSFER|6100|aaaaaaaa-0025-0000-0000-0000000000c1|v3');
+SELECT pg_temp.expect('W-14 with every datum set (v3: transfer) the CONFIRM button records exactly ONE purchase, with its payment operation',
+  (pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_b'), pg_temp.get('dW'), 3), pg_temp.get('dW'), 3) LIKE '%"state": "CONFIRMED"%')::text || '|'
+  || pg_temp.cnt(format('SELECT count(*) || %L || bool_and(paid_operation_id IS NOT NULL) || %L || min(amount_total) FROM purchases WHERE idempotency_key LIKE %L', '|', '|', 'WA:' || pg_temp.get('dW') || ':%')),
+  'true|1|true|6100.00');
+SELECT pg_temp.put('dW2', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_b'), 'pagué 2500 de insumos'), 'CASUAL_EXPENSE', pg_temp.nm(2500)))) \g /dev/null
+SELECT pg_temp.expect('W-15 METHOD:MERCADOPAGO button → the Mercado Pago rules (ADR-021): WAITING_MP for its outflow, no second movement',
+  (SELECT (j ->> 'state') || '|' || (j -> 'payload' ->> 'method') || '|' || (j -> 'payload' ->> 'needs_mp') || '|' || (j -> 'payload' ? 'method_pending')::text
+     FROM (SELECT pg_temp.j(pg_temp.correct(pg_temp.mbtn(pg_temp.v('phone_b'), pg_temp.get('dW2'), 1, 'MERCADOPAGO'), pg_temp.get('dW2'), 1, pg_temp.wpay(2500, 'MERCADOPAGO', 'Mercado Pago'))) j) x)
+  || '|' || pg_temp.cnt(format('SELECT count(*) FROM purchases WHERE idempotency_key LIKE %L', 'WA:' || pg_temp.get('dW2') || ':%')), 'WAITING_MP|MERCADOPAGO|true|false|0');
+SELECT pg_temp.cancel(pg_temp.msg(pg_temp.v('phone_b'), 'cancelar'), pg_temp.get('dW2'), 2) \g /dev/null
+SELECT pg_temp.put('dW3', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'gasté 6300'), 'CASUAL_EXPENSE', pg_temp.wpay(6300, 'CASH', 'Caja chica')))) \g /dev/null
+SELECT pg_temp.expect('W-16 a correction that omits the method puts it back to pending; the CONFIRM button is refused again',
+  (SELECT (j -> 'payload' ->> 'method_pending') || '|' || coalesce(j -> 'payload' ->> 'method', '-') FROM (SELECT pg_temp.j(pg_temp.correct(pg_temp.msg(pg_temp.v('phone_a'), 'otra'), pg_temp.get('dW3'), 1, pg_temp.nm(6300))) j) x)
+  || '|' || left(pg_temp.confirm(pg_temp.btn(pg_temp.v('phone_a'), pg_temp.get('dW3'), 2), pg_temp.get('dW3'), 2), 22),
+  'true|-|ERR:WA_METHOD_REQUIRED');
+
 SELECT 'SUMMARY|' || count(*) FILTER (WHERE ok) || '|' || count(*) FILTER (WHERE NOT ok) FROM t_result;

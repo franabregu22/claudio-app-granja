@@ -21,6 +21,11 @@ const fill = (text, variant) => {
 const core = src('wa-core.template.sql');
 const between = (text, a, b) => { const s = text.indexOf(a), e = text.indexOf(b); if (s < 0 || e < s) throw new Error('marker ' + a); return text.slice(s, e + b.length) + '\n'; };
 const tests = src('tests.template.sql');
+const frozen = (f, sha) => {
+  const t = readFileSync(join(HERE, 'src', 'applied', f), 'utf8');
+  if (createHash('sha256').update(t).digest('hex') !== sha) throw new Error(`frozen applied upgrade ${f} differs from its reviewed hash`);
+  return t;
+};
 
 const files = {
   'staging/00-guard.sql': src('guard-staging.sql'),
@@ -29,36 +34,25 @@ const files = {
   'staging/03-seed.sql': src('seed-staging.sql'),
   'staging/tests.sql': fill(tests, 'staging'),
   'staging/teardown.sql': src('teardown-staging.sql'),
-  // upgrades of the ALREADY INSTALLED AppGranja staging (each one transaction; idempotency by the guard / ON CONFLICT)
-  'staging/upgrade-001-wa-context.sql': src('guard-upgrade-staging.sql') + `SET LOCAL search_path = ${PATHS.staging};\n`
-    + 'DROP FUNCTION IF EXISTS public.wa_context(bigint);\n' + between(fill(core, 'staging'), '-- >>> wa_context', '-- <<< wa_context')
-    + `ALTER FUNCTION public.wa_context(bigint) OWNER TO postgres;\nREVOKE ALL ON FUNCTION public.wa_context(bigint) FROM PUBLIC, anon, authenticated, service_role;\n`
-    + `GRANT EXECUTE ON FUNCTION public.wa_context(bigint) TO authenticated;\n`,
+  // upgrades ALREADY APPLIED on AppGranja: frozen byte for byte (src/applied/, copied from the reviewed commit 0a54bdc) — a later
+  // change of the core must never alter an artifact that is installed; each one is checked against its reviewed SHA-256
+  'staging/upgrade-001-wa-context.sql': frozen('upgrade-001-wa-context.sql', 'd0d36a4bb6141947cbdc371166fabd37740ca0aedbf71e5de639897ae4c64da1'),
   'staging/upgrade-002-sim-categories.sql': src('guard-upgrade-staging.sql') + src('sim-categories.sql'),
-  // duplicate references (same criterion as wa.duplicate_hint; details only for an active mapped ADMIN viewer) in propose / correct
-  'staging/upgrade-003-duplicate-refs.sql': src('guard-upgrade-staging.sql') + `SET LOCAL search_path = ${PATHS.staging};\n`
-    + 'DROP FUNCTION IF EXISTS wa.duplicate_refs(jsonb, uuid);\n' + between(fill(core, 'staging'), '-- >>> duplicate_refs', '-- <<< duplicate_refs')
-    + 'ALTER FUNCTION wa.duplicate_refs(jsonb, uuid) OWNER TO postgres;\nREVOKE ALL ON FUNCTION wa.duplicate_refs(jsonb, uuid) FROM PUBLIC, anon, authenticated, service_role;\n'
-    + ['wa_propose', 'wa_correct'].map((f) => between(fill(core, 'staging'), `-- >>> ${f}`, `-- <<< ${f}`).replace(`CREATE FUNCTION public.${f}(`, `CREATE OR REPLACE FUNCTION public.${f}(`)).join('')
-    + ['public.wa_propose(bigint, text, jsonb)', 'public.wa_correct(bigint, uuid, integer, jsonb)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
-      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join(''),
-  // live ERP catalog (categories with hierarchy, D-1) and paying accounts (D-3): one rule each, re-checked inside the confirmation;
-  // stage 2 (additive): the sim double of register_unclassified_expense + wa.dispatch_unclassified + the UNCLASSIFIED button in
-  // wa_confirm (the CONFIRM button keeps its exact behaviour, so the workflows already deployed keep working unchanged)
-  'staging/upgrade-004-catalog-rule.sql': src('guard-upgrade-staging.sql') + src('sim-unclassified.sql') + `SET LOCAL search_path = ${PATHS.staging};\n`
-    + 'DROP FUNCTION IF EXISTS wa.selectable_categories();\nDROP FUNCTION IF EXISTS wa.category_check(uuid, boolean);\n'
-    + 'DROP FUNCTION IF EXISTS wa.dispatch_unclassified(wa.draft, text, bigint);\n'
-    + 'DROP FUNCTION IF EXISTS wa.selectable_accounts();\nDROP FUNCTION IF EXISTS wa.account_check(uuid, text, boolean);\n'
-    + between(fill(core, 'staging'), '-- >>> category_rule', '-- <<< category_rule')
-    + [['validate_payload', 'wa.validate_payload'], ['wa_confirm', 'public.wa_confirm'], ['wa_context', 'public.wa_context']]
+  'staging/upgrade-003-duplicate-refs.sql': frozen('upgrade-003-duplicate-refs.sql', 'e342f7556bff9d364a6258dd93f5961db7fc8e82a3445fb12c03b0a0efa9bde0'),
+  // live ERP catalog (D-1), paying accounts (D-3), "Registrar sin clasif", fin_mp_whatsapp_notes — applied 2026-10-23 (rollback file kept)
+  'staging/upgrade-004-catalog-rule.sql': frozen('upgrade-004-catalog-rule.sql', 'eceab9af020c83287ed4d57d758e74606e0683de718a05bcc8394ef8fca6e44d'),
+  // payment method NEVER presumed (owner, 2026-10-24): method pending in the draft, WA_METHOD_REQUIRED in the confirmation, the
+  // METHOD:<draft>:<version>:<method> button only drives that correction. Additive: the published V2 always sends a method.
+  'staging/upgrade-005-method-pending.sql': src('guard-upgrade-staging.sql')
+    + "DO $$ BEGIN IF to_regprocedure('wa.selectable_categories()') IS NULL THEN RAISE EXCEPTION 'UPGRADE_005_GUARD: upgrade-004 is not installed'; END IF; END $$;\n"
+    + `SET LOCAL search_path = ${PATHS.staging};\n`
+    + [['validate_payload', 'wa.validate_payload'], ['wa_correct', 'public.wa_correct'], ['wa_confirm', 'public.wa_confirm']]
       .map(([m, f]) => between(fill(core, 'staging'), `-- >>> ${m}`, `-- <<< ${m}`).replace(`CREATE FUNCTION ${f}(`, `CREATE OR REPLACE FUNCTION ${f}(`)).join('')
-    + ['wa.selectable_categories()', 'wa.category_check(uuid, boolean)', 'wa.selectable_accounts()', 'wa.account_check(uuid, text, boolean)',
-       'wa.validate_payload(text, jsonb)', 'wa.dispatch_unclassified(wa.draft, text, bigint)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
-      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\n`).join('')
-    + ['public.wa_confirm(bigint, uuid, integer)', 'public.wa_context(bigint)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
-      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join('')
-    // stage 3: the ADMIN read model of the WhatsApp concept of a Mercado Pago outflow (read-only; re-creatable)
-    + 'DROP VIEW IF EXISTS public.fin_mp_whatsapp_notes;\n' + between(fill(core, 'staging'), '-- >>> mp_notes', '-- <<< mp_notes'),
+      // the wa_confirm block also carries wa.dispatch_unclassified (unchanged since upgrade-004): replaced in place, privileges kept
+      .replace('CREATE FUNCTION wa.dispatch_unclassified(', 'CREATE OR REPLACE FUNCTION wa.dispatch_unclassified(')
+    + 'ALTER FUNCTION wa.validate_payload(text, jsonb) OWNER TO postgres;\nREVOKE ALL ON FUNCTION wa.validate_payload(text, jsonb) FROM PUBLIC, anon, authenticated, service_role;\n'
+    + ['public.wa_correct(bigint, uuid, integer, jsonb)', 'public.wa_confirm(bigint, uuid, integer)'].map((s) => `ALTER FUNCTION ${s} OWNER TO postgres;\n`
+      + `REVOKE ALL ON FUNCTION ${s} FROM PUBLIC, anon, authenticated, service_role;\nGRANT EXECUTE ON FUNCTION ${s} TO authenticated;\n`).join(''),
   'candidate/0101_wa_whatsapp_gateway.candidate.sql':
     '-- ADR-025 CANDIDATE migration (NOT in supabase/target-migrations; never applied without an owner GO).\n'
     + '-- Generated from src/wa-core.template.sql with search_path = public, pg_temp (real accounting RPCs). wa.config is NOT\n'

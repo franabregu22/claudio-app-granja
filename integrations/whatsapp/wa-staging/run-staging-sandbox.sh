@@ -38,7 +38,7 @@ echo "guard re-run on the installed database (must refuse): $($PG -f - < "$HERE/
 echo "ERP-refusal: the staging guard on the local ERP → $(docker exec -i $C psql -U postgres -X -q -t -A -f - < "$HERE/build/staging/00-guard.sql" 2>&1 | grep -o 'STAGING_GUARD: .*' | cut -c1-90)"
 
 echo "== 2b staging upgrades on the installed database (idempotent re-application)"
-for u in upgrade-001-wa-context upgrade-002-sim-categories upgrade-003-duplicate-refs upgrade-004-catalog-rule; do { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/build/staging/$u.sql"; echo 'COMMIT;'; } | $PG -f - 2>&1 | grep -E "GUARD|ERROR" | sed "s/^/  $u: /"; done
+for u in upgrade-001-wa-context upgrade-002-sim-categories upgrade-003-duplicate-refs upgrade-004-catalog-rule upgrade-005-method-pending; do { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/build/staging/$u.sql"; echo 'COMMIT;'; } | $PG -f - 2>&1 | grep -E "GUARD|ERROR" | sed "s/^/  $u: /"; done
 echo "after upgrades: $($PG -c "SELECT 'public_wa_functions=' || (SELECT count(*) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'wa\_%') || ' selectable_sim_categories=' || (SELECT count(*) FROM sim.expense_category c JOIN sim.expense_category_group g ON g.id=c.group_id WHERE c.activo AND NOT c.fiscal_reserved AND g.kind='EXPENSE')")"
 echo "== 3 suite (one transaction, ROLLBACK)"
 { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/build/staging/tests.sql"; echo 'ROLLBACK;'; } | $PG $VARS -f - 2>&1 | grep -E "FAIL|SUMMARY|ERROR" | sed 's/^psql:<stdin>:[0-9]*: //'
@@ -104,6 +104,17 @@ SELECT 'fx|u1|' || pg_temp.msg(pg_temp.v('phone_a'), NULL, 'UNCLASSIFIED:' || pg
 SELECT 'fx|u2|' || pg_temp.msg(pg_temp.v('phone_a'), NULL, 'UNCLASSIFIED:' || pg_temp.get('dU') || ':1');
 SQL
 race R5 "SELECT public.wa_confirm($(fx u1), '$(fx dU)', 1)::text" "SELECT public.wa_confirm($(fx u2), '$(fx dU)', 1)::text"
+# race 6 — payment method never presumed: the same METHOD button tapped twice at the same time on a draft whose method is pending
+setup >> "$TMP/fx.txt" <<'SQL'
+SELECT pg_temp.put('dM', pg_temp.did(pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'sin medio'), 'CASUAL_EXPENSE', pg_temp.cash(740) - 'method' - 'account_id'))) \g /dev/null
+SELECT 'fx|dM|' || pg_temp.get('dM');
+SELECT 'fx|k1|' || pg_temp.msg(pg_temp.v('phone_a'), NULL, 'METHOD:' || pg_temp.get('dM') || ':1:CASH');
+SELECT 'fx|k2|' || pg_temp.msg(pg_temp.v('phone_a'), NULL, 'METHOD:' || pg_temp.get('dM') || ':1:CASH');
+SELECT 'fx|pay|' || ((SELECT payload - 'method_pending' - 'account_pending' - 'needs_mp' FROM wa.draft WHERE id = pg_temp.get('dM')::uuid)
+       || jsonb_build_object('method', 'CASH', 'account_id', (SELECT id FROM financial_account WHERE nombre = 'Caja chica')))::text;
+SQL
+PAY="'$(fx pay)'::jsonb"
+race R6 "SELECT public.wa_correct($(fx k1), '$(fx dM)', 1, $PAY)::text" "SELECT public.wa_correct($(fx k2), '$(fx dM)', 1, $PAY)::text"
 grep -E "ERROR" "$TMP/fx.txt" | head -3
 echo "== 4 verdicts"
 $PG <<SQL
@@ -115,6 +126,8 @@ SELECT 'R4|open_drafts_of_B=' || (SELECT count(*) FROM wa.draft WHERE owner_perf
 SELECT 'R5|pending_for_draft=' || (SELECT count(*) FROM sim.expense_pending_classification WHERE idempotency_key LIKE 'WA:$(fx dU):%')
        || ' purchases_for_draft=' || (SELECT count(*) FROM sim.purchases WHERE idempotency_key LIKE 'WA:$(fx dU):%')
        || ' confirmations=' || (SELECT count(*) FROM wa.confirmation WHERE draft_id = '$(fx dU)') || ' state=' || (SELECT state FROM wa.draft WHERE id = '$(fx dU)');
+SELECT 'R6|versions=' || (SELECT count(*) FROM wa.draft_version WHERE draft_id = '$(fx dM)') || ' method=' || (SELECT payload ->> 'method' FROM wa.draft WHERE id = '$(fx dM)')
+       || ' pending=' || (SELECT (payload ? 'method_pending')::text FROM wa.draft WHERE id = '$(fx dM)') || ' purchases=' || (SELECT count(*) FROM sim.purchases WHERE idempotency_key LIKE 'WA:$(fx dM):%');
 SQL
 
 echo "== 5 teardown"

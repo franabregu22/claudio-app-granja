@@ -274,8 +274,15 @@ BEGIN
   END IF;
   IF p_type IN ('CASUAL_EXPENSE', 'CASUAL_WITH_INVOICE') THEN
     IF length(coalesce(p ->> 'concept', '')) NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: concept 1–100'; END IF;
-    IF coalesce(p ->> 'method', '') NOT IN ('CASH', 'TRANSFER', 'MERCADOPAGO') THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: method'; END IF;
-    IF p ->> 'account_id' IS NULL THEN
+    IF p ->> 'method' IS NULL THEN
+      -- owner decision (2026-10-24): the payment method is NEVER presumed. Not said, unknown or ambiguous → the draft keeps every
+      -- other datum with the method (and so the paying account) PENDING; it can not be confirmed (WA_METHOD_REQUIRED) until chosen
+      IF p ->> 'account_id' IS NOT NULL THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: a paying account without its payment method'; END IF;
+      IF p ? 'mp_source_id' THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: a Mercado Pago outflow without the Mercado Pago method'; END IF;
+      p := (p - 'method' - 'account_id') || jsonb_build_object('method_pending', true, 'account_pending', true, 'needs_mp', false);
+    ELSIF (p ->> 'method') NOT IN ('CASH', 'TRANSFER', 'MERCADOPAGO') THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: method';
+    ELSIF p ->> 'account_id' IS NULL THEN
+      p := p - 'method_pending';
       -- several enabled accounts fit the method and the user has not said which: a draft that can NOT be confirmed until it is set
       IF NOT EXISTS (SELECT 1 FROM wa.selectable_accounts() s WHERE s.method = p ->> 'method') THEN
         RAISE EXCEPTION 'WA_ACCOUNT_NOT_SELECTABLE: no enabled account for %', p ->> 'method';
@@ -285,7 +292,7 @@ BEGIN
       IF (p ->> 'account_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: account_id'; END IF;
       v_why := wa.account_check((p ->> 'account_id')::uuid, p ->> 'method', false);
       IF v_why IS NOT NULL THEN RAISE EXCEPTION 'WA_ACCOUNT_NOT_SELECTABLE: %', v_why; END IF;
-      p := (p - 'account_pending') || jsonb_build_object('needs_mp', p ->> 'method' = 'MERCADOPAGO');
+      p := (p - 'account_pending' - 'method_pending') || jsonb_build_object('needs_mp', p ->> 'method' = 'MERCADOPAGO');
     END IF;
   ELSIF p_type IN ('SUPPLIER_CREDIT_PURCHASE', 'SUPPLIER_PURCHASE_WITH_INVOICE') THEN
     IF NOT EXISTS (SELECT 1 FROM suppliers s WHERE s.id = (p ->> 'supplier_id')::uuid AND s.activo) THEN RAISE EXCEPTION 'WA_INVALID_PAYLOAD: unknown or inactive supplier'; END IF;
@@ -498,6 +505,12 @@ BEGIN
   d := wa.lock_owned_draft(ci.msg, p_draft_id, p_expected_version);
   IF wa.expire_if_due(d) THEN RETURN wa.use_inbound(p_inbound_id, 'CORRECT', d.id, jsonb_build_object('ok', false, 'error', 'WA_DRAFT_EXPIRED')); END IF;
   IF d.state NOT IN ('DRAFT', 'WAITING_MP', 'FAILED') THEN RAISE EXCEPTION 'WA_DRAFT_NOT_EDITABLE: %', d.state; END IF;
+  -- a button can only drive the correction it names: METHOD:<this draft>:<this version>:<method>, setting exactly that method on a
+  -- draft whose method is pending (an old button, another draft's or another person's button, or a different payload is refused)
+  IF (ci.msg).button_payload IS NOT NULL AND ((ci.msg).button_payload IS DISTINCT FROM 'METHOD:' || d.id || ':' || d.version || ':' || (p_payload ->> 'method')
+       OR NOT (d.payload ? 'method_pending') OR (p_payload ->> 'method') NOT IN ('CASH', 'TRANSFER', 'MERCADOPAGO')) THEN
+    RAISE EXCEPTION 'WA_BUTTON_MISMATCH: this button does not choose that payment method on this version';
+  END IF;
   p := wa.validate_payload(d.type, p_payload);
   v_state := CASE WHEN (p ->> 'needs_mp')::boolean AND p ->> 'mp_source_id' IS NULL THEN 'WAITING_MP' ELSE 'DRAFT' END;
   IF v_state = 'DRAFT' AND d.state <> 'DRAFT' AND EXISTS (SELECT 1 FROM wa.draft WHERE owner_perfil_id = d.owner_perfil_id AND state IN ('DRAFT', 'CONFIRMING') AND id <> d.id) THEN
@@ -606,6 +619,10 @@ BEGIN
     RAISE EXCEPTION 'WA_CONFIRMATION_NOT_EXPLICIT: the confirm button of version % is required', d.version;
   END IF;
   IF (ci.msg).meta_ts < d.version_at - interval '5 seconds' THEN RAISE EXCEPTION 'WA_CONFIRMATION_STALE'; END IF;
+  -- the payment method is never presumed: while it is pending nothing can be recorded, whatever the button (CONFIRM or UNCLASSIFIED)
+  IF d.type IN ('CASUAL_EXPENSE', 'CASUAL_WITH_INVOICE') AND (d.payload ->> 'method' IS NULL OR d.payload ? 'method_pending') THEN
+    RAISE EXCEPTION 'WA_METHOD_REQUIRED: choose how it was paid first';
+  END IF;
   -- every mandatory datum must be chosen before a confirmation (the draft stays DRAFT; nothing is recorded). Without a
   -- subcategory only the explicit "Confirmar sin clasificar" of a casual expense without invoice is accepted.
   IF v_mode = 'UNCLASSIFIED' AND (d.type <> 'CASUAL_EXPENSE' OR d.payload ->> 'category_id' IS NOT NULL) THEN

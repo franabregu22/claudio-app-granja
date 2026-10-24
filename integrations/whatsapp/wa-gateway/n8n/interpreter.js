@@ -43,6 +43,12 @@ const WAI = (() => {
   const accountOptions = (catalog) => (catalog?.accounts || []).map((a) => ({ id: a.id, nombre: a.nombre, method: a.method || TYPE_METHOD[a.account_type] || null }))
     .filter((a) => METHODS.includes(a.method));
   const namedAccounts = (text, accs) => namedItems(text, accs);
+  /** owner decision (2026-10-24): the payment method is NEVER presumed — no default, never GPT's guess. A method counts only when the
+   *  MESSAGE states it (a method word, or a named enabled account); none, an unknown one or two different ones → it stays PENDING */
+  const METHOD_WORDS = { CASH: /\b(efectivo|cash|billetes?)\b/, TRANSFER: /\btransf[a-z]*/, MERCADOPAGO: /\b(mercado ?pago|mp)\b/ };
+  const saidMethods = (text) => { const t = norm(text); return METHODS.filter((m) => METHOD_WORDS[m].test(t)); };
+  const METHOD_WORD = { CASH: 'efectivo', TRANSFER: 'transferencia', MERCADOPAGO: 'mercado pago' };
+  const askMethod = '¿Cómo lo pagaste? Efectivo, transferencia o Mercado Pago.';
   /** the message without the names of the accounts it mentions (an account name is never evidence of a concept) */
   const withoutNames = (text, items) => items.reduce((t, a) => t.split(phrase(a.nombre)).join(' '), phrase(text));
   /** words that carry no datum in a correction ("no, era desde Patagonia" = only the account) */
@@ -106,7 +112,8 @@ const WAI = (() => {
     const sent = { hoy: today, mensaje: String(text).slice(0, 1000), categorias: opts.map((x) => ({ codigo: x.code, categoria: x.grupo, subcategoria: x.nombre })),
       borrador_abierto: o ? { codigo: o.short_code, estado: o.state, importe: o.payload?.total ?? null, concepto: o.payload?.concept ?? null,
                               categoria: catName(o.payload?.category_id), medio: o.payload?.method ?? null, fecha: o.payload?.date ?? null,
-                              pendiente: [...(o.payload?.category_pending ? ['subcategoria'] : []), ...(o.payload?.account_pending ? ['cuenta'] : [])] } : null };
+                              pendiente: [...(o.payload?.category_pending ? ['subcategoria'] : []), ...(o.payload?.method_pending ? ['medio de pago'] : []),
+                                          ...(o.payload?.account_pending && !o.payload?.method_pending ? ['cuenta'] : [])] } : null };
     const body = { model, store: false, max_output_tokens: maxOutputTokens || 600,
       input: [{ role: 'system', content: SYSTEM }, { role: 'user', content: JSON.stringify(sent) }],
       text: { format: { type: 'json_schema', name: 'interpretacion_gasto', strict: true, schema: schema(opts.map((x) => x.code)) } } };
@@ -138,8 +145,16 @@ const WAI = (() => {
     return parts.join('\n');
   };
 
-  /** deterministic commands BEFORE GPT, resolved against the database context */
-  function preRoute(text, ctx) {
+  /** deterministic commands BEFORE GPT, resolved against the database context. pick = a payment-method button
+   *  { draft_id, version, method }: valid only for the sender's open draft, at THAT version, while its method is pending */
+  function preRoute(text, ctx, pick) {
+    if (pick) {
+      const b = ctx.open;
+      if (!b || b.draft_id !== pick.draft_id || b.version !== pick.version || b.state !== 'DRAFT' || !b.payload?.method_pending || !METHODS.includes(pick.method)) {
+        return { reply: 'Ese botón es de una versión anterior. Usá el del último resumen.' };
+      }
+      text = METHOD_WORD[pick.method];
+    }
     const n = norm(text);
     if (!n || /^(ayuda|help|\?)$/.test(n)) return { reply: help };
     if (/^(estado|borrador|pendientes?)$/.test(n)) return { reply: statusText(ctx) };
@@ -155,17 +170,30 @@ const WAI = (() => {
       if (cand.length !== 1) return { reply: w.length ? 'Indicá el borrador: "mp <número> W-0000".' : 'No tenés gastos esperando a Mercado Pago.' };
       return { request: { action: 'link_mp', draft_id: cand[0].draft_id, expected_version: cand[0].version, source_id: mp[1] } };
     }
-    // the open draft waits for its subcategory and / or its paying account and the message names exactly one valid option of
-    // each pending datum → set what is unambiguous (deterministic, no GPT); the rest stays pending and is asked again
+    // the open draft waits for its payment method, subcategory and / or paying account and the message names exactly one valid
+    // option of each pending datum → set what is unambiguous (deterministic, no GPT); the rest stays pending and is asked again
     const o = ctx.open;
-    if (o && o.state === 'DRAFT' && (o.payload?.category_pending || o.payload?.account_pending)) {
+    if (o && o.state === 'DRAFT' && (o.payload?.category_pending || o.payload?.account_pending || o.payload?.method_pending)) {
       const p = { ...o.payload }; delete p.needs_mp; const changes = [];
+      if (p.method_pending) {
+        const accs = accountOptions(ctx.catalog), said = saidMethods(text), nm = namedItems(text, accs);
+        const a = nm.length === 1 && said.every((m) => m === nm[0].method) ? nm[0] : null;   // a named account decides the method
+        const m = a ? a.method : (said.length === 1 && !nm.length ? said[0] : null);
+        if (m) {
+          const fit = accs.filter((x) => x.method === m);
+          if (!fit.length) return { reply: `No hay una cuenta habilitada en el ERP para pagar con ${String(METHOD_ES[m]).toLowerCase()}.` };
+          p.method = m; delete p.method_pending; changes.push({ field: 'method', from: null, to: m });
+          const acc = a || (fit.length === 1 ? fit[0] : null);   // cash: only when it is the ONE enabled cash account; bank: asked if several
+          if (acc) { p.account_id = acc.id; delete p.account_pending; changes.push({ field: 'account_id', from: null, to: acc.id }); }
+          else { delete p.account_id; p.account_pending = true; }
+        } else if (pick) return { reply: askMethod };
+      }
       if (p.category_pending) {
         const all = options(ctx.catalog), offered = p.category_options || [];
         const m = offered.length ? answeredItems(text, all.filter((x) => offered.includes(x.id))) : namedItems(text, all);
         if (m.length === 1) { p.category_id = m[0].id; delete p.category_pending; delete p.category_options; changes.push({ field: 'category_id', from: null, to: m[0].id }); }
       }
-      if (p.account_pending) {
+      if (p.account_pending && p.method && !changes.some((c) => c.field === 'account_id')) {
         const m = answeredItems(text, accountOptions(ctx.catalog).filter((a) => a.method === p.method));
         if (m.length === 1) { p.account_id = m[0].id; delete p.account_pending; changes.push({ field: 'account_id', from: null, to: m[0].id }); }
       }
@@ -220,26 +248,28 @@ const WAI = (() => {
         const subs = ambiguousGroup(text, cat, opts);
         if (subs) { cat = null; catOptions = subs.map((s) => s.id); }
         if (!cat && catOptions.length === 1) { cat = byId(catOptions[0]); catOptions = null; }   // a named category with ONE subcategory is not ambiguous
-        let method = g.method === null || g.method === undefined ? null : g.method;
-        let acc = null;
+        // the payment method is NEVER presumed: only what the message states (GPT's method is not evidence); otherwise PENDING
+        const said = saidMethods(text);
+        let method = null, acc = null;
         if (named.length === 1) {   // the message names one enabled account: it decides the method too
           acc = named[0];
-          if (method && method !== acc.method) return clar(`${acc.nombre} no corresponde a ${String(METHOD_ES[method] || method).toLowerCase()}. ¿Cómo lo pagaste?`, 'account_method_mismatch');
+          const other = said.find((m) => m !== acc.method);
+          if (other) return clar(`${acc.nombre} no corresponde a ${String(METHOD_ES[other]).toLowerCase()}. ¿Cómo lo pagaste?`, 'account_method_mismatch');
           method = acc.method;
+        } else if (said.length === 1) method = said[0];
+        if (method) {
+          const fit = accs.filter((a) => a.method === method);
+          if (!fit.length) return clar(`No hay una cuenta habilitada en el ERP para pagar con ${String(METHOD_ES[method]).toLowerCase()}.`, 'no_account');
+          if (!acc && fit.length === 1) acc = fit[0];
         }
-        method = method || 'CASH';
-        if (!METHODS.includes(method)) return clar('¿Cómo lo pagaste: efectivo, transferencia o Mercado Pago?', 'bad_method');
-        const fit = accs.filter((a) => a.method === method);
-        if (!fit.length) return clar(`No hay una cuenta habilitada en el ERP para pagar con ${String(METHOD_ES[method]).toLowerCase()}.`, 'no_account');
-        if (!acc && fit.length === 1) acc = fit[0];
         const date = validDate(g.date, today);
         if (!date) return clar('¿De qué fecha es el gasto? (hasta 60 días atrás)', 'bad_date');
         // several enabled accounts and none named: the draft is created WITHOUT account; with a datum pending the database refuses
         // the confirmation (WA_CATEGORY_REQUIRED / WA_ACCOUNT_REQUIRED) and the bot shows no confirm button until all are chosen
-        const pending = [...(cat ? [] : ['category']), ...(acc ? [] : ['account'])];
+        const pending = [...(cat ? [] : ['category']), ...(method ? [] : ['method']), ...(acc ? [] : ['account'])];
         return { request: { action: 'propose', type: 'CASUAL_EXPENSE',
           payload: { date, total, ...(cat ? { category_id: cat.id } : { category_options: catOptions }), nature: 'OPERATING', concept,
-                     ...(acc ? { account_id: acc.id } : {}), method } },
+                     ...(acc ? { account_id: acc.id } : {}), ...(method ? { method } : {}) } },
           outcome: pending.length ? 'propose_pending' : 'propose', pending };
       }
       case 'correct_draft': {
@@ -273,17 +303,18 @@ const WAI = (() => {
           p.category_id = c.id; delete p.category_pending; delete p.category_options; }
         if (ch.includes('account')) {   // only the paying account (and its method) changes; amount, concept, category stay
           const a = named.length === 1 ? named[0] : null;
-          if (!a) return clar(askAccount(accs, ch.includes('method') && METHODS.includes(g.method) ? g.method : p.method), 'ask_account');
+          if (!a) { const sm = saidMethods(text), mm = sm.length === 1 ? sm[0] : p.method; return mm ? clar(askAccount(accs, mm), 'ask_account') : clar(askMethod, 'ask_method'); }
           if (a.method !== p.method) delete p.mp_source_id;
-          p.method = a.method; p.account_id = a.id; delete p.account_pending;
-        } else if (ch.includes('method')) {
-          if (!METHODS.includes(g.method)) return clar('¿Cómo lo pagaste: efectivo, transferencia o Mercado Pago?', 'bad_method');
-          const fit = accs.filter((a) => a.method === g.method);
-          if (!fit.length) return clar(`No hay una cuenta habilitada en el ERP para pagar con ${String(METHOD_ES[g.method]).toLowerCase()}.`, 'no_account');
-          if (g.method !== p.method) delete p.mp_source_id;
-          p.method = g.method;
+          p.method = a.method; p.account_id = a.id; delete p.account_pending; delete p.method_pending;
+        } else if (ch.includes('method')) {   // never GPT's guess: the message must state exactly one method
+          const sm = saidMethods(text), m = sm.length === 1 ? sm[0] : null;
+          if (!m) return clar(askMethod, 'ask_method');
+          const fit = accs.filter((a) => a.method === m);
+          if (!fit.length) return clar(`No hay una cuenta habilitada en el ERP para pagar con ${String(METHOD_ES[m]).toLowerCase()}.`, 'no_account');
+          if (m !== p.method) delete p.mp_source_id;
+          p.method = m; delete p.method_pending;
           if (fit.length === 1) { p.account_id = fit[0].id; delete p.account_pending; }
-          else if (!fit.some((a) => a.id === p.account_id)) delete p.account_id;   // several accounts: pending (database), the bot asks
+          else if (!fit.some((a) => a.id === p.account_id)) { delete p.account_id; p.account_pending = true; }   // several accounts: asked
         }
         if (ch.includes('date')) { if (g.date === null) return clar('¿Cuál es la fecha correcta?', 'bad_date'); const d = validDate(g.date, today); if (!d) return clar('¿Cuál es la fecha correcta? (hasta 60 días atrás)', 'bad_date'); p.date = d; }
         const before = { ...o.payload }; delete before.needs_mp;
@@ -300,5 +331,5 @@ const WAI = (() => {
   const cfgFromContext = (ctx) => ({ categories: ctx?.catalog?.categories || [],
     accounts: Object.fromEntries((ctx?.catalog?.accounts || []).map((a) => [a.id, a])) });
 
-  return { schema, SYSTEM, options, label, accountOptions, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
+  return { schema, SYSTEM, options, label, accountOptions, saidMethods, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
 })();

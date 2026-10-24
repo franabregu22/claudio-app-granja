@@ -47,7 +47,7 @@ for (const item of $input.all()) {
   const r = WA.route(v.event, CFG);
   console.log(JSON.stringify({ evt: 'n8n_routed', inbound_id: v.event.inbound_id, action: r.request ? r.request.action : 'reply' }));
   out.push({ json: { key: WA.sha256Hex(v.event.phone).slice(0, 16), to: r.to, inbound_id: r.inbound_id, text: r.text || null,
-    request: r.request || null, graph: r.reply ? textMsg(r.to, r.reply) : null, phone_number_id: PNID } });
+    request: r.request || null, pick: r.pick || null, graph: r.reply ? textMsg(r.to, r.reply) : null, phone_number_id: PNID } });
 }
 return out;`;
 
@@ -74,7 +74,7 @@ if (res.statusCode !== 200 || !res.body || !res.body.result || res.body.result.o
   return { json: { mode: 'reply', graph: textMsg(ctx.to, 'Hubo un problema técnico; probá de nuevo en unos minutos.'), phone_number_id: PNID } };
 }
 const context = res.body.result;
-const pre = WAI.preRoute(ctx.text, context);
+const pre = WAI.preRoute(ctx.text, context, ctx.pick);   // pick: a payment-method button (checked against the open draft)
 if (pre) {
   console.log(JSON.stringify({ evt: 'command', inbound_id: ctx.inbound_id, action: pre.request ? pre.request.action : 'reply' }));
   return { json: pre.request

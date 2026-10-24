@@ -11,12 +11,14 @@ ROOT="$HERE/.."
 C=supabase_db_Claudio_app_Granja
 SB=wa_sandbox_compat004
 OLD=55aa19f
+V4=0a54bdc   # the commit whose upgrade-004 is installed on AppGranja (its suite = the behaviour of upgrade-004)
 ADM="docker exec -i $C psql -U supabase_admin -d postgres -X -q -t -A"
 ADMSB="docker exec -i $C psql -U supabase_admin -d $SB -X -q -t -A"
 PG="docker exec -i $C psql -U postgres -d $SB -X -q -t -A"
 A=aaaaaaaa-0025-0000-0000-00000000ad0a; B=aaaaaaaa-0025-0000-0000-00000000ad0b; GW=aaaaaaaa-0025-0000-0000-00000000ad0f
 VARS="-v admin_a=$A -v admin_b=$B -v oper=aaaaaaaa-0025-0000-0000-00000000ad0c -v gw=$GW -v phone_a=+5491100000001 -v phone_b=+5491100000002 -v phone_oper=+5491100000003"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+(cd "$ROOT" && git show "$V4:integrations/whatsapp/wa-staging/build/staging/tests.sql") > "$TMP/v4-tests.sql" || { echo "STOP: cannot read $V4 tests"; exit 2; }
 for f in 00-guard.sql 01-sim.sql 02-wa-core.sql 03-seed.sql tests.sql upgrade-002-sim-categories.sql; do
   (cd "$ROOT" && git show "$OLD:integrations/whatsapp/wa-staging/build/staging/$f") > "$TMP/old-$f" || { echo "STOP: cannot read $OLD:$f"; exit 2; }
 done
@@ -63,7 +65,7 @@ $PG -v pre="$ACCT" -f - < "$HERE/verify-upgrade-004.sql" | grep '^check|'
 
 echo "== 6 V2 compatibility ($OLD suite on the upgraded schema) + new behaviour (HEAD suite)"
 echo "$OLD suite after upgrade-004: $(suite "$TMP/old-tests.sql" | tr '\n' ' ')"
-echo "HEAD suite after upgrade-004: $(suite "$ROOT/build/staging/tests.sql" | tr '\n' ' ')"
+echo "$V4 suite after upgrade-004: $(suite "$TMP/v4-tests.sql" | tr '\n' ' ')"
 
 echo "== 7 rollback (generated file) → definitions identical to step 3, new objects gone, $OLD suite"
 $PG -f - < "$TMP/rollback-004.sql" 2>&1 | grep -E "^rollback\||ERROR|ROLLBACK_KEPT" | sed 's/^psql:<stdin>:[0-9]*: //'

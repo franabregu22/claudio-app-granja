@@ -755,7 +755,8 @@ published → flag on, propose + cancel → one real low-value expense (§18.5) 
   **whole name as a phrase** (whole words, contiguous — "cajas" is not "Caja", "pago en el mercado" is not "Mercado Pago");
   among several matches only the most specific survives ("banco nación" → "Banco Nación", not "Banco"); two different
   accounts named → asked, never auto-selected. Naming one decides the method; a contradiction ("en efectivo desde
-  Patagonia") is asked. With a single enabled account for the method no question is asked. When **answering** the
+  Patagonia") is asked. With a single enabled account for the method no question is asked. The **method itself is never
+  presumed** (§19.11). When **answering** the
   account question, a whole word that identifies exactly one offered account is enough ("galicia" → "Banco Galicia"; "banco"
   with two "Banco …" offered → asked again). The selection always resolves to the account **id**.
 - **Several clarifications on one draft**: a subcategory that is ambiguous ("combustible" → Nafta / Gasoil) or not stated is
@@ -922,3 +923,38 @@ clasificar" to "Costos indirectos", operating result unchanged), two tabs on the
 clasificado", one purchase, no movement), OPERATOR (no Caja; views 0 rows; RPC FORBIDDEN; direct insert 403), Mercado Pago note
 and concept pre-fill. Found and fixed during the walkthrough: the concept pre-fill (the note arrives after the row mounts) and
 the badge accessible name. The disposable stack was destroyed; the usual local containers, volumes and database are unchanged.
+
+### 19.11 The payment method is never presumed (owner decision 2026-10-24; local — wa core, upgrade-005, n8n; not deployed)
+
+**Defect found in the published V2 (2026-10-24):** a message that did not say how it was paid ("Gasté 25000 en artículos de
+limpieza") produced a confirmable draft paid **in cash from Caja chica** — the interpreter defaulted the method
+(`method = method || 'CASH'`, present since `55aa19f`; never an owner decision).
+
+**Decision:** the payment method is **never presumed** — no default in the interpreter, never GPT's guess. It is taken only
+from what the **message states** (a method word — efectivo / cash / billete, transferencia / transferí…, Mercado Pago / MP — or a
+named enabled account, which decides the method) or from a **payment-method button**. Not stated, unknown ("con tarjeta",
+"con cheque") or ambiguous ("efectivo o transferencia") → the draft keeps amount, concept, date, nature and subcategory with the
+**method PENDING**.
+
+- **Database** (wa core → candidate 0101 and `upgrade-005-method-pending.sql`, additive): `wa.validate_payload` accepts a casual
+  expense without method → `method_pending` + `account_pending` (an account without its method, an unknown method or an MP
+  SOURCE_ID without the MP method are refused). `wa_confirm` refuses **both** CONFIRM and UNCLASSIFIED while the method is
+  pending (`WA_METHOD_REQUIRED`; the draft stays DRAFT, nothing recorded). `wa_correct` accepts a **button** message only as
+  `METHOD:<this draft>:<this version>:<method>` setting exactly that method on a draft whose method is pending
+  (`WA_BUTTON_MISMATCH` otherwise); ownership, version, state and single use of the message are the existing checks. The
+  published V2 always sends a method, so its contract is unchanged (its suite passes on the upgraded schema).
+- **Account after the method:** cash → the account only when it is the **one** enabled cash account; transfer → asked when
+  several banks are enabled (BNA / Patagonia); Mercado Pago → the existing ADR-021 linking (WAITING_MP, never a second
+  movement).
+- **WhatsApp:** while the method is pending the summary shows "Pago: (a elegir)" and the question "¿Cómo lo pagaste?" with
+  three reply buttons **Efectivo / Transferencia / Mercado Pago** (id `METHOD:<draft>:<version>:<method>`). Meta allows three
+  reply buttons, so this message has no Cancelar button: **"cancelar" by text** is always available. **No Confirmar and no
+  "Registrar sin clasif"** while the method, the account or another mandatory financial datum is pending. A button is checked
+  against the open draft of the sender (same draft, same version, method still pending) before any call, and again by the
+  database. A text answer ("efectivo", "con mp", "desde Patagonia") is resolved deterministically, without GPT.
+- **Tests:** database section W (16) + race R6 (two simultaneous taps of the same method button → one v2); staging 149/149,
+  candidate (0102 → 0101) 149/149; interpreter 24, logic 10, workflow 23 (6 new end-to-end), payment-method 21; upgrade-005
+  rehearsed on the AppGranja state (55aa19f + upgrade-002 + upgrade-004 of 0a54bdc): published-V2 suites 85/85 and 133/133
+  after the upgrade, new suite 149/149, idempotent re-apply, rollback to identical definitions.
+- **Order:** upgrade-005 requires upgrade-004; a rollback of 004 must be preceded by the rollback of 005. The n8n workflow
+  with the new logic must be published only after upgrade-005 (the published V2 works with and without it).

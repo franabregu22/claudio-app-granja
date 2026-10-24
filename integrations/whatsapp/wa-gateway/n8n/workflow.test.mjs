@@ -28,6 +28,7 @@ function world() {
     const catOk = (p) => (p.category_id ? selectable(p.category_id) : (p.category_options || []).every(selectable));
     const usable = (p) => !p.account_id || W.catalog.accounts.some((a) => a.id === p.account_id);
     const stored = (p) => { const x = { ...p };
+      if (!x.method) { delete x.method; delete x.account_id; x.method_pending = true; } else delete x.method_pending;
       if (x.account_id) delete x.account_pending; else x.account_pending = true;
       if (x.category_id) { delete x.category_pending; delete x.category_options; } else { x.category_pending = true; x.category_options = x.category_options || []; }
       return x; };
@@ -41,6 +42,8 @@ function world() {
         W.drafts.push(d); return { statusCode: 200, body: { ok: true, result: view(d) } };
       }
       case 'correct': { if (!catOk(req.payload)) return err('WA_CATEGORY_NOT_SELECTABLE'); if (!usable(req.payload)) return err('WA_ACCOUNT_NOT_SELECTABLE'); const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND'); if (d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
+        const btn = W.buttons[req.inbound_id];   // like wa_correct: a button only drives the correction it names
+        if (btn && (btn !== `METHOD:${d.id}:${d.version}:${req.payload.method}` || !d.payload.method_pending)) return err('WA_BUTTON_MISMATCH');
         d.version++; d.payload = stored(req.payload); d.state = 'DRAFT'; return { statusCode: 200, body: { ok: true, result: view(d) } }; }
       case 'cancel': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED'); d.state = 'CANCELLED';
         return { statusCode: 200, body: { ok: true, result: { ok: true, draft_id: d.id, short_code: d.code, state: 'CANCELLED' } } }; }
@@ -51,6 +54,7 @@ function world() {
         const b = W.buttons[req.inbound_id] || '';
         const mode = b === `CONFIRM:${d.id}:${d.version}` ? 'CLASSIFIED' : b === `UNCLASSIFIED:${d.id}:${d.version}` ? 'UNCLASSIFIED' : null;
         if (!mode) return err('WA_CONFIRMATION_NOT_EXPLICIT');
+        if (!d.payload.method || d.payload.method_pending) return err('WA_METHOD_REQUIRED');   // never presumed, whatever the button
         if (mode === 'UNCLASSIFIED') {
           if (d.payload.category_id) return err('WA_UNCLASSIFIED_NOT_ALLOWED');
           if (!d.payload.account_id) return err('WA_ACCOUNT_REQUIRED');
@@ -133,7 +137,7 @@ test('WF-1 W-0009 #1 fixed: "gaste 18mil en combustible en efectivo" → draft o
 
 test('WF-2 W-0009 #2 fixed: "corregi el importe a 18000" corrects ONLY the amount of the DB draft at its DB version', async () => {
   const W = world();
-  await say(W, 'gaste 18 en combustible', G({ amount: 18, amount_evidence: '18', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  await say(W, 'gaste 18 en combustible en efectivo', G({ amount: 18, amount_evidence: '18', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
   W.edgeCalls.length = 0;
   await say(W, 'corregi el importe a 18000', G({ intent: 'correct_draft', changed_fields: ['amount'], amount: 18000, amount_evidence: '18000', concept: 'corregi el importe a' }));
   assert.deepEqual(actions(W), ['context', 'correct']);
@@ -167,7 +171,7 @@ test('WF-4 invented amount → clarification, no draft; OpenAI down → fail clo
 
 test('WF-5 GPT cannot confirm: "sí, confirmá" → reply only; the confirm button confirms directly (no context, no GPT)', async () => {
   const W = world();
-  await say(W, 'gaste 18000 en combustible', G({ amount: 18000, amount_evidence: '18000', concept: 'Combustible', category: 'Combustible' }));
+  await say(W, 'gaste 18000 en combustible en efectivo', G({ amount: 18000, amount_evidence: '18000', concept: 'Combustible', category: 'Combustible' }));
   W.edgeCalls.length = 0; W.openaiBodies.length = 0;
   await say(W, 'sí, confirmá', G({ intent: 'confirm_request' }));
   assert.deepEqual(actions(W), ['context']); assert.match(W.sent.at(-1).text.body, /botón del último resumen \(Confirmar/);
@@ -265,7 +269,7 @@ test('WF-13 live ERP catalog end to end: ambiguity, hierarchy, rename, deactivat
   CUR = W.catalog;
   // 1. "combustible" names a category with two subcategories → a draft with the subcategory PENDING (amount kept); no normal
   //    Confirmar: only the explicit "Confirmar sin clasificar" (the cash account is known) — or the answer
-  await say(W, 'gasté 5000 en combustible', G({ amount: 5000, amount_evidence: '5000', concept: 'combustible', category: 'Nafta', method: 'CASH' }));
+  await say(W, 'gasté 5000 en combustible en efectivo', G({ amount: 5000, amount_evidence: '5000', concept: 'combustible', category: 'Nafta', method: 'CASH' }));
   assert.deepEqual(actions(W), ['context', 'propose']); assert.deepEqual(W.edgeCalls.at(-1).payload.category_options, ['id-nafta', 'id-gasoil']);
   assert.equal(W.sent.at(-1).type, 'interactive'); assert.match(W.sent.at(-1).interactive.body.text, /¿Qué tipo de Combustible\? Nafta o Gasoil\./);
   assert.deepEqual(W.sent.at(-1).interactive.action.buttons.map((b) => b.reply.id), [`UNCLASSIFIED:${W.drafts[0].id}:1`, `CANCEL:${W.drafts[0].id}:1`]);
@@ -414,4 +418,83 @@ test('WF-17 Mercado Pago with an ambiguous subcategory: after linking, "Registra
   const done = WAx.compose({ to: '1', request: { action: 'confirm', draft_id: r.draft_id } }, 200, { ok: true, result: { ok: true, state: 'CONFIRMED', unclassified: true,
     draft_id: r.draft_id, short_code: 'W-0077', result: { unclassified: true, financial_effect: 'EXISTING_MP_OUTFLOW', amount: 2500 } } }, null, cfg).graph;
   assert.match(done.text.body, /W-0077 confirmado SIN CLASIFICAR\. El egreso de Mercado Pago de \$ 2\.500,00 ya figura en el ERP como pendiente de clasificar; no se registró otro movimiento/);
+});
+
+// ── payment method never presumed (owner, 2026-10-24) ──
+const BANKS2 = (W) => { W.catalog.accounts = [...W.catalog.accounts, { id: 'acc-pat', nombre: 'Patagonia', account_type: 'BANK_ACCOUNT' }]; };
+const TITLES = (m) => (m.interactive?.action?.buttons || []).map((b) => b.reply.title);
+const KEEP = (d) => [d.payload.total, d.payload.concept, d.payload.date, d.payload.category_id];
+
+test('WF-18 no method in the message (GPT even guesses CASH) → draft with the METHOD pending; 3 method buttons; no Confirmar / Registrar sin clasif', async () => {
+  const W = world();
+  await say(W, 'gasté 25000 en insumos', G({ amount: 25000, amount_evidence: '25000', concept: 'Insumos', category: 'Insumos', method: 'CASH' }));
+  assert.deepEqual(actions(W), ['context', 'propose']);
+  assert.equal(W.edgeCalls[1].payload.method, undefined); assert.equal(W.edgeCalls[1].payload.account_id, undefined);
+  const m = W.sent.at(-1); const d = W.drafts[0];
+  assert.deepEqual(TITLES(m), ['Efectivo', 'Transferencia', 'Mercado Pago']);
+  assert.deepEqual(m.interactive.action.buttons.map((b) => b.reply.id), ['CASH', 'TRANSFER', 'MERCADOPAGO'].map((x) => `METHOD:${d.id}:1:${x}`));
+  assert.match(m.interactive.body.text, /Pago: \(a elegir\)/); assert.match(m.interactive.body.text, /¿Cómo lo pagaste\? Efectivo, transferencia o Mercado Pago\./);
+  assert.match(m.interactive.body.text, /"cancelar" lo descarta/);
+});
+
+test('WF-19 Transferencia button with TWO banks → method set (no GPT), account asked; "Patagonia" → account; Confirmar records; data kept throughout', async () => {
+  const W = world(); BANKS2(W);
+  await say(W, 'gasté 25000 en insumos', G({ amount: 25000, amount_evidence: '25000', concept: 'Insumos', category: 'Insumos' }));
+  const d = W.drafts[0]; const keep = KEEP(d); W.edgeCalls.length = 0; W.openaiBodies.length = 0;
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `METHOD:${d.id}:1:TRANSFER` }));
+  assert.deepEqual(actions(W), ['context', 'correct']); assert.equal(W.openaiBodies.length, 0);
+  assert.deepEqual([d.version, d.payload.method, d.payload.account_id, d.payload.method_pending], [2, 'TRANSFER', undefined, undefined]);
+  assert.equal(W.sent.at(-1).type, 'text'); assert.match(W.sent.at(-1).text.body, /¿Desde qué cuenta lo pagaste\? BNA o Patagonia\./);
+  await say(W, 'Patagonia', G({ intent: 'other' }));
+  assert.deepEqual([d.version, d.payload.account_id], [3, 'acc-pat']); assert.deepEqual(TITLES(W.sent.at(-1)), ['Confirmar', 'Cancelar']);
+  assert.deepEqual(KEEP(d), keep);
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:3` }));
+  assert.match(W.sent.at(-1).text.body, /Registrado/);
+});
+
+test('WF-20 Efectivo button → the ONLY cash account (Caja chica) and Confirmar; Mercado Pago button → the Mercado Pago account', async () => {
+  const W = world();
+  await say(W, 'gasté 900 en insumos', G({ amount: 900, amount_evidence: '900', concept: 'Insumos', category: 'Insumos' }));
+  const d = W.drafts[0];
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `METHOD:${d.id}:1:CASH` }));
+  assert.deepEqual([d.payload.method, d.payload.account_id], ['CASH', 'acc-cash']); assert.deepEqual(TITLES(W.sent.at(-1)), ['Confirmar', 'Cancelar']);
+  const W2 = world();
+  await say(W2, 'gasté 900 en insumos', G({ amount: 900, amount_evidence: '900', concept: 'Insumos', category: 'Insumos' }));
+  const d2 = W2.drafts[0];
+  await run(W2, 'Edge → n8n', inbound(W2, { kind: 'interactive', button_payload: `METHOD:${d2.id}:1:MERCADOPAGO` }));
+  assert.deepEqual([d2.payload.method, d2.payload.account_id], ['MERCADOPAGO', 'acc-mp']);
+});
+
+test('WF-21 old, repeated or foreign METHOD buttons are refused before any correction (and the database would refuse them too)', async () => {
+  const W = world();
+  await say(W, 'gasté 900 en insumos', G({ amount: 900, amount_evidence: '900', concept: 'Insumos', category: 'Insumos' }));
+  const d = W.drafts[0];
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `METHOD:${d.id}:1:CASH` }));
+  W.edgeCalls.length = 0;
+  for (const b of [`METHOD:${d.id}:1:TRANSFER`, `METHOD:${d.id}:1:CASH`, `METHOD:00000000-0000-4000-8000-000000000999:2:CASH`]) {
+    await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: b }));
+    assert.match(W.sent.at(-1).text.body, /Ese botón es de una versión anterior/);
+  }
+  assert.deepEqual(actions(W), ['context', 'context', 'context']); assert.equal(d.version, 2); assert.equal(d.payload.method, 'CASH');
+});
+
+test('WF-22 Confirmar or "Registrar sin clasif" while the method is pending → WA_METHOD_REQUIRED, nothing recorded', async () => {
+  const W = world();
+  await say(W, 'gasté 900 en insumos', G({ amount: 900, amount_evidence: '900', concept: 'Insumos', category: 'Insumos' }));
+  const d = W.drafts[0];
+  for (const b of [`CONFIRM:${d.id}:1`, `UNCLASSIFIED:${d.id}:1`]) {
+    await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: b }));
+    assert.match(W.sent.at(-1).text.body, /Primero decime cómo lo pagaste/);
+  }
+  assert.equal(d.state, 'DRAFT'); assert.equal(W.pending.length, 0);
+});
+
+test('WF-23 a text answer to the pending method is deterministic ("con mercado pago"); an ambiguous one ("efectivo o transferencia") is asked again', async () => {
+  const W = world();
+  await say(W, 'gasté 900 en insumos', G({ amount: 900, amount_evidence: '900', concept: 'Insumos', category: 'Insumos' }));
+  const d = W.drafts[0]; W.openaiBodies.length = 0;
+  await say(W, 'efectivo o transferencia, no me acuerdo', G({ intent: 'correct_draft', changed_fields: ['method'], method: 'CASH' }));
+  assert.equal(d.version, 1); assert.match(W.sent.at(-1).text.body, /¿Cómo lo pagaste\?/);
+  await say(W, 'con mercado pago', G({ intent: 'other' }));
+  assert.deepEqual([d.version, d.payload.method, d.payload.account_id], [2, 'MERCADOPAGO', 'acc-mp']);
 });

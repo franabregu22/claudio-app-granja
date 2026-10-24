@@ -59,13 +59,15 @@ test('I-5 invented / unverifiable amounts are refused (evidence must be literall
   assert.equal(decide(G({ amount: 18000, amount_evidence: 'dieciocho mil', concept: 'Gasoil', category: 'Combustible' }), 'pagué dieciocho mil de gasoil', ctxNone).request.payload.total, 18000);
 });
 
-test('I-6 category must be in the database catalog; dates: no future, max 60 days back; unknown method refused', () => {
+test('I-6 category must be in the database catalog; dates: no future, max 60 days back; an unknown or unstated method stays PENDING (never cash)', () => {
   assert.equal(decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: 'Retiro socio' }), 'gasté 10', ctxNone).outcome, 'propose_pending');   // not in the catalog: subcategory pending
   assert.equal(decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: null }), 'gasté 10', ctxNone).request.payload.category_options.length, 0);
   assert.equal(decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: 'Insumos', date: '2026-10-23' }), 'gasté 10', ctxNone).outcome, 'bad_date');
   assert.equal(decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: 'Insumos', date: '2026-07-01' }), 'gasté 10', ctxNone).outcome, 'bad_date');
-  assert.equal(decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: 'Insumos', method: 'CHEQUE' }), 'gasté 10', ctxNone).outcome, 'bad_method');
-  assert.equal(decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: 'Insumos' }), 'gasté 10', ctxNone).request.payload.method, 'CASH');
+  const ch = decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: 'Insumos', method: 'CHEQUE' }), 'gasté 10 con cheque', ctxNone);
+  assert.deepEqual([ch.outcome, ch.request.payload.method, ch.pending], ['propose_pending', undefined, ['method', 'account']]);
+  const none = decide(G({ amount: 10, amount_evidence: '10', concept: 'x', category: 'Insumos' }), 'gasté 10', ctxNone);
+  assert.deepEqual([none.request.payload.method, none.request.payload.account_id, none.pending], [undefined, undefined, ['method', 'account']]);
 });
 
 test('I-7 GPT can never confirm or cancel: whatever it answers, the only possible actions are propose / correct', () => {
@@ -231,7 +233,7 @@ test('I-19 safe account selection: whole phrases only, the most specific wins, a
   const CAJA1 = { id: 'acc-caja', nombre: 'Caja', account_type: 'CASH', method: 'CASH' };
   // no prefix / partial-word match: "cajas" is not the account "Caja"; "pago ... mercado" is not "Mercado Pago"
   assert.equal(tr('compré cajas por 5000', [CAJA1, BNA, PAT], { method: 'TRANSFER' }).request.payload.account_id, undefined);
-  assert.equal(tr('hice el pago en el mercado 5000', [CAJA, BNA, MP], { method: null }).request.payload.method, 'CASH', 'Mercado Pago not inferred from scattered words');
+  assert.equal(tr('hice el pago en el mercado 5000', [CAJA, BNA, MP], { method: null }).request.payload.method, undefined, 'Mercado Pago not inferred from scattered words (and no cash default)');
   // the most specific phrase wins; two different accounts named → ask
   const BANCO = { id: 'acc-banco', nombre: 'Banco', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' };
   const NACION = { id: 'acc-nacion', nombre: 'Banco Nación', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' };
