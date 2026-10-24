@@ -26,7 +26,7 @@ echo "== disposable clone"
 docker exec $C bash -c "pg_dump -U postgres -d postgres -Fc -f /tmp/erp0102.dump && psql -U supabase_admin -d postgres -X -q -c 'DROP DATABASE IF EXISTS $SDB' -c 'CREATE DATABASE $SDB' \
   && pg_restore -U supabase_admin -d $SDB /tmp/erp0102.dump > /tmp/erp0102.restore.log 2>&1; rm -f /tmp/erp0102.dump;   psql -U supabase_admin -d $SDB -X -q -c 'GRANT ALL ON SCHEMA public TO postgres'; echo restore-errors: \$(grep -c 'error:' /tmp/erp0102.restore.log) '(pg_cron / 2 FK of unrelated tables: not used here)'"
 q "SELECT 'clone: migrations ' || max(version) FROM migration_ledger.applied"
-if ! { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/0102_unclassified_expenses.candidate.sql"; echo; echo 'COMMIT;'; } | docker exec -i $C psql -U postgres -d $SDB -X -q -t -A -f - 2>&1 | grep -E "ERROR"; then
+if ! { echo '\set ON_ERROR_STOP 1'; echo 'BEGIN;'; cat "$HERE/../../target-migrations/0101_unclassified_expenses.sql"; echo; echo 'COMMIT;'; } | docker exec -i $C psql -U postgres -d $SDB -X -q -t -A -f - 2>&1 | grep -E "ERROR"; then
   echo "candidate 0102 applied (committed) on the clone"
 else echo "STOP: candidate failed on the clone"; docker exec $C psql -U supabase_admin -d postgres -X -q -c "DROP DATABASE $SDB"; exit 1; fi
 q "INSERT INTO perfiles (id, email, rol_type) VALUES ('$A', 'c-admin-a@test.local', 'ADMIN'), ('$B', 'c-admin-b@test.local', 'ADMIN');

@@ -1,5 +1,5 @@
 -- ============================================================================
--- TARGET V1 — 0102 UNCLASSIFIED EXPENSES (ADR-025 owner decision 2026-10-23; CANDIDATE, not applied anywhere)
+-- TARGET V1 — 0101 UNCLASSIFIED EXPENSES (ADR-025 owner decision 2026-10-23; promoted from candidate 0102 on 2026-10-24)
 --
 -- A real outflow paid from Caja chica / a bank account is recorded at once (the money left), while its economic
 -- classification (category / subcategory / nature) is still unknown. The money event and the classification are separate:
@@ -504,7 +504,7 @@ FROM (
     FROM management_event me
 
   UNION ALL
-  -- [0102] a registered expense without a current purchase on its payment: SIN CLASIFICAR (once; the purchase replaces it)
+  -- [0101] a registered expense without a current purchase on its payment: SIN CLASIFICAR (once; the purchase replaces it)
   SELECT 'GASTOS_SIN_CLASIFICAR', ep.economic_date, -ep.amount,
          'expense_pending_classification', ep.id::TEXT, NULL::UUID, NULL::purchase_nature, NULL::UUID,
          (ep.concept || ' (sin clasificar)')::TEXT
