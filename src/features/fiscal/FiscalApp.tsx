@@ -13,6 +13,8 @@ import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { useFiscalDocuments, useFiscalMutations, useFiscalPayments, useFiscalPeriods, useObligations } from '../feria/useFeriaFiscal';
 import type { FiscalPeriodRow } from '../../target/fiscal';
+import { Comprobantes } from '../caja/Comprobantes';
+import { useDocumentLinks } from '../caja/useInvoicePayments';
 
 const TIPO: Record<FiscalDocumentType, string> = {
   INVOICE_A: 'Factura A', INVOICE_B: 'Factura B', INVOICE_C: 'Factura C', CREDIT_NOTE: 'Nota de crédito', DEBIT_NOTE: 'Nota de débito', RECEIPT: 'Recibo', OTHER: 'Otro',
@@ -31,6 +33,7 @@ const ESTADO: Record<ObligationRow['status'], string> = { PENDING: 'Pendiente', 
 export function FiscalApp() {
   const { rol } = useAuth();
   const docs = useFiscalDocuments();
+  const originales = useDocumentLinks('FISCAL_DOCUMENT', (docs.data ?? []).map((d) => d.id));   // ADR-025 stage 4: the receipt (WhatsApp)
   const obligaciones = useObligations();
   const periodos = useFiscalPeriods();
   const pagos = useFiscalPayments();
@@ -113,7 +116,7 @@ export function FiscalApp() {
                   <tr key={d.id} className="border-b border-amber-100">
                     <td className="px-3 py-2">{d.document_date}</td>
                     <td className="px-3 py-2">{TIPO[d.document_type]} · {d.direction === 'DEBITO' ? 'Débito' : 'Crédito'}</td>
-                    <td className="px-3 py-2">{d.external_number ?? '—'}</td>
+                    <td className="px-3 py-2">{d.external_number ?? '—'} <Comprobantes docs={originales.data?.get(d.id)} compacto /></td>
                     <td className="px-3 py-2">{d.contraparte ?? '—'}</td>
                     <td className="px-3 py-2 text-right">{formatoPesos(d.net_amount)}</td>
                     <td className="px-3 py-2 text-right font-semibold">{formatoPesos(d.total_amount)}</td>

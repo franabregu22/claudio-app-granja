@@ -98,7 +98,7 @@ const MESSAGES: Record<string, string> = {
   DUPLICATE_FREIGHT: 'Ese flete ya fue registrado.',
   FREIGHT_NOT_FOUND: 'El flete no existe.',
   FREIGHT_SUPERSEDED: 'El flete fue reemplazado por otra versión.',
-  OVER_ALLOCATION: 'El monto supera lo que queda por asignar del flete.',
+  OVER_ALLOCATION: 'El monto supera lo que queda por asignar (del flete, de la factura o del pago).',
   ALREADY_ALLOCATED: 'Ese flete ya está asignado a esta compra.',
   INSTRUMENT_NOT_FOUND: 'El cheque no existe.',
   INVALID_STATE: 'El cheque no está en un estado que permita esta acción.',
@@ -241,6 +241,11 @@ const MESSAGES: Record<string, string> = {
   PENDING_EXPENSE_CLASSIFICATION: 'Hay gastos sin clasificar en este período. Clasificalos (Caja → Gastos sin clasificar) antes de cerrarlo.',
   MP_USE_PENDING_OUTFLOW: 'Un egreso de Mercado Pago ya figura en Pendientes de clasificar: clasificalo desde ahí.',
   IDEMPOTENCY_CONFLICT: 'Ese gasto ya fue registrado con otros datos.',
+  // ADR-025 stage 4 (0103 / 0104): documents and invoice payments
+  INVALID_DOCUMENT: 'El archivo no se pudo registrar: volvé a subirlo.',
+  INVALID_INSTRUMENTS: 'Cargá entre 1 y 24 cheques o eCheqs.',
+  INVALID_REPLACEMENT: 'Solo se puede reemplazar un cheque rechazado o anulado que pagaba esta misma factura.',
+  INVALID_PAYMENT: 'Elegí un pago registrado al mismo proveedor.',
 };
 
 export function errorMessage(err: unknown): string {

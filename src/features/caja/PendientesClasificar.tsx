@@ -10,6 +10,9 @@ import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { ClasificarSalida, DestinoRetiro } from './CuentaDetalle';
 import { useMpPayoutMatches, useMpWhatsappNotes, usePendingPage, usePendingSummary, useRetryProvisional, useTechnicalReview } from './useMpActivity';
+import { Comprobantes } from './Comprobantes';
+import { useDocumentLinks } from './useInvoicePayments';
+import type { DocumentLinkRow } from '../../target/documents';
 
 const hora = (ts: string | null) => (ts ? new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' }) : '');
 
@@ -72,6 +75,7 @@ function ListaPendientes({ scope, titulo, nota, matches, total }: {
   const q = usePendingPage(scope, pagina);
   const filas = q.data?.rows ?? [];
   const notas = useMpWhatsappNotes(scope === 'current' ? filas.map((r) => r.source_id) : []);
+  const docs = useDocumentLinks('MP_PENDING_OUTFLOW', scope === 'current' ? filas.map((r) => r.source_id) : []);   // ADR-025 stage 4
   const cantidad = q.data?.total ?? 0;
   const paginas = Math.max(1, Math.ceil(cantidad / PAGE_SIZE));
   return (
@@ -91,7 +95,7 @@ function ListaPendientes({ scope, titulo, nota, matches, total }: {
                     <th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Nº Mercado Pago</th><th className="px-3 py-2">Destino</th>
                     <th className="px-3 py-2">Estado</th><th className="px-3 py-2">Acción requerida</th>
                   </tr></thead>
-                  <tbody>{filas.map((r) => <FilaPendiente key={r.pending_key} r={r} matches={matches} nota={notas.data?.get(r.source_id)} />)}</tbody>
+                  <tbody>{filas.map((r) => <FilaPendiente key={r.pending_key} r={r} matches={matches} nota={notas.data?.get(r.source_id)} docs={docs.data?.get(r.source_id)} />)}</tbody>
                 </table>
               </div>
               <Paginador pagina={pagina} paginas={paginas} total={cantidad} onCambiar={setPagina} />
@@ -112,7 +116,7 @@ export function Paginador({ pagina, paginas, total, onCambiar }: { pagina: numbe
   );
 }
 
-function FilaPendiente({ r, matches, nota }: { r: PendingRow; matches: ReadonlyMap<string, MpPayoutMatch>; nota?: MpWhatsappNote }) {
+function FilaPendiente({ r, matches, nota, docs }: { r: PendingRow; matches: ReadonlyMap<string, MpPayoutMatch>; nota?: MpWhatsappNote; docs?: DocumentLinkRow[] }) {
   const actividad = { description: r.description, source_id: r.source_id, coverage_status: 'PENDING_CLASSIFICATION' } as MpActivityRow;
   const destino = r.destination_status ? DESTINATION_STATUS_LABEL[r.destination_status] : null;
   const cuenta = r.matched_account_name ?? maskedAccount(r.destination_last4);
@@ -132,6 +136,7 @@ function FilaPendiente({ r, matches, nota }: { r: PendingRow; matches: ReadonlyM
             {whatsappNoteText(nota)}
           </p>
         )}
+        {docs && <div className="mt-0.5"><Comprobantes docs={docs} /></div>}
       </td>
       <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id}</td>
       <td className="px-3 py-2">{destino ? <>{destino}{cuenta && <span className="text-[#8A7A5C]"> · {cuenta}</span>}</> : <span className="text-[#8A7A5C]">—</span>}</td>

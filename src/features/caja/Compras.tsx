@@ -11,6 +11,8 @@ import { formatoPesos } from '../pedidos/helpers';
 import { campo, etiqueta, Modal } from './Modal';
 import { SelectorCategoria } from './SelectorCategoria';
 import { useExpenseCategories, useFreight, usePurchases, useSuppliers, useTreasuryMutations } from './useTreasury';
+import { Comprobantes } from './Comprobantes';
+import { usePurchaseAttachments } from './useInvoicePayments';
 
 const NATURALEZA: Record<string, string> = { OPERATING: 'Operativa', REINVESTMENT: 'Reinversión', INVESTMENT: 'Inversión' };
 
@@ -29,6 +31,7 @@ export function Compras() {
   const [nuevoFlete, setNuevoFlete] = useState(false);
   const [asignando, setAsignando] = useState<string | null>(null);
   const [nuevaCompra, setNuevaCompra] = useState(false);
+  const adjuntos = usePurchaseAttachments(abierta ? [abierta] : []);   // the original receipt(s) of the open purchase (ERP or WhatsApp)
 
   if (compras.isLoading || fletes.isLoading) return <p className="text-sm text-gray-500">Cargando compras...</p>;
   const error = compras.error ?? fletes.error;
@@ -61,6 +64,7 @@ export function Compras() {
                 <div className="px-4 pb-3 border-t border-[#E4DCC8] bg-[#FAF6EE] text-xs text-gray-700 space-y-1">
                   <p className="pt-2">{NATURALEZA[c.nature] ?? c.nature}{c.amount_net !== c.amount_total ? ` · Neto ${formatoPesos(c.amount_net)}` : ''}{c.supplier_invoice_number ? ` · Comprobante ${c.supplier_invoice_number}` : ''}</p>
                   {c.lineas.map((l) => <p key={l.id}>{l.cantidad} {l.unit_type} · {l.descripcion} · {formatoPesos(l.precio_unitario)} c/u</p>)}
+                  {(adjuntos.data?.get(c.id) ?? []).length > 0 && <p className="flex items-center gap-2">Comprobante: <Comprobantes docs={adjuntos.data?.get(c.id)} /></p>}
                   <span className="flex gap-2 mt-2">
                     <button onClick={() => setRectificando(c)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Rectificar</button>
                     <button onClick={() => setAsignando(c.id)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Asignar flete</button>

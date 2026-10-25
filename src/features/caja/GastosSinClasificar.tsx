@@ -16,6 +16,8 @@ import { Paginador } from './PendientesClasificar';
 import { SelectorCategoria } from './SelectorCategoria';
 import { usePendingSummary } from './useMpActivity';
 import { useClassifyPendingExpense, usePendingExpenses, useProfileEmails, useUnclassifiedCount } from './useUnclassified';
+import { Comprobantes } from './Comprobantes';
+import { useDocumentLinks } from './useInvoicePayments';
 
 const FILTRO = 'border border-[#E4DCC8] rounded-lg px-2 py-1 text-sm bg-white';
 const ESTADOS: (PendingExpenseStatus | 'ALL')[] = ['SIN_CLASIFICAR', 'CLASIFICADO', 'ALL'];
@@ -42,6 +44,7 @@ export function GastosSinClasificar({ onVerPendientesMp }: { onVerPendientesMp: 
   const [elegido, setElegido] = useState<PendingExpenseRow | null>(null);
   const cambiar = (p: Partial<PendingExpenseFilter>) => { setFiltro((f) => ({ ...f, ...p })); setPagina(0); };
   const filas = q.data?.rows ?? [];
+  const docs = useDocumentLinks('EXPENSE_PENDING', filas.map((r) => String(r.pending_id)));   // ADR-025 stage 4: the WhatsApp receipt
   const total = q.data?.total ?? 0;
   const paginas = Math.max(1, Math.ceil(total / PENDING_EXPENSE_PAGE));
   const mpPend = mp.data ? mandatoryPending(mp.data) : null;
@@ -106,7 +109,8 @@ export function GastosSinClasificar({ onVerPendientesMp }: { onVerPendientesMp: 
                       <tr key={r.pending_id} className="border-b border-stone-100 last:border-0 align-top">
                         <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(r.economic_date)}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap font-medium text-red-700">{formatoPesos(-r.amount)}</td>
-                        <td className="px-3 py-2">{r.concept}{r.counterparty_name && <span className="text-[#8A7A5C]"> · {r.counterparty_name}</span>}</td>
+                        <td className="px-3 py-2">{r.concept}{r.counterparty_name && <span className="text-[#8A7A5C]"> · {r.counterparty_name}</span>}
+                          {docs.data?.get(String(r.pending_id)) && <div className="mt-0.5"><Comprobantes docs={docs.data.get(String(r.pending_id))} /></div>}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{r.account_name}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{originText(r)}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs text-[#6B5D45]">{autor(r.created_by)}</td>

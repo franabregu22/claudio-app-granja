@@ -7,8 +7,10 @@ import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta, Modal } from './Modal';
 import { BloqueoMp, useEsCuentaMp } from './MovimientoMp';
 import { useClients, useInstrumentAction, useInstruments, useSuppliers, useTreasuryMutations, type InstrumentAction } from './useTreasury';
+import { Comprobantes } from './Comprobantes';
+import { useDocumentLinks } from './useInvoicePayments';
 
-const ESTADO: Record<InstrumentEstado, { texto: string; clase: string }> = {
+export const ESTADO: Record<InstrumentEstado, { texto: string; clase: string }> = {
   RECEIVED: { texto: 'En cartera', clase: 'bg-amber-100 text-amber-900' },
   DEPOSITED: { texto: 'Depositado', clase: 'bg-blue-100 text-blue-800' },
   CLEARED: { texto: 'Acreditado', clase: 'bg-green-100 text-green-800' },
@@ -18,10 +20,10 @@ const ESTADO: Record<InstrumentEstado, { texto: string; clase: string }> = {
   REJECTED: { texto: 'Rechazado', clase: 'bg-red-100 text-red-800' },
   CANCELLED: { texto: 'Anulado', clase: 'bg-stone-200 text-stone-700' },
 };
-const ACCION: Record<InstrumentAction, string> = {
+export const ACCION: Record<InstrumentAction, string> = {
   deposit: 'Depositar', clear: 'Acreditar', endorse: 'Endosar', reject: 'Rechazar', debit: 'Marcar debitado', cancel: 'Anular',
 };
-const TIPO: Record<InstrumentType, string> = { CHEQUE: 'Cheque', ECHEQ: 'eCheq' };
+export const TIPO: Record<InstrumentType, string> = { CHEQUE: 'Cheque', ECHEQ: 'eCheq' };
 /** Actions whose contract requires a reason (reject_cheque / reject_supplier_instrument / cancel_supplier_instrument). */
 const REQUIERE_MOTIVO: InstrumentAction[] = ['reject', 'cancel'];
 
@@ -34,6 +36,7 @@ export function Cheques() {
   const instrumentos = useInstruments();
   const [recibiendo, setRecibiendo] = useState(false);
   const [accion, setAccion] = useState<{ action: InstrumentAction; inst: InstrumentRow } | null>(null);
+  const docs = useDocumentLinks('FINANCIAL_INSTRUMENT', (instrumentos.data ?? []).filter((i) => i.direction === 'ISSUED').map((i) => i.id));   // ADR-025 stage 4: cheque PDFs
 
   if (instrumentos.isLoading) return <p className="text-sm text-gray-500">Cargando cheques...</p>;
   if (instrumentos.error) return <p className="text-sm text-red-700">{errorMessage(instrumentos.error)}</p>;
@@ -48,6 +51,7 @@ export function Cheques() {
           <span className="text-[#8A7A5C]"> · {i.direction === 'RECEIVED' ? i.cliente_nombre : i.supplier_nombre}</span>
           {i.endosado_nombre && <span className="text-[#8A7A5C]"> → {i.endosado_nombre}</span>}
           {i.maturity_date && <span className="text-[#8A7A5C]"> · vence {formatearFechaLocal(i.maturity_date)}</span>}
+          {docs.data?.get(i.id) && <span className="ml-2"><Comprobantes docs={docs.data.get(i.id)} compacto /></span>}
         </span>
         <span className="flex items-center gap-2">
           <span className="font-bold">{formatoPesos(i.amount)}</span>
@@ -78,7 +82,7 @@ export function Cheques() {
       </section>
       <section>
         <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Emitidos a proveedores</p>
-        <p className="text-xs text-[#8A7A5C] mb-2">Se emiten desde Cuentas a pagar → Pagar → Cheque / eCheq.</p>
+        <p className="text-xs text-[#8A7A5C] mb-2">Para pagar una factura con uno o varios cheques: Pagos de facturas. Sin factura: Cuentas a pagar → Pagar → Cheque / eCheq.</p>
         {emitidos.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay cheques emitidos.</p> : <div className="space-y-2">{emitidos.map(fila)}</div>}
       </section>
       {recibiendo && <RecibirChequeModal onClose={() => setRecibiendo(false)} />}
@@ -141,7 +145,7 @@ function RecibirChequeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function AccionModal({ action, inst, onClose }: { action: InstrumentAction; inst: InstrumentRow; onClose: () => void }) {
+export function AccionModal({ action, inst, onClose }: { action: InstrumentAction; inst: Pick<InstrumentRow, 'id' | 'direction' | 'instrument_type' | 'cheque_number' | 'amount'>; onClose: () => void }) {
   const mutacion = useInstrumentAction();
   const cuentas = useFinancialAccounts();
   const proveedores = useSuppliers();

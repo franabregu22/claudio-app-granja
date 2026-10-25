@@ -10,9 +10,11 @@ import { Compras } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
 import { ResumenSaldos } from './ResumenSaldos';
 import { ExtractosBancarios } from './ExtractosBancarios';
+import { PagosFacturas } from './PagosFacturas';
+import { Vencimientos } from './Vencimientos';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 
-type Vista = 'saldos' | 'sinclasificar' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'instrumentos' | 'extractos';
+type Vista = 'saldos' | 'sinclasificar' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'pagosfactura' | 'vencimientos' | 'instrumentos' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'saldos', label: 'Saldos' },
   { id: 'sinclasificar', label: 'Gastos sin clasificar' },   // ADR-025 (0101): paid expenses whose category is pending
@@ -21,6 +23,8 @@ const VISTAS: { id: Vista; label: string }[] = [
   { id: 'cobros', label: 'Cobros de clientes' },
   { id: 'pagar', label: 'Cuentas a pagar' },
   { id: 'compras', label: 'Compras y fletes' },
+  { id: 'pagosfactura', label: 'Pagos de facturas' },   // ADR-025 stage 4 (0104): one invoice, several cheques / payments
+  { id: 'vencimientos', label: 'Vencimientos' },   // ADR-025 stage 4 (0104): scheduled vs debited own cheques
   { id: 'instrumentos', label: 'Cheques' },
   { id: 'extractos', label: 'Extractos bancarios' },
 ];
@@ -79,6 +83,8 @@ export function CajaApp() {
           {vista === 'cobros' && <CobrosClientes />}
           {vista === 'pagar' && <CuentasAPagar />}
           {vista === 'compras' && <Compras />}
+          {vista === 'pagosfactura' && <PagosFacturas />}
+          {vista === 'vencimientos' && <Vencimientos />}
           {vista === 'instrumentos' && <Cheques />}
           {vista === 'extractos' && <ExtractosBancarios />}
         </div>
