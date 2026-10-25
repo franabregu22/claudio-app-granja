@@ -3,5 +3,7 @@
  "reasoning_effort": "none",
  "max_output_tokens": 600,
  "amount_cap": 10000000,
- "gpt_calls_per_hour_per_sender": 30
+ "gpt_calls_per_hour_per_sender": 30,
+ "receipt_model": "gpt-5.6-luna",
+ "receipt_max_output_tokens": 900
 }

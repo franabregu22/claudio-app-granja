@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 const wf = JSON.parse(readFileSync(process.env.WF_FILE || new URL('./build/STAGING_wa_expense_capture.json', import.meta.url), 'utf8'));   // WF_FILE: run the merged v2 too
 const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
 const byName = Object.fromEntries(wf.nodes.map((n) => [n.name, n]));
+const P = wf.name.startsWith('PROD - ') ? 'PROD_' : 'STAGING_';   // the credential prefix of the built environment
 const C4 = 'aaaaaaaa-0025-0000-0000-0000000000c4', C1 = 'aaaaaaaa-0025-0000-0000-0000000000c1';
 const CATALOG = { categories: [{ id: C4, nombre: 'Combustible' }, { id: C1, nombre: 'Insumos' }], accounts: [{ id: 'acc-cash', nombre: 'Caja chica', account_type: 'CASH' }, { id: 'acc-bna', nombre: 'BNA', account_type: 'BANK_ACCOUNT' }, { id: 'acc-mp', nombre: 'Mercado Pago', account_type: 'EXTERNAL_SERVICE' }] };
 const PHONE = '+5491155551234';
@@ -225,7 +226,7 @@ test('WF-10 schedule path: expire, no message; build hygiene: credentials by nam
   assert.ok(!/\$env|require\(/.test(t)); assert.equal(wf.active, false); assert.equal(wf.settings.saveDataSuccessExecution, 'none');
   const cred = (name) => Object.values(byName[name].credentials)[0].name;
   assert.deepEqual(['Edge → n8n', 'Call Edge action', 'Call Edge follow-up', 'OpenAI interpret', 'Send WhatsApp'].map(cred),
-    ['STAGING_WA_EDGE_TO_N8N', 'STAGING_WA_N8N_TO_EDGE', 'STAGING_WA_N8N_TO_EDGE', 'STAGING_OPENAI_GRANJA', 'STAGING_META_GRAPH_TOKEN']);
+    ['WA_EDGE_TO_N8N', 'WA_N8N_TO_EDGE', 'WA_N8N_TO_EDGE', 'OPENAI_GRANJA', 'META_GRAPH_TOKEN'].map((c) => P + c));   // never a credential of the other environment
   assert.equal(byName['OpenAI interpret'].parameters.nodeCredentialType, 'openAiApi');
 });
 
@@ -497,4 +498,34 @@ test('WF-23 a text answer to the pending method is deterministic ("con mercado p
   assert.equal(d.version, 1); assert.match(W.sent.at(-1).text.body, /¿Cómo lo pagaste\?/);
   await say(W, 'con mercado pago', G({ intent: 'other' }));
   assert.deepEqual([d.version, d.payload.method, d.payload.account_id], [2, 'MERCADOPAGO', 'acc-mp']);
+});
+
+// ── receipts (ADR-025 stage 4): photo / PDF stored by the Edge → reader → ONE proposal; nothing recorded without the buttons ──
+const DOCEV = { id: 'f-77', mime: 'image/jpeg', signed_url: 'https://x.supabase.co/storage/v1/object/sign/wa-media/wa/a.jpg?token=t', duplicate: false, links: 0, draft_short_code: null };
+const RG = (o) => ({ readable: true, document_type: 'TICKET', issuer_name: 'YPF', issuer_cuit: null, number: null, date: null, total: 45230.5, net: null, iva: [], other_taxes: [],
+  addressed_to_santo_tomas: null, concept: null, category: null, issues: [], ...o });
+
+test('WF-R1 photo + "gasté esto en gasoil en efectivo": the reader gets the signed URL; ONE proposal for the TOTAL with the file; summary shows what was read', async () => {
+  const W = world();
+  W.gpt = RG({ concept: 'Gasoil', category: WAI.options(CATALOG).find((x) => x.nombre === 'Combustible').code });
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'image', caption: 'gasté esto en gasoil en efectivo', document: DOCEV }));
+  assert.deepEqual(actions(W), ['context', 'propose']);
+  assert.equal(W.openaiBodies[0].input[1].content[1].image_url, DOCEV.signed_url);
+  const p = W.edgeCalls[1].payload;
+  assert.deepEqual([p.total, p.concept, p.category_id, p.document_file_id, p.method, p.account_id], [45230.5, 'Gasoil', C4, 'f-77', 'CASH', 'acc-cash']);
+  assert.match(W.sent[0].interactive.body.text, /📎 Ticket · YPF/);
+});
+
+test('WF-R2 a media error from the Edge → a reply asking for the file, no Edge action, no OpenAI', async () => {
+  const W = world();
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'document', caption: null, media_error: 'too_large' }));
+  assert.deepEqual(actions(W), []); assert.equal(W.openaiBodies.length, 0);
+  assert.match(W.sent[0].text.body, /10 MB/);
+});
+
+test('WF-R3 MPLINK button → link_mp of THAT draft / version / SOURCE_ID (the database re-checks it)', async () => {
+  const W = world();
+  const id = '11111111-2222-4333-8444-555555555555';
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `MPLINK:${id}:2:930000025099` }));
+  assert.deepEqual(W.edgeCalls.map((c) => [c.action, c.draft_id, c.expected_version, c.source_id]), [['link_mp', id, 2, '930000025099']]);
 });

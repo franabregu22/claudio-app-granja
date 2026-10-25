@@ -10,11 +10,13 @@ const ENV: Record<string, string> = {
   WA_META_VERIFY_TOKEN: 'verify-tok-'.padEnd(40, 'v'), WA_EDGE_TO_N8N_TOKEN: T_E2N, WA_N8N_TO_EDGE_TOKEN: T_N2E, WA_CAPABILITY_SECRET: CAPS, WA_N8N_INBOUND_URL: N8N,
 };
 type Call = { url: string; init: RequestInit };
-function rig(opts: { env?: Record<string, string>; rpc?: (fn: string, args: any, n: number) => [number, unknown]; n8n?: number[]; loginStatus?: number } = {}) {
+function rig(opts: { env?: Record<string, string>; rpc?: (fn: string, args: any, n: number) => [number, unknown]; n8n?: number[]; loginStatus?: number;
+                     extra?: (url: string, init: RequestInit) => Response | null } = {}) {
   const calls: Call[] = [], logs: Record<string, unknown>[] = [], bg: Promise<unknown>[] = [];
   let t = 1_800_000_000_000, n8nIdx = 0; const perFn: Record<string, number> = {};
   const fetchMock = (async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = String(input); calls.push({ url, init });
+    const x = opts.extra?.(url, init); if (x) return x;
     if (url.includes('/auth/v1/token')) return new Response(JSON.stringify({ access_token: `tok${calls.length}`, expires_in: 3600 }), { status: opts.loginStatus ?? 200 });
     if (url.includes('/rest/v1/rpc/')) {
       const fn = url.split('/rpc/')[1]; perFn[fn] = (perFn[fn] ?? 0) + 1;
@@ -189,4 +191,52 @@ Deno.test('E-14 context action: read-only wa_context with the capability of THAT
   assertEquals(JSON.parse(String(x.calls.find((c) => c.url.endsWith('/rpc/wa_context'))!.init.body)), { p_inbound_id: 77 });
   assertEquals((await x.h(actionReq({ action: 'context', inbound_id: 78, cap }, x.nowS()))).status, 403);
   assertEquals((await x.h(actionReq({ action: 'context', inbound_id: 77 }, x.nowS()))).status, 403);
+});
+
+
+// ── receipts: photo / PDF stored once, n8n gets a signed URL (ADR-025 stage 4) ────────────────────────────────────────────
+const GRAPH = 'graph-token-'.padEnd(40, 'g');
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+const mediaWorld = (o: { mime?: string; size?: number; upload?: number } = {}) => (url: string, init: RequestInit): Response | null => {
+  if (url.startsWith('https://graph.facebook.com/')) return new Response(JSON.stringify({ url: 'https://lookaside.fbsbx.com/whatsapp/x', mime_type: o.mime ?? 'image/jpeg', file_size: o.size ?? JPEG.length }), { status: 200 });
+  if (url.startsWith('https://lookaside.fbsbx.com/')) return new Response(JPEG, { status: 200 });
+  if (url.includes('/storage/v1/object/sign/')) return new Response(JSON.stringify({ signedURL: '/object/sign/wa-media/wa/x.jpg?token=SECRET-SIGNED' }), { status: 200 });
+  if (url.includes('/storage/v1/object/wa-media/')) return new Response(o.upload === 409 ? '{"error":"Duplicate"}' : '{}', { status: o.upload ?? 200 });
+  return null;
+};
+const imageMsg = (caption: string | null) => ({ inbound_id: 41, outcome: 'ACCEPTED', duplicate: false, kind: 'image', media_id: 'm-1', caption, phone: PHONE });
+const forwarded = (calls: Call[]) => calls.filter((c) => c.url === N8N).map((c) => JSON.parse(String(c.init.body)).event);
+const storeRpc = (doc: Record<string, unknown> = { ok: true, document_file_id: 'f-1', duplicate: false, links: [] }) => (fn: string): [number, unknown] =>
+  fn === 'wa_ingest' ? [200, { ok: true, messages: [imageMsg('gasté esto en gasoil')] }] : fn === 'wa_store_media' ? [200, doc] : [200, { ok: true }];
+
+Deno.test('M-1 a photo: downloaded with the Graph token, stored as wa/<sha256>.jpg (no upsert), registered, forwarded with caption + signed URL', async () => {
+  const { h, calls, bg, logs } = rig({ env: { WA_META_GRAPH_TOKEN: GRAPH }, rpc: storeRpc(), extra: mediaWorld() });
+  assertEquals((await h(metaReq(metaBody([{}])))).status, 200);
+  await Promise.all(bg);
+  const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', JPEG))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const up = calls.find((c) => c.url.includes('/storage/v1/object/wa-media/'))!;
+  assertEquals(up.url, `${BASE}/storage/v1/object/wa-media/wa/${sha}.jpg`);
+  assertEquals((up.init.headers as Record<string, string>)['x-upsert'], 'false');
+  const store = calls.find((c) => c.url.endsWith('/rpc/wa_store_media'))!;
+  assertEquals(JSON.parse(String(store.init.body)), { p_inbound_id: 41, p_sha256: sha, p_content_type: 'image/jpeg', p_byte_size: JPEG.length });
+  const ev = forwarded(calls)[0];
+  assertEquals([ev.kind, ev.caption, ev.document.id, ev.document.mime], ['image', 'gasté esto en gasoil', 'f-1', 'image/jpeg']);
+  assert(ev.document.signed_url.startsWith(`${BASE}/storage/v1/object/sign/`));
+  const graphCall = calls.find((c) => c.url.startsWith('https://graph.facebook.com/'))!;
+  assertEquals((graphCall.init.headers as Record<string, string>).authorization, `Bearer ${GRAPH}`);
+  assert(!JSON.stringify(logs).includes('SECRET-SIGNED') && !JSON.stringify(logs).includes(GRAPH), 'no token / signed URL in the logs');
+});
+
+Deno.test('M-2 the same bytes already stored (409) are reused; unsupported type / too large / no Graph token → media_error, nothing stored', async () => {
+  let r = rig({ env: { WA_META_GRAPH_TOKEN: GRAPH }, rpc: storeRpc({ ok: true, document_file_id: 'f-1', duplicate: true, links: [{}] }), extra: mediaWorld({ upload: 409 }) });
+  await r.h(metaReq(metaBody([{}]))); await Promise.all(r.bg);
+  assertEquals(forwarded(r.calls)[0].document.duplicate, true);
+  for (const [o, env, code] of <[Record<string, number | string>, Record<string, string>, string][]>[
+    [{ mime: 'audio/ogg' }, { WA_META_GRAPH_TOKEN: GRAPH }, 'unsupported_type'], [{ size: 11 * 1024 * 1024 }, { WA_META_GRAPH_TOKEN: GRAPH }, 'too_large'],
+    [{}, {}, 'media_not_configured']]) {
+    r = rig({ env, rpc: storeRpc(), extra: mediaWorld(o as any) });
+    await r.h(metaReq(metaBody([{}]))); await Promise.all(r.bg);
+    assertEquals(forwarded(r.calls)[0].media_error, code);
+    assert(!r.calls.some((c) => c.url.endsWith('/rpc/wa_store_media')), 'nothing registered');
+  }
 });

@@ -24,6 +24,11 @@ export const MAX_META_BODY = 256 * 1024;
 export const MAX_ACTION_BODY = 64 * 1024;
 export const ACTION_WINDOW_S = 300;
 export const CAP_TTL_S = 900;
+export const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
+export const SIGNED_URL_S = 600;
+const MEDIA_BUCKET = 'wa-media';
+const GRAPH_VERSION = 'v21.0';
+const MEDIA_EXT: Record<string, string> = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
 export interface Deps {
   env: (k: string) => string | undefined;
@@ -144,6 +149,46 @@ export function createHandler(d: Deps) {
     }
   }
 
+  // ── receipts (ADR-025 stage 4): the original photo / PDF, downloaded from Meta right away (its URL expires), stored once in the
+  //    private bucket wa-media (wa/<sha256>.<ext>, gateway identity), registered by wa_store_media; n8n gets a 10-minute signed URL.
+  //    Any failure → the event goes on with media_error (n8n asks for the file again); never a token / URL in the logs.
+  async function storeMedia(m: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const graph = E('WA_META_GRAPH_TOKEN');
+    if (!graph) return { media_error: 'media_not_configured' };
+    try {
+      const meta = await d.fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(String(m.media_id))}`, { headers: { authorization: `Bearer ${graph}` } });
+      if (!meta.ok) return { media_error: `meta_media_${meta.status}` };
+      const info = await meta.json() as { url?: string; mime_type?: string; file_size?: number };
+      const mime = String(info.mime_type ?? '').split(';')[0].trim().toLowerCase();
+      const ext = MEDIA_EXT[mime];
+      if (!ext) return { media_error: 'unsupported_type' };
+      if (Number(info.file_size ?? 0) > MAX_MEDIA_BYTES) return { media_error: 'too_large' };
+      if (!info.url || !/^https:\/\//.test(info.url)) return { media_error: 'meta_media_url' };
+      const file = await d.fetch(info.url, { headers: { authorization: `Bearer ${graph}` } });
+      if (!file.ok) return { media_error: `meta_download_${file.status}` };
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.length === 0 || bytes.length > MAX_MEDIA_BYTES) return { media_error: bytes.length ? 'too_large' : 'empty' };
+      const sha = hex(await crypto.subtle.digest('SHA-256', bytes));
+      const path = `wa/${sha}.${ext}`;
+      const up = await d.fetch(`${base}/storage/v1/object/${MEDIA_BUCKET}/${path}`, { method: 'POST', body: bytes,
+        headers: { apikey: anon, authorization: `Bearer ${await token()}`, 'content-type': mime, 'x-upsert': 'false' } });
+      const upText = up.ok ? '' : await up.text();
+      if (!up.ok && !(up.status === 409 || /duplicate|already exists/i.test(upText))) return { media_error: `storage_${up.status}` };
+      const reg = await rpc('wa_store_media', { p_inbound_id: m.inbound_id, p_sha256: sha, p_content_type: mime, p_byte_size: bytes.length });
+      if (reg.status !== 200 || reg.body?.ok !== true) return { media_error: 'store_refused' };
+      const sg = await d.fetch(`${base}/storage/v1/object/sign/${MEDIA_BUCKET}/${path}`, { method: 'POST', body: JSON.stringify({ expiresIn: SIGNED_URL_S }),
+        headers: { apikey: anon, authorization: `Bearer ${await token()}`, 'content-type': 'application/json' } });
+      const sj = sg.ok ? await sg.json() as { signedURL?: string } : {};
+      if (!sj.signedURL) return { media_error: 'sign_failed' };
+      d.log({ evt: 'media_stored', inbound_id: m.inbound_id, mime, bytes: bytes.length, duplicate: reg.body.duplicate === true });
+      return { document: { id: reg.body.document_file_id, mime, signed_url: `${base}/storage/v1${sj.signedURL}`, duplicate: reg.body.duplicate === true,
+                           links: Array.isArray(reg.body.links) ? reg.body.links.length : 0, draft_short_code: reg.body.draft_short_code ?? null } };
+    } catch (e) {
+      d.log({ evt: 'media_error', inbound_id: m.inbound_id, error: short((e as Error).message) });
+      return { media_error: 'media_exception' };
+    }
+  }
+
   async function metaVerify(url: URL): Promise<Response> {
     const ok = url.searchParams.get('hub.mode') === 'subscribe' && safeEqual(url.searchParams.get('hub.verify_token') ?? '', E('WA_META_VERIFY_TOKEN'));
     d.log({ evt: 'meta_verify', ok });
@@ -165,8 +210,11 @@ export function createHandler(d: Deps) {
     for (const m of msgs) {
       d.log({ evt: 'message', inbound_id: m.inbound_id, outcome: m.outcome, duplicate: m.duplicate, kind: m.kind, phone: maskPhone(m.phone) });
       if (m.outcome === 'ACCEPTED' && !m.duplicate) {
-        d.waitUntil(forward({ type: 'wa.message', inbound_id: m.inbound_id, kind: m.kind, text: m.text ?? null,
-          button_payload: m.button_payload ?? null, media_id: m.media_id ?? null, phone: m.phone }));
+        const ev = { type: 'wa.message', inbound_id: m.inbound_id, kind: m.kind, text: m.text ?? null,
+          button_payload: m.button_payload ?? null, media_id: m.media_id ?? null, phone: m.phone };
+        if ((m.kind === 'image' || m.kind === 'document') && m.media_id) {
+          d.waitUntil(storeMedia(m).then((media) => forward({ ...ev, caption: m.caption ?? null, ...media })));
+        } else d.waitUntil(forward(ev));
       }
     }
     return json(200, { received: msgs.length });

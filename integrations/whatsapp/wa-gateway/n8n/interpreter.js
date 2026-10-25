@@ -112,7 +112,7 @@ const WAI = (() => {
     const sent = { hoy: today, mensaje: String(text).slice(0, 1000), categorias: opts.map((x) => ({ codigo: x.code, categoria: x.grupo, subcategoria: x.nombre })),
       borrador_abierto: o ? { codigo: o.short_code, estado: o.state, importe: o.payload?.total ?? null, concepto: o.payload?.concept ?? null,
                               categoria: catName(o.payload?.category_id), medio: o.payload?.method ?? null, fecha: o.payload?.date ?? null,
-                              pendiente: [...(o.payload?.category_pending ? ['subcategoria'] : []), ...(o.payload?.method_pending ? ['medio de pago'] : []),
+                              pendiente: [...(o.payload?.concept_pending ? ['concepto'] : []), ...(o.payload?.category_pending ? ['subcategoria'] : []), ...(o.payload?.method_pending ? ['medio de pago'] : []),
                                           ...(o.payload?.account_pending && !o.payload?.method_pending ? ['cuenta'] : [])] } : null };
     const body = { model, store: false, max_output_tokens: maxOutputTokens || 600,
       input: [{ role: 'system', content: SYSTEM }, { role: 'user', content: JSON.stringify(sent) }],
@@ -228,6 +228,10 @@ const WAI = (() => {
     const byCode = (code) => opts.find((o) => o.code === code) || null;   // only a code of THIS message's live catalog is valid
     const byId = (id) => opts.find((o) => o.id === id) || null;
     const o = ctx.open;
+    // a receipt waiting for its concept: the answer IS the concept (and its subcategory), not a new expense
+    if (g.intent === 'new_expense' && o && o.payload?.concept_pending && typeof g.amount !== 'number' && g.concept) {
+      return decide({ gpt: { ...g, intent: 'correct_draft', changed_fields: ['concept', ...(g.category ? ['category'] : [])] }, text, ctx, today, amountCap });
+    }
     switch (g.intent) {
       case 'confirm_request': return { reply: o ? `Para registrar ${o.short_code} tocá el botón del último resumen (Confirmar, o "Registrar sin clasif" si falta solo la subcategoría).` : 'No tenés un borrador para confirmar.', outcome: 'confirm_by_button_only' };
       case 'cancel_request': return { reply: 'Para cancelar escribí "cancelar" o tocá el botón Cancelar.', outcome: 'cancel_by_command_only' };
@@ -286,13 +290,13 @@ const WAI = (() => {
         // names excluded) — anything else is dropped
         if (ch.includes('concept')) {
           const cw = words(g.concept, 3);
-          if (ch.includes('category') || !cw.length || !cw.every((w) => rest.includes(' ' + w + ' '))) ch = ch.filter((f) => f !== 'concept');
+          if ((ch.includes('category') && !o.payload?.concept_pending) || !cw.length || !cw.every((w) => rest.includes(' ' + w + ' '))) ch = ch.filter((f) => f !== 'concept');
         }
         if (!ch.length) return clar(`¿Qué dato de ${o.short_code} querés corregir?`, 'nothing_to_correct');
         if (ch.includes('amount') && ch.includes('concept')) return clar(`¿Es una corrección de ${o.short_code} o un gasto nuevo?`, 'ambiguous_new_vs_correct');
         const p = { ...o.payload }; delete p.needs_mp;
         if (ch.includes('amount')) { const v = validAmount(g, text, cap); if (v === null) return clar('¿Cuál es el importe correcto?', 'amount_unverified'); p.total = v; delete p.net; }
-        if (ch.includes('concept')) { const c = String(g.concept || '').trim().slice(0, 100); if (!c) return clar('¿Cuál es el concepto correcto?', 'no_concept'); p.concept = c; }
+        if (ch.includes('concept')) { const c = String(g.concept || '').trim().slice(0, 100); if (!c) return clar('¿Cuál es el concepto correcto?', 'no_concept'); p.concept = c; delete p.concept_pending; }
         if (ch.includes('category')) { const c = g.category ? byCode(g.category) : null; if (!c) return clar(askCategory(opts), 'no_category');
           const offered = p.category_options || [];   // a subcategory among the ones offered for a pending choice is not re-questioned
           const sub = offered.includes(c.id) ? null : ambiguousGroup(text, c, opts); if (sub) return clar(askSubs(sub), 'ambiguous_category');
@@ -331,5 +335,5 @@ const WAI = (() => {
   const cfgFromContext = (ctx) => ({ categories: ctx?.catalog?.categories || [],
     accounts: Object.fromEntries((ctx?.catalog?.accounts || []).map((a) => [a.id, a])) });
 
-  return { schema, SYSTEM, options, label, accountOptions, saidMethods, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
+  return { schema, SYSTEM, options, label, accountOptions, saidMethods, namedAccounts, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
 })();

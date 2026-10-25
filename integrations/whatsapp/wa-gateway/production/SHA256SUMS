@@ -1,0 +1,4 @@
+3a8bfe2d759d5972cdc591f00464ad6a5d735744f94c7d2cce031c495f6ce409 *supabase/config.toml
+10ff6e2820d68d383d28369e4f4513a8aeafff3536639e9a04c8d214413cde97 *supabase/functions/wa-gateway/handler.ts
+fc31d0e6476d392f494ae004e5580da0020c84ab905ea9477abe68c88becc5f8 *supabase/functions/wa-gateway/index.ts
+c64cd8fead47e68b5bf2326d8eeb5bd0220276a5b6c7d317af95e71f187b4ea4 *tests/handler.prod.test.ts

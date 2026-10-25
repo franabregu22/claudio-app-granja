@@ -54,12 +54,27 @@ const WA = (() => {
     // METHOD:<draft>:<version>:<method> ("¿Cómo lo pagaste?"): read the context first; the correction is built from the database draft
     const pm = b.match(new RegExp(`^METHOD:(${UUID}):([0-9]{1,5}):(CASH|TRANSFER|MERCADOPAGO)$`));
     if (pm) return { ...ctx, text: '', pick: { draft_id: pm[1], version: Number(pm[2]), method: pm[3] }, request: { action: 'context', inbound_id: event.inbound_id, cap: event.cap } };
+    // MPLINK:<draft>:<version>:<SOURCE_ID> — one of the pending Mercado Pago outflows offered for a waiting draft (wa_link_mp re-checks it)
+    const lm = b.match(new RegExp(`^MPLINK:(${UUID}):([0-9]{1,5}):([0-9]{6,20})$`));
+    if (lm) return { ...ctx, request: { action: 'link_mp', inbound_id: event.inbound_id, cap: event.cap, draft_id: lm[1], expected_version: Number(lm[2]), source_id: lm[3] } };
     if (b) return { ...ctx, reply: 'Ese botón no es válido.' };
+    // a photo / PDF: the Edge already stored the original (document) — read the context, then the receipt reader decides
+    if ((event.kind === 'image' || event.kind === 'document') && event.media_error) return { ...ctx, reply: MEDIA_ERR[event.media_error] || MEDIA_ERR.default };
+    if ((event.kind === 'image' || event.kind === 'document') && event.document && event.document.id && event.document.signed_url) {
+      return { ...ctx, text: String(event.caption || '').slice(0, 500), media: { id: event.document.id, mime: event.document.mime, signed_url: event.document.signed_url,
+        duplicate: !!event.document.duplicate, links: Number(event.document.links || 0), draft_short_code: event.document.draft_short_code || null },
+        request: { action: 'context', inbound_id: event.inbound_id, cap: event.cap } };
+    }
     if (event.kind !== 'text') return { ...ctx, reply: 'Por ahora solo proceso mensajes de texto.' };
     if (!String(event.text || '').trim()) return { ...ctx, reply: 'Mandame el gasto en una línea, por ejemplo: "gasté 18 mil de combustible en efectivo".' };
     return { ...ctx, text: String(event.text).slice(0, 1000), request: { action: 'context', inbound_id: event.inbound_id, cap: event.cap } };
   }
 
+  const MEDIA_ERR = {
+    unsupported_type: 'Ese tipo de archivo no lo proceso: mandá una foto (JPG / PNG) o un PDF del comprobante.',
+    too_large: 'El archivo supera los 10 MB. Mandá una foto o un PDF más liviano.',
+    default: 'No pude recibir el archivo. Reenvialo en un rato o escribime el gasto.',
+  };
   /** n8n → Edge request: raw JSON body + ts / nonce headers (the x-wa-token header comes from the HTTP node credential) */
   function prepare(request, nowS, nonce) {
     return { raw: JSON.stringify(request), headers: { 'content-type': 'application/json', 'x-wa-timestamp': String(nowS), 'x-wa-nonce': nonce } };
@@ -90,6 +105,9 @@ const WA = (() => {
     WA_UNCLASSIFIED_NOT_ALLOWED: 'Ese borrador ya tiene subcategoría: usá el botón Confirmar del último resumen.',
     WA_METHOD_REQUIRED: 'Primero decime cómo lo pagaste: efectivo, transferencia o Mercado Pago.',
     WA_BUTTON_MISMATCH: 'Ese botón ya no corresponde. Usá el del último resumen.',
+    WA_CONCEPT_REQUIRED: '¿Con qué concepto querés registrar este gasto?',
+    WA_DOCUMENT_ALREADY_USED: 'Ese comprobante ya está en otro borrador o ya fue registrado.',
+    WA_DOCUMENT_NOT_OWNED: 'Ese comprobante lo mandó otra persona: no lo puedo registrar desde tu número.',
   };
   const text = (to, body) => ({ messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: body.slice(0, 4000) } });
   // reply buttons (Meta: at most 3, title at most 20 characters). Owner decision: "Registrar sin clasif." — 21 characters with the
@@ -100,6 +118,8 @@ const WA = (() => {
                         { type: 'reply', reply: { id: `CANCEL:${id}:${v}`, title: 'Cancelar' } }] } } });
   // "¿Cómo lo pagaste?": one button per payment method; the id names the draft, the version and the method (the database refuses any
   // other use). Meta allows 3 reply buttons, so there is no Cancelar button on this message: "cancelar" by text is always available
+  const mpButtons = (to, body, id, v, cands) => ({ messaging_product: 'whatsapp', to, type: 'interactive', interactive: { type: 'button', body: { text: body.slice(0, 1000) },
+    action: { buttons: cands.map((c) => ({ type: 'reply', reply: { id: `MPLINK:${id}:${v}:${c.source_id}`, title: `Op …${String(c.source_id).slice(-6)}` } })) } } });
   const METHOD_BUTTONS = [['CASH', 'Efectivo'], ['TRANSFER', 'Transferencia'], ['MERCADOPAGO', 'Mercado Pago']];
   const methodButtons = (to, body, id, v) => ({ messaging_product: 'whatsapp', to, type: 'interactive', interactive: { type: 'button', body: { text: body.slice(0, 1000) },
     action: { buttons: METHOD_BUTTONS.map(([m, title]) => ({ type: 'reply', reply: { id: `METHOD:${id}:${v}:${m}`, title } })) } } });
@@ -109,6 +129,7 @@ const WA = (() => {
   // the data still to choose on a draft (subcategory / paying account) and the question for each — no confirm button meanwhile
   const pendingQuestions = (p, cfg) => {
     const q = [];
+    if (p.concept_pending) q.push('¿Con qué concepto querés registrar este gasto?');
     if (p.category_pending) {
       const offered = (p.category_options || []).map((id) => (cfg.categories || []).find((c) => c.id === id)).filter(Boolean);
       const groups = [...new Set((cfg.categories || []).map((c) => c.grupo).filter(Boolean))];
@@ -144,10 +165,15 @@ const WA = (() => {
     const mark = (f) => ((changes || []).some((c) => c && c.field === f) ? ' ✏️' : '');
     const acc = p.account_id ? ' (' + accName(cfg, p.account_id) + ')' : (p.account_pending ? ' (cuenta a elegir)' : '');
     return changeLine(r, changes, cfg)
-      + `Borrador ${r.short_code} (v${r.version}) — STAGING, simulación\nTotal: ${money(p.total)}${mark('total')}\nConcepto: ${p.concept}${mark('concept')}\n`
+      + `Borrador ${r.short_code} (v${r.version}) — STAGING, simulación\nTotal: ${money(p.total)}${mark('total')}\nConcepto: ${p.concept_pending ? '(a definir)' : p.concept}${mark('concept')}\n`
       + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${p.method ? (METHOD[p.method] || p.method) + acc : '(a elegir)'}${mark('method') || mark('account_id')}\n`
-      + `Fecha: ${ddmmyyyy(p.date)}${mark('date')}` + dupLines(r);
+      + `Fecha: ${ddmmyyyy(p.date)}${mark('date')}` + receiptLine(p) + dupLines(r);
   };
+  // the receipt read (receipt.js, when embedded) and the "solo IVA" variant (no category / payment: only Fiscal)
+  const receiptLine = (p) => (typeof WAR !== 'undefined' && p.receipt ? WAR.line(p) : '');
+  const vatSummary = (r) => { const p = r.payload || {};
+    return `Borrador ${r.short_code} (v${r.version}) — SOLO CRÉDITO FISCAL\nTotal del comprobante: ${money(p.total)}\nFecha: ${ddmmyyyy(p.date)}` + receiptLine(p)
+      + '\nSe registra solo en Fiscal: sin gasto y sin movimiento de dinero.'; };
   const ASK = '¿Confirmás? Si algo está mal decime solo lo que cambia (por ejemplo "eran 15 mil" o "era transferencia"). "cancelar" lo descarta.';
   const drop = (st, id) => ({ open: st.open && st.open.draft_id === id ? null : st.open, waiting: st.waiting.filter((w) => w.draft_id !== id) });
 
@@ -185,10 +211,17 @@ const WA = (() => {
         : `✅ Registré el egreso ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''}: ya descuenta de la cuenta. Queda SIN CLASIFICAR: la subcategoría se elige después en el ERP (sin otro movimiento).`;
       return { graph: text(ctx.to, body + ' (simulación STAGING; no afecta la contabilidad real).'), state: drop(st, r.draft_id) };
     }
+    if (r.state === 'CONFIRMED' && r.result && r.result.fiscal_document_id && !r.result.purchase_id) {
+      return { graph: text(ctx.to, `✅ Registré el crédito fiscal de ${r.short_code} en Fiscal (sin gasto ni movimiento de dinero).`), state: drop(st, r.draft_id) };
+    }
     if (r.state === 'CONFIRMED') return { graph: text(ctx.to, `✅ Registrado ${r.short_code} (simulación STAGING; no afecta la contabilidad real).`), state: drop(st, r.draft_id) };
     if (r.state === 'CANCELLED') return { graph: text(ctx.to, `Cancelado ${r.short_code}.`), state: drop(st, r.draft_id) };
     if (r.state === 'WAITING_MP') {
       const w = { draft_id: r.draft_id, version: r.version, state: 'WAITING_MP', code: r.short_code };
+      const cands = Array.isArray(r.mp_candidates) ? r.mp_candidates.slice(0, 3) : [];
+      if (cands.length) return { graph: mpButtons(ctx.to, summary(r, cfg, ctx.changes) + `\n\nEncontré ${cands.length === 1 ? 'este egreso' : 'estos egresos'} de Mercado Pago pendiente${cands.length === 1 ? '' : 's'} con el mismo importe y fecha. Tocá el que corresponde (o respondé "mp <número de operación>"):\n`
+          + cands.map((c) => `• ${c.source_id} · ${money(c.amount)} · ${ddmmyyyy(c.date)}`).join('\n'), r.draft_id, r.version, cands),
+        state: { open: st.open, waiting: [...st.waiting.filter((x) => x.draft_id !== r.draft_id), w] } };
       return { graph: text(ctx.to, summary(r, cfg, ctx.changes) + `\n\nPagado con Mercado Pago: cuando aparezca el movimiento respondé "mp <número de operación>" (vence en 72 h).`),
                state: { open: st.open, waiting: [...st.waiting.filter((x) => x.draft_id !== r.draft_id), w] } };
     }
@@ -198,7 +231,9 @@ const WA = (() => {
       // a mandatory datum is still to choose. The account (a financial datum) pending → NO confirmation at all. Only the
       // subcategory pending → answer it, or the explicit "Confirmar sin clasificar" (the money now, the subcategory later in the ERP)
       const q = pendingQuestions(p, cfg);
-      const onlyCategory = p.category_pending && !p.account_pending && !p.method_pending && p.account_id && p.method;
+      const onlyCategory = p.category_pending && !p.concept_pending && !p.fiscal && !p.account_pending && !p.method_pending && p.account_id && p.method;
+      if (p.vat_only) return { graph: buttons(ctx.to, vatSummary(r) + '\n\n¿Confirmás? "cancelar" lo descarta.', r.draft_id, r.version),
+                               state: { open: { draft_id: r.draft_id, version: r.version, state: 'DRAFT', code: r.short_code }, waiting: s.waiting } };
       const graph = p.method_pending
         ? methodButtons(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + (q.length > 1 ? 'Me faltan datos:\n• ' + q.join('\n• ') : q[0])
                         + '\nTocá cómo lo pagaste (o escribilo); "cancelar" lo descarta.', r.draft_id, r.version)

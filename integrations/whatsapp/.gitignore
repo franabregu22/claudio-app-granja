@@ -4,7 +4,7 @@
 .staging-users.json
 *.env
 .sandbox-tmp/
-supabase/.temp/
+**/supabase/.temp/
 *-output.txt
 !wa-gateway/n8n/eval/eval-output.txt
 *-snapshot.txt
@@ -14,6 +14,7 @@ wa-staging/hosted/rollback-005-*.sql
 *.bak-*
 build.bak-*/
 wa-gateway/n8n/staging-catalog.json
+wa-gateway/n8n/production-catalog.json
 wa-gateway/n8n/build/
 wa-gateway/n8n/preflight/*.json
 wa-gateway/n8n/preflight/v2*.js
