@@ -1,5 +1,5 @@
 /**
- * ADR-025 stage 3 (ERP candidate 0102) — Caja → Gastos sin clasificar.
+ * ADR-025 stage 3 (ERP migration 0101) — Caja → Gastos sin clasificar.
  *
  * A confirmed expense whose subcategory was doubtful is ALREADY in the balance: one payment, one posting on the paying account
  * (register_unclassified_expense, e.g. from WhatsApp "Registrar sin clasif"). Only its economic classification is pending.
@@ -23,7 +23,7 @@ export interface PendingExpenseRow {
   purchase_id: string | null; expense_category_id: string | null; category_name: string | null; nature: PurchaseNatureValue | null;
   classified_by: string | null; classified_at: string | null;
 }
-/** The exact columns the screen reads (the SQL contract test of 0102 selects the same list). */
+/** The exact columns the screen reads (the SQL contract test of 0101, supabase/target-candidates/0102, selects the same list). */
 export const PENDING_EXPENSE_COLUMNS = 'pending_id, status, economic_date, amount, financial_account_id, account_name, payment_method, concept, '
   + 'counterparty_name, origin, origin_ref, payment_operation_id, created_by, created_at, purchase_id, expense_category_id, category_name, nature, '
   + 'classified_by, classified_at';

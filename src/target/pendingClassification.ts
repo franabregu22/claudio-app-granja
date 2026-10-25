@@ -164,6 +164,6 @@ export const whatsappNoteText = (n: Pick<MpWhatsappNote, 'draft_short_code' | 'c
 export function postingOperationLabel(p: { operation_type: string | null; external_ref: string | null }): string {
   if (p.external_ref?.startsWith('MP-PENDING-RELEASE:')) return 'Clasificación de salida';
   if (p.external_ref?.startsWith('MP-PENDING:')) return 'Pendiente de clasificar';
-  if (p.external_ref?.startsWith('EXPENSE-PENDING:')) return 'Gasto (sin clasificar al registrarse)';   // ADR-025 (0102): the payment never changes
+  if (p.external_ref?.startsWith('EXPENSE-PENDING:')) return 'Gasto (sin clasificar al registrarse)';   // ADR-025 (0101): the payment never changes
   return p.operation_type ?? '—';
 }

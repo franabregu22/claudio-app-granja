@@ -25,7 +25,7 @@ const mensajeError = (e: unknown) => (normalizeDbError(e).code === 'ALREADY_CLAS
   ? 'Ese gasto ya fue clasificado (otra persona o una pestaña anterior). Se actualizó la lista.' : errorMessage(e));
 
 /**
- * Caja → Gastos sin clasificar (ADR-025, ERP 0102). Expenses ALREADY paid (the balance already dropped) whose category was
+ * Caja → Gastos sin clasificar (ADR-025, ERP 0101). Expenses ALREADY paid (the balance already dropped) whose category was
  * doubtful when they were confirmed — e.g. from WhatsApp "Registrar sin clasif". Classifying one only adds its purchase on
  * the same payment (classify_pending_expense): no new operation, posting or payment; the P&L moves it from "Gastos sin
  * clasificar" to its category. The Mercado Pago pending outflows keep their own list and routes (ADR-021): shown here as a

@@ -15,7 +15,7 @@ import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 type Vista = 'saldos' | 'sinclasificar' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'instrumentos' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'saldos', label: 'Saldos' },
-  { id: 'sinclasificar', label: 'Gastos sin clasificar' },   // ADR-025 (0102): paid expenses whose category is pending
+  { id: 'sinclasificar', label: 'Gastos sin clasificar' },   // ADR-025 (0101): paid expenses whose category is pending
   { id: 'pendientes', label: 'Pendientes de clasificar' },
   { id: 'entradas', label: 'Entradas sin vincular' },   // ADR-023: optional, never an alert
   { id: 'cobros', label: 'Cobros de clientes' },

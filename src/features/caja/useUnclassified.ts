@@ -7,7 +7,7 @@ import {
 
 const KEY = ['unclassified-expenses'];
 
-/** ADR-025 (0102): one page of Caja → Gastos sin clasificar (server filters and count). */
+/** ADR-025 (0101): one page of Caja → Gastos sin clasificar (server filters and count). */
 export function usePendingExpenses(filter: PendingExpenseFilter, page: number) {
   return useQuery({ queryKey: [...KEY, 'page', filter, page], queryFn: () => listPendingExpensesPage(supabase, filter, page), placeholderData: keepPreviousData });
 }

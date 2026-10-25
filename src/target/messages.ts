@@ -235,7 +235,7 @@ const MESSAGES: Record<string, string> = {
   PENDING_CLASSIFICATION: 'Hay movimientos pendientes de clasificar en este período. Clasificalos antes de cerrarlo.',
   MP_UNPOSTED_OUTFLOWS: 'Hay salidas de Mercado Pago sin registrar en este período. Revisalas en Revisión técnica antes de cerrarlo.',
   MP_PENDING_NOT_RELEASED: 'Ese movimiento de Mercado Pago está pendiente de clasificar: clasificalo desde Pendientes de clasificar.',
-  // ADR-025 stage 3 (0102): expenses already paid whose classification is pending
+  // ADR-025 stage 3 (0101): expenses already paid whose classification is pending
   PENDING_NOT_FOUND: 'Ese gasto sin clasificar no existe.',
   CATEGORY_GROUP_INACTIVE: 'La categoría de esa subcategoría está inactiva: elegí una subcategoría de una categoría activa.',
   PENDING_EXPENSE_CLASSIFICATION: 'Hay gastos sin clasificar en este período. Clasificalos (Caja → Gastos sin clasificar) antes de cerrarlo.',

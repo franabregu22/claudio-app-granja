@@ -1,5 +1,5 @@
 /**
- * ADR-025 stage 3 (ERP candidate 0102) — Caja → Gastos sin clasificar.
+ * ADR-025 stage 3 (ERP migration 0101) — Caja → Gastos sin clasificar.
  * The screen reads ONLY the ADMIN view fin_expense_pending_classification and writes ONLY through classify_pending_expense:
  * no direct write to any financial table, no new operation / posting / payment from the frontend. The P&L shows the
  * GASTOS_SIN_CLASIFICAR line as a component of the operating result (never added again on the client).
