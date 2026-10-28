@@ -112,14 +112,15 @@ SELECT pg_temp.expect('A-5 the gateway cannot call the accounting RPC itself',
     '2026-10-20', 'aaaaaaaa-0025-0000-0000-0000000000c1', 'x', 'OPERATING', (SELECT id FROM financial_account WHERE nombre = 'Caja chica'), 'CASH', 'GW-DIRECT')), 'ERR:%');
 SELECT pg_temp.expect('A-6 the gateway cannot read the wa tables', pg_temp.gw('SELECT count(*)::text FROM wa.draft'), 'ERR:permission denied for schema wa');
 SELECT pg_temp.expect('A-7 the gateway cannot read Vault', pg_temp.gw('SELECT count(*)::text FROM vault.decrypted_secrets'), 'ERR:permission denied%');
-SELECT pg_temp.expect('A-8 privileges: wa.* helpers callable by no API role; public.wa_* = 8 SECURITY DEFINER, authenticated only; none for PUBLIC',
+SELECT pg_temp.expect('A-8 privileges: wa.* helpers callable by no API role; public.wa_* = 8 SECURITY DEFINER (11 with 0103: + wa_store_media, wa_media_writer, wa_media_reader), authenticated only; none for PUBLIC',
   (SELECT count(*) FILTER (WHERE n.nspname = 'wa' AND (has_function_privilege('authenticated', p.oid, 'EXECUTE') OR has_function_privilege('anon', p.oid, 'EXECUTE')
                                                       OR has_function_privilege('service_role', p.oid, 'EXECUTE')))
           || '|' || count(*) FILTER (WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
                                      AND NOT has_function_privilege('anon', p.oid, 'EXECUTE') AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE'))
           || '|' || count(*) FILTER (WHERE EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'))
      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'wa' OR (n.nspname = 'public' AND p.proname LIKE 'wa\_%')), '0|8|0');
+    WHERE n.nspname = 'wa' OR (n.nspname = 'public' AND p.proname LIKE 'wa\_%')),
+  '0|' || CASE WHEN to_regprocedure('public.wa_store_media(bigint,text,text,bigint)') IS NULL THEN 8 ELSE 11 END || '|0');
 SELECT pg_temp.expect('A-9 check Q: no callable SECURITY DEFINER function of public / wa is executable by PUBLIC',
   (SELECT count(*)::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname IN ('public', 'wa') AND p.prosecdef AND p.prorettype NOT IN ('trigger'::regtype, 'event_trigger'::regtype)
