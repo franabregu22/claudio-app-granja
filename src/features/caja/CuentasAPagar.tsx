@@ -9,6 +9,7 @@ import { campo, etiqueta, Modal } from './Modal';
 import { BloqueoMp, SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './MovimientoMp';
 import { useClassifyMp } from './useMpActivity';
 import { useLedgerBalances, useTreasuryMutations } from './useTreasury';
+import { GastosAPagar } from './GastosAPagar';
 
 const METODO: Record<SupplierPaymentMethod | InstrumentType, string> = {
   CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'MercadoPago', CHEQUE: 'Cheque', ECHEQ: 'eCheq',
@@ -31,7 +32,10 @@ export function CuentasAPagar() {
   const aFavor = (saldos.data ?? []).filter((s) => s.balance < 0);
 
   return (
+    <div className="space-y-6">
+    <GastosAPagar />
     <div className="space-y-2">
+      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Proveedores</p>
       {deudas.length === 0 && <p className="text-sm text-[#8A7A5C]">No hay deudas con proveedores.</p>}
       {deudas.map((s) => (
         <div key={s.entity_id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 flex items-center justify-between gap-2">
@@ -51,6 +55,7 @@ export function CuentasAPagar() {
         </div>
       )}
       {pagando && <PagoProveedorModal proveedor={pagando} onClose={() => setPagando(null)} />}
+    </div>
     </div>
   );
 }

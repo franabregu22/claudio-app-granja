@@ -67,7 +67,7 @@ const WAR = (() => {
   }
 
   /** the AI reading → ONE proposal or a reply. Everything is re-checked here; nothing is ever recorded without the buttons. */
-  function decide({ gpt, caption, ctx, today, amountCap, document, saidMethods, namedAccounts, accountOptions }) {
+  function decide({ gpt, caption, ctx, today, amountCap, document, saidMethods, namedAccounts, accountOptions, pendingPayment, dueDate }) {
     const cap = amountCap || 10000000;
     const g = gpt || {};
     if (ctx.open) return { reply: `Tenés el borrador ${ctx.open.short_code} abierto. Confirmalo, corregilo o escribí "cancelar" antes de mandar otro comprobante.`, outcome: 'open_draft' };
@@ -115,13 +115,19 @@ const WAR = (() => {
     const named = caption ? namedAccounts(caption, accs) : [];
     const methods = caption ? saidMethods(caption) : [];
     let method = null, acc = null;
-    if (named.length === 1 && methods.every((m) => m === named[0].method)) { acc = named[0]; method = acc.method; }
+    // ADR-026: "a pagar" in the caption → a PENDING expense: no method / account (paid later from the ERP)
+    const toPay = !!(caption && pendingPayment && pendingPayment(caption));
+    const due = toPay && dueDate ? dueDate(caption, today) : null;
+    if (toPay && due && due < date) return { reply: 'La fecha de vencimiento es anterior a la del comprobante. ¿Cuándo vence?', outcome: 'bad_due_date' };
+    if (toPay) { /* nothing: no payment data */ }
+    else if (named.length === 1 && methods.every((m) => m === named[0].method)) { acc = named[0]; method = acc.method; }
     else if (methods.length === 1 && !named.length) { method = methods[0]; const fit = accs.filter((a) => a.method === method); if (fit.length === 1) acc = fit[0]; }
     const withInvoice = cuit && ['INVOICE_A', 'INVOICE_B', 'INVOICE_C', 'INVOICE_M'].includes(type);
     const payload = { date, total, nature: 'OPERATING', document_file_id: document.id, receipt,
       ...(concept ? { concept } : { concept_pending: true }), ...(cat ? { category_id: cat.id } : { category_options: [] }),
-      ...(method ? { method } : {}), ...(acc ? { account_id: acc.id } : {}), ...(withInvoice ? { fiscal: fiscal(fiscalKind) } : {}) };
-    const pending = [...(concept ? [] : ['concept']), ...(cat ? [] : ['category']), ...(method ? [] : ['method']), ...(acc ? [] : ['account'])];
+      ...(method ? { method } : {}), ...(acc ? { account_id: acc.id } : {}), ...(withInvoice ? { fiscal: fiscal(fiscalKind) } : {}),
+      ...(toPay ? { pending_payment: true, ...(due ? { due_date: due } : {}) } : {}) };
+    const pending = [...(concept ? [] : ['concept']), ...(cat ? [] : ['category']), ...(toPay ? [] : [...(method ? [] : ['method']), ...(acc ? [] : ['account'])])];
     return { request: { action: 'propose', type: withInvoice ? 'CASUAL_WITH_INVOICE' : 'CASUAL_EXPENSE', payload }, outcome: pending.length ? 'propose_pending' : 'propose', pending };
   }
 

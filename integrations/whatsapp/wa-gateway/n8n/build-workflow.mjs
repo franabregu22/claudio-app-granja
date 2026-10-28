@@ -153,7 +153,8 @@ if (!p.ok) {
 }
 const d = a.receipt
   ? WAR.decide({ gpt: p.data, caption: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap, document: a.media,
-                 saidMethods: WAI.saidMethods, namedAccounts: WAI.namedAccounts, accountOptions: WAI.accountOptions })
+                 saidMethods: WAI.saidMethods, namedAccounts: WAI.namedAccounts, accountOptions: WAI.accountOptions,
+                 pendingPayment: WAI.pendingPayment, dueDate: WAI.dueDate })
   : WAI.decide({ gpt: p.data, text: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap });
 console.log(JSON.stringify({ evt: 'gpt', inbound_id: a.inbound_id, model: IC.model, intent: p.data.intent, outcome: d.outcome, changed: d.changed || null,
   tokens_in: p.usage ? p.usage.input : null, tokens_out: p.usage ? p.usage.output : null }));

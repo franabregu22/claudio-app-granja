@@ -145,7 +145,7 @@ const WA = (() => {
   const accList = (cfg) => Object.values(cfg.accounts || {}).filter(Boolean).map((a) => ({ ...a, method: a.method || TYPE_METHOD[a.account_type] }));
   const accName = (cfg, id) => (id ? ((accList(cfg).find((a) => a.id === id) || {}).nombre || '(ya no habilitada)') : '(sin elegir)');
   const FIELD = { total: 'Importe', concept: 'Concepto', category_id: 'Categoría', method: 'Pago', account_id: 'Cuenta', date: 'Fecha' };
-  const fmtField = (f, v, cfg) => f === 'total' ? money(v) : f === 'date' ? ddmmyyyy(v) : f === 'method' ? (v ? METHOD[v] || v : '(a elegir)')
+  const fmtField = (f, v, cfg) => f === 'total' ? money(v) : f === 'date' ? ddmmyyyy(v) : f === 'method' ? (v === 'PENDING' ? 'A pagar' : v ? METHOD[v] || v : '(a elegir)')
     : f === 'category_id' ? catLabel(cfg, v) : f === 'account_id' ? accName(cfg, v) : `"${String(v ?? '').slice(0, 60)}"`;
   const changeLine = (r, changes, cfg) => {
     const ch = (changes || []).filter((c) => c && FIELD[c.field]);
@@ -166,7 +166,7 @@ const WA = (() => {
     const acc = p.account_id ? ' (' + accName(cfg, p.account_id) + ')' : (p.account_pending ? ' (cuenta a elegir)' : '');
     return changeLine(r, changes, cfg)
       + `Borrador ${r.short_code} (v${r.version}) — STAGING, simulación\nTotal: ${money(p.total)}${mark('total')}\nConcepto: ${p.concept_pending ? '(a definir)' : p.concept}${mark('concept')}\n`
-      + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${p.method ? (METHOD[p.method] || p.method) + acc : '(a elegir)'}${mark('method') || mark('account_id')}\n`
+      + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${p.pending_payment ? 'A PAGAR — no mueve Caja ni Bancos' + (p.due_date ? ' · vence ' + ddmmyyyy(p.due_date) : '') : p.method ? (METHOD[p.method] || p.method) + acc : '(a elegir)'}${mark('method') || mark('account_id')}\n`
       + `Fecha: ${ddmmyyyy(p.date)}${mark('date')}` + receiptLine(p) + dupLines(r);
   };
   // the receipt read (receipt.js, when embedded) and the "solo IVA" variant (no category / payment: only Fiscal)
@@ -210,6 +210,11 @@ const WA = (() => {
         ? `✅ ${r.short_code} confirmado SIN CLASIFICAR. El egreso de Mercado Pago${x.amount ? ' de ' + money(x.amount) : ''} ya figura en el ERP como pendiente de clasificar; no se registró otro movimiento.`
         : `✅ Registré el egreso ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''}: ya descuenta de la cuenta. Queda SIN CLASIFICAR: la subcategoría se elige después en el ERP (sin otro movimiento).`;
       return { graph: text(ctx.to, body + ' (simulación STAGING; no afecta la contabilidad real).'), state: drop(st, r.draft_id) };
+    }
+    if (r.state === 'CONFIRMED' && r.result && r.result.payable_id) {   // ADR-026: a pending expense
+      const x = r.result;
+      return { graph: text(ctx.to, `✅ Registré ${r.short_code} como gasto A PAGAR${x.amount ? ' de ' + money(x.amount) : ''}: ya figura en resultados, sin mover Caja ni Bancos.`
+        + `${x.due_date ? ' Vence el ' + ddmmyyyy(x.due_date) + '.' : ''} Lo pagás desde el ERP (Caja → Cuentas a pagar).`), state: drop(st, r.draft_id) };
     }
     if (r.state === 'CONFIRMED' && r.result && r.result.fiscal_document_id && !r.result.purchase_id) {
       return { graph: text(ctx.to, `✅ Registré el crédito fiscal de ${r.short_code} en Fiscal (sin gasto ni movimiento de dinero).`), state: drop(st, r.draft_id) };

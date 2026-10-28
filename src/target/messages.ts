@@ -246,6 +246,12 @@ const MESSAGES: Record<string, string> = {
   INVALID_INSTRUMENTS: 'Cargá entre 1 y 24 cheques o eCheqs.',
   INVALID_REPLACEMENT: 'Solo se puede reemplazar un cheque rechazado o anulado que pagaba esta misma factura.',
   INVALID_PAYMENT: 'Elegí un pago registrado al mismo proveedor.',
+  // ADR-026 (0106): pending expenses
+  OVER_PAYMENT: 'El monto supera el saldo pendiente de ese gasto.',
+  PAYABLE_NOT_FOUND: 'Ese gasto a pagar no existe.',
+  PAYABLE_MP_NOT_SUPPORTED: 'Un pago por Mercado Pago se clasifica desde Pendientes de clasificar.',
+  INVALID_DUE_DATE: 'El vencimiento no puede ser anterior a la fecha del gasto.',
+  CASUAL_PURCHASE_UNSETTLED: 'Un gasto sin proveedor debe estar pagado o registrado como gasto a pagar.',
 };
 
 export function errorMessage(err: unknown): string {

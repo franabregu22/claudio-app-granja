@@ -6,6 +6,7 @@ import { formatoPesos } from '../pedidos/helpers';
 import { AccionModal, TIPO } from './Cheques';
 import { Comprobantes } from './Comprobantes';
 import { useDocumentLinks, useMaturities } from './useInvoicePayments';
+import { usePayables } from './GastosAPagar';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -22,6 +23,7 @@ export function Vencimientos() {
   const debitados = datos.data?.debited ?? [];
   const docs = useDocumentLinks('FINANCIAL_INSTRUMENT', programados.map((p) => p.instrument_id));
   const [debitar, setDebitar] = useState<ScheduledPaymentRow | null>(null);
+  const gastos = usePayables(true);   // ADR-026: pending expenses with a due date in the month (projected, never a real payment)
 
   const [y, m] = mes.split('-').map(Number);
   const diasMes = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -29,6 +31,8 @@ export function Vencimientos() {
   const porDia = new Map<number, ScheduledPaymentRow[]>();
   for (const p of programados) { const d = Number(p.maturity_date.slice(8, 10)); porDia.set(d, [...(porDia.get(d) ?? []), p]); }
   const total = (xs: { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0);
+  const aPagar = (gastos.data ?? []).filter((g) => g.due_date && g.due_date.slice(0, 7) === mes);
+  const sinFecha = (gastos.data ?? []).filter((g) => !g.due_date);
   const mover = (delta: number) => { const d = new Date(Date.UTC(y, m - 1 + delta, 1)); setMes(d.toISOString().slice(0, 7)); };
 
   return (
@@ -39,6 +43,7 @@ export function Vencimientos() {
         <button type="button" onClick={() => mover(1)} className="px-2 py-1 rounded border border-[#E4DCC8] bg-white text-sm">›</button>
         <span className="flex-1" />
         <span className="text-sm">Programado: <b className="text-amber-900">{formatoPesos(total(programados))}</b></span>
+        <span className="text-sm">Gastos a pagar: <b className="text-amber-900">{formatoPesos(aPagar.reduce((s, g) => s + g.pending, 0))}</b></span>
         <span className="text-sm">Debitado: <b className="text-green-800">{formatoPesos(total(debitados))}</b></span>
       </div>
       {datos.isLoading ? <p className="text-sm text-gray-500">Cargando vencimientos...</p>
@@ -80,6 +85,25 @@ export function Vencimientos() {
                   ))}
                 </ul>
               )}
+            </section>
+
+            <section>
+              <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-1">Gastos a pagar que vencen este mes (proyectado)</p>
+              {aPagar.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay gastos a pagar con vencimiento este mes.</p> : (
+                <ul className="space-y-1">
+                  {aPagar.map((g) => (
+                    <li key={g.payable_id} className={`bg-white border rounded px-2 py-1.5 flex flex-wrap items-center gap-2 text-sm ${g.due_date! < hoy ? 'border-red-300' : 'border-[#E4DCC8]'}`}>
+                      <span className="whitespace-nowrap">{formatearFechaLocal(g.due_date!)}</span>
+                      <span className="font-semibold">{g.concept ?? g.category_name}</span>
+                      <span className="text-[#8A7A5C]">{g.category_name}{g.counterparty_name ? ` · ${g.counterparty_name}` : ''}</span>
+                      {g.due_date! < hoy && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">Vencido</span>}
+                      <span className="flex-1" />
+                      <span className="font-bold">{formatoPesos(g.pending)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {sinFecha.length > 0 && <p className="text-xs text-[#8A7A5C] mt-1">{sinFecha.length} gasto(s) a pagar sin vencimiento: {formatoPesos(sinFecha.reduce((s, g) => s + g.pending, 0))} (Caja → Cuentas a pagar).</p>}
             </section>
 
             <section>

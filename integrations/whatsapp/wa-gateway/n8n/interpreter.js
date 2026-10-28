@@ -46,6 +46,23 @@ const WAI = (() => {
   /** owner decision (2026-10-24): the payment method is NEVER presumed — no default, never GPT's guess. A method counts only when the
    *  MESSAGE states it (a method word, or a named enabled account); none, an unknown one or two different ones → it stays PENDING */
   const METHOD_WORDS = { CASH: /\b(efectivo|cash|billetes?)\b/, TRANSFER: /\btransf[a-z]*/, MERCADOPAGO: /\b(mercado ?pago|mp)\b/ };
+  /** ADR-026: an expense still to pay ("a pagar", "queda pendiente", "todavía no lo pagué"…) — the cost now, the money later from the ERP */
+  const PENDING_PAY = /\b(a pagar|queda(n)? pendientes?|pendientes? de pago|sin pagar|(todavia|aun) no (lo |la |los |las )?pague|no (lo |la |los |las )?pague (todavia|aun)|(lo|la|los|las) pago (despues|mas tarde|la semana que viene|el mes que viene|a fin de mes)|se paga (despues|mas tarde|a fin de mes))\b/;
+  const pendingPayment = (text) => PENDING_PAY.test(norm(text));
+  /** "ya lo pagué": the reverse correction (to pay → paid) */
+  const PAID_NOW = /\b(ya (lo |la |los |las )?pague|ya esta pago|ya esta pagado|lo pague (en|con|por|desde))\b/;
+  /** the due date ONLY when written as a date after "vence / vencimiento / a pagar / pagar el / para el": dd/mm[/yy[yy]] */
+  function dueDate(text, today) {
+    const m = norm(text).match(/\b(?:vence|vencimiento|a pagar|pagar|pago|para)\s+(?:el\s+)?(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2}|\d{4}))?\b/);
+    if (!m) return null;
+    const d = Number(m[1]), mo = Number(m[2]), t = new Date(today + 'T12:00:00Z');
+    let y = m[3] ? Number(m[3].length === 2 ? '20' + m[3] : m[3]) : t.getUTCFullYear();
+    const iso = (yy) => `${yy}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const ok = (yy) => { const x = new Date(iso(yy) + 'T12:00:00Z'); return x.getUTCFullYear() === yy && x.getUTCMonth() + 1 === mo && x.getUTCDate() === d; };
+    if (!ok(y)) return null;
+    if (!m[3] && iso(y) < today) y += 1;   // "vence el 10/01" written in December: next year
+    return ok(y) ? iso(y) : null;
+  }
   const saidMethods = (text) => { const t = norm(text); return METHODS.filter((m) => METHOD_WORDS[m].test(t)); };
   const METHOD_WORD = { CASH: 'efectivo', TRANSFER: 'transferencia', MERCADOPAGO: 'mercado pago' };
   const askMethod = '¿Cómo lo pagaste? Efectivo, transferencia o Mercado Pago.';
@@ -173,6 +190,13 @@ const WAI = (() => {
     // the open draft waits for its payment method, subcategory and / or paying account and the message names exactly one valid
     // option of each pending datum → set what is unambiguous (deterministic, no GPT); the rest stays pending and is asked again
     const o = ctx.open;
+    // ADR-026: the answer to "¿Cómo lo pagaste?" is "a pagar" → the same draft becomes a PENDING expense (deterministic, no GPT)
+    if (o && o.state === 'DRAFT' && !o.payload?.pending_payment && !o.payload?.vat_only && (o.payload?.method_pending || o.payload?.account_pending) && pendingPayment(text)) {
+      const p = { ...o.payload }; ['needs_mp', 'method', 'account_id', 'method_pending', 'account_pending', 'mp_source_id'].forEach((k) => delete p[k]);
+      p.pending_payment = true; const due = dueDate(text, new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)); if (due) p.due_date = due;   // today in Argentina (UTC-3)
+      return { request: { action: 'correct', draft_id: o.draft_id, expected_version: o.version, payload: p },
+               changes: [{ field: 'method', from: o.payload?.method ?? null, to: 'PENDING' }] };
+    }
     if (o && o.state === 'DRAFT' && (o.payload?.category_pending || o.payload?.account_pending || o.payload?.method_pending)) {
       const p = { ...o.payload }; delete p.needs_mp; const changes = [];
       if (p.method_pending) {
@@ -252,6 +276,18 @@ const WAI = (() => {
         const subs = ambiguousGroup(text, cat, opts);
         if (subs) { cat = null; catOptions = subs.map((s) => s.id); }
         if (!cat && catOptions.length === 1) { cat = byId(catOptions[0]); catOptions = null; }   // a named category with ONE subcategory is not ambiguous
+        // ADR-026: "a pagar" → a PENDING expense: no method / account (it is paid later from the ERP), the due date only if written
+        if (pendingPayment(text)) {
+          const due = dueDate(text, today);
+          const date = validDate(due && g.date === due ? null : g.date, today);   // the due date is never the date of the expense
+          if (!date) return clar('¿De qué fecha es el gasto? (hasta 60 días atrás)', 'bad_date');
+          if (due && due < date) return clar('La fecha de vencimiento es anterior a la del gasto. ¿Cuándo vence?', 'bad_due_date');
+          const pend = cat ? [] : ['category'];
+          return { request: { action: 'propose', type: 'CASUAL_EXPENSE',
+            payload: { date, total, ...(cat ? { category_id: cat.id } : { category_options: catOptions }), nature: 'OPERATING', concept,
+                       pending_payment: true, ...(due ? { due_date: due } : {}) } },
+            outcome: pend.length ? 'propose_pending' : 'propose', pending: pend };
+        }
         // the payment method is NEVER presumed: only what the message states (GPT's method is not evidence); otherwise PENDING
         const said = saidMethods(text);
         let method = null, acc = null;
@@ -278,6 +314,22 @@ const WAI = (() => {
       }
       case 'correct_draft': {
         if (!o) return clar('No tenés un borrador abierto para corregir. Mandá el gasto completo.', 'correct_without_draft');
+        // ADR-026: "queda a pagar" on a paid draft → the same expense, PENDING (method / account dropped); "ya lo pagué en …" on a
+        // pending one → paid again, with the method / account the message states (or asked, exactly as a new paid expense)
+        if (!o.payload?.pending_payment && pendingPayment(text) && !o.payload?.vat_only) {
+          const p = { ...o.payload }; ['needs_mp', 'method', 'account_id', 'method_pending', 'account_pending', 'mp_source_id'].forEach((k) => delete p[k]);
+          p.pending_payment = true; const due = dueDate(text, today); if (due) p.due_date = due;
+          return { request: { action: 'correct', draft_id: o.draft_id, expected_version: o.version, payload: p }, outcome: 'correct', changed: ['payment'],
+                   changes: [{ field: 'method', from: o.payload?.method ?? null, to: 'PENDING' }] };
+        }
+        if (o.payload?.pending_payment && (PAID_NOW.test(norm(text)) || saidMethods(text).length || named.length)) {
+          const p = { ...o.payload }; ['needs_mp', 'pending_payment', 'due_date'].forEach((k) => delete p[k]);
+          const sm = saidMethods(text);
+          if (named.length === 1) { p.method = named[0].method; p.account_id = named[0].id; }
+          else if (sm.length === 1) { p.method = sm[0]; const fit = accs.filter((a) => a.method === sm[0]); if (fit.length === 1) p.account_id = fit[0].id; }
+          return { request: { action: 'correct', draft_id: o.draft_id, expected_version: o.version, payload: p }, outcome: 'correct', changed: ['payment'],
+                   changes: [{ field: 'method', from: 'PENDING', to: p.method ?? null }] };
+        }
         let ch = [...new Set((g.changed_fields || []).filter((f) => FIELDS.includes(f)))];
         // the message names exactly one enabled account other than the draft's → an account correction (deterministic, no GPT)
         if (named.length === 1 && named[0].id !== o.payload?.account_id) ch.push('account');
@@ -335,5 +387,5 @@ const WAI = (() => {
   const cfgFromContext = (ctx) => ({ categories: ctx?.catalog?.categories || [],
     accounts: Object.fromEntries((ctx?.catalog?.accounts || []).map((a) => [a.id, a])) });
 
-  return { schema, SYSTEM, options, label, accountOptions, saidMethods, namedAccounts, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
+  return { schema, SYSTEM, options, label, accountOptions, saidMethods, namedAccounts, pendingPayment, dueDate, buildRequest, parseResponse, preRoute, decide, statusText, cfgFromContext, help };
 })();

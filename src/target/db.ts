@@ -24,6 +24,7 @@ export const TARGET_VIEWS = [
   'fin_mp_whatsapp_notes',   // ADR-025 stage 3 (0102): the WhatsApp concept of a pending MP outflow (ADMIN, read-only)
   'fin_document_links',   // ADR-025 stage 4 (0103): receipts / PDFs linked to purchases, fiscal documents, pending expenses, instruments (ADMIN)
   'fin_purchase_payment_status', 'fin_purchase_payment_detail', 'fin_scheduled_payments',   // ADR-025 stage 4 (0104): invoice payments / maturities
+  'fin_expense_payables', 'fin_expense_payable_payments',   // ADR-026 (0106): pending expenses and their payments
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -98,6 +99,7 @@ export const TARGET_RPCS = [
   'mp_post_pending_outflow',   // ADR-021 (0093): recovery of an outflow whose provisional could not be posted (ADMIN)
   'classify_pending_expense',   // ADR-025 stage 3 (0101): classify an expense already paid (no new movement; ADMIN)
   'issue_purchase_instruments', 'allocate_purchase_payment', 'attach_instrument_document', 'register_erp_document',   // ADR-025 stage 4 (0104, ADMIN)
+  'register_pending_expense', 'pay_pending_expense',   // ADR-026 (0106, ADMIN): the expense now, the money when paid
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

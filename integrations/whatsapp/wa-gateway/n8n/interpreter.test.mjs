@@ -344,3 +344,24 @@ test('I-24 a concept correction is accepted only with its words in the message; 
   const mix = decide(G({ intent: 'correct_draft', changed_fields: ['date', 'concept'], date: '2026-10-21', concept: 'Gasoil' }), 'no, fue ayer', draftOf('Nafta'));
   assert.deepEqual(mix.changes.map((c) => c.field), ['date']);
 });
+
+test('I-P1 ADR-026 "a pagar": a PENDING expense — no method / account asked, the due date only when written, never as the expense date', () => {
+  const d = decide(G({ amount: 5000, amount_evidence: '5000', concept: 'Gasoil', category: 'Combustible', method: 'CASH', date: '2026-11-15' }),
+    'gasoil 5000 a pagar, vence el 15/11', ctxNone);
+  assert.deepEqual(d.request.payload, { date: '2026-10-22', total: 5000, category_id: C4, nature: 'OPERATING', concept: 'Gasoil', pending_payment: true, due_date: '2026-11-15' });
+  assert.deepEqual(d.pending, []);
+  const n = decide(G({ amount: 3000, amount_evidence: '3000', concept: 'Flete', category: 'Insumos' }), 'flete 3000, todavía no lo pagué', ctxNone);
+  assert.deepEqual([n.request.payload.pending_payment, 'due_date' in n.request.payload, 'method' in n.request.payload], [true, false, false]);
+  assert.equal(decide(G({ amount: 3000, amount_evidence: '3000', concept: 'Flete', category: 'Insumos', method: 'CASH' }), 'flete 3000 en efectivo', ctxNone).request.payload.method, 'CASH');
+});
+
+test('I-P2 ADR-026 corrections paid ⇄ to pay; "a pagar" answering "¿Cómo lo pagaste?" (deterministic, before GPT)', () => {
+  const toPay = decide(G({ intent: 'correct_draft', changed_fields: [] }), 'no, queda pendiente de pago', ctxOpen).request.payload;
+  assert.deepEqual([toPay.pending_payment, 'method' in toPay, 'account_id' in toPay, toPay.total], [true, false, false, 18]);
+  const pend = { ...open, payload: { ...open.payload, method: undefined, account_id: undefined, pending_payment: true } };
+  const paid = decide(G({ intent: 'correct_draft', changed_fields: [] }), 'ya lo pagué en efectivo', { ...ctxOpen, open: pend }).request.payload;
+  assert.deepEqual([paid.method, paid.account_id, 'pending_payment' in paid], ['CASH', 'acc-cash', false]);
+  const asked = { ...open, payload: { date: '2026-10-22', total: 18, concept: 'Combustible', category_id: C4, nature: 'OPERATING', method_pending: true, account_pending: true } };
+  const r = WAI.preRoute('a pagar', { ...ctxOpen, open: asked });
+  assert.deepEqual([r.request.action, r.request.payload.pending_payment, 'method_pending' in r.request.payload], ['correct', true, false]);
+});

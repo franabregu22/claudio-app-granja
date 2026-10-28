@@ -88,3 +88,13 @@ test('RC-9 the request to OpenAI: the signed URL (image or PDF), the caption and
   assert.deepEqual(pdf.input[1].content[1], { type: 'input_file', file_url: DOC.signed_url });
   assert.ok(!JSON.stringify(b).includes('acc-cash'), 'no account ids sent');
 });
+
+test('RC-10 ADR-026 a receipt "a pagar": the same expense (invoice / IVA kept), no method / account, due date only when written', () => {
+  const d = go(R({ document_type: 'INVOICE_A', issuer_cuit: '20-12345678-6', number: '0001-00001234', net: 1000, total: 1240,
+    iva: [{ rate: 21, base: 1000, amount: 210 }], other_taxes: [{ kind: 'PERCEPTION_IIBB', amount: 30 }], addressed_to_santo_tomas: true, concept: 'Repuestos', category: 'S2' }),
+    'repuestos del tractor, a pagar, vence el 30/11', { pendingPayment: WAI.pendingPayment, dueDate: WAI.dueDate });
+  assert.equal(d.request.type, 'CASUAL_WITH_INVOICE');
+  const p = d.request.payload;
+  assert.deepEqual([p.pending_payment, p.due_date, p.method, p.account_id, p.fiscal.total_amount], [true, '2026-11-30', undefined, undefined, 1240]);
+  assert.ok(!d.pending.includes('method') && !d.pending.includes('account'));
+});
