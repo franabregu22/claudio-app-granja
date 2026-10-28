@@ -6,6 +6,8 @@
  * The whole 0001…0104 state is verified by ADR025_POST_0104 itself. The only object 0105 changes is that view's text: the earlier
  * profiles pin its md5 (X ADR-021 / X ADR-023), so the 0105 md5 is checked here and translated back to the 0095 md5 before they
  * evaluate; everything else they check is untouched. A (ledger length / last version) is replaced.
+ * The 0102 install-time check "BOT OFF" (wa.config / wa.sender empty) no longer describes production after the owner enabled the
+ * bot (2026-10-28): it is replaced by the operational invariant — exactly one wa.config row and a gateway without an ERP profile.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -35,7 +37,8 @@ export function buildSql(repo) {
     'views', (SELECT json_object_agg(c.relname, md5(pg_get_viewdef(c.oid)) || ':' || (c.reloptions @> ARRAY['security_invoker=true']) || ':' || pg_get_userbyid(c.relowner) || ':' || coalesce(c.relacl::text, 'NULL') ORDER BY c.relname)
                FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relname IN ('fin_mp_pending_classification', 'fin_mp_pending_summary')),
     'columns', (SELECT string_agg(attname || ':' || format_type(atttypid, atttypmod), ',' ORDER BY attnum) FROM pg_attribute
-                 WHERE attrelid = 'public.fin_mp_pending_classification'::regclass AND attnum > 0 AND NOT attisdropped))
+                 WHERE attrelid = 'public.fin_mp_pending_classification'::regclass AND attnum > 0 AND NOT attisdropped),
+    'wa', (SELECT 'config_rows=' || (SELECT count(*) FROM wa.config) || '|gateway_profile=' || coalesce((SELECT EXISTS (SELECT 1 FROM perfiles p WHERE p.id = c.gateway_user_id)::text FROM wa.config c LIMIT 1), '-')))
 )::text;`;
 }
 
@@ -45,7 +48,7 @@ export function evaluate(s, ctx) {
   // the earlier profiles pin the 0095 text of the view: give them that md5 back (only that value; checked exactly below)
   const inner = JSON.parse(JSON.stringify(s.prev).split(VIEW_0105).join(VIEW_0095));
   const base = inner.prev.prev.prev;
-  const out = prev.evaluate(inner, ctx).filter((c) => !c.label.startsWith('A ledger '));
+  const out = prev.evaluate(inner, ctx).filter((c) => !c.label.startsWith('A ledger ') && !c.label.startsWith('0102 BOT OFF:'));
   const check = (label, ok, detail = '') => out.push({ label, ok: !!ok, detail });
   out.unshift({ label: `A ledger ${ctx.expectedLedger} rows, last ${THROUGH}`, ok: base.ledger_count === ctx.expectedLedger && base.ledger_max === THROUGH,
     detail: `${base.ledger_count} / ${base.ledger_max}` });
@@ -56,5 +59,7 @@ export function evaluate(s, ctx) {
   check('0105 fin_mp_pending_classification columns unchanged (names, types, order)',
     a.columns === 'pending_key:text,source_id:text,kind:text,direction:text,business_date:date,occurred_at:timestamp with time zone,amount:numeric(15,2),economic_amount:numeric,charges_amount:numeric,account_name:text,description:text,status:text,already_posted:boolean,financial_operation_id:bigint,is_historical:boolean,destination_status:text,destination_last4:text,matched_account_name:text',
     String(a.columns));
+  check('WhatsApp operational state: exactly one wa.config row (enabled or not, as the owner set it), the gateway has no ERP profile',
+    a.wa === 'config_rows=1|gateway_profile=false', String(a.wa));
   return out;
 }
