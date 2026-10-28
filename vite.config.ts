@@ -8,8 +8,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Granja Santo Tomás — Pedidos',
-        short_name: 'Pedidos',
+        name: 'Granja Santo Tomás | ERP',
+        short_name: 'Santo Tomás',
         description: 'App para gestionar pedidos de la granja',
         theme_color: '#A8552E',
         background_color: '#FAF6EE',
@@ -34,14 +34,6 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
-          },
-        ],
-        screenshots: [
-          {
-            src: '/screenshot.png',
-            sizes: '540x720',
-            type: 'image/png',
-            form_factor: 'narrow',
           },
         ],
       },
