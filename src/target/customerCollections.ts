@@ -5,7 +5,7 @@
  * withdrawal side) are shown as ONE logical collection. Read-only: nothing is computed for the balance here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readView } from './db';
+import { readTable, readView } from './db';
 
 export type CustomerCollectionOrigin = 'CORRECTION' | 'CASH' | 'BANK' | 'MANUAL_MP' | 'AUTO_MP';
 export type CustomerCollectionStatus = 'CORRECTED' | 'MANUAL_WITHOUT_SOURCE' | 'CONCILIATED' | 'PENDING_RECONCILIATION' | 'CASH' | 'ALLOCATED_TO_CUSTOMER';
@@ -44,6 +44,47 @@ export async function listClientCollections(client: SupabaseClient): Promise<Cus
   const rows = await readView<CustomerCollectionRow>(client, 'fin_customer_collections', (q) => q.eq('counts_for_customer', true)
     .order('business_date', { ascending: false }).order('created_at', { ascending: false }), COLUMNS);
   return rows.map((r) => ({ ...r, amount: Number(r.amount), financial_operation_id: r.financial_operation_id === null ? null : Number(r.financial_operation_id) }));
+}
+
+/**
+ * The Mercado Pago allocation behind a row (0092 defines row_id = 'A:' || mp_client_allocation.id), or null for a manual
+ * collection ('C:'). Nothing else is inferred.
+ */
+export function allocationIdOf(row: Pick<CustomerCollectionRow, 'row_id'>): string | null {
+  const m = /^A:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(row.row_id);
+  return m ? m[1] : null;
+}
+
+/**
+ * "Anular cobro" (Lote 1D) is offered only for a Mercado Pago allocation that is not part of a collection correction
+ * (0092 groups those) and still has something to reverse. The view's amount for an allocation is already its net
+ * (allocation − reversals) = exactly what mp_reverse_client_allocation accepts as the reversible remainder.
+ */
+export function canAnnulMpAllocation(row: CustomerCollectionRow): boolean {
+  return allocationIdOf(row) !== null && row.origin === 'AUTO_MP' && row.correction_id === null && row.amount > 0;
+}
+
+/** One reversal of an allocation: MANUAL_REVERSAL (an ADMIN undid it) or MP_REVERSAL (refund / chargeback in Mercado Pago). */
+export interface AllocationReversal {
+  id: string; amount: number; origin: 'MANUAL_REVERSAL' | 'MP_REVERSAL'; effective_date: string; reason: string | null; created_at: string;
+}
+export interface AllocationHistory { original: number; reversals: AllocationReversal[] }
+
+/** The original amount and the reversals (oldest first) of the given allocations, from mp_client_allocation (ADMIN). */
+export async function listAllocationHistory(client: SupabaseClient, allocationIds: readonly string[]): Promise<Map<string, AllocationHistory>> {
+  const out = new Map<string, AllocationHistory>();
+  if (allocationIds.length === 0) return out;
+  const ids = allocationIds.join(',');
+  const rows = await readTable<{ id: string; reversal_of_id: string | null; amount: number; origin: string; effective_date: string; reason: string | null; created_at: string }>(
+    client, 'mp_client_allocation', (q) => q.or(`id.in.(${ids}),reversal_of_id.in.(${ids})`).order('created_at', { ascending: true }),
+    'id, reversal_of_id, amount, origin, effective_date, reason, created_at');
+  for (const r of rows) if (r.reversal_of_id === null) out.set(r.id, { original: Number(r.amount), reversals: [] });
+  for (const r of rows) {
+    if (r.reversal_of_id === null) continue;
+    const h = out.get(r.reversal_of_id);
+    if (h) h.reversals.push({ id: r.id, amount: -Number(r.amount), origin: r.origin as AllocationReversal['origin'], effective_date: r.effective_date, reason: r.reason, created_at: r.created_at });
+  }
+  return out;
 }
 
 /** One logical collection: a single row, or a corrected original with the components that replace it. */

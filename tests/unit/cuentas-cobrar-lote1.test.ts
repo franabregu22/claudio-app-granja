@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import { balanceAfterCollection, balanceState, collectionMethodFor } from '../../src/target/commercial';
-import { listClientCollections } from '../../src/target/customerCollections';
+import { allocationIdOf, canAnnulMpAllocation, type CustomerCollectionRow, listAllocationHistory, listClientCollections } from '../../src/target/customerCollections';
 import { filterMpReceipts, mpReceiptCandidates, type MpReceiptCandidate } from '../../src/target/mpActivity';
 import { listPayerNames } from '../../src/target/pendingClassification';
 
@@ -42,9 +42,11 @@ describe('Lote 1 — Cuentas a cobrar', () => {
     expect(t).not.toMatch(/email/);
     expect(t).toMatch(/N\.º pedido/);
     expect(t).toMatch(/Quién entregó/);
-    expect(t).toMatch(/Quién registró/);
-    expect(t).toMatch(/p\.account_name/);
-    expect(t).toMatch(/p\.notes/);
+    const c = SRC('features/cobros/TablaCobros.tsx');
+    expect(c).not.toMatch(/email/);
+    expect(c).toMatch(/Quién registró/);
+    expect(c).toMatch(/p\.account_name/);
+    expect(c).toMatch(/<NotaPopover nota=\{p\.notes\} \/>/);
   });
 
   it('modal: no method selector, no receipt field; the receipt id is always the generated key', () => {
@@ -111,10 +113,12 @@ describe('Lote 1B — Mercado Pago receipt search', () => {
     expect(t).not.toMatch(/registerCollection|registrar\.mutate\(\{[^}]*elegidoMp/);   // an MP receipt is allocated, never re-booked as money
   });
 
-  it('collections table: comment is the last column, same row', () => {
-    const t = SRC('features/cobros/ListaSaldosClientes.tsx');
-    expect(t).toMatch(/Quién registró<\/th><th className=\{`\$\{TH\} w-full`\}>Comentario<\/th>/);
-    expect(t).not.toMatch(/pl-\[5\.5rem\]/);
+  it('collections table: "Nota" is the last column of the same row (icon + popover, not inline text)', () => {
+    const t = SRC('features/cobros/TablaCobros.tsx');
+    expect(t).toMatch(/Quién registró<\/th>\s*<th className="[^"]*w-full">Nota<\/th>/);
+    expect(t).not.toMatch(/Comentario/);
+    expect(t).not.toMatch(/\{p\.notes\?\.trim\(\)/);
+    expect(SRC('features/cobros/ListaSaldosClientes.tsx')).toMatch(/<TablaCobros cobros=\{pagos\}/);
   });
 });
 
@@ -158,5 +162,80 @@ describe('Lote 1C — Cuentas corrientes', () => {
     expect(t).toMatch(/const puedeGuardar = creditoOk && /);
     expect(t).toMatch(/Disponible MP: \{formatoPesos\(elegidoMp\.amount\)\}/);
     expect(t).not.toMatch(/balanceAfterCollection\([^)]*elegidoMp\.amount/);   // the MP available amount is not the client's balance
+  });
+});
+
+const CC = (p: Partial<CustomerCollectionRow>): CustomerCollectionRow => ({
+  row_id: 'A:0b6c1f7e-3d2a-4c1b-9f00-1234567890ab', business_date: '2026-10-10', created_at: '2026-10-10T10:00:00Z', cliente_id: 'c1', client_name: 'Mandy',
+  amount: 200000, account_name: 'Mercado Pago', account_type: 'EXTERNAL_SERVICE', payment_method: 'MERCADOPAGO', notes: null, financial_operation_id: 1,
+  source_id: '182488096484', origin: 'AUTO_MP', status: 'ALLOCATED_TO_CUSTOMER', correction_id: null, correction_role: 'SINGLE', counts_for_customer: true, ...p,
+});
+
+describe('Lote 1D — Anular asignaciones Mercado Pago', () => {
+  it('identity: only the 0092 row_id A:<allocation uuid>; manual collections have none', () => {
+    expect(allocationIdOf(CC({}))).toBe('0b6c1f7e-3d2a-4c1b-9f00-1234567890ab');
+    expect(allocationIdOf(CC({ row_id: 'C:0b6c1f7e-3d2a-4c1b-9f00-1234567890ab' }))).toBeNull();
+    expect(allocationIdOf(CC({ row_id: 'A:not-a-uuid' }))).toBeNull();
+  });
+
+  it('"Anular" only for a non-correction MP allocation with something left to reverse', () => {
+    expect(canAnnulMpAllocation(CC({}))).toBe(true);
+    expect(canAnnulMpAllocation(CC({ amount: 0 }))).toBe(false);                                                   // already fully reversed
+    expect(canAnnulMpAllocation(CC({ origin: 'CORRECTION', correction_id: 'k1', correction_role: 'COMPONENT' }))).toBe(false);
+    expect(canAnnulMpAllocation(CC({ row_id: 'C:0b6c1f7e-3d2a-4c1b-9f00-1234567890ab', origin: 'CASH', account_type: 'CASH' }))).toBe(false);
+  });
+
+  it('history: originals and their reversals from mp_client_allocation, reversal amounts positive, oldest first', async () => {
+    const seen: URL[] = [];
+    const client = createClient('http://127.0.0.1:54321', 'anon-key', { auth: { persistSession: false }, global: { fetch: (async (input: RequestInfo | URL) => {
+      seen.push(new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url));
+      return new Response(JSON.stringify([
+        { id: 'a1', reversal_of_id: null, amount: '200000.00', origin: 'ALLOCATION', effective_date: '2026-10-10', reason: 'x', created_at: '2026-10-10T10:00:00Z' },
+        { id: 'r1', reversal_of_id: 'a1', amount: '-50000.00', origin: 'MANUAL_REVERSAL', effective_date: '2026-10-20', reason: 'cliente equivocado', created_at: '2026-10-20T10:00:00Z' },
+      ]), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch } });
+    const h = await listAllocationHistory(client, ['a1']);
+    expect(h.get('a1')).toEqual({ original: 200000, reversals: [
+      { id: 'r1', amount: 50000, origin: 'MANUAL_REVERSAL', effective_date: '2026-10-20', reason: 'cliente equivocado', created_at: '2026-10-20T10:00:00Z' }] });
+    expect(seen[0].pathname).toBe('/rest/v1/mp_client_allocation');
+    expect(seen[0].searchParams.get('or')).toBe('(id.in.(a1),reversal_of_id.in.(a1))');
+    expect((await listAllocationHistory(client, [])).size).toBe(0);
+  });
+
+  it('modal: existing RPC only, whole reversible remainder, mandatory reason + confirmation, one key per form, no resubmit', () => {
+    const t = SRC('features/cobros/AnularCobroMpModal.tsx');
+    expect(t).toMatch(/anular\.mutate\(\{ allocationId, amount: cobro\.amount, idempotencyKey: clave, reason: motivo\.trim\(\) \}/);
+    expect(t).toMatch(/const \[clave\] = useState\(\(\) => uiIdempotencyKey\(\)\)/);
+    expect(t).toMatch(/motivo\.trim\(\) !== '' && confirmado && !anular\.isPending && !anular\.isSuccess/);
+    expect(t).not.toMatch(/mp_allocate_to_client|registerCollection|allocateToClient/);   // no "Rectificar" yet
+    const m = SRC('features/caja/MovimientoMp.tsx');
+    expect(m).toMatch(/reverseAllocation\(supabase, p\)/);
+    expect(m).toMatch(/\['mp'\], \['commercial'\], \['treasury'\], \['customer-collections'\]/);   // balance + Disponible MP refresh
+  });
+
+  it('table: Anular gated by canAnnulMpAllocation; reversals listed with date, amount, type and reason', () => {
+    const t = SRC('features/cobros/TablaCobros.tsx');
+    expect(t).toMatch(/\{canAnnulMpAllocation\(p\) && \(/);
+    expect(t).toMatch(/h\?\.reversals\.map/);
+    expect(t).toMatch(/<NotaPopover nota=\{r\.reason\} \/>/);
+  });
+});
+
+describe('Ajustes visuales — Nota y tarjetas', () => {
+  it('Nota: icon + popover portalled to body (not clipped by the table scroll); dash when empty', () => {
+    const t = SRC('features/cobros/NotaPopover.tsx');
+    expect(t).toMatch(/createPortal\(/);
+    expect(t).toMatch(/position: 'fixed'/);
+    expect(t).toMatch(/document\.body/);
+    expect(t).toMatch(/<MessageSquare /);
+    expect(t).toMatch(/if \(texto === ''\) return <span[^>]*>—<\/span>/);
+  });
+
+  it('cards: no repeated "XX clientes" line; big number, title and amount stay', () => {
+    const t = SRC('features/cobros/CobrosApp.tsx');
+    expect(t).not.toMatch(/'1 cliente'|clientes`/);
+    expect(t).toMatch(/\{t\.cantidad\}<\/p>/);
+    expect(t).toMatch(/\{t\.titulo\}<\/p>/);
+    expect(t).toMatch(/\{t\.detalle\}<\/p>/);
   });
 });

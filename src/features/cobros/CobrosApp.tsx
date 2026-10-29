@@ -67,7 +67,7 @@ export function CobrosApp() {
                     className={`text-left rounded-lg border p-3 transition ${activa ? 'bg-white border-amber-600 ring-1 ring-amber-600 shadow-sm' : 'bg-white/60 border-[#E4DCC8] hover:border-amber-400'}`}>
                     <p className="text-xs sm:text-sm font-semibold text-[#6B5D45] leading-tight">{t.titulo}</p>
                     <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1">{t.cantidad}</p>
-                    <p className={`text-[11px] sm:text-xs ${t.tono} truncate`}>{t.cantidad === 1 ? '1 cliente' : `${t.cantidad} clientes`} · {t.detalle}</p>
+                    <p className={`text-[11px] sm:text-xs ${t.tono} truncate`}>{t.detalle}</p>
                   </button>
                 );
               })}

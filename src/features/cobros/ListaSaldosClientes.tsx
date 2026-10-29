@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { orderTotal, type ClientBalance, type OrderRow } from '../../target/commercial';
 import type { CustomerCollectionRow } from '../../target/customerCollections';
+import { TablaCobros } from './TablaCobros';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 
@@ -9,7 +10,7 @@ export type Variante = 'deudor' | 'finalizado' | 'credito';
 /** perfiles holds only e-mail (no first / last name) and pedidos records only who CONFIRMED the delivery (delivered_by), not
  * who delivered it: neither person is shown, never an e-mail in their place. */
 const SIN_DATO = 'No disponible';
-// compact tables: columns as wide as their content; only the comment column takes the rest and wraps inside itself
+// compact tables: columns as wide as their content
 const TH = 'py-0.5 pr-3 text-left font-normal whitespace-nowrap';
 const TD = 'py-0.5 pr-3 align-top whitespace-nowrap text-gray-700';
 const CABECERA = 'text-[#8A7A5C] border-b border-[#E4DCC8]';
@@ -31,7 +32,7 @@ interface Props {
 /**
  * Client balances (F27-C). The balance is the client-ledger closing balance from report_balance_period; the
  * expandable detail lists the client's delivered orders (date, number, total) and the collections that count for the
- * balance (date, amount, account, comment), as read (nothing is recomputed).
+ * balance (TablaCobros: date, amount, account, note, Mercado Pago reversals), as read (nothing is recomputed).
  */
 export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRegistrarPago }: Props) {
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -80,22 +81,7 @@ export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRe
                 <div>
                   <p className="text-xs font-semibold text-[#6B5D45] uppercase mb-1">Cobros</p>
                   {pagos.length === 0 ? <p className="text-xs text-gray-500">Sin cobros registrados</p> : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead><tr className={CABECERA}><th className={TH}>Fecha</th><th className={`${TH} text-right`}>Monto</th><th className={TH}>Cuenta</th><th className={TH}>Quién registró</th><th className={`${TH} w-full`}>Comentario</th></tr></thead>
-                        <tbody>
-                          {pagos.map((p) => (
-                            <tr key={p.row_id} className={FILA}>
-                              <td className={TD}>{formatearFechaLocal(p.business_date)}</td>
-                              <td className={`${TD} text-right tabular-nums`}>{formatoPesos(p.amount)}</td>
-                              <td className={TD}>{p.account_name}</td>
-                              <td className={`${TD} text-gray-400`}>{SIN_DATO}</td>
-                              <td className="py-0.5 pr-0 align-top min-w-[9rem] text-gray-500 [overflow-wrap:anywhere]">{p.notes?.trim() || ''}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <TablaCobros cobros={pagos} clienteNombre={c.cliente_nombre} />
                   )}
                 </div>
                 {onRegistrarPago && (
