@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { orderTotal, type ClientBalance, type OrderRow } from '../../target/commercial';
+import { RESPONSABLE_NO_DISPONIBLE } from '../../target/masters';
 import type { CustomerCollectionRow } from '../../target/customerCollections';
 import { TablaCobros } from './TablaCobros';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 
 export type Variante = 'deudor' | 'finalizado' | 'credito';
-/** perfiles holds only e-mail (no first / last name) and pedidos records only who CONFIRMED the delivery (delivered_by), not
- * who delivered it: neither person is shown, never an e-mail in their place. */
-const SIN_DATO = 'No disponible';
+/** "Quién entregó" = the delivery responsible of 0100 (delivered_by, the ADMIN who confirmed it — the same person Pedidos shows as
+ * "Entregado por"), by name (0109); "No disponible" without one — never an e-mail, never updated_by / created_by. */
 // compact tables: columns as wide as their content
 const TH = 'py-0.5 pr-3 text-left font-normal whitespace-nowrap';
 const TD = 'py-0.5 pr-3 align-top whitespace-nowrap text-gray-700';
@@ -70,7 +70,7 @@ export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRe
                               <td className={TD}>{p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</td>
                               <td className={TD}>{p.numero_pedido ?? '—'}</td>
                               <td className={`${TD} text-right tabular-nums`}>{formatoPesos(orderTotal(p))}</td>
-                              <td className={`${TD} text-gray-400`}>{SIN_DATO}</td>
+                              <td className={`${TD} ${p.entregado_por_nombre ? '' : 'text-gray-400'}`}>{p.entregado_por_nombre ?? RESPONSABLE_NO_DISPONIBLE}</td>
                             </tr>
                           ))}
                         </tbody>

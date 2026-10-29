@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { allocationIdOf, canAnnulMpAllocation, canReverseManualCollection, listAllocationHistory, type CustomerCollectionRow } from '../../target/customerCollections';
 import { formatearFechaLocal } from '../../utils/dateUtils';
+import { RESPONSABLE_NO_DISPONIBLE } from '../../target/masters';
 import { formatoPesos } from '../pedidos/helpers';
+import { useProfileDisplayNames } from '../pedidos/useCommercial';
 import { AnularCobroModal } from './AnularCobroModal';
 import { AnularCobroMpModal } from './AnularCobroMpModal';
 import { NotaPopover } from './NotaPopover';
@@ -12,8 +14,11 @@ import { RectificarCobroModal } from './RectificarCobroModal';
 // same compact layout as the deliveries table (ListaSaldosClientes)
 const TH = 'py-0.5 pr-3 text-left font-normal whitespace-nowrap';
 const TD = 'py-0.5 pr-3 align-top whitespace-nowrap text-gray-700';
-/** perfiles holds only e-mail: no person is shown, never an e-mail in their place. */
-const SIN_DATO = 'No disponible';
+/** A responsible person: the stored user id by name (0109), "No disponible" without one — never an e-mail. */
+const Persona = ({ id, names }: { id: string | null | undefined; names: ReadonlyMap<string, string> }) => {
+  const n = id ? names.get(id) : undefined;
+  return <td className={`${TD} ${n ? '' : 'text-gray-400'}`}>{n ?? RESPONSABLE_NO_DISPONIBLE}</td>;
+};
 const ORIGEN_REVERSION = { MANUAL_REVERSAL: 'Anulado', MP_REVERSAL: 'Devuelto en Mercado Pago' } as const;
 const REVERSION_MANUAL = { ANNUL: 'Anulado', RECTIFY: 'Rectificado' } as const;
 const ENLACE = 'ml-2 text-[11px] underline';
@@ -27,6 +32,7 @@ const ENLACE = 'ml-2 text-[11px] underline';
  */
 export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollectionRow[]; clienteNombre: string }) {
   const [anulando, setAnulando] = useState<CustomerCollectionRow | null>(null);
+  const nombres = useProfileDisplayNames().data ?? new Map<string, string>();
   const [accion, setAccion] = useState<{ tipo: 'anular' | 'rectificar'; cobro: CustomerCollectionRow } | null>(null);
   const ids = cobros.map(allocationIdOf).filter((x): x is string => x !== null).sort();
   const historial = useQuery({ queryKey: ['customer-collections', 'allocation-history', ids], enabled: ids.length > 0,
@@ -70,7 +76,7 @@ export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollect
                     )}
                     {p.replacement_of && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">Rectificación</span>}
                   </td>
-                  <td className={`${TD} text-gray-400`}>{SIN_DATO}</td>
+                  <Persona id={p.registered_by} names={nombres} />
                   <td className="py-0.5 align-top"><NotaPopover nota={p.notes} /></td>
                 </tr>
                 {manual && (
@@ -78,7 +84,7 @@ export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollect
                     <td className={`${TD} text-gray-500 pl-2`}>↳ {p.reversal_at ? formatearFechaLocal(p.reversal_at.slice(0, 10)) : '—'}</td>
                     <td className={`${TD} text-right tabular-nums text-red-700`}>−{formatoPesos(p.amount)}</td>
                     <td className={`${TD} text-gray-500`}>{manual === 'RECTIFY' ? 'Rectificado (ver cobro correcto)' : 'Anulado'}</td>
-                    <td className={`${TD} text-gray-400`}>{SIN_DATO}</td>
+                    <Persona id={p.reversal_by} names={nombres} />
                     <td className="py-0.5 align-top"><NotaPopover nota={p.reversal_reason} /></td>
                   </tr>
                 )}
@@ -87,7 +93,7 @@ export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollect
                     <td className={`${TD} text-gray-500 pl-2`}>↳ {formatearFechaLocal(r.effective_date)}</td>
                     <td className={`${TD} text-right tabular-nums text-red-700`}>−{formatoPesos(r.amount)}</td>
                     <td className={`${TD} text-gray-500`}>{ORIGEN_REVERSION[r.origin]}</td>
-                    <td className={`${TD} text-gray-400`}>{SIN_DATO}</td>
+                    <Persona id={r.created_by} names={nombres} />
                     <td className="py-0.5 align-top"><NotaPopover nota={r.reason} /></td>
                   </tr>
                 ))}

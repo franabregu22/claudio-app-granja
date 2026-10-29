@@ -125,13 +125,13 @@ describe('Pedidos — rectification history (display only, from the stored line 
   it('compares each version with the PREVIOUS one, oldest first, omitting unchanged products', () => {
     const r = buildRectifications([
       // deliberately unordered input
-      line(2, 'a', 1, 100, { is_current: true, created_at: '2026-10-15T15:00:00Z', created_by: 'u2', perfiles: { email: 'b@x' } }),
-      line(2, 'b', 5, 50, { is_current: true, created_at: '2026-10-15T15:00:00Z', created_by: 'u2', perfiles: { email: 'b@x' } }),
+      line(2, 'a', 1, 100, { is_current: true, created_at: '2026-10-15T15:00:00Z', created_by: 'u2', perfiles: { nombre: 'Bea', apellido: 'Ruiz' } }),
+      line(2, 'b', 5, 50, { is_current: true, created_at: '2026-10-15T15:00:00Z', created_by: 'u2', perfiles: { nombre: 'Bea', apellido: 'Ruiz' } }),
       line(0, 'a', 3, 100), line(0, 'b', 5, 50),
-      line(1, 'a', 2, 100, { created_at: '2026-10-14T12:00:00Z', created_by: 'u1', perfiles: { email: 'a@x' } }),
-      line(1, 'b', 5, 50, { created_at: '2026-10-14T12:00:00Z', created_by: 'u1', perfiles: { email: 'a@x' } }),
+      line(1, 'a', 2, 100, { created_at: '2026-10-14T12:00:00Z', created_by: 'u1', perfiles: { nombre: 'Ana', apellido: null } }),
+      line(1, 'b', 5, 50, { created_at: '2026-10-14T12:00:00Z', created_by: 'u1', perfiles: { nombre: 'Ana', apellido: null } }),
     ]);
-    expect(r.map((x) => [x.version, x.at, x.by_email])).toEqual([[1, '2026-10-14T12:00:00Z', 'a@x'], [2, '2026-10-15T15:00:00Z', 'b@x']]);
+    expect(r.map((x) => [x.version, x.at, x.by_name])).toEqual([[1, '2026-10-14T12:00:00Z', 'Ana'], [2, '2026-10-15T15:00:00Z', 'Bea Ruiz']]);
     // v1: 3 → 2 (vs the original); v2: 2 → 1 (vs v1, never vs the original); product b unchanged → omitted
     expect(r[0].cambios).toEqual([{ producto_id: 'a', producto_nombre: 'Prod a', tipo: 'MODIFICADO', cantidad_antes: 3, cantidad_despues: 2, precio_antes: null, precio_despues: null }]);
     expect(r[1].cambios).toEqual([{ producto_id: 'a', producto_nombre: 'Prod a', tipo: 'MODIFICADO', cantidad_antes: 2, cantidad_despues: 1, precio_antes: null, precio_despues: null }]);
@@ -151,23 +151,23 @@ describe('Pedidos — rectification history (display only, from the stored line 
     expect([r.total_antes, r.total_despues]).toEqual([500, 280]);
   });
 
-  it('missing author / email / date stay null (never invented); the rectifier is the new version author, not the deliverer', () => {
+  it('missing author / name / date stay null (never invented); the rectifier is the new version author, not the deliverer', () => {
     const [r] = buildRectifications([line(0, 'a', 1, 100), line(1, 'a', 2, 100, { created_by: 'u9', perfiles: null })]);
-    expect([r.at, r.by_id, r.by_email]).toEqual([null, 'u9', null]);
+    expect([r.at, r.by_id, r.by_name]).toEqual([null, 'u9', null]);
   });
 
-  it('listOrders keeps only the current lines for totals and adds the history (author email embedded, ADMIN RLS unchanged)', async () => {
+  it('listOrders keeps only the current lines for totals and adds the history (author name embedded, never the e-mail; ADMIN RLS unchanged)', async () => {
     const { client } = stub([{ data: [{
       id: 'o1', numero_pedido: null, cliente_id: 'c1', estado: 'DELIVERED', delivered_at: 'x', delivered_date: '2026-10-14', cancelled_date: null,
       rectification_seq: 1, created_at: 'y', clients: { nombre: 'Cliente' },
-      pedido_lineas: [line(0, 'a', 3, '100' as never, { subtotal: '300' as never }), line(1, 'a', 2, 100, { is_current: true, created_by: 'u1', perfiles: { email: 'a@x' } })],
+      pedido_lineas: [line(0, 'a', 3, '100' as never, { subtotal: '300' as never }), line(1, 'a', 2, 100, { is_current: true, created_by: 'u1', perfiles: { nombre: 'Ana', apellido: null } })],
     }], error: null }]);
     const [o] = await listOrders(client, ['DELIVERED']);
     expect(o.lineas.map((l) => [l.version_seq, l.cantidad])).toEqual([[1, 2]]);
     expect(o.lineas[0]).not.toHaveProperty('perfiles');
     expect(orderTotal(o)).toBe(200);
     expect(o.rectificaciones).toHaveLength(1);
-    expect(o.rectificaciones[0]).toMatchObject({ version: 1, by_email: 'a@x', total_antes: 300, total_despues: 200 });
+    expect(o.rectificaciones[0]).toMatchObject({ version: 1, by_name: 'Ana', total_antes: 300, total_despues: 200 });
   });
 });
 
@@ -184,14 +184,15 @@ describe('Pedidos — order number and delivery responsible (0100)', () => {
     expect(refPedido({ id: 'abcdef12-0000', numero_pedido: null })).toBe('abcdef12');
   });
 
-  it('the responsible is the delivered_by email (perfiles); without evidence it stays null — never updated_by / created_by', async () => {
+  it('the responsible is the delivered_by name (perfiles, 0109); without evidence or name it stays null — never the e-mail, updated_by / created_by', async () => {
     const { client } = stub([{ data: [
-      raw({ id: 'o1', delivered_by: 'u1', entrego: { email: 'admin@x' }, updated_by: 'u9', created_by: 'u8' }),
+      raw({ id: 'o1', delivered_by: 'u1', entrego: { nombre: 'Fran', apellido: 'Abregú' }, updated_by: 'u9', created_by: 'u8' }),
       raw({ id: 'o2', delivered_by: null, entrego: null, updated_by: 'u9', created_by: 'u8' }),
-      raw({ id: 'o3', delivered_by: 'u2', entrego: null }),   // profile not visible: no email invented
+      raw({ id: 'o3', delivered_by: 'u2', entrego: null }),   // profile not visible: no name invented
+      raw({ id: 'o4', delivered_by: 'u3', entrego: { nombre: null, apellido: null } }),   // no name loaded: null, never the e-mail
     ], error: null }]);
     const rows = await listOrders(client, ['DELIVERED']);
-    expect(rows.map((o) => [o.id, o.delivered_by, o.entregado_por_email])).toEqual([['o1', 'u1', 'admin@x'], ['o2', null, null], ['o3', 'u2', null]]);
+    expect(rows.map((o) => [o.id, o.delivered_by, o.entregado_por_nombre])).toEqual([['o1', 'u1', 'Fran Abregú'], ['o2', null, null], ['o3', 'u2', null], ['o4', 'u3', null]]);
     expect(rows[0]).not.toHaveProperty('entrego');
   });
 });

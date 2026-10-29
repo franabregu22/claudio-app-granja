@@ -5,7 +5,7 @@ import {
   rectifyCollection, rectifyDeliveredOrder, registerCollection, reverseCollection, updatePendingOrder, type LineInput, type OrderEstado,
 } from '../../target/commercial';
 import { listClientCollections } from '../../target/customerCollections';
-import { listCurrentPrices, listMaster, type ClientRow, type FinancialAccountRow, type ProductRow } from '../../target/masters';
+import { listCurrentPrices, listMaster, listProfileDisplayNames, type ClientRow, type FinancialAccountRow, type ProductRow } from '../../target/masters';
 
 const ORDERS = ['commercial', 'orders'];
 const BALANCES = ['commercial', 'balances'];
@@ -58,6 +58,11 @@ export function useClientBalances() {
 /** Collections that count for each client's balance (fin_customer_collections); refreshed with every customer-collection change. */
 export function useClientCollections() {
   return useQuery({ queryKey: [...CUSTOMER_COLLECTIONS, 'balance-detail'], queryFn: () => listClientCollections(supabase) });
+}
+
+/** id → "Nombre Apellido" of the profiles with a name (0109): who registered / annulled a collection. Never e-mails. */
+export function useProfileDisplayNames() {
+  return useQuery({ queryKey: ['master', 'perfiles', 'nombres'], queryFn: () => listProfileDisplayNames(supabase) });
 }
 
 /** Active clients (master), for the rectification form; same cache as useOrderCatalog. */

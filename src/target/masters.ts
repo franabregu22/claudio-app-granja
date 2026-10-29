@@ -44,7 +44,7 @@ export interface FlockRow {
   entry_date: string; initial_population: number; exit_date: string | null;
 }
 export interface OperatorAssignmentRow { id: string; operator_id: string; flock_id: string; activo: boolean; assigned_at: string }
-export interface ProfileRow { id: string; email: string; rol_type: 'ADMIN' | 'OPERATOR'; activo: boolean }
+export interface ProfileRow { id: string; email: string; rol_type: 'ADMIN' | 'OPERATOR'; activo: boolean; nombre: string | null; apellido: string | null }
 
 /** The master tables edited through direct writes in F27-B (all INSERT / UPDATE only). */
 export type MasterTable = 'clients' | 'suppliers' | 'expense_category' | 'expense_category_group' | 'financial_account' | 'projects' | 'products' | 'sheds'
@@ -147,7 +147,38 @@ export function closeFlock(client: SupabaseClient, p: { flockId: string; exitDat
 }
 
 export function listProfiles(client: SupabaseClient): Promise<ProfileRow[]> {
-  return readTable<ProfileRow>(client, 'perfiles', (q) => q.order('email'), 'id, email, rol_type, activo');
+  return readTable<ProfileRow>(client, 'perfiles', (q) => q.order('email'), 'id, email, rol_type, activo, nombre, apellido');
+}
+
+// ── person names (0109) ─────────────────────────────────────────────────────
+/** Shown when an operation has no responsible user or that user has no name loaded — never the e-mail. */
+export const RESPONSABLE_NO_DISPONIBLE = 'No disponible';
+
+/** "Nombre Apellido" of a profile, or null when neither is loaded. */
+export function profileDisplayName(p: { nombre?: string | null; apellido?: string | null } | null | undefined): string | null {
+  const s = [p?.nombre, p?.apellido].map((x) => x?.trim()).filter(Boolean).join(' ');
+  return s === '' ? null : s;
+}
+
+/**
+ * Names of the profiles that have one (id → "Nombre Apellido"). Reads only id / nombre / apellido — no e-mail, role or state —
+ * and RLS still decides the rows (ADMIN: every profile; anyone else: their own).
+ */
+export async function listProfileDisplayNames(client: SupabaseClient): Promise<Map<string, string>> {
+  const rows = await readTable<{ id: string; nombre: string | null; apellido: string | null }>(client, 'perfiles',
+    (q) => q.or('nombre.not.is.null,apellido.not.is.null'), 'id, nombre, apellido');
+  return new Map(rows.flatMap((r) => { const n = profileDisplayName(r); return n ? [[r.id, n] as [string, string]] : []; }));
+}
+
+/** The responsible person of an operation: the stored user id resolved to its name, else "No disponible". */
+export function responsableName(id: string | null | undefined, names: ReadonlyMap<string, string>): string {
+  return (id && names.get(id)) || RESPONSABLE_NO_DISPONIBLE;
+}
+
+/** ADMIN: set first / last name of a profile (0109). Only these two columns; blank clears; audited by the server. */
+export function setProfileName(client: SupabaseClient, p: { profileId: string; nombre: string; apellido: string }) {
+  return callRpc<{ profile_id: string; changed: boolean }>(client, 'set_profile_name',
+    { p_profile_id: p.profileId, p_nombre: p.nombre, p_apellido: p.apellido });
 }
 
 export function listOperatorAssignments(client: SupabaseClient): Promise<OperatorAssignmentRow[]> {

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
   assignOperator, closeFlock, createMaster, listCurrentPrices, registerFlock, listFlocks, listMaster, listOperatorAssignments, listProfiles,
-  setAssignmentActive, setPrice, updateMaster, type MasterTable, type PriceList,
+  setAssignmentActive, setPrice, setProfileName, updateMaster, type MasterTable, type PriceList,
 } from '../../target/masters';
 
 export function useMasterList<Row>(table: MasterTable, order?: string) {
@@ -52,6 +52,15 @@ export function useFlockLifecycle() {
 
 export function useProfiles() {
   return useQuery({ queryKey: ['master', 'perfiles'], queryFn: () => listProfiles(supabase) });
+}
+
+/** ADMIN: first / last name of a profile (0109, set_profile_name). Refreshes every profile read (names, Admin list). */
+export function useSetProfileName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (p: Parameters<typeof setProfileName>[1]) => setProfileName(supabase, p),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ['master', 'perfiles'] }), qc.invalidateQueries({ queryKey: ['commercial'] })]),
+  });
 }
 
 export function useOperatorAssignments() {

@@ -21,9 +21,11 @@ export interface CustomerCollectionRow {
   reversal_kind: 'ANNUL' | 'RECTIFY' | null; reversal_reason: string | null; reversal_at: string | null; replacement_of: string | null;
   /** 0108: the Feria session of a Feria collection (collections.sales_session_id, 0032 / 0070); null otherwise */
   sales_session_id: string | null;
+  /** 0109: the user ids already stored — who registered the collection / allocation, who annulled or rectified it */
+  registered_by: string | null; reversal_by: string | null;
 }
 const COLUMNS = 'row_id, business_date, created_at, cliente_id, client_name, amount, account_name, account_type, payment_method, notes, '
-  + 'financial_operation_id, source_id, origin, status, correction_id, correction_role, counts_for_customer, reversal_kind, reversal_reason, reversal_at, replacement_of, sales_session_id';
+  + 'financial_operation_id, source_id, origin, status, correction_id, correction_role, counts_for_customer, reversal_kind, reversal_reason, reversal_at, replacement_of, sales_session_id, registered_by, reversal_by';
 
 export const COLLECTION_STATUS_LABEL: Record<CustomerCollectionStatus, string> = {
   CORRECTED: 'Corregido', MANUAL_WITHOUT_SOURCE: 'Manual sin movimiento de Mercado Pago', CONCILIATED: 'Conciliado',
@@ -90,6 +92,8 @@ export function canReverseManualCollection(row: CustomerCollectionRow): boolean 
 /** One reversal of an allocation: MANUAL_REVERSAL (an ADMIN undid it) or MP_REVERSAL (refund / chargeback in Mercado Pago). */
 export interface AllocationReversal {
   id: string; amount: number; origin: 'MANUAL_REVERSAL' | 'MP_REVERSAL'; effective_date: string; reason: string | null; created_at: string;
+  /** who recorded the reversal (null for a Mercado Pago refund recorded by the system) */
+  created_by: string | null;
 }
 export interface AllocationHistory { original: number; reversals: AllocationReversal[] }
 
@@ -98,14 +102,14 @@ export async function listAllocationHistory(client: SupabaseClient, allocationId
   const out = new Map<string, AllocationHistory>();
   if (allocationIds.length === 0) return out;
   const ids = allocationIds.join(',');
-  const rows = await readTable<{ id: string; reversal_of_id: string | null; amount: number; origin: string; effective_date: string; reason: string | null; created_at: string }>(
+  const rows = await readTable<{ id: string; reversal_of_id: string | null; amount: number; origin: string; effective_date: string; reason: string | null; created_at: string; created_by: string | null }>(
     client, 'mp_client_allocation', (q) => q.or(`id.in.(${ids}),reversal_of_id.in.(${ids})`).order('created_at', { ascending: true }),
-    'id, reversal_of_id, amount, origin, effective_date, reason, created_at');
+    'id, reversal_of_id, amount, origin, effective_date, reason, created_at, created_by');
   for (const r of rows) if (r.reversal_of_id === null) out.set(r.id, { original: Number(r.amount), reversals: [] });
   for (const r of rows) {
     if (r.reversal_of_id === null) continue;
     const h = out.get(r.reversal_of_id);
-    if (h) h.reversals.push({ id: r.id, amount: -Number(r.amount), origin: r.origin as AllocationReversal['origin'], effective_date: r.effective_date, reason: r.reason, created_at: r.created_at });
+    if (h) h.reversals.push({ id: r.id, amount: -Number(r.amount), origin: r.origin as AllocationReversal['origin'], effective_date: r.effective_date, reason: r.reason, created_at: r.created_at, created_by: r.created_by });
   }
   return out;
 }

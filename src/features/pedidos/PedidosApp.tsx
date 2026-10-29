@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, Package, Pencil, Plus, X } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { orderTotal, type LineChange, type OrderRow } from '../../target/commercial';
+import { RESPONSABLE_NO_DISPONIBLE } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { DashboardPedidos } from './DashboardPedidos';
@@ -18,7 +19,8 @@ export function refPedido(p: Pick<OrderRow, 'id' | 'numero_pedido'>): string {
   return p.numero_pedido !== null && p.numero_pedido !== undefined ? String(p.numero_pedido).padStart(4, '0') : p.id.slice(0, 8);
 }
 /** Who confirmed the delivery: never inferred (updated_by / created_by are not the responsible). */
-const entregadoPor = (p: Pick<OrderRow, 'entregado_por_email'>) => p.entregado_por_email ?? 'No disponible';
+/** The delivery responsible (0100 delivered_by) by name (0109); "No disponible" without a name — never the e-mail. */
+const entregadoPor = (p: Pick<OrderRow, 'entregado_por_nombre'>) => p.entregado_por_nombre ?? RESPONSABLE_NO_DISPONIBLE;
 
 /** Small "Rectificado" tag (display only; the rectification flow is unchanged). With onToggle it opens the history. */
 function EtiquetaRectificado({ seq, abierto, onToggle }: { seq: number; abierto?: boolean; onToggle?: () => void }) {
@@ -55,7 +57,7 @@ function HistorialRectificaciones({ p }: { p: OrderRow }) {
       {p.rectificaciones.map((r) => (
         <li key={r.version} className="text-xs text-gray-700 border-l-2 border-[#E4B0B0] pl-2">
           <p className="font-semibold text-[#2C2419]">
-            Rectificación {r.version} · {fechaHora(r.at)} · <span className="font-normal text-gray-500">rectificó {r.by_email ?? 'usuario no disponible'}</span>
+            Rectificación {r.version} · {fechaHora(r.at)} · <span className="font-normal text-gray-500">rectificó {r.by_name ?? RESPONSABLE_NO_DISPONIBLE}</span>
           </p>
           {r.cambios.length === 0 ? (
             <p className="text-gray-500">Sin cambios de productos, cantidades ni precios.</p>
@@ -101,7 +103,7 @@ function DetallePedido({ p, onClose }: { p: OrderRow; onClose: () => void }) {
             {fila('Cliente', p.cliente_nombre || 'No disponible')}
             {fila('Estado', ESTADO_LABEL[p.estado] ?? p.estado)}
             {fila('Entrega', p.delivered_at ? fechaHora(p.delivered_at) : 'No disponible')}
-            {fila('Entregado por', entregadoPor(p), p.entregado_por_email ? 'break-all' : 'text-gray-400')}
+            {fila('Entregado por', entregadoPor(p), p.entregado_por_nombre ? '' : 'text-gray-400')}
           </dl>
           <div>
             <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Productos</p>
@@ -329,7 +331,7 @@ export function PedidosApp() {
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-amber-900">{formatoPesos(orderTotal(p))}</td>
                         <td className="hidden md:table-cell px-4 py-2 text-gray-700">{p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</td>
-                        <td className={`hidden md:table-cell px-4 py-2 text-xs break-all ${p.entregado_por_email ? 'text-gray-700' : 'text-gray-400'}`}>{entregadoPor(p)}</td>
+                        <td className={`hidden md:table-cell px-4 py-2 text-xs break-all ${p.entregado_por_nombre ? 'text-gray-700' : 'text-gray-400'}`}>{entregadoPor(p)}</td>
                         <td className="px-4 py-2 text-center">
                           <button onClick={() => abrir('rectificar', p)} className="text-amber-600 hover:text-amber-900 inline-flex items-center gap-1" title="Rectificar">
                             <Pencil className="w-4 h-4" />

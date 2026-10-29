@@ -11,7 +11,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readTable, readView, TargetDbError, writeTable } from './db';
-import type { PriceList, PriceRow } from './masters';
+import { profileDisplayName, type PriceList, type PriceRow } from './masters';
 
 export type OrderEstado = 'PENDING' | 'DELIVERED' | 'CANCELLED';
 export const COLLECTION_METHODS = ['CASH', 'TRANSFER', 'MERCADOPAGO'] as const;   // CHEQUE → receive_cheque (instruments)
@@ -32,8 +32,9 @@ export interface OrderRow {
   delivered_date: string | null; cancelled_date: string | null; rectification_seq: number; created_at: string;
   /** The ADMIN who confirmed the delivery (0100, set by deliver_order); null = no verifiable evidence. */
   delivered_by: string | null;
-  /** Email of delivered_by (perfiles, ADMIN-readable); null when unknown or not visible. Never updated_by / created_by. */
-  entregado_por_email: string | null;
+  /** "Nombre Apellido" of delivered_by (perfiles, 0109); null when unknown, without a name loaded or not visible. Never the
+   * e-mail, never updated_by / created_by. */
+  entregado_por_nombre: string | null;
   cliente_nombre: string; lineas: OrderLineRow[];
   /** Rectifications of a delivered order, oldest first (display only; built from the stored line versions). */
   rectificaciones: OrderRectification[];
@@ -47,7 +48,7 @@ export interface LineChange {
 }
 /** Version N−1 → N of an order's lines: when (the new version's created_at) and by whom (its created_by). */
 export interface OrderRectification {
-  version: number; at: string | null; by_email: string | null; by_id: string | null;
+  version: number; at: string | null; by_name: string | null; by_id: string | null;
   total_antes: number; total_despues: number; cambios: LineChange[];
 }
 /** A line as entered in the order form. The subtotal is never sent: the database generates it. */
@@ -79,10 +80,10 @@ export interface SalesLineRow {
   pedido_linea_id: string; producto_id: string; producto_nombre: string; cantidad: number; precio_unitario: number; subtotal: number;
 }
 
-/** A stored line of any version, with its author (perfiles is ADMIN-readable; null when not visible). */
-export type VersionedLine = OrderLineRow & { created_at?: string | null; created_by?: string | null; perfiles?: { email: string | null } | null };
-type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas' | 'rectificaciones' | 'entregado_por_email' | 'delivered_by'>
-  & { delivered_by?: string | null; clients: { nombre: string } | null; entrego?: { email: string | null } | null; pedido_lineas: VersionedLine[] };
+/** A stored line of any version, with its author's name (perfiles is ADMIN-readable; null when not visible). */
+export type VersionedLine = OrderLineRow & { created_at?: string | null; created_by?: string | null; perfiles?: { nombre: string | null; apellido: string | null } | null };
+type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas' | 'rectificaciones' | 'entregado_por_nombre' | 'delivered_by'>
+  & { delivered_by?: string | null; clients: { nombre: string } | null; entrego?: { nombre: string | null; apellido: string | null } | null; pedido_lineas: VersionedLine[] };
 const num = (v: unknown) => Number(v ?? 0);
 
 /**
@@ -135,7 +136,7 @@ export function buildRectifications(lines: VersionedLine[]): OrderRectification[
     const autor = next.find((l) => l.created_by) ?? null;
     const fechas = next.map((l) => l.created_at).filter((d): d is string => !!d).sort();
     out.push({
-      version: versions[i], at: fechas[0] ?? null, by_id: autor?.created_by ?? null, by_email: autor?.perfiles?.email ?? null,
+      version: versions[i], at: fechas[0] ?? null, by_id: autor?.created_by ?? null, by_name: profileDisplayName(autor?.perfiles),
       total_antes: total(prev), total_despues: total(next), cambios,
     });
   }
@@ -147,11 +148,11 @@ export function buildRectifications(lines: VersionedLine[]): OrderRectification[
 /** Orders in the given states, with their CURRENT line version and the history of rectified-away versions. */
 export async function listOrders(client: SupabaseClient, estados: OrderEstado[]): Promise<OrderRow[]> {
   const rows = await readTable<RawOrder>(client, 'pedidos',
-    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), entrego:perfiles!pedidos_delivered_by_fkey(email), pedido_lineas(*, perfiles(email))');
+    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), entrego:perfiles!pedidos_delivered_by_fkey(nombre, apellido), pedido_lineas(*, perfiles(nombre, apellido))');
   return rows.map(({ clients, entrego, pedido_lineas, ...o }) => ({
     ...o,
     delivered_by: o.delivered_by ?? null,
-    entregado_por_email: o.delivered_by ? entrego?.email ?? null : null,
+    entregado_por_nombre: o.delivered_by ? profileDisplayName(entrego) : null,
     cliente_nombre: clients?.nombre ?? '—',
     lineas: (pedido_lineas ?? []).filter((l) => l.is_current)
       .map(({ perfiles: _autor, ...l }) => ({ ...l, cantidad: num(l.cantidad), precio_unitario: num(l.precio_unitario), subtotal: num(l.subtotal) })),
