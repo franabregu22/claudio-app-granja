@@ -1,9 +1,9 @@
-/** Lote 1 / 1B — Cuentas a cobrar: client detail, collection modal without redundant fields, Mercado Pago receipt search. */
+/** Lote 1 / 1B / 1C — Cuentas corrientes: client detail, collection modal without redundant fields, Mercado Pago receipt search. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
-import { collectionMethodFor } from '../../src/target/commercial';
+import { balanceAfterCollection, balanceState, collectionMethodFor } from '../../src/target/commercial';
 import { listClientCollections } from '../../src/target/customerCollections';
 import { filterMpReceipts, mpReceiptCandidates, type MpReceiptCandidate } from '../../src/target/mpActivity';
 import { listPayerNames } from '../../src/target/pendingClassification';
@@ -115,5 +115,48 @@ describe('Lote 1B — Mercado Pago receipt search', () => {
     const t = SRC('features/cobros/ListaSaldosClientes.tsx');
     expect(t).toMatch(/Quién registró<\/th><th className=\{`\$\{TH\} w-full`\}>Comentario<\/th>/);
     expect(t).not.toMatch(/pl-\[5\.5rem\]/);
+  });
+});
+
+describe('Lote 1C — Cuentas corrientes', () => {
+  it('balance state: debe / al día / a favor', () => {
+    expect(balanceState(150000)).toEqual({ estado: 'DEBE', monto: 150000 });
+    expect(balanceState(0)).toEqual({ estado: 'AL_DIA', monto: 0 });
+    expect(balanceState(-0.001)).toEqual({ estado: 'AL_DIA', monto: 0 });
+    expect(balanceState(-50000)).toEqual({ estado: 'A_FAVOR', monto: 50000 });
+  });
+
+  it('resulting balance: Mandy owes 150.000 and pays 200.000 → 50.000 a favor, confirmation required', () => {
+    expect(balanceAfterCollection(150000, 200000)).toEqual({ resultante: -50000, generaCredito: true });
+    expect(balanceAfterCollection(150000, 150000)).toEqual({ resultante: 0, generaCredito: false });
+    expect(balanceAfterCollection(150000, 100000)).toEqual({ resultante: 50000, generaCredito: false });
+    expect(balanceAfterCollection(0, 1000)).toEqual({ resultante: -1000, generaCredito: true });          // prepayment
+    expect(balanceAfterCollection(-5000, 1000)).toEqual({ resultante: -6000, generaCredito: true });      // increases a credit
+    expect(balanceAfterCollection(-5000, 0)).toEqual({ resultante: -5000, generaCredito: false });        // nothing typed yet
+  });
+
+  it('module renamed; three selectable cards, default Cuentas a cobrar, one list at a time', () => {
+    expect(SRC('App.tsx')).toMatch(/cobros: \{ label: 'Cuentas corrientes'/);
+    const t = SRC('features/cobros/CobrosApp.tsx');
+    expect(t).toMatch(/useState<Variante>\('deudor'\)/);
+    for (const titulo of ['Cuentas a cobrar', 'Clientes al día', 'Clientes con crédito']) expect(t).toMatch(new RegExp(`titulo: '${titulo}'`));
+    expect(t.match(/<ListaSaldosClientes /g)).toHaveLength(1);
+  });
+
+  it('a collection can be registered for every category', () => {
+    const t = SRC('features/cobros/ListaSaldosClientes.tsx');
+    expect(t).toMatch(/\{onRegistrarPago && \(/);
+    expect(t).not.toMatch(/variante === 'deudor' && onRegistrarPago/);
+    expect(SRC('features/cobros/CobrosApp.tsx')).toMatch(/onRegistrarPago: setCliente/);
+  });
+
+  it('modal: current and resulting balance; a credit blocks saving until that exact balance is confirmed; Disponible MP stays apart', () => {
+    const t = SRC('features/cobros/RegistroPagoModal.tsx');
+    expect(t).toMatch(/Saldo actual:/);
+    expect(t).toMatch(/Saldo resultante:/);
+    expect(t).toMatch(/const creditoOk = !generaCredito \|\| creditoConfirmado === resultante;/);
+    expect(t).toMatch(/const puedeGuardar = creditoOk && /);
+    expect(t).toMatch(/Disponible MP: \{formatoPesos\(elegidoMp\.amount\)\}/);
+    expect(t).not.toMatch(/balanceAfterCollection\([^)]*elegidoMp\.amount/);   // the MP available amount is not the client's balance
   });
 });

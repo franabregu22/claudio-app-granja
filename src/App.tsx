@@ -75,7 +75,7 @@ function App() {
     clasificacion: { label: 'Clasificación', icon: Egg },
     alimento: { label: 'Alimento', icon: Wheat },
     pedidos: { label: 'Pedidos', icon: ShoppingCart },
-    cobros: { label: 'Cuentas a Cobrar', icon: DollarSign },
+    cobros: { label: 'Cuentas corrientes', icon: DollarSign },
     caja: { label: 'Caja', icon: Wallet },
     feria: { label: 'Feria', icon: Store },
     fiscal: { label: 'Fiscal', icon: Landmark },

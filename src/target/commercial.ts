@@ -58,6 +58,22 @@ export interface CollectionRow {
   receipt_id: string; effective_date: string; created_at: string;
 }
 export interface ClientBalance { cliente_id: string; cliente_nombre: string; balance: number; period: string }
+
+/** A client-ledger balance as the user reads it: positive = debe, zero = al día, negative = a favor (credit). */
+export type BalanceState = 'DEBE' | 'AL_DIA' | 'A_FAVOR';
+export function balanceState(balance: number): { estado: BalanceState; monto: number } {
+  const b = Math.round(balance * 100) / 100;
+  return { estado: b > 0 ? 'DEBE' : b < 0 ? 'A_FAVOR' : 'AL_DIA', monto: Math.abs(b) };
+}
+
+/**
+ * Preview only (the ledger stays the authority): the balance after a collection of `amount`, and whether it creates or
+ * increases a credit in the client's favour — which the user must confirm before saving.
+ */
+export function balanceAfterCollection(balance: number, amount: number): { resultante: number; generaCredito: boolean } {
+  const resultante = Math.round((balance - (amount > 0 ? amount : 0)) * 100) / 100;
+  return { resultante, generaCredito: amount > 0 && resultante < 0 };
+}
 export interface SalesLineRow {
   business_date: string; period: string; pedido_id: string; numero_pedido: number | null; cliente_id: string; cliente_nombre: string;
   pedido_linea_id: string; producto_id: string; producto_nombre: string; cantidad: number; precio_unitario: number; subtotal: number;

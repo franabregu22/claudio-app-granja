@@ -4,13 +4,13 @@ import type { ClientBalance } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
 import { formatoPesos } from '../pedidos/helpers';
 import { useClientBalances, useClientCollections, useOrders } from '../pedidos/useCommercial';
-import { ListaSaldosClientes } from './ListaSaldosClientes';
+import { ListaSaldosClientes, type Variante } from './ListaSaldosClientes';
 import { RegistroPagoModal } from './RegistroPagoModal';
 
 /**
- * Cuentas a cobrar (F27-C, ADMIN). Balances come only from report_balance_period (client ledger); collections are
+ * Cuentas corrientes (F27-C, ADMIN). Balances come only from report_balance_period (client ledger); collections are
  * registered through register_collection (or the Mercado Pago allocation) and read from fin_customer_collections. The
- * sections split clients by the sign of that balance.
+ * three cards split clients by the sign of that balance (debe / al día / a favor); only the chosen card's list is shown.
  */
 export function CobrosApp() {
   const { rol } = useAuth();
@@ -18,6 +18,7 @@ export function CobrosApp() {
   const cobros = useClientCollections();
   const entregas = useOrders(['DELIVERED']);
   const [cliente, setCliente] = useState<ClientBalance | null>(null);
+  const [vista, setVista] = useState<Variante>('deudor');
 
   if (rol !== 'ADMIN') {
     return (
@@ -37,42 +38,41 @@ export function CobrosApp() {
   const finalizados = todos.filter((c) => c.balance === 0);
   const conCredito = todos.filter((c) => c.balance < 0).sort((a, b) => a.balance - b.balance);
   const totalDeudor = deudores.reduce((s, c) => s + c.balance, 0);
-  const props = { entregas: entregas.data ?? [], cobros: cobros.data ?? [] };
+  const totalCredito = conCredito.reduce((s, c) => s - c.balance, 0);
+  const props = { entregas: entregas.data ?? [], cobros: cobros.data ?? [], onRegistrarPago: setCliente };
+  const tarjetas: { id: Variante; titulo: string; cantidad: number; detalle: string; tono: string }[] = [
+    { id: 'deudor', titulo: 'Cuentas a cobrar', cantidad: deudores.length, detalle: `${formatoPesos(totalDeudor)} a cobrar`, tono: 'text-red-600' },
+    { id: 'finalizado', titulo: 'Clientes al día', cantidad: finalizados.length, detalle: 'Saldo cero', tono: 'text-[#6B7A4E]' },
+    { id: 'credito', titulo: 'Clientes con crédito', cantidad: conCredito.length, detalle: `${formatoPesos(totalCredito)} a favor`, tono: 'text-green-700' },
+  ];
+  const lista = { deudor: deudores, finalizado: finalizados, credito: conCredito }[vista];
 
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
       <div className="w-full max-w-7xl bg-[#FAF6EE] min-h-screen flex flex-col relative">
+        <div className="px-5 pt-6 pb-3 border-b border-[#E4DCC8] bg-white/50">
+          <h2 className="text-lg font-bold text-[#8A5A0B]">Cuentas corrientes</h2>
+        </div>
         {error ? (
           <div className="m-5 bg-[#FCE4E4] border border-[#E4B0B0] text-[#A32D2D] text-sm px-4 py-3 rounded-lg">{errorMessage(error)}</div>
         ) : cargando ? (
           <p className="text-sm text-gray-500 px-5 py-6">Cargando saldos...</p>
         ) : (
           <>
-            <div className="px-5 pt-6 pb-2 border-b border-[#E4DCC8] bg-white/50">
-              <h2 className="text-lg font-bold text-[#8A5A0B]">Cuentas a cobrar</h2>
-              <p className="text-xs text-[#8A6A2E] mt-1">{deudores.length} clientes con saldo · {formatoPesos(totalDeudor)} total</p>
+            <div role="tablist" aria-label="Situación de los clientes" className="grid grid-cols-3 gap-2 px-5 pt-4">
+              {tarjetas.map((t) => {
+                const activa = vista === t.id;
+                return (
+                  <button key={t.id} role="tab" aria-selected={activa} onClick={() => setVista(t.id)}
+                    className={`text-left rounded-lg border p-3 transition ${activa ? 'bg-white border-amber-600 ring-1 ring-amber-600 shadow-sm' : 'bg-white/60 border-[#E4DCC8] hover:border-amber-400'}`}>
+                    <p className="text-xs sm:text-sm font-semibold text-[#6B5D45] leading-tight">{t.titulo}</p>
+                    <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1">{t.cantidad}</p>
+                    <p className={`text-[11px] sm:text-xs ${t.tono} truncate`}>{t.cantidad === 1 ? '1 cliente' : `${t.cantidad} clientes`} · {t.detalle}</p>
+                  </button>
+                );
+              })}
             </div>
-            <ListaSaldosClientes variante="deudor" clientes={deudores} {...props} onRegistrarPago={setCliente} />
-
-            {finalizados.length > 0 && (
-              <div className="border-t-4 border-[#D8CDB0]">
-                <div className="px-5 pt-6 pb-3 border-b border-[#E4DCC8] bg-white/50">
-                  <h2 className="text-lg font-bold text-[#6B7A4E]">Saldos finalizados</h2>
-                  <p className="text-xs text-[#6B7A4E] mt-1">{finalizados.length} clientes</p>
-                </div>
-                <ListaSaldosClientes variante="finalizado" clientes={finalizados} {...props} />
-              </div>
-            )}
-
-            {conCredito.length > 0 && (
-              <div className="border-t-4 border-green-200">
-                <div className="px-5 pt-6 pb-3 border-b border-[#E4DCC8] bg-white/50">
-                  <h2 className="text-lg font-bold text-green-700">Clientes con crédito</h2>
-                  <p className="text-xs text-green-700 mt-1">{conCredito.length} clientes · Crédito disponible para próximas compras</p>
-                </div>
-                <ListaSaldosClientes variante="credito" clientes={conCredito} {...props} />
-              </div>
-            )}
+            <ListaSaldosClientes variante={vista} clientes={lista} {...props} />
           </>
         )}
 

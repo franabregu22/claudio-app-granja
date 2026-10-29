@@ -5,7 +5,7 @@ import type { CustomerCollectionRow } from '../../target/customerCollections';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 
-type Variante = 'deudor' | 'finalizado' | 'credito';
+export type Variante = 'deudor' | 'finalizado' | 'credito';
 /** perfiles holds only e-mail (no first / last name) and pedidos records only who CONFIRMED the delivery (delivered_by), not
  * who delivered it: neither person is shown, never an e-mail in their place. */
 const SIN_DATO = 'No disponible';
@@ -52,7 +52,7 @@ export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRe
                 <span className={`font-semibold ${TONO[variante].nombre}`}>{c.cliente_nombre}</span>
               </div>
               <span className={`font-bold ${TONO[variante].monto}`}>
-                {variante === 'finalizado' ? 'Saldo cero' : `${variante === 'credito' ? 'Crédito ' : ''}${formatoPesos(monto)}`}
+                {variante === 'finalizado' ? 'Al día' : `${variante === 'credito' ? 'A favor ' : ''}${formatoPesos(monto)}`}
               </span>
             </button>
             {abierto && (
@@ -98,7 +98,7 @@ export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRe
                     </div>
                   )}
                 </div>
-                {variante === 'deudor' && onRegistrarPago && (
+                {onRegistrarPago && (
                   <button onClick={() => onRegistrarPago(c)} className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 rounded-lg text-sm">
                     Registrar cobro
                   </button>
