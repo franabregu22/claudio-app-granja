@@ -4,7 +4,7 @@ import { allocationIdOf, type CustomerCollectionRow } from '../../target/custome
 import { errorMessage } from '../../target/messages';
 import { uiIdempotencyKey } from '../../target/mp';
 import { formatearFechaLocal } from '../../utils/dateUtils';
-import { useAnularAsignacionMp } from '../caja/MovimientoMp';
+import { useAnularAsignacionMp } from './useAnularAsignacionMp';
 import { formatoPesos } from '../pedidos/helpers';
 
 /**

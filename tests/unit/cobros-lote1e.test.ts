@@ -16,7 +16,7 @@ const R = (p: Partial<CustomerCollectionRow>): CustomerCollectionRow => ({
   row_id: `C:${ID}`, business_date: '2026-10-10', created_at: '2026-10-10T10:00:00Z', cliente_id: 'c1', client_name: 'Mandy', amount: 100000,
   account_name: 'Caja chica', account_type: 'CASH', payment_method: 'CASH', notes: null, financial_operation_id: 1, source_id: null, origin: 'CASH',
   status: 'CASH', correction_id: null, correction_role: 'SINGLE', counts_for_customer: true, reversal_kind: null, reversal_reason: null,
-  reversal_at: null, replacement_of: null, ...p,
+  reversal_at: null, replacement_of: null, sales_session_id: null, ...p,
 });
 function rpcStub() {
   const calls: { fn: string; args: unknown }[] = [];
@@ -36,6 +36,8 @@ describe('Lote 1E — eligibility', () => {
     expect(canReverseManualCollection(R({ row_id: `A:${ID}`, account_type: 'EXTERNAL_SERVICE' }))).toBe(false);
     expect(canReverseManualCollection(R({ correction_id: 'k1', correction_role: 'COMPONENT', origin: 'CORRECTION' }))).toBe(false);
     expect(canReverseManualCollection(R({ reversal_kind: 'ANNUL', status: 'ANNULLED', counts_for_customer: false }))).toBe(false);
+    // Feria: identified by its session (collections.sales_session_id) — corrected through the Feria closing, never here
+    expect(canReverseManualCollection(R({ sales_session_id: 'eeeeeeee-0108-0000-0000-0000000000f1' }))).toBe(false);
   });
 });
 
@@ -71,7 +73,7 @@ describe('Lote 1E — RPC contract', () => {
   });
   it('server refusals have a readable message', () => {
     for (const code of ['ALREADY_REVERSED', 'BANK_MATCHED', 'COLLECTION_ACCOUNT_NOT_SUPPORTED', 'FERIA_COLLECTION', 'PART_OF_CORRECTION',
-      'NOTHING_TO_RECTIFY', 'DUPLICATE_IDEMPOTENCY_KEY', 'PERIOD_CLOSED']) {
+      'NOTHING_TO_RECTIFY', 'DUPLICATE_IDEMPOTENCY_KEY', 'PERIOD_CLOSED', 'COLLECTION_REVERSED', 'COLLECTION_REVERSAL_NOT_MATCHABLE']) {
       expect(errorMessage({ message: `${code}: x` })).not.toMatch(new RegExp(code));
     }
   });

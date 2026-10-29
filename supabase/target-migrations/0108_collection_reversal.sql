@@ -22,9 +22,16 @@
 -- P&L / fiscal: untouched. pnl_line_item never reads financial_operation / financial_posting / client_ledger / collections
 --   (0045, 0070, 0101); no fiscal document is created. report_balance_period follows the ledgers (net effect).
 -- fin_customer_collections: an annulled / rectified original no longer counts for the customer (status ANNULLED / RECTIFIED);
---   a replacement is a normal collection; four columns are appended (reversal_kind, reversal_reason, reversal_at,
---   replacement_of) — existing columns unchanged.
--- SECURITY DEFINER set +3 (2 RPC + collection_reversal_core, which no API role can execute).
+--   a replacement is a normal collection; five columns are appended (reversal_kind, reversal_reason, reversal_at,
+--   replacement_of, sales_session_id — the Feria session a collection belongs to, 0032 / 0070) — existing columns unchanged.
+-- Bank reconciliation (owner decision 2026-10-29): fin_statement_match_collection_reversal_guard (BEFORE INSERT on
+--   fin_statement_match, separate trigger; 0073 / 0075 / 0077 untouched) refuses a match on an annulled / rectified original's
+--   COLLECTION posting (COLLECTION_REVERSED) and on a reversal's own compensating posting (COLLECTION_REVERSAL_NOT_MATCHABLE);
+--   the replacement collection of a rectification is an ordinary collection and stays matchable. Concurrency: the reversal
+--   locks the original posting FOR UPDATE before writing and fin_match_statement_line locks the same row FOR UPDATE before
+--   inserting, so the two serialise; READ COMMITTED gives the later one a fresh snapshot per statement, so it sees the
+--   other's committed match (BANK_MATCHED) or reversal (COLLECTION_REVERSED).
+-- SECURITY DEFINER set +4 (2 RPC + collection_reversal_core + the match guard, which no API role can execute).
 -- ============================================================================
 
 CREATE TABLE collection_reversal (
@@ -262,6 +269,7 @@ WITH manual AS (
          cc_orig.id AS corrected_by, cc_comp.id AS component_of,
          cr.kind AS reversal_kind, cr.reason AS reversal_reason, cr.created_at AS reversal_at,
          CASE WHEN cr_rep.collection_id IS NOT NULL THEN 'C:' || cr_rep.collection_id::TEXT END AS replacement_of,
+         c.sales_session_id,                                                       -- [0108] Feria
          EXISTS (SELECT 1 FROM financial_posting p JOIN fin_statement_match m ON m.financial_posting_id = p.id AND m.reversed_at IS NULL
                   WHERE p.financial_operation_id = o.id) AS bank_matched
     FROM collections c
@@ -280,7 +288,8 @@ WITH manual AS (
          (SELECT min(r.financial_operation_id) FROM mp_reconciliation r JOIN financial_operation o ON o.id = r.financial_operation_id
            WHERE r.mp_financial_movement_id = al.mp_financial_movement_id AND o.operation_type = 'MP_SETTLEMENT') AS financial_operation_id,
          t.resource_id::TEXT AS source_id, cc.id AS component_of,
-         NULL::VARCHAR AS reversal_kind, NULL::TEXT AS reversal_reason, NULL::TIMESTAMPTZ AS reversal_at, NULL::TEXT AS replacement_of
+         NULL::VARCHAR AS reversal_kind, NULL::TEXT AS reversal_reason, NULL::TIMESTAMPTZ AS reversal_at, NULL::TEXT AS replacement_of,
+         NULL::UUID AS sales_session_id
     FROM mp_client_allocation al
     JOIN clients cl ON cl.id = al.cliente_id
     JOIN mp_transition_identity t ON t.mp_financial_movement_id = al.mp_financial_movement_id
@@ -304,7 +313,7 @@ SELECT row_id, business_date, created_at, cliente_id, client_name, amount, accou
        coalesce(corrected_by, component_of) AS correction_id,
        CASE WHEN corrected_by IS NOT NULL THEN 'CORRECTED_ORIGINAL' WHEN component_of IS NOT NULL THEN 'COMPONENT' ELSE 'SINGLE' END AS correction_role,
        corrected_by IS NULL AND reversal_kind IS NULL AS counts_for_customer,
-       reversal_kind::TEXT AS reversal_kind, reversal_reason, reversal_at, replacement_of
+       reversal_kind::TEXT AS reversal_kind, reversal_reason, reversal_at, replacement_of, sales_session_id
   FROM manual
 UNION ALL
 SELECT row_id, business_date, created_at, cliente_id, client_name, amount, account_name, account_type, payment_method, notes,
@@ -314,10 +323,40 @@ SELECT row_id, business_date, created_at, cliente_id, client_name, amount, accou
        component_of AS correction_id,
        CASE WHEN component_of IS NOT NULL THEN 'COMPONENT' ELSE 'SINGLE' END AS correction_role,
        true AS counts_for_customer,
-       reversal_kind::TEXT AS reversal_kind, reversal_reason, reversal_at, replacement_of
+       reversal_kind::TEXT AS reversal_kind, reversal_reason, reversal_at, replacement_of, sales_session_id
   FROM mp
 ) u
 WHERE (SELECT current_app_role()) = 'ADMIN';
 ALTER VIEW fin_customer_collections OWNER TO postgres;
 REVOKE ALL    ON fin_customer_collections FROM PUBLIC, anon, authenticated, service_role;
 GRANT  SELECT ON fin_customer_collections TO authenticated;
+
+-- ── Bank reconciliation: an annulled / rectified collection is not matched afterwards ──────────────────────
+CREATE OR REPLACE FUNCTION fin_statement_match_collection_reversal_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_op financial_operation%ROWTYPE;
+BEGIN
+  SELECT * INTO v_op FROM financial_operation WHERE id = NEW.financial_operation_id;
+  IF NOT FOUND THEN
+    RETURN NEW;   -- the foreign key reports it
+  END IF;
+  IF v_op.operation_type = 'COLLECTION' AND v_op.source_entity_type = 'collections'
+     AND EXISTS (SELECT 1 FROM collection_reversal WHERE collection_id::TEXT = v_op.source_entity_id) THEN
+    RAISE EXCEPTION 'COLLECTION_REVERSED: collection % was annulled or rectified; it cannot be reconciled', v_op.source_entity_id;
+  END IF;
+  IF v_op.operation_type = 'ADJUSTMENT' AND v_op.external_ref LIKE 'COLLECTION-REVERSAL:%' THEN
+    RAISE EXCEPTION 'COLLECTION_REVERSAL_NOT_MATCHABLE: the compensating entry of an annulled / rectified collection is not a bank movement';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+ALTER FUNCTION fin_statement_match_collection_reversal_guard() OWNER TO postgres;
+REVOKE ALL ON FUNCTION fin_statement_match_collection_reversal_guard() FROM PUBLIC, anon, authenticated, service_role;
+CREATE TRIGGER trg_fin_statement_match_collection_reversal
+  BEFORE INSERT ON fin_statement_match
+  FOR EACH ROW EXECUTE FUNCTION fin_statement_match_collection_reversal_guard();

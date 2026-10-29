@@ -209,7 +209,7 @@ describe('Lote 1D — Anular asignaciones Mercado Pago', () => {
     expect(t).toMatch(/const \[clave\] = useState\(\(\) => uiIdempotencyKey\(\)\)/);
     expect(t).toMatch(/motivo\.trim\(\) !== '' && confirmado && !anular\.isPending && !anular\.isSuccess/);
     expect(t).not.toMatch(/mp_allocate_to_client|registerCollection|allocateToClient/);   // no "Rectificar" yet
-    const m = SRC('features/caja/MovimientoMp.tsx');
+    const m = SRC('features/cobros/useAnularAsignacionMp.ts');
     expect(m).toMatch(/reverseAllocation\(supabase, p\)/);
     expect(m).toMatch(/\['mp'\], \['commercial'\], \['treasury'\], \['customer-collections'\]/);   // balance + Disponible MP refresh
   });

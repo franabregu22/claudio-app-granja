@@ -231,6 +231,8 @@ const MESSAGES: Record<string, string> = {
   COLLECTION_POSTING_NOT_FOUND: 'No se encontró el movimiento financiero del cobro.',
   BANK_MATCHED: 'Ese cobro está conciliado con el extracto bancario. Deshacé la conciliación antes de anularlo o rectificarlo.',
   NOTHING_TO_RECTIFY: 'La rectificación es igual al cobro original: no hay nada que corregir.',
+  COLLECTION_REVERSED: 'Ese cobro fue anulado o rectificado: no se puede conciliar. Conciliá el cobro correcto.',
+  COLLECTION_REVERSAL_NOT_MATCHABLE: 'Ese asiento es la anulación de un cobro: no es un movimiento bancario y no se concilia.',
   NOT_A_MANUAL_MP_COLLECTION: 'Ese cobro no es un cobro manual en Mercado Pago.',
   PAYMENT_NOT_FOUND: 'No se encontró ese pago de Mercado Pago.',
   PAYMENT_NOT_APPLIED: 'Ese pago de Mercado Pago todavía no está acreditado en tesorería.',

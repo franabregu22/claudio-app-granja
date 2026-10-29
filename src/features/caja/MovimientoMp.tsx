@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import type { FinancialAccountRow } from '../../target/masters';
-import { allocateToClient, listReceipts, reverseAllocation } from '../../target/mp';
+import { allocateToClient, listReceipts } from '../../target/mp';
 import { isMercadoPagoAccount, MP_ROUTE_BLOCKED_MESSAGE, MP_SOURCE_MISSING_MESSAGE, type MpCandidate } from '../../target/mpActivity';
 import { getTodayDate } from '../../utils/dateUtils';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
@@ -38,15 +38,6 @@ export function useAsignarCobroMp() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (p: Parameters<typeof allocateToClient>[1]) => allocateToClient(supabase, p),
-    onSuccess: () => Promise.all([['mp'], ['commercial'], ['treasury'], ['customer-collections']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
-  });
-}
-
-/** Lote 1D "Anular cobro": mp_reverse_client_allocation only (the MP money stays; the receipt's available amount comes back). */
-export function useAnularAsignacionMp() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (p: Parameters<typeof reverseAllocation>[1]) => reverseAllocation(supabase, p),
     onSuccess: () => Promise.all([['mp'], ['commercial'], ['treasury'], ['customer-collections']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
   });
 }

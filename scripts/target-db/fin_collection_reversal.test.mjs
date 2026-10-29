@@ -11,11 +11,15 @@
  * executed first INSIDE that transaction (so it is rolled back too). Each call runs in its own subtransaction and is checked
  * as at its own COMMIT (SET CONSTRAINTS ALL IMMEDIATE): a refused call leaves nothing behind.
  *
+ * Part 2 (concurrency reconciliation ↔ annulment) commits synthetic evidence, so it runs only on a DISPOSABLE local project
+ * (FIN_E2E_PROJECT = its project_id; never Claudio_app_Granja) and is skipped otherwise.
+ *
  * Usage:
- *   TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+ *   TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" [FIN_E2E_PROJECT=<disposable id>] \
  *     node scripts/target-db/fin_collection_reversal.test.mjs
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { assertSafeDestructiveTarget } from '../test-env/guard.mjs';
@@ -122,15 +126,14 @@ const D = '2026-10-10';
 expect('fixture C1 cash 100.000', ADM(collect(CA, 100000, CAJA, D, 'T0108-C1'), 'c1'), 'OK:%');
 expect('fixture C2 bank 50.000', ADM(collect(CA, 50000, BNA, D, 'T0108-C2', 'TRANSFER'), 'c2'), 'OK:%');
 expect('fixture C3 cash 30.000', ADM(collect(CA, 30000, CAJA, D, 'T0108-C3'), 'c3'), 'OK:%');
-expect('fixture C4 bank 20.000 (to be matched)', ADM(collect(CA, 20000, BNA, D, 'T0108-C4', 'TRANSFER'), 'c4'), 'OK:%');
 expect('fixture C5 cash 10.000 on 2026-09-05 (period closed afterwards)', ADM(collect(CA, 10000, CAJA, '2026-09-05', 'T0108-C5'), 'c5'), 'OK:%');
-// a legacy manual collection on the Mercado Pago account and a bank-statement match: test-only rows, triggers off for the insert
+// legacy-shaped rows no current route can create in this test: a manual collection on the Mercado Pago account and a Feria
+// collection (sales_session_id, 0032 / 0070). Test-only, triggers off for the insert.
 add(`SET LOCAL session_replication_role = replica;
 INSERT INTO collections (id, cliente_id, amount, payment_method, receipt_id, effective_date, financial_account_id, created_by)
 VALUES ('dddddddd-0108-0000-0000-0000000000e1', '${CA}', 5000, 'MERCADOPAGO', 'T0108-MP', '${D}', ${MPACC}, '${ADMIN}');
-INSERT INTO fin_statement_match (statement_line_id, financial_operation_id, financial_posting_id, matched_by)
-SELECT 999999999, o.id, p.id, '${ADMIN}' FROM financial_operation o JOIN financial_posting p ON p.financial_operation_id = o.id
- WHERE o.operation_type = 'COLLECTION' AND o.source_entity_id = ${COL('c4')};
+INSERT INTO collections (id, cliente_id, amount, payment_method, receipt_id, effective_date, financial_account_id, sales_session_id, created_by)
+VALUES ('dddddddd-0108-0000-0000-0000000000f1', '${CA}', 7000, 'CASH', 'FERIA:T0108:CASH', '${D}', ${CAJA}, 'eeeeeeee-0108-0000-0000-0000000000f1', '${ADMIN}');
 SET LOCAL session_replication_role = origin;
 CREATE TEMP TABLE b0 AS SELECT ${CLB(CA)} AS ca, ${CLB(CB)} AS cb, ${ACB(CAJA)} AS caja, ${ACB(BNA)} AS bna, ${PNL} AS pnl;`);
 
@@ -184,7 +187,8 @@ expect('invalid amount refused', ADM(rectify(COL('c3'), CA, 0, CAJA, D, 'x', 'k-
 expect('atomicity: refused rectifications left NOTHING (no reversal persisted)', delta('s4'), 'none');
 expect('atomicity: C3 still counts for the client', `${VIEW(COL('c3'), "status || ' ' || counts_for_customer")}`, 'CASH true');
 expect('Mercado Pago collection refused', ADM(reverse(`'dddddddd-0108-0000-0000-0000000000e1'`, 'x', 'k-mp')), 'ERR:COLLECTION_ACCOUNT_NOT_SUPPORTED%');
-expect('bank-matched collection refused', ADM(reverse(COL('c4'), 'x', 'k-matched')), 'ERR:BANK_MATCHED%');
+expect('Feria collection refused', ADM(reverse(`'dddddddd-0108-0000-0000-0000000000f1'`, 'x', 'k-feria')), 'ERR:FERIA_COLLECTION%');
+expect('Feria collection: the view exposes its session (UI hides the actions)', `(SELECT sales_session_id FROM fin_customer_collections WHERE row_id = 'C:dddddddd-0108-0000-0000-0000000000f1')`, 'eeeeeeee-0108-0000-0000-0000000000f1');
 // test fixture: close September directly (the close guard's Mercado Pago checks belong to other tests)
 add(`SET LOCAL session_replication_role = replica;
 UPDATE management_period SET status = 'CLOSED', closed_at = now(), closed_by = '${ADMIN}' WHERE periodo_fecha = '2026-09-01';
@@ -193,6 +197,44 @@ expect('closed period of the original refused', ADM(reverse(COL('c5'), 'x', 'k-c
 expect('rectification INTO a closed period refused (atomic)', ADM(rectify(COL('c3'), CA, 30000, CAJA, '2026-09-20', 'x', 'k-rect-closed')), 'ERR:PERIOD_CLOSED%');
 expect('closed-period refusals wrote nothing', delta('s4'), 'none');
 
+// ── bank reconciliation (real statement, real cut, real fin_match_statement_line) ──────────────────────────
+// a dedicated bank account with the BNA format: anchor 10.00 then +60.000 / +70.000 / −70.000 / +40.000 / +45.000
+const ACCT = `(SELECT id FROM financial_account WHERE nombre = 'T0108 BANCO')`;
+const SHA = 'a0108'.padEnd(64, '0');
+const eco = (n, date, desc, amt, bal) => ({ row_number: n + 1, kind: 'ECONOMIC', statement_position: n, value_date: date, description_raw: desc,
+  bank_reference: String(n), signed_amount: amt, running_balance: bal, raw_row: { text: `${date} ${desc} ${amt} ${bal}` }, appearance_meta: { page: 1, physical_row: n } });
+const ROWS = [{ row_number: 1, kind: 'CONTROL', control_type: 'SALDO_ANTERIOR', balance: '1000.00', raw_row: { text: 'SALDO_ANTERIOR' } },
+  eco(1, '2026-10-01', 'ANCLA', '10.00', '1010.00'), eco(2, '2026-10-12', 'TRF C6', '60000.00', '61010.00'),
+  eco(3, '2026-10-12', 'TRF C7', '70000.00', '131010.00'), eco(4, '2026-10-13', 'DEB X', '-70000.00', '61010.00'),
+  eco(5, '2026-10-14', 'TRF C8', '40000.00', '101010.00'), eco(6, '2026-10-14', 'TRF R8', '45000.00', '146010.00'),
+  { row_number: 8, kind: 'CONTROL', control_type: 'SALDO_FINAL', balance: '146010.00', raw_row: { text: 'SALDO_FINAL' } }];
+const LINE = (n) => `(SELECT statement_line_id FROM fin_import_run_line WHERE run_id::text = ${RES('imp', 'run_id')} AND statement_position = ${n})`;
+const POST = (colExpr) => `(SELECT p.id FROM financial_operation o JOIN financial_posting p ON p.financial_operation_id = o.id WHERE o.operation_type = 'COLLECTION' AND o.source_entity_id = ${colExpr})`;
+const REVPOST = (colExpr) => `(SELECT p.id FROM financial_operation o JOIN financial_posting p ON p.financial_operation_id = o.id WHERE o.external_ref = 'COLLECTION-REVERSAL:' || ${colExpr})`;
+const match = (line, post) => `SELECT fin_match_statement_line(${P(line)}::bigint, ${P(post)}::bigint, 'test 0108')::text`;
+add(`INSERT INTO financial_account (nombre, account_type) VALUES ('T0108 BANCO', 'BANK_ACCOUNT');
+INSERT INTO fin_statement_account_config (financial_account_id, format_code, expected_account_number, expected_cbu)
+SELECT id, 'BNA_MONTHLY_PDF_V1', '0000000108', '0000000000000000000108' FROM financial_account WHERE nombre = 'T0108 BANCO';`);
+expect('bank fixture: statement imported', as('service_role', null, `SELECT fin_import_bank_statement(${lit(ADMIN)}::uuid, ${P(ACCT)}::uuid, 'bna-0108', 'BNA_MONTHLY_PDF_V1', ${lit(SHA)}, 'bank/t0108.pdf', 't0108.pdf', 1024, '2026-09-30'::date, '2026-10-31'::date, ${lit(JSON.stringify({ opening_balance: '1000.00', closing_balance: '146010.00', period: 'SYNTHETIC' }))}::jsonb, NULL::uuid, NULL, ${lit(JSON.stringify(ROWS))}::jsonb)::text`, 'imp'), 'OK:%"status": "PARSED"%');
+expect('bank fixture: cut on the anchor', ADM(`SELECT fin_resolve_statement_cutover(${P(ACCT)}::uuid, ${P(LINE(1))}::bigint, 1010.00, 'evidence', NULL)::text`), 'OK:%cutover_id%');
+expect('bank fixture C6 60.000', ADM(collect(CA, 60000, ACCT, D, 'T0108-C6', 'TRANSFER'), 'c6'), 'OK:%');
+expect('bank fixture C7 70.000', ADM(collect(CA, 70000, ACCT, D, 'T0108-C7', 'TRANSFER'), 'c7'), 'OK:%');
+expect('bank fixture C8 40.000', ADM(collect(CA, 40000, ACCT, D, 'T0108-C8', 'TRANSFER'), 'c8'), 'OK:%');
+expect('valid collection C6 still reconciles', ADM(match(LINE(2), POST(COL('c6'))), 'm6'), 'OK:%"replayed": false%');
+expect('a reconciled collection cannot be annulled', ADM(reverse(COL('c6'), 'x', 'k-c6-matched')), 'ERR:BANK_MATCHED%');
+expect('nor rectified', ADM(rectify(COL('c6'), CA, 59000, ACCT, D, 'x', 'k-c6-rect')), 'ERR:BANK_MATCHED%');
+expect('after undoing the match (existing route), it can be annulled', ADM(`SELECT fin_reverse_statement_match(${P(RES('m6', 'match_id'))}::bigint, 'reconciliado por error')::text`), 'OK:%');
+expect('… annul C6', ADM(reverse(COL('c6'), 'cobro inexistente', 'k-c6-annul')), 'OK:%"replayed": false%');
+expect('annulled C6 cannot be reconciled again', ADM(match(LINE(2), POST(COL('c6')))), 'ERR:COLLECTION_REVERSED%');
+expect('annul C7 (unmatched)', ADM(reverse(COL('c7'), 'duplicado', 'k-c7-annul')), 'OK:%');
+expect('annulled C7 cannot be reconciled afterwards', ADM(match(LINE(3), POST(COL('c7')))), 'ERR:COLLECTION_REVERSED%');
+expect('the compensating entry of C7 cannot be reconciled', ADM(match(LINE(4), REVPOST(COL('c7')))), 'ERR:COLLECTION_REVERSAL_NOT_MATCHABLE%');
+expect('rectify C8 40.000 → 45.000 same account', ADM(rectify(COL('c8'), CA, 45000, ACCT, D, 'importe mal cargado', 'k-c8-rect'), 'r8'), 'OK:%"replayed": false%');
+expect('rectified original C8 cannot be reconciled', ADM(match(LINE(5), POST(COL('c8')))), 'ERR:COLLECTION_REVERSED%');
+expect('the replacement of C8 reconciles normally', ADM(match(LINE(6), POST(RES('r8', 'replacement_collection_id')))), 'OK:%"replayed": false%');
+expect('view: replacement CONCILIATED, original RECTIFIED', `(SELECT string_agg(status, ',' ORDER BY status) FROM fin_customer_collections WHERE row_id IN ('C:' || ${COL('c8')}, 'C:' || ${RES('r8', 'replacement_collection_id')}))`, 'CONCILIATED,RECTIFIED');
+expect('guard runs as its owner, not executable by API roles', `(SELECT prosecdef::text || ':' || has_function_privilege('authenticated', oid, 'EXECUTE')::text FROM pg_proc WHERE proname = 'fin_statement_match_collection_reversal_guard')`, 'true:false');
+
 // ── P&L, fiscal, immutability ───────────────────────────────────────────────
 expect('P&L unchanged by annulments and rectifications', `${PNL} = (SELECT pnl FROM b0)`, 'true');
 expect('fiscal tables untouched', `(SELECT count(*) FROM (${counts()}) c JOIN s1 b ON b.t = c.t WHERE c.t LIKE 'fiscal%' AND c.n <> b.n)`, '0');
@@ -200,22 +242,100 @@ expect('collection_reversal is immutable', `pg_temp.run_as('postgres', NULL, 'UP
 
 add('ROLLBACK;');
 
-// ── run ─────────────────────────────────────────────────────────────────────
+// ── run part 1 (rolled back) on the container behind the guarded local URL ───
 const target = assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
-const container = (dockerRun(['ps', '--filter', 'name=supabase_db', '--format', '{{.Names}}']).stdout || '').trim().split('\n').filter(Boolean)[0];
-if (!container) { console.error('  no running supabase_db container. Run `supabase start`.'); process.exit(1); }
-const mapping = (dockerRun(['port', container, '5432/tcp']).stdout || '').trim();
-if (!mapping.includes(`:${target.port}`)) { console.error(`  container mapping ${mapping} does not match guarded port ${target.port}`); process.exit(1); }
+const containers = (dockerRun(['ps', '--filter', 'name=supabase_db', '--format', '{{.Names}}']).stdout || '').trim().split('\n').filter(Boolean);
+const container = containers.find((c) => (dockerRun(['port', c, '5432/tcp']).stdout || '').includes(`:${target.port}`));
+if (!container) { console.error(`  no running supabase_db container mapped to the guarded port ${target.port}. Run \`supabase start\`.`); process.exit(1); }
 console.log(`  container: ${container}`);
 const cp = dockerRun(['exec', '-i', container, 'sh', '-c', 'cat > /tmp/0108_collection_reversal.sql'], readFileSync(MIGRATION, 'utf8'));
 if (cp.status !== 0) { console.error('  could not copy the migration into the container'); process.exit(1); }
 const r = dockerRun(['exec', '-i', container, 'psql', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1', '-f', '-'], sql.join('\n'));
 const lines = `${r.stdout}\n${r.stderr}`.split('\n').map((l) => l.replace(/^.*NOTICE:\s*/, '')).filter((l) => /^(PASS|FAIL) /.test(l));
 for (const l of lines) console.log(`    ${l.startsWith('PASS') ? 'OK ' : 'MAL'}  ${l.slice(5)}`);
-const fails = lines.filter((l) => l.startsWith('FAIL')).length;
+let pass = lines.filter((l) => l.startsWith('PASS')).length;
+let fail = lines.length - pass;
 if (r.status !== 0) {
   console.log(`    MAL  psql aborted: ${(`${r.stdout}\n${r.stderr}`.split('\n').find((l) => /ERROR/.test(l)) || '').slice(0, 300)}`);
   process.exit(1);
 }
-console.log(`  ${lines.length - fails}/${lines.length} PASS`);
-process.exit(fails === 0 && lines.length > 0 ? 0 : 1);
+const ok = (name, good, detail = '') => { if (good) pass += 1; else fail += 1; console.log(`    ${good ? 'OK ' : 'MAL'}  ${name}${good || !detail ? '' : ` :: ${detail}`}`); };
+
+// ── part 2: concurrency reconciliation ↔ annulment (DISPOSABLE project only; commits synthetic evidence) ──
+// FIN_E2E_PROJECT names a disposable local Supabase project (never Claudio_app_Granja); its db container is reached with
+// `docker exec` only (no URL, nothing leaves this machine).
+const PROJECT = process.env.FIN_E2E_PROJECT ?? '';
+const e2e = `supabase_db_${PROJECT}`;
+if (!PROJECT || PROJECT === 'Claudio_app_Granja' || !containers.includes(e2e) || e2e === container) {
+  console.log(`    --   concurrency part skipped (set FIN_E2E_PROJECT to a running disposable project id)`);
+} else {
+  console.log(`  concurrency container: ${e2e}`);
+  const psqlArgs = ['exec', '-i', e2e, 'psql', '-U', 'postgres', '-d', 'postgres', '-tAq'];
+  const one = (q) => {
+    const x = dockerRun([...psqlArgs, '-v', 'ON_ERROR_STOP=1'], q);
+    if (x.status !== 0) throw new Error(x.stderr);
+    return x.stdout.trim().split('\n').filter(Boolean).pop() ?? '';
+  };
+  const tag = randomUUID().slice(0, 8);
+  const uid = randomUUID();
+  const cli = randomUUID();
+  one(`INSERT INTO perfiles (id, email, rol_type) VALUES ('${uid}', 'lote1e-0108-conc-${tag}@test.local', 'ADMIN');
+       INSERT INTO clients (id, nombre) VALUES ('${cli}', 'Cliente 0108 conc ${tag}');`);
+  const acc = one(`WITH a AS (INSERT INTO financial_account (nombre, account_type) VALUES ('T0108 CONC ${tag}', 'BANK_ACCOUNT') RETURNING id)
+    INSERT INTO fin_statement_account_config (financial_account_id, format_code, expected_account_number, expected_cbu)
+    SELECT id, 'BNA_MONTHLY_PDF_V1', '0000000109', '0000000000000000000109' FROM a RETURNING financial_account_id`);
+  const rows = [{ row_number: 1, kind: 'CONTROL', control_type: 'SALDO_ANTERIOR', balance: '1000.00', raw_row: { text: 'SALDO_ANTERIOR' } },
+    eco(1, '2026-10-01', 'ANCLA', '10.00', '1010.00'), eco(2, '2026-10-12', 'TRF X1', '11111.11', '12121.11'),
+    eco(3, '2026-10-12', 'TRF X2', '22222.22', '34343.33'),
+    { row_number: 5, kind: 'CONTROL', control_type: 'SALDO_FINAL', balance: '34343.33', raw_row: { text: 'SALDO_FINAL' } }];
+  const run = one(`BEGIN; SET LOCAL ROLE service_role; SELECT set_config('request.jwt.claims', '{"role":"service_role"}', true) \\g /dev/null
+    SELECT fin_import_bank_statement('${uid}'::uuid, '${acc}'::uuid, 'bna-0108', 'BNA_MONTHLY_PDF_V1', '${createHash('sha256').update(`CONC-${tag}`).digest('hex')}',
+      'bank/conc.pdf', 'conc.pdf', 1024, '2026-09-30', '2026-10-31', ${lit(JSON.stringify({ opening_balance: '1000.00', closing_balance: '34343.33', period: 'SYNTHETIC' }))}::jsonb,
+      NULL, NULL, ${lit(JSON.stringify(rows))}::jsonb)->>'run_id'; COMMIT;`);
+  const L = (n) => one(`SELECT statement_line_id FROM fin_import_run_line WHERE run_id = '${run}' AND statement_position = ${n}`);
+  const asAdmin = (call) => `SET LOCAL ROLE authenticated; SELECT set_config('request.jwt.claims', '{"sub":"${uid}","role":"authenticated"}', true) \\g /dev/null
+    SELECT (${call})::text;`;
+  one(`BEGIN; ${asAdmin(`fin_resolve_statement_cutover('${acc}'::uuid, ${L(1)}, 1010.00, 'ev', NULL)`)} COMMIT;`);
+  const col = (amt, receipt) => JSON.parse(one(`BEGIN; ${asAdmin(`register_collection('${cli}'::uuid, ${amt}, 'TRANSFER', '${receipt}-${tag}', '2026-10-12'::date, '${acc}'::uuid, NULL, 'conc')`)} COMMIT;`)).collection_id;
+  const x1 = col(11111.11, 'CONC-X1');
+  const x2 = col(22222.22, 'CONC-X2');
+  const post = (c) => one(`SELECT p.id FROM financial_operation o JOIN financial_posting p ON p.financial_operation_id = o.id WHERE o.operation_type = 'COLLECTION' AND o.source_entity_id = '${c}'`);
+  const reverseSql = (c, k) => `reverse_collection('${c}'::uuid, 'conc', '${k}-${tag}')`;
+  const matchSql = (l, p) => `fin_match_statement_line(${l}, ${p}, 'conc')`;
+
+  /** Session A holds its transaction for `holdMs` after its call; session B starts `delayMs` later. */
+  const session = (body) => new Promise((done) => {
+    const p = spawn(DOCKER, [...psqlArgs], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let o = '';
+    p.stdout.on('data', (d) => { o += d; });
+    p.stderr.on('data', (d) => { o += d; });
+    p.on('close', () => done(o));
+    p.stdin.end(body);
+  });
+  const race = async (a, b, holdMs = 2500, delayMs = 600) => {
+    const pa = session(`BEGIN; ${asAdmin(a)} SELECT pg_sleep(${holdMs / 1000}); COMMIT;`);
+    await new Promise((x) => setTimeout(x, delayMs));
+    const tb = Date.now();
+    const ob = await session(`BEGIN; ${asAdmin(b)} COMMIT;`);
+    return { a: await pa, b: ob, waited: Date.now() - tb };
+  };
+
+  // R1: the annulment commits first; a concurrent match of the same posting waits on its row lock, then is refused
+  const r1 = await race(reverseSql(x1, 'R1'), matchSql(L(2), post(x1)));
+  ok('R1 annulment committed', /"replayed": false/.test(r1.a), r1.a.slice(0, 200));
+  ok('R1 concurrent match waited for the annulment (same posting lock)', r1.waited >= 1200, `waited ${r1.waited} ms`);
+  ok('R1 the waiting match sees the annulment → COLLECTION_REVERSED', /COLLECTION_REVERSED/.test(r1.b), r1.b.slice(0, 200));
+
+  // R2: the match commits first; a concurrent annulment waits on the posting lock, then sees the match and is refused
+  const r2 = await race(matchSql(L(3), post(x2)), reverseSql(x2, 'R2'));
+  ok('R2 match committed', /"replayed": false/.test(r2.a), r2.a.slice(0, 200));
+  ok('R2 concurrent annulment waited for the match (same posting lock)', r2.waited >= 1200, `waited ${r2.waited} ms`);
+  ok('R2 the waiting annulment sees the match → BANK_MATCHED', /BANK_MATCHED/.test(r2.b), r2.b.slice(0, 200));
+
+  ok('R* invariant: no active match on a reversed collection, no reversal of a matched one',
+    one(`SELECT count(*) FROM fin_statement_match m JOIN financial_operation o ON o.id = m.financial_operation_id
+          JOIN collection_reversal r ON r.collection_id::text = o.source_entity_id WHERE m.reversed_at IS NULL AND o.source_entity_type = 'collections'`) === '0');
+}
+
+console.log(`  ${pass}/${pass + fail} PASS`);
+process.exit(fail === 0 && pass > 0 ? 0 : 1);

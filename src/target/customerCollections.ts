@@ -19,9 +19,11 @@ export interface CustomerCollectionRow {
   correction_role: CorrectionRole; counts_for_customer: boolean;
   /** 0108: an annulled / rectified manual collection (kind, reason, when) and, on a replacement, the original's row_id */
   reversal_kind: 'ANNUL' | 'RECTIFY' | null; reversal_reason: string | null; reversal_at: string | null; replacement_of: string | null;
+  /** 0108: the Feria session of a Feria collection (collections.sales_session_id, 0032 / 0070); null otherwise */
+  sales_session_id: string | null;
 }
 const COLUMNS = 'row_id, business_date, created_at, cliente_id, client_name, amount, account_name, account_type, payment_method, notes, '
-  + 'financial_operation_id, source_id, origin, status, correction_id, correction_role, counts_for_customer, reversal_kind, reversal_reason, reversal_at, replacement_of';
+  + 'financial_operation_id, source_id, origin, status, correction_id, correction_role, counts_for_customer, reversal_kind, reversal_reason, reversal_at, replacement_of, sales_session_id';
 
 export const COLLECTION_STATUS_LABEL: Record<CustomerCollectionStatus, string> = {
   CORRECTED: 'Corregido', MANUAL_WITHOUT_SOURCE: 'Manual sin movimiento de Mercado Pago', CONCILIATED: 'Conciliado',
@@ -77,12 +79,12 @@ export function collectionIdOf(row: Pick<CustomerCollectionRow, 'row_id'>): stri
 
 /**
  * "Anular" / "Rectificar" (Lote 1E, 0108) are offered for a manual cash or bank collection that still counts, is not part
- * of a 0092 correction and is not reconciled with a bank statement. The server re-checks everything (and also refuses a
- * Feria collection or a closed period, which the view does not expose).
+ * of a 0092 correction, is not a Feria collection (corrected through its closing) and is not reconciled with a bank
+ * statement. The server re-checks everything (and also refuses a closed period, which the view does not expose).
  */
 export function canReverseManualCollection(row: CustomerCollectionRow): boolean {
   return collectionIdOf(row) !== null && (row.account_type === 'CASH' || row.account_type === 'BANK_ACCOUNT') && row.counts_for_customer
-    && row.correction_id === null && row.reversal_kind === null && row.status !== 'CONCILIATED';
+    && row.correction_id === null && row.reversal_kind === null && row.sales_session_id === null && row.status !== 'CONCILIATED';
 }
 
 /** One reversal of an allocation: MANUAL_REVERSAL (an ADMIN undid it) or MP_REVERSAL (refund / chargeback in Mercado Pago). */
