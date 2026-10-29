@@ -17,6 +17,12 @@ export type OrderEstado = 'PENDING' | 'DELIVERED' | 'CANCELLED';
 export const COLLECTION_METHODS = ['CASH', 'TRANSFER', 'MERCADOPAGO'] as const;   // CHEQUE → receive_cheque (instruments)
 export type CollectionMethod = (typeof COLLECTION_METHODS)[number];
 
+/** The register_collection method implied by the destination account: cash → CASH, bank → TRANSFER. The Mercado Pago
+ * account (EXTERNAL_SERVICE) has no manual method: its collection is the allocation of a Mercado Pago receipt (0091). */
+export function collectionMethodFor(accountType: string | null | undefined): Exclude<CollectionMethod, 'MERCADOPAGO'> | null {
+  return accountType === 'CASH' ? 'CASH' : accountType === 'BANK_ACCOUNT' ? 'TRANSFER' : null;
+}
+
 export interface OrderLineRow {
   id: string; pedido_id: string; producto_id: string; producto_nombre: string; cantidad: number; precio_unitario: number;
   subtotal: number; version_seq: number; is_current: boolean;

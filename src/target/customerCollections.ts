@@ -36,6 +36,16 @@ export async function listCustomerCollections(client: SupabaseClient, p: { from:
   return rows.map((r) => ({ ...r, amount: Number(r.amount), financial_operation_id: r.financial_operation_id === null ? null : Number(r.financial_operation_id) }));
 }
 
+/**
+ * Cuentas a cobrar detail: every collection that counts for the client's balance (counts_for_customer), manual and Mercado
+ * Pago allocations alike, newest first. A corrected original is left out: its components are what count.
+ */
+export async function listClientCollections(client: SupabaseClient): Promise<CustomerCollectionRow[]> {
+  const rows = await readView<CustomerCollectionRow>(client, 'fin_customer_collections', (q) => q.eq('counts_for_customer', true)
+    .order('business_date', { ascending: false }).order('created_at', { ascending: false }), COLUMNS);
+  return rows.map((r) => ({ ...r, amount: Number(r.amount), financial_operation_id: r.financial_operation_id === null ? null : Number(r.financial_operation_id) }));
+}
+
 /** One logical collection: a single row, or a corrected original with the components that replace it. */
 export interface LogicalCollection {
   key: string; business_date: string; cliente_id: string; client_name: string;

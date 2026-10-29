@@ -2,22 +2,20 @@ import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import type { ClientBalance } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
-import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
-import { useClientBalances, useCollections, useOrders } from '../pedidos/useCommercial';
+import { useClientBalances, useClientCollections, useOrders } from '../pedidos/useCommercial';
 import { ListaSaldosClientes } from './ListaSaldosClientes';
 import { RegistroPagoModal } from './RegistroPagoModal';
 
-const METODO: Record<string, string> = { CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'MercadoPago', CHEQUE: 'Cheque' };
-
 /**
  * Cuentas a cobrar (F27-C, ADMIN). Balances come only from report_balance_period (client ledger); collections are
- * registered only through register_collection. The sections split clients by the sign of that balance.
+ * registered through register_collection (or the Mercado Pago allocation) and read from fin_customer_collections. The
+ * sections split clients by the sign of that balance.
  */
 export function CobrosApp() {
   const { rol } = useAuth();
   const saldos = useClientBalances();
-  const cobros = useCollections();
+  const cobros = useClientCollections();
   const entregas = useOrders(['DELIVERED']);
   const [cliente, setCliente] = useState<ClientBalance | null>(null);
 
@@ -44,21 +42,6 @@ export function CobrosApp() {
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
       <div className="w-full max-w-7xl bg-[#FAF6EE] min-h-screen flex flex-col relative">
-        <div className="px-5 pt-6 pb-4 border-b border-[#E4DCC8] bg-white/50">
-          <h2 className="text-lg font-bold text-[#8A5A0B]">Últimos cobros registrados</h2>
-          {cargando ? <p className="text-xs text-gray-500 mt-2">Cargando...</p> : (cobros.data ?? []).length === 0 ? (
-            <p className="text-xs text-gray-500 mt-2">Sin cobros registrados.</p>
-          ) : (
-            <div className="mt-3 space-y-1 max-h-48 overflow-y-auto">
-              {(cobros.data ?? []).slice(0, 5).map((c) => (
-                <div key={c.id} className="text-xs text-gray-700 py-1">
-                  <span className="font-semibold text-green-700">{formatoPesos(c.amount)}</span> · {c.cliente_nombre} · {METODO[c.payment_method] ?? c.payment_method} · {formatearFechaLocal(c.effective_date)}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         {error ? (
           <div className="m-5 bg-[#FCE4E4] border border-[#E4B0B0] text-[#A32D2D] text-sm px-4 py-3 rounded-lg">{errorMessage(error)}</div>
         ) : cargando ? (

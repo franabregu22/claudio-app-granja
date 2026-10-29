@@ -1,15 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
-  cancelOrder, createPendingOrder, deliverOrder, listClientBalances, listCollections, listOrders, listSalesLines,
+  cancelOrder, createPendingOrder, deliverOrder, listClientBalances, listOrders, listSalesLines,
   rectifyDeliveredOrder, registerCollection, updatePendingOrder, type LineInput, type OrderEstado,
 } from '../../target/commercial';
+import { listClientCollections } from '../../target/customerCollections';
 import { listCurrentPrices, listMaster, type ClientRow, type FinancialAccountRow, type ProductRow } from '../../target/masters';
 
 const ORDERS = ['commercial', 'orders'];
 const BALANCES = ['commercial', 'balances'];
-const COLLECTIONS = ['commercial', 'collections'];
 const SALES = ['commercial', 'sales'];
+const CUSTOMER_COLLECTIONS = ['customer-collections'];   // also invalidated by the Mercado Pago allocation (MovimientoMp)
 
 export function useOrders(estados: OrderEstado[]) {
   return useQuery({ queryKey: [...ORDERS, ...estados], queryFn: () => listOrders(supabase, estados) });
@@ -54,8 +55,9 @@ export function useClientBalances() {
   return useQuery({ queryKey: BALANCES, queryFn: () => listClientBalances(supabase) });
 }
 
-export function useCollections() {
-  return useQuery({ queryKey: COLLECTIONS, queryFn: () => listCollections(supabase) });
+/** Collections that count for each client's balance (fin_customer_collections); refreshed with every customer-collection change. */
+export function useClientCollections() {
+  return useQuery({ queryKey: [...CUSTOMER_COLLECTIONS, 'balance-detail'], queryFn: () => listClientCollections(supabase) });
 }
 
 export function useFinancialAccounts() {
@@ -70,7 +72,7 @@ export function useRegisterCollection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (p: Parameters<typeof registerCollection>[1]) => registerCollection(supabase, p),
-    onSuccess: () => Promise.all([BALANCES, COLLECTIONS].map((queryKey) => qc.invalidateQueries({ queryKey }))),
+    onSuccess: () => Promise.all([BALANCES, CUSTOMER_COLLECTIONS].map((queryKey) => qc.invalidateQueries({ queryKey }))),
   });
 }
 

@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { COLLECTION_METHODS, type ClientBalance, type CollectionMethod } from '../../target/commercial';
+import { collectionMethodFor, type ClientBalance } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
 import { mpReceiptCandidates } from '../../target/mpActivity';
 import { SelectorMovimientoMp, useAsignarCobroMp, useCobrosMp, useEsCuentaMp } from '../caja/MovimientoMp';
 import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts, useRegisterCollection } from '../pedidos/useCommercial';
-
-const METODO: Record<CollectionMethod, string> = { CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'MercadoPago' };
 
 interface RegistroPagoModalProps {
   cliente: ClientBalance;
@@ -18,7 +16,8 @@ interface RegistroPagoModalProps {
 /**
  * Collection entry (F27-C): register_collection only. The RPC books the client-ledger decrease, the financial
  * operation and the posting on the chosen account; cheques are received through the instruments flow (F27-D).
- * The receipt id is the contract's idempotency key: one per opened form, so a double submit cannot book twice.
+ * The method is not asked: it follows the destination account (caja → CASH, banco → TRANSFER). The receipt id is the
+ * contract's idempotency key, generated once per opened form (never typed), so a double submit cannot book twice.
  * Meta A (0091): with account = Mercado Pago the user picks the Mercado Pago receipt and the collection is its allocation
  * to the client (mp_allocate_to_client): amount, date and SOURCE_ID come from the receipt; no receipt → blocked.
  */
@@ -27,13 +26,12 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
   const cuentas = useFinancialAccounts();
   const registrar = useRegisterCollection();
   const [monto, setMonto] = useState('');
-  const [metodo, setMetodo] = useState<CollectionMethod>('CASH');
   const [fecha, setFecha] = useState(getTodayDate());
   const [cuentaId, setCuentaId] = useState('');
-  const [comprobante, setComprobante] = useState('');
   const [notas, setNotas] = useState('');
   const [claveAuto] = useState(() => `COBRO-${crypto.randomUUID()}`);
   const esMp = useEsCuentaMp(cuentaId);
+  const metodo = collectionMethodFor((cuentas.data ?? []).find((a) => a.id === cuentaId)?.account_type);
   const cobrosMp = useCobrosMp(esMp);
   const asignar = useAsignarCobroMp();
   const candidatosMp = mpReceiptCandidates(cobrosMp.rows);
@@ -43,7 +41,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
   useEffect(() => { dialogRef.current?.showModal(); }, []);
   const cerrar = () => { dialogRef.current?.close(); onClose(); };
   const montoNum = Number(monto);
-  const puedeGuardar = esMp ? Boolean(elegidoMp) && !asignar.isPending : montoNum > 0 && cuentaId !== '' && fecha !== '' && !registrar.isPending;
+  const puedeGuardar = esMp ? Boolean(elegidoMp) && !asignar.isPending : montoNum > 0 && metodo !== null && fecha !== '' && !registrar.isPending;
 
   function guardar(e: React.FormEvent) {
     e.preventDefault();
@@ -54,8 +52,9 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         idempotencyKey: `ui:${claveAuto}`, reason: notas.trim() || 'Cobro de cliente en Mercado Pago' }, { onSuccess: cerrar });
       return;
     }
+    if (!metodo) return;
     registrar.mutate({
-      clienteId: cliente.cliente_id, amount: montoNum, method: metodo, receiptId: comprobante.trim() || claveAuto,
+      clienteId: cliente.cliente_id, amount: montoNum, method: metodo, receiptId: claveAuto,
       effectiveDate: fecha, accountId: cuentaId, reason: notas,
     }, { onSuccess: cerrar });
   }
@@ -74,17 +73,6 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         {!esMp && <label className="block text-sm font-medium text-gray-700">Monto
           <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={`${campo} mt-1`} placeholder="0" />
         </label>}
-        <div>
-          <p className="block text-sm font-medium text-gray-700 mb-2">Método</p>
-          <div className="grid grid-cols-3 gap-2">
-            {COLLECTION_METHODS.map((m) => (
-              <button key={m} type="button" onClick={() => setMetodo(m)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium ${metodo === m ? 'bg-amber-600 text-white' : 'bg-stone-100 text-gray-700 hover:bg-stone-200'}`}>
-                {METODO[m]}
-              </button>
-            ))}
-          </div>
-        </div>
         <label className="block text-sm font-medium text-gray-700">Cuenta donde entra el dinero
           <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={`${campo} mt-1`}>
             <option value="">{cuentas.isLoading ? 'Cargando cuentas…' : 'Elegir cuenta…'}</option>
@@ -94,15 +82,10 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         {esMp && (
           <SelectorMovimientoMp titulo="Cobro en Mercado Pago" candidatos={candidatosMp} cargando={cobrosMp.cargando} value={movimientoMp} onChange={setMovimientoMp} />
         )}
-        {!esMp && <>
-        <label className="block text-sm font-medium text-gray-700">Fecha del cobro
+        {!esMp && <label className="block text-sm font-medium text-gray-700">Fecha del cobro
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`${campo} mt-1`} />
-        </label>
-        <label className="block text-sm font-medium text-gray-700">Nº de comprobante (opcional)
-          <input type="text" value={comprobante} onChange={(e) => setComprobante(e.target.value)} className={`${campo} mt-1`} placeholder="Se genera uno si lo dejás vacío" />
-        </label>
-        </>}
-        <label className="block text-sm font-medium text-gray-700">Notas (opcional)
+        </label>}
+        <label className="block text-sm font-medium text-gray-700">Comentario (opcional)
           <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} className={`${campo} mt-1 resize-none`} />
         </label>
         {(registrar.error || asignar.error || cobrosMp.error || cuentas.error) && (

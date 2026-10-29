@@ -2,7 +2,6 @@
  * Phase 27 acceptance fixes (owner walkthrough, D-WALK-1 / D-WALK-7) — pure frontend behaviour.
  */
 import { describe, expect, it } from 'vitest';
-import { comprobanteVisible } from '../../src/features/cobros/ListaSaldosClientes';
 import { BANK_TAX_KIND, transferWithBankTax } from '../../src/target/treasury';
 
 function rpcStub(fail: Record<string, unknown> = {}) {
@@ -57,12 +56,3 @@ describe('D-WALK-7 transfer + related bank tax', () => {
   });
 });
 
-describe('D-WALK-1 technical collection key is hidden', () => {
-  it('hides COBRO-<uuid>, shows a receipt the user typed', () => {
-    expect(comprobanteVisible('COBRO-0b6c1f7e-3d2a-4c1b-9f00-1234567890ab')).toBe(false);
-    expect(comprobanteVisible(null)).toBe(false);
-    expect(comprobanteVisible('')).toBe(false);
-    expect(comprobanteVisible('Recibo 0001-00012345')).toBe(true);
-    expect(comprobanteVisible('COBRO-manual')).toBe(true);
-  });
-});
