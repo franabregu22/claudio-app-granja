@@ -53,7 +53,8 @@ export function CajaApp() {
 
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
-      <div className="w-full max-w-6xl bg-[#FAF6EE] min-h-screen flex flex-col">
+      {/* min-w-0: the tab bar scrolls inside Caja (overflow-x-auto) instead of setting the page's minimum width */}
+      <div className="w-full max-w-6xl min-w-0 bg-[#FAF6EE] min-h-screen flex flex-col">
         <header className="px-4 md:px-6 pt-6 pb-3 border-b border-[#E4DCC8]">
           <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
           <div className="flex items-start justify-between gap-2">

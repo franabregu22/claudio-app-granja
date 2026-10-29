@@ -104,9 +104,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-stone-100 flex">
-      {/* Sidebar */}
+      {/* Sidebar — shrink-0: its width never yields to a wide screen in the content (e.g. the Caja tab bar) */}
       <div
-        className={`bg-[#2C2419] text-white flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${
+        className={`bg-[#2C2419] text-white flex flex-col shrink-0 transition-all duration-300 ease-in-out overflow-hidden ${
           sidebarOpen ? 'w-64' : 'w-0'
         } ${isMobile ? 'fixed h-full z-40' : 'relative'}`}
       >
@@ -168,8 +168,8 @@ function App() {
         />
       )}
 
-      {/* Main Content */}
-      <div className={`flex-1 min-h-screen flex flex-col ${isMobile && sidebarOpen ? 'z-20 relative pointer-events-none' : ''}`}>
+      {/* Main Content — min-w-0: it takes the remaining width; wide screens handle their own horizontal overflow */}
+      <div className={`flex-1 min-w-0 min-h-screen flex flex-col ${isMobile && sidebarOpen ? 'z-20 relative pointer-events-none' : ''}`}>
         {/* Mobile header with toggle */}
         <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
           <button
