@@ -236,14 +236,48 @@ export function mpOwnInflowCandidates(rows: readonly MpActivityRow[]): MpCandida
     .map((r) => candidate(r.source_id as string, r.business_date, r.gross_amount ?? r.net_amount ?? 0, 'Ingreso'));
 }
 
+/** A client receipt offered to Cuentas a cobrar: `amount` = what is left to assign; `original` = the receipt's amount
+ * (gross, or the effective applied receipt when the gross is not read); `assigned` = active client attributions. */
+export type MpReceiptCandidate = MpCandidate & { movementId: number; original: number; assigned: number };
+
 /**
  * Client collection in Mercado Pago: a receipt already applied in treasury with an unassigned part (report_mp_receipt_status).
  * The amount offered is what is left to assign (effective applied receipt − active attributions); the server re-checks it.
  */
 export function mpReceiptCandidates(rows: readonly { mp_financial_movement_id: number; payment_id: string | null; occurred_date: string;
-  axis_a_state: string; effective_applied_receipt: number; active_attributed: number }[]): (MpCandidate & { movementId: number })[] {
+  axis_a_state: string; effective_applied_receipt: number; active_attributed: number; gross_amount?: number }[]): MpReceiptCandidate[] {
   return rows.filter((r) => r.payment_id && (r.axis_a_state === 'POSTED' || r.axis_a_state === 'REPORT_CONFIRMED')
     && r.effective_applied_receipt - r.active_attributed > 0)
     .map((r) => ({ ...candidate(r.payment_id as string, r.occurred_date, Math.round((r.effective_applied_receipt - r.active_attributed) * 100) / 100, 'Cobro'),
-      movementId: r.mp_financial_movement_id }));
+      movementId: r.mp_financial_movement_id, original: r.gross_amount ?? r.effective_applied_receipt, assigned: r.active_attributed }));
+}
+
+const plano = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * Search over the offered receipts (never filtered by the client: anyone may pay on a client's behalf). Every word must
+ * match the payer name, the date (YYYY-MM-DD or DD/MM/YYYY), the MP reference, or an amount (original or available,
+ * digits only, so "45000", "45.000" and "45.000,00" find $ 45.000,00).
+ */
+export function filterMpReceipts<T extends MpReceiptCandidate>(cands: readonly T[], query: string, payerName: (c: T) => string | null): T[] {
+  const words = plano(query).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...cands];
+  // an amount as digits: whole pesos ("45000") and cents ("4500000"); a typed "45.000,5" becomes "4500050" (cents)
+  const cifras = (n: number) => [String(Math.trunc(n)), String(Math.round(n * 100))];
+  const digitos = (w: string) => {
+    const x = w.replace(/\./g, '');
+    if (/^\d+$/.test(x)) return x;
+    const m = /^(\d+),(\d{1,2})$/.exec(x);
+    return m ? m[1] + m[2].padEnd(2, '0') : null;
+  };
+  return cands.filter((c) => {
+    const [y, m, d] = c.date.split('-');
+    const texto = plano(`${payerName(c) ?? ''} ${c.date} ${d}/${m}/${y} ${c.sourceId}`);
+    const montos = [...cifras(c.original), ...cifras(c.amount)];
+    return words.every((w) => {
+      if (texto.includes(w)) return true;
+      const dg = digitos(w);
+      return dg !== null && montos.some((x) => x.includes(dg));
+    });
+  });
 }

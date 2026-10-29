@@ -3,10 +3,11 @@ import { X } from 'lucide-react';
 import { collectionMethodFor, type ClientBalance } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
 import { mpReceiptCandidates } from '../../target/mpActivity';
-import { SelectorMovimientoMp, useAsignarCobroMp, useCobrosMp, useEsCuentaMp } from '../caja/MovimientoMp';
+import { useAsignarCobroMp, useCobrosMp, useEsCuentaMp } from '../caja/MovimientoMp';
 import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts, useRegisterCollection } from '../pedidos/useCommercial';
+import { BuscadorCobroMp } from './BuscadorCobroMp';
 
 interface RegistroPagoModalProps {
   cliente: ClientBalance;
@@ -19,7 +20,9 @@ interface RegistroPagoModalProps {
  * The method is not asked: it follows the destination account (caja → CASH, banco → TRANSFER). The receipt id is the
  * contract's idempotency key, generated once per opened form (never typed), so a double submit cannot book twice.
  * Meta A (0091): with account = Mercado Pago the user picks the Mercado Pago receipt and the collection is its allocation
- * to the client (mp_allocate_to_client): amount, date and SOURCE_ID come from the receipt; no receipt → blocked.
+ * to the client (mp_allocate_to_client): date and SOURCE_ID come from the receipt; the amount defaults to what is left to
+ * assign and may be lower (a receipt split between clients, or a partial payment) — never higher; the server re-checks
+ * it (ALLOCATION_EXCEEDS_RECEIPT). No new money is booked: the receipt is already in treasury. No receipt → blocked.
  */
 export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -36,19 +39,26 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
   const asignar = useAsignarCobroMp();
   const candidatosMp = mpReceiptCandidates(cobrosMp.rows);
   const [movimientoMp, setMovimientoMp] = useState('');
+  const [montoMp, setMontoMp] = useState('');
   const elegidoMp = candidatosMp.find((c) => c.sourceId === movimientoMp);
+  const elegirMp = (sourceId: string) => {
+    setMovimientoMp(sourceId);
+    setMontoMp(String(candidatosMp.find((c) => c.sourceId === sourceId)?.amount ?? ''));
+  };
 
   useEffect(() => { dialogRef.current?.showModal(); }, []);
   const cerrar = () => { dialogRef.current?.close(); onClose(); };
   const montoNum = Number(monto);
-  const puedeGuardar = esMp ? Boolean(elegidoMp) && !asignar.isPending : montoNum > 0 && metodo !== null && fecha !== '' && !registrar.isPending;
+  const montoMpNum = Number(montoMp);
+  const montoMpValido = Boolean(elegidoMp) && montoMpNum > 0 && montoMpNum <= (elegidoMp?.amount ?? 0);
+  const puedeGuardar = esMp ? montoMpValido && !asignar.isPending : montoNum > 0 && metodo !== null && fecha !== '' && !registrar.isPending;
 
   function guardar(e: React.FormEvent) {
     e.preventDefault();
     if (!puedeGuardar) return;
     if (esMp) {
-      if (!elegidoMp) return;
-      asignar.mutate({ movementId: elegidoMp.movementId, clienteId: cliente.cliente_id, amount: elegidoMp.amount, effectiveDate: elegidoMp.date,
+      if (!elegidoMp || !montoMpValido) return;
+      asignar.mutate({ movementId: elegidoMp.movementId, clienteId: cliente.cliente_id, amount: montoMpNum, effectiveDate: elegidoMp.date,
         idempotencyKey: `ui:${claveAuto}`, reason: notas.trim() || 'Cobro de cliente en Mercado Pago' }, { onSuccess: cerrar });
       return;
     }
@@ -61,7 +71,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
 
   const campo = 'w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600';
   return (
-    <dialog ref={dialogRef} onClose={cerrar} className="w-full max-w-sm p-6 rounded-lg backdrop:bg-black backdrop:bg-opacity-50">
+    <dialog ref={dialogRef} onClose={cerrar} className="w-full max-w-md p-5 rounded-lg backdrop:bg-black backdrop:bg-opacity-50">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-amber-900">Registrar cobro — {cliente.cliente_nombre}</h2>
         <button onClick={cerrar} className="text-gray-400 hover:text-gray-600"><X size={24} /></button>
@@ -80,8 +90,14 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
           </select>
         </label>
         {esMp && (
-          <SelectorMovimientoMp titulo="Cobro en Mercado Pago" candidatos={candidatosMp} cargando={cobrosMp.cargando} value={movimientoMp} onChange={setMovimientoMp} />
+          <BuscadorCobroMp candidatos={candidatosMp} cargando={cobrosMp.cargando} value={movimientoMp} onChange={elegirMp} />
         )}
+        {esMp && elegidoMp && <label className="block text-sm font-medium text-gray-700">Monto a imputar a este cliente
+          <input type="number" min="0.01" step="0.01" max={elegidoMp.amount} value={montoMp} onChange={(e) => setMontoMp(e.target.value)} className={`${campo} mt-1`} />
+          <span className={`block text-xs mt-1 ${montoMpValido ? 'text-gray-500' : 'text-red-600'}`}>
+            Máximo {formatoPesos(elegidoMp.amount)} (disponible en el movimiento). Si es menor, el resto queda para otro cliente.
+          </span>
+        </label>}
         {!esMp && <label className="block text-sm font-medium text-gray-700">Fecha del cobro
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`${campo} mt-1`} />
         </label>}

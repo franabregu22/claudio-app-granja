@@ -81,7 +81,9 @@ describe('Meta A — Mercado Pago candidates of the manual routes', () => {
   });
   it('every manual route uses the Mercado Pago movement (or blocks) when the account is Mercado Pago', () => {
     const cobro = SRC('features/cobros/RegistroPagoModal.tsx');
-    expect(cobro).toMatch(/asignar\.mutate\(\{ movementId: elegidoMp\.movementId, clienteId: cliente\.cliente_id, amount: elegidoMp\.amount, effectiveDate: elegidoMp\.date/);
+    expect(cobro).toMatch(/asignar\.mutate\(\{ movementId: elegidoMp\.movementId, clienteId: cliente\.cliente_id, amount: montoMpNum, effectiveDate: elegidoMp\.date/);
+    // Lote 1B: the amount may be lower than what is left (split / partial), never higher
+    expect(cobro).toMatch(/montoMpNum > 0 && montoMpNum <= \(elegidoMp\?\.amount \?\? 0\)/);
     const pagar = SRC('features/caja/CuentasAPagar.tsx');
     expect(pagar).toMatch(/outflow\.mutate\(\{ sourceId: movimientoMp, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor\.entity_id \}/);
     const retiro = SRC('features/finanzas/EventoGestionModal.tsx');

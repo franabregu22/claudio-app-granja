@@ -100,6 +100,17 @@ export async function listUnlinkedPage(client: SupabaseClient, f: UnlinkedFilter
     allocated_amount: num(x.allocated_amount), remaining_amount: num(x.remaining_amount) })), total: r.total, page, pageSize };
 }
 
+/**
+ * The payer display name (0097: bank holder → cardholder; never e-mail or document) of the given movements, for the
+ * Mercado Pago receipt search in Cuentas a cobrar. A movement without a name in the payload is simply absent.
+ */
+export async function listPayerNames(client: SupabaseClient, movementIds: readonly number[]): Promise<Map<number, string>> {
+  if (movementIds.length === 0) return new Map();
+  const rows = await readView<{ movement_id: number; payer_display_name: string | null }>(client, 'fin_mp_unlinked_inflows',
+    (q) => q.in('movement_id', [...movementIds]).not('payer_display_name', 'is', null), 'movement_id, payer_display_name');
+  return new Map(rows.filter((r) => r.payer_display_name?.trim()).map((r) => [Number(r.movement_id), (r.payer_display_name as string).trim()]));
+}
+
 // ── technical review ─────────────────────────────────────────────────────────
 export type TechnicalIssue = 'UNPOSTED_OUTFLOW' | 'REPORT_ROW_ERROR';
 export interface TechnicalRow {

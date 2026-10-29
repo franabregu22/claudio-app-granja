@@ -9,7 +9,11 @@ type Variante = 'deudor' | 'finalizado' | 'credito';
 /** perfiles holds only e-mail (no first / last name) and pedidos records only who CONFIRMED the delivery (delivered_by), not
  * who delivered it: neither person is shown, never an e-mail in their place. */
 const SIN_DATO = 'No disponible';
-const GRILLA = 'grid grid-cols-[5.5rem_1fr_1fr_1fr] gap-x-2 text-xs';
+// compact tables: columns as wide as their content; only the comment column takes the rest and wraps inside itself
+const TH = 'py-0.5 pr-3 text-left font-normal whitespace-nowrap';
+const TD = 'py-0.5 pr-3 align-top whitespace-nowrap text-gray-700';
+const CABECERA = 'text-[#8A7A5C] border-b border-[#E4DCC8]';
+const FILA = 'border-b border-[#EFE8D6] last:border-0';
 const TONO: Record<Variante, { nombre: string; monto: string }> = {
   deudor: { nombre: 'text-amber-900', monto: 'text-red-600' },
   finalizado: { nombre: 'text-amber-900', monto: 'text-[#6B7A4E]' },
@@ -56,35 +60,41 @@ export function ListaSaldosClientes({ variante, clientes, entregas, cobros, onRe
                 <div>
                   <p className="text-xs font-semibold text-[#6B5D45] uppercase mt-3 mb-1">Entregas</p>
                   {pedidos.length === 0 ? <p className="text-xs text-gray-500">Sin entregas registradas</p> : (
-                    <div className="space-y-0.5">
-                      <div className={`${GRILLA} text-[#8A7A5C]`}><span>Fecha</span><span>N.º pedido</span><span className="text-right">Monto total</span><span>Quién entregó</span></div>
-                      {pedidos.map((p) => (
-                        <div key={p.id} className={`${GRILLA} text-gray-700`}>
-                          <span>{p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</span>
-                          <span>{p.numero_pedido ?? '—'}</span>
-                          <span className="text-right">{formatoPesos(orderTotal(p))}</span>
-                          <span className="text-gray-400">{SIN_DATO}</span>
-                        </div>
-                      ))}
+                    <div className="overflow-x-auto">
+                      <table className="text-xs">
+                        <thead><tr className={CABECERA}><th className={TH}>Fecha</th><th className={TH}>N.º pedido</th><th className={`${TH} text-right`}>Monto total</th><th className={TH}>Quién entregó</th></tr></thead>
+                        <tbody>
+                          {pedidos.map((p) => (
+                            <tr key={p.id} className={FILA}>
+                              <td className={TD}>{p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</td>
+                              <td className={TD}>{p.numero_pedido ?? '—'}</td>
+                              <td className={`${TD} text-right tabular-nums`}>{formatoPesos(orderTotal(p))}</td>
+                              <td className={`${TD} text-gray-400`}>{SIN_DATO}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-[#6B5D45] uppercase mb-1">Cobros</p>
                   {pagos.length === 0 ? <p className="text-xs text-gray-500">Sin cobros registrados</p> : (
-                    <div className="space-y-0.5">
-                      <div className={`${GRILLA} text-[#8A7A5C]`}><span>Fecha</span><span className="text-right">Monto</span><span>Cuenta</span><span>Quién registró</span></div>
-                      {pagos.map((p) => (
-                        <div key={p.row_id}>
-                          <div className={`${GRILLA} text-gray-700`}>
-                            <span>{formatearFechaLocal(p.business_date)}</span>
-                            <span className="text-right">{formatoPesos(p.amount)}</span>
-                            <span>{p.account_name}</span>
-                            <span className="text-gray-400">{SIN_DATO}</span>
-                          </div>
-                          {p.notes && p.notes.trim() !== '' && <p className="text-xs text-gray-500 italic pl-[5.5rem] break-words">{p.notes}</p>}
-                        </div>
-                      ))}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className={CABECERA}><th className={TH}>Fecha</th><th className={`${TH} text-right`}>Monto</th><th className={TH}>Cuenta</th><th className={TH}>Quién registró</th><th className={`${TH} w-full`}>Comentario</th></tr></thead>
+                        <tbody>
+                          {pagos.map((p) => (
+                            <tr key={p.row_id} className={FILA}>
+                              <td className={TD}>{formatearFechaLocal(p.business_date)}</td>
+                              <td className={`${TD} text-right tabular-nums`}>{formatoPesos(p.amount)}</td>
+                              <td className={TD}>{p.account_name}</td>
+                              <td className={`${TD} text-gray-400`}>{SIN_DATO}</td>
+                              <td className="py-0.5 pr-0 align-top min-w-[9rem] text-gray-500 [overflow-wrap:anywhere]">{p.notes?.trim() || ''}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
