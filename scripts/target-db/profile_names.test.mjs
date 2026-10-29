@@ -97,7 +97,10 @@ INSERT INTO clients (id, nombre) VALUES ('${CLI}', 'Cliente 0109');
 CREATE TEMP TABLE before_profiles AS SELECT id, email, rol_type, activo FROM perfiles;`);
 
 // ── schema, privileges, RLS ─────────────────────────────────────────────────
-expect('nombre / apellido exist, optional, existing profiles have none', `(SELECT count(*) FILTER (WHERE nombre IS NOT NULL OR apellido IS NOT NULL) FROM perfiles)`, '0');
+// (nothing filled by the migration itself: ADR025_POST_0109 --deployment-check, right after the apply)
+expect('nombre / apellido exist and are optional; a new profile has none',
+  `(SELECT string_agg(column_name || ':' || is_nullable, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'perfiles' AND column_name IN ('nombre', 'apellido'))
+   || '|' || (SELECT count(*) FROM perfiles WHERE id IN ('${ADMIN}', '${OPER}') AND (nombre IS NOT NULL OR apellido IS NOT NULL))`, 'apellido:YES,nombre:YES|0');
 expect('no write privilege on perfiles for API roles (table or column)',
   `has_table_privilege('authenticated', 'perfiles', 'INSERT,UPDATE,DELETE')::text || has_column_privilege('authenticated', 'perfiles', 'nombre', 'UPDATE')::text
    || has_table_privilege('anon', 'perfiles', 'SELECT')::text`, 'falsefalsefalse');
@@ -142,11 +145,22 @@ for (const f of ['0108_collection_reversal.sql', '0109_profile_names.sql']) {
   const cp = dockerRun(['exec', '-i', container, 'sh', '-c', `cat > /tmp/${f}`], readFileSync(MIG(f), 'utf8'));
   if (cp.status !== 0) { console.error(`  could not copy ${f} into the container`); process.exit(1); }
 }
-const r = dockerRun(['exec', '-i', container, 'psql', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1', '-f', '-'], sql.join('\n'));
-const out = `${r.stdout}\n${r.stderr}`.split('\n');
-const lines = out.map((l) => l.replace(/^.*NOTICE:\s*/, '')).filter((l) => /^(PASS|FAIL) /.test(l));
-for (const l of lines) console.log(`    ${l.startsWith('PASS') ? 'OK ' : 'MAL'}  ${l.slice(5)}`);
-const fails = lines.filter((l) => l.startsWith('FAIL')).length;
-if (r.status !== 0) { console.log(`    MAL  psql aborted: ${(out.find((l) => /ERROR/.test(l)) || '').slice(0, 300)}`); process.exit(1); }
-console.log(`  ${lines.length - fails}/${lines.length} PASS`);
-process.exit(fails === 0 && lines.length > 0 ? 0 : 1);
+// the guarded local container, and — with FIN_E2E_PROJECT — a disposable project too (e.g. a fresh 0001…0108 + the 0109 file)
+const PROJECT = process.env.FIN_E2E_PROJECT ?? '';
+const targets = [container];
+if (PROJECT && PROJECT !== 'Claudio_app_Granja' && containers.includes(`supabase_db_${PROJECT}`) && `supabase_db_${PROJECT}` !== container) targets.push(`supabase_db_${PROJECT}`);
+let pass = 0; let fail = 0;
+for (const c of targets) {
+  if (c !== container) {
+    console.log(`  again on: ${c}`);
+    for (const f of ['0108_collection_reversal.sql', '0109_profile_names.sql']) dockerRun(['exec', '-i', c, 'sh', '-c', `cat > /tmp/${f}`], readFileSync(MIG(f), 'utf8'));
+  }
+  const r = dockerRun(['exec', '-i', c, 'psql', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1', '-f', '-'], sql.join('\n'));
+  const out = `${r.stdout}\n${r.stderr}`.split('\n');
+  const lines = out.map((l) => l.replace(/^.*NOTICE:\s*/, '')).filter((l) => /^(PASS|FAIL) /.test(l));
+  for (const l of lines) console.log(`    ${l.startsWith('PASS') ? 'OK ' : 'MAL'}  ${c === container ? '' : `[${PROJECT}] `}${l.slice(5)}`);
+  pass += lines.filter((l) => l.startsWith('PASS')).length; fail += lines.filter((l) => l.startsWith('FAIL')).length;
+  if (r.status !== 0) { console.log(`    MAL  psql aborted on ${c}: ${(out.find((l) => /ERROR/.test(l)) || '').slice(0, 300)}`); fail += 1; }
+}
+console.log(`  ${pass}/${pass + fail} PASS`);
+process.exit(fail === 0 && pass > 0 ? 0 : 1);
