@@ -261,6 +261,19 @@ if (r.status !== 0) {
 }
 const ok = (name, good, detail = '') => { if (good) pass += 1; else fail += 1; console.log(`    ${good ? 'OK ' : 'MAL'}  ${name}${good || !detail ? '' : ` :: ${detail}`}`); };
 
+// part 1 again on the disposable project, when given (e.g. a fresh 0001…0107 rebuild + the 0108 file applied by the runner)
+const PROJECT1 = process.env.FIN_E2E_PROJECT ?? '';
+if (PROJECT1 && PROJECT1 !== 'Claudio_app_Granja' && containers.includes(`supabase_db_${PROJECT1}`) && `supabase_db_${PROJECT1}` !== container) {
+  const c1 = `supabase_db_${PROJECT1}`;
+  console.log(`  part 1 again on: ${c1}`);
+  dockerRun(['exec', '-i', c1, 'sh', '-c', 'cat > /tmp/0108_collection_reversal.sql'], readFileSync(MIGRATION, 'utf8'));
+  const r1 = dockerRun(['exec', '-i', c1, 'psql', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1', '-f', '-'], sql.join('\n'));
+  const out1 = `${r1.stdout}\n${r1.stderr}`.split('\n');
+  const l1 = out1.map((l) => l.replace(/^.*NOTICE:\s*/, '')).filter((l) => /^(PASS|FAIL) /.test(l));
+  for (const l of l1) ok(`[${PROJECT1}] ${l.slice(5)}`, l.startsWith('PASS'));
+  if (r1.status !== 0) ok(`[${PROJECT1}] psql`, false, (out1.find((l) => /ERROR/.test(l)) || '').slice(0, 300));
+}
+
 // ── part 2: concurrency reconciliation ↔ annulment (DISPOSABLE project only; commits synthetic evidence) ──
 // FIN_E2E_PROJECT names a disposable local Supabase project (never Claudio_app_Granja); its db container is reached with
 // `docker exec` only (no URL, nothing leaves this machine).
