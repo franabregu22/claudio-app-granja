@@ -51,7 +51,7 @@ export function BuscadorCobroMp({ candidatos, cargando, value, onChange }: {
                 </div>
                 <div className="flex items-baseline justify-between gap-2 mt-0.5 text-xs">
                   <span className="text-gray-600">Importe {formatoPesos(c.original)}</span>
-                  <span className="font-semibold text-green-700">Disponible {formatoPesos(c.amount)}</span>
+                  <span className="font-semibold text-green-700" title="Dinero del movimiento todavía sin imputar">Disponible MP {formatoPesos(c.amount)}</span>
                 </div>
                 {c.assigned > 0 && <p className="text-[11px] text-amber-800 mt-0.5">Parcialmente asignado: {formatoPesos(c.assigned)} ya imputado</p>}
                 <p className="text-[11px] text-gray-400 mt-0.5">Ref. MP {c.sourceId}</p>

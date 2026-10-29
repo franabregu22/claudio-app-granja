@@ -95,7 +95,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         {esMp && elegidoMp && <label className="block text-sm font-medium text-gray-700">Monto a imputar a este cliente
           <input type="number" min="0.01" step="0.01" max={elegidoMp.amount} value={montoMp} onChange={(e) => setMontoMp(e.target.value)} className={`${campo} mt-1`} />
           <span className={`block text-xs mt-1 ${montoMpValido ? 'text-gray-500' : 'text-red-600'}`}>
-            Máximo {formatoPesos(elegidoMp.amount)} (disponible en el movimiento). Si es menor, el resto queda para otro cliente.
+            Disponible MP: {formatoPesos(elegidoMp.amount)} (dinero del movimiento todavía sin imputar).
           </span>
         </label>}
         {!esMp && <label className="block text-sm font-medium text-gray-700">Fecha del cobro
