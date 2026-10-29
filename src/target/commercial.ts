@@ -262,3 +262,19 @@ export function registerCollection(client: SupabaseClient, p: {
     p_effective_date: p.effectiveDate, p_financial_account_id: p.accountId, p_reason: p.reason && p.reason.trim() !== '' ? p.reason.trim() : null,
   });
 }
+
+/** Lote 1E (0108): annul a cash / bank collection — compensating reversal at its date; the original stays as evidence. */
+export function reverseCollection(client: SupabaseClient, p: { collectionId: string; reason: string; idempotencyKey: string }) {
+  return callRpc<{ replayed: boolean; reversal_id: number; reversal_operation_id: number }>(client, 'reverse_collection',
+    { p_collection_id: p.collectionId, p_reason: p.reason, p_idempotency_key: p.idempotencyKey });
+}
+
+/** Lote 1E (0108): reversal of the original + the correct collection, in ONE server transaction (all or nothing). */
+export function rectifyCollection(client: SupabaseClient, p: {
+  collectionId: string; clienteId: string; amount: number; accountId: string; effectiveDate: string; reason: string; idempotencyKey: string;
+}) {
+  return callRpc<{ replayed: boolean; reversal_id: number; replacement_collection_id: string }>(client, 'rectify_collection', {
+    p_collection_id: p.collectionId, p_cliente_id: p.clienteId, p_amount: p.amount, p_financial_account_id: p.accountId,
+    p_effective_date: p.effectiveDate, p_reason: p.reason, p_idempotency_key: p.idempotencyKey,
+  });
+}

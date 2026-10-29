@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
   cancelOrder, createPendingOrder, deliverOrder, listClientBalances, listOrders, listSalesLines,
-  rectifyDeliveredOrder, registerCollection, updatePendingOrder, type LineInput, type OrderEstado,
+  rectifyCollection, rectifyDeliveredOrder, registerCollection, reverseCollection, updatePendingOrder, type LineInput, type OrderEstado,
 } from '../../target/commercial';
 import { listClientCollections } from '../../target/customerCollections';
 import { listCurrentPrices, listMaster, type ClientRow, type FinancialAccountRow, type ProductRow } from '../../target/masters';
@@ -60,6 +60,11 @@ export function useClientCollections() {
   return useQuery({ queryKey: [...CUSTOMER_COLLECTIONS, 'balance-detail'], queryFn: () => listClientCollections(supabase) });
 }
 
+/** Active clients (master), for the rectification form; same cache as useOrderCatalog. */
+export function useActiveClients() {
+  return useQuery({ queryKey: ['master', 'clients'], queryFn: () => listMaster<ClientRow>(supabase, 'clients'), select: (rows) => rows.filter((c) => c.activo) });
+}
+
 export function useFinancialAccounts() {
   return useQuery({
     queryKey: ['master', 'financial_account'],
@@ -78,4 +83,14 @@ export function useRegisterCollection() {
 
 export function useSalesLines(from: string, to: string, enabled = true) {
   return useQuery({ queryKey: [...SALES, from, to], queryFn: () => listSalesLines(supabase, from, to), enabled });
+}
+
+/** Lote 1E: annul / rectify a cash or bank collection (0108); refreshes balances, collections and treasury. */
+export function useCollectionReversal() {
+  const qc = useQueryClient();
+  const refresh = () => Promise.all([BALANCES, CUSTOMER_COLLECTIONS, ['treasury']].map((queryKey) => qc.invalidateQueries({ queryKey })));
+  return {
+    annul: useMutation({ mutationFn: (p: Parameters<typeof reverseCollection>[1]) => reverseCollection(supabase, p), onSuccess: refresh }),
+    rectify: useMutation({ mutationFn: (p: Parameters<typeof rectifyCollection>[1]) => rectifyCollection(supabase, p), onSuccess: refresh }),
+  };
 }

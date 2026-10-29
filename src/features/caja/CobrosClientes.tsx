@@ -13,6 +13,7 @@ const SELECT_CLS = 'text-sm border border-[#E4DCC8] rounded px-2 py-1 bg-white';
 const ESTADO_ESTILO: Record<CustomerCollectionStatus, string> = {
   CORRECTED: 'bg-stone-200 text-stone-700', MANUAL_WITHOUT_SOURCE: 'bg-red-100 text-red-800', CONCILIATED: 'bg-green-100 text-green-800',
   PENDING_RECONCILIATION: 'bg-amber-100 text-amber-900', CASH: 'bg-stone-100 text-stone-700', ALLOCATED_TO_CUSTOMER: 'bg-sky-100 text-sky-900',
+  ANNULLED: 'bg-stone-200 text-stone-700 line-through', RECTIFIED: 'bg-stone-200 text-stone-700',
 };
 const corto = (t: string | null, n = 60) => (t && t.length > n ? `${t.slice(0, n)}…` : t ?? '');
 
@@ -41,7 +42,8 @@ export function CobrosClientes() {
   const cuentas = [...new Set(filas.map((r) => r.account_name))].sort();
   const metodos = [...new Set(filas.map((r) => r.payment_method))].sort();
   const items = filterLogicalCollections(groupCustomerCollections(filas), { clienteId: cliente, account: cuenta, method: metodo, status: estado });
-  const total = items.reduce((s, i) => s + i.amount, 0);
+  // 0108: an annulled / rectified original is shown as evidence but is no longer money (its replacement is its own row)
+  const total = items.reduce((s, i) => s + (i.main.reversal_kind ? 0 : i.amount), 0);
 
   return (
     <div className="space-y-3">

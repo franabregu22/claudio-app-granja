@@ -8,7 +8,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { readTable, readView } from './db';
 
 export type CustomerCollectionOrigin = 'CORRECTION' | 'CASH' | 'BANK' | 'MANUAL_MP' | 'AUTO_MP';
-export type CustomerCollectionStatus = 'CORRECTED' | 'MANUAL_WITHOUT_SOURCE' | 'CONCILIATED' | 'PENDING_RECONCILIATION' | 'CASH' | 'ALLOCATED_TO_CUSTOMER';
+export type CustomerCollectionStatus = 'CORRECTED' | 'MANUAL_WITHOUT_SOURCE' | 'CONCILIATED' | 'PENDING_RECONCILIATION' | 'CASH' | 'ALLOCATED_TO_CUSTOMER'
+  | 'ANNULLED' | 'RECTIFIED';   // 0108
 export type CorrectionRole = 'CORRECTED_ORIGINAL' | 'COMPONENT' | 'SINGLE';
 
 export interface CustomerCollectionRow {
@@ -16,13 +17,16 @@ export interface CustomerCollectionRow {
   account_name: string; account_type: string; payment_method: string; notes: string | null; financial_operation_id: number | null;
   source_id: string | null; origin: CustomerCollectionOrigin; status: CustomerCollectionStatus; correction_id: string | null;
   correction_role: CorrectionRole; counts_for_customer: boolean;
+  /** 0108: an annulled / rectified manual collection (kind, reason, when) and, on a replacement, the original's row_id */
+  reversal_kind: 'ANNUL' | 'RECTIFY' | null; reversal_reason: string | null; reversal_at: string | null; replacement_of: string | null;
 }
 const COLUMNS = 'row_id, business_date, created_at, cliente_id, client_name, amount, account_name, account_type, payment_method, notes, '
-  + 'financial_operation_id, source_id, origin, status, correction_id, correction_role, counts_for_customer';
+  + 'financial_operation_id, source_id, origin, status, correction_id, correction_role, counts_for_customer, reversal_kind, reversal_reason, reversal_at, replacement_of';
 
 export const COLLECTION_STATUS_LABEL: Record<CustomerCollectionStatus, string> = {
   CORRECTED: 'Corregido', MANUAL_WITHOUT_SOURCE: 'Manual sin movimiento de Mercado Pago', CONCILIATED: 'Conciliado',
   PENDING_RECONCILIATION: 'Pendiente de conciliar', CASH: 'Efectivo', ALLOCATED_TO_CUSTOMER: 'Asignado desde Mercado Pago',
+  ANNULLED: 'Anulado', RECTIFIED: 'Rectificado',
 };
 export const COLLECTION_ORIGIN_LABEL: Record<CustomerCollectionOrigin, string> = {
   CORRECTION: 'Corrección', CASH: 'Caja', BANK: 'Banco', MANUAL_MP: 'Manual en Mercado Pago', AUTO_MP: 'Mercado Pago',
@@ -37,11 +41,12 @@ export async function listCustomerCollections(client: SupabaseClient, p: { from:
 }
 
 /**
- * Cuentas a cobrar detail: every collection that counts for the client's balance (counts_for_customer), manual and Mercado
- * Pago allocations alike, newest first. A corrected original is left out: its components are what count.
+ * Cuentas corrientes detail: every collection that counts for the client's balance (counts_for_customer), manual and Mercado
+ * Pago allocations alike, plus — as evidence only — the annulled / rectified originals (0108: reversal_kind set,
+ * counts_for_customer false), newest first. A 0092 corrected original is left out: its components are what count.
  */
 export async function listClientCollections(client: SupabaseClient): Promise<CustomerCollectionRow[]> {
-  const rows = await readView<CustomerCollectionRow>(client, 'fin_customer_collections', (q) => q.eq('counts_for_customer', true)
+  const rows = await readView<CustomerCollectionRow>(client, 'fin_customer_collections', (q) => q.or('counts_for_customer.eq.true,reversal_kind.not.is.null')
     .order('business_date', { ascending: false }).order('created_at', { ascending: false }), COLUMNS);
   return rows.map((r) => ({ ...r, amount: Number(r.amount), financial_operation_id: r.financial_operation_id === null ? null : Number(r.financial_operation_id) }));
 }
@@ -62,6 +67,22 @@ export function allocationIdOf(row: Pick<CustomerCollectionRow, 'row_id'>): stri
  */
 export function canAnnulMpAllocation(row: CustomerCollectionRow): boolean {
   return allocationIdOf(row) !== null && row.origin === 'AUTO_MP' && row.correction_id === null && row.amount > 0;
+}
+
+/** The manual collection behind a row ('C:' || collections.id, 0092), or null for a Mercado Pago allocation. */
+export function collectionIdOf(row: Pick<CustomerCollectionRow, 'row_id'>): string | null {
+  const m = /^C:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(row.row_id);
+  return m ? m[1] : null;
+}
+
+/**
+ * "Anular" / "Rectificar" (Lote 1E, 0108) are offered for a manual cash or bank collection that still counts, is not part
+ * of a 0092 correction and is not reconciled with a bank statement. The server re-checks everything (and also refuses a
+ * Feria collection or a closed period, which the view does not expose).
+ */
+export function canReverseManualCollection(row: CustomerCollectionRow): boolean {
+  return collectionIdOf(row) !== null && (row.account_type === 'CASH' || row.account_type === 'BANK_ACCOUNT') && row.counts_for_customer
+    && row.correction_id === null && row.reversal_kind === null && row.status !== 'CONCILIATED';
 }
 
 /** One reversal of an allocation: MANUAL_REVERSAL (an ADMIN undid it) or MP_REVERSAL (refund / chargeback in Mercado Pago). */
@@ -122,4 +143,34 @@ export function filterLogicalCollections(items: readonly LogicalCollection[], f:
   const ok = (r: CustomerCollectionRow) => (!f.account || r.account_name === f.account) && (!f.method || r.payment_method === f.method)
     && (!f.status || r.status === f.status);
   return items.filter((i) => (!f.clienteId || i.cliente_id === f.clienteId) && [i.main, ...i.parts].some(ok));
+}
+
+/** One side of a rectification, as shown to the user. */
+export interface CollectionSide { clienteId: string; clienteNombre: string; amount: number; accountName: string }
+/** Net effect line: `deuda` > 0 raises the client's debt; `saldo` > 0 adds money to the account. */
+export interface RectificationEffect {
+  clientes: { clienteId: string; nombre: string; deuda: number }[];
+  cuentas: { nombre: string; saldo: number }[];
+}
+
+/**
+ * Preview of a rectification (0108: reversal of the original + the correct collection). Same client / same account lines are
+ * merged, zero lines dropped. Presentation only: the server books it.
+ */
+export function rectificationEffect(original: CollectionSide, nuevo: CollectionSide): RectificationEffect {
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  const clientes = new Map<string, { clienteId: string; nombre: string; deuda: number }>();
+  const cuenta = new Map<string, number>();
+  const cli = (id: string, nombre: string, d: number) => {
+    const e = clientes.get(id) ?? { clienteId: id, nombre, deuda: 0 };
+    e.deuda = r2(e.deuda + d); clientes.set(id, e);
+  };
+  cli(original.clienteId, original.clienteNombre, original.amount);   // the original collection is undone: debt back up
+  cli(nuevo.clienteId, nuevo.clienteNombre, -nuevo.amount);           // the correct collection lowers the debt
+  cuenta.set(original.accountName, r2((cuenta.get(original.accountName) ?? 0) - original.amount));
+  cuenta.set(nuevo.accountName, r2((cuenta.get(nuevo.accountName) ?? 0) + nuevo.amount));
+  return {
+    clientes: [...clientes.values()].filter((c) => c.deuda !== 0),
+    cuentas: [...cuenta.entries()].map(([nombre, saldo]) => ({ nombre, saldo })).filter((c) => c.saldo !== 0),
+  };
 }

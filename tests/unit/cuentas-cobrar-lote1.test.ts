@@ -28,7 +28,8 @@ describe('Lote 1 — Cuentas a cobrar', () => {
     expect(r[0].amount).toBe(1500.5);
     expect(r[0].financial_operation_id).toBe(9);
     expect(seen.map((u) => u.pathname)).toEqual(['/rest/v1/fin_customer_collections']);
-    expect(seen[0].searchParams.get('counts_for_customer')).toBe('eq.true');
+    // what counts for the balance, plus (0108) annulled / rectified originals as evidence only
+    expect(seen[0].searchParams.get('or')).toBe('(counts_for_customer.eq.true,reversal_kind.not.is.null)');
     expect(seen[0].searchParams.get('order')).toBe('business_date.desc,created_at.desc');
   });
 

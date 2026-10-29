@@ -100,6 +100,7 @@ export const TARGET_RPCS = [
   'classify_pending_expense',   // ADR-025 stage 3 (0101): classify an expense already paid (no new movement; ADMIN)
   'issue_purchase_instruments', 'allocate_purchase_payment', 'attach_instrument_document', 'register_erp_document',   // ADR-025 stage 4 (0104, ADMIN)
   'register_pending_expense', 'pay_pending_expense',   // ADR-026 (0106, ADMIN): the expense now, the money when paid
+  'reverse_collection', 'rectify_collection',   // Lote 1E (0108, ADMIN): annul / rectify a cash or bank collection, append-only
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 
