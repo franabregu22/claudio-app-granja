@@ -93,5 +93,22 @@ SELECT pg_temp.expect('PE-10 a pending expense refuses a Mercado Pago outflow an
 SELECT pg_temp.expect('PE-11 an OPERATOR can not register or pay a pending expense',
   left(pg_temp.as_('authenticated', pg_temp.v('oper'), format('SELECT public.pay_pending_expense(%L::uuid, 1, ''2026-10-25'', (SELECT id FROM financial_account WHERE nombre = ''BNA''), ''TRANSFER'', ''T-0106-OP'')::text', pg_temp.get('pay1'))), 13),
   'ERR:FORBIDDEN');
+-- PE-12 the commit-time check runs as the CALLER: confirmed by the gateway (no ERP profile, its identity restored after the
+-- delegation), with an invoice and its photo, the deferred check must still see the obligation (production W-0003, 0107)
+CREATE FUNCTION pg_temp.confirm_commit(p_inb BIGINT, p_draft TEXT, p_ver INT) RETURNS TEXT LANGUAGE plpgsql AS $f$
+DECLARE r TEXT; BEGIN
+  r := public.wa_confirm(p_inb, p_draft::uuid, p_ver)::text;
+  SET CONSTRAINTS trg_purchases_casual_settlement IMMEDIATE;      -- what COMMIT does, still as the gateway
+  RETURN r;
+END $f$;
+UPDATE wa.draft SET state = 'CANCELLED', updated_at = now() WHERE state IN ('DRAFT', 'WAITING_MP', 'FAILED');
+SELECT pg_temp.put('w3', pg_temp.propose(pg_temp.msg(pg_temp.v('phone_a'), 'factura veterinaria a pagar'), 'CASUAL_EXPENSE',
+  (pg_temp.cash(1210, 'Veterinaria') - 'method' - 'account_id') || jsonb_build_object('pending_payment', true, 'fiscal', pg_temp.vat('0002-00006527') -> 'fiscal')));
+SELECT pg_temp.put('wd3', pg_temp.did(pg_temp.get('w3')));
+SELECT pg_temp.expect('PE-12 a pending expense confirmed by the gateway passes the commit-time check: CONFIRMED, +1 obligation, 0 operations',
+  left(pg_temp.gw(format('SELECT pg_temp.confirm_commit(%s, %L, 1)', pg_temp.btn(pg_temp.v('phone_a'), pg_temp.get('wd3'), 1), pg_temp.get('wd3'))), 10)
+  || '|' || pg_temp.cnt(format('SELECT state FROM wa.draft WHERE id = %L::uuid', pg_temp.get('wd3')))
+  || '|' || pg_temp.cnt(format('SELECT count(*) FROM expense_payable WHERE idempotency_key = %L', 'WA:' || pg_temp.get('wd3') || ':v1')),
+  'OK:{"ok": |CONFIRMED|1');
 
 SELECT 'SUMMARY-0106|' || count(*) FILTER (WHERE ok) || '|' || count(*) FILTER (WHERE NOT ok) FROM t_result WHERE n > (SELECT n FROM t_base6);
