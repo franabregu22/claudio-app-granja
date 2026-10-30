@@ -17,6 +17,8 @@ export interface PurchasePaymentStatusRow {
   purchase_id: string; purchase_root_id: string; supplier_id: string; supplier_name: string; supplier_invoice_number: string | null;
   fiscal_document_id: string | null; economic_date: string; amount_total: number; scheduled: number; debited: number; other_payments: number;
   pending: number; voided_instruments: number;
+  /** 0110: the due date in force and the estimated payment date (planning only). */
+  due_date: string | null; planned_date: string | null;
 }
 export interface PurchasePaymentDetailRow {
   allocation_id: string; purchase_root_id: string; amount: number; created_at: string; financial_instrument_id: string | null;

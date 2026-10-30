@@ -10,7 +10,8 @@ export type PayableStatus = 'PENDIENTE' | 'PARCIAL' | 'PAGADO';
 export interface PayableRow {
   payable_id: string; purchase_id: string; purchase_root_id: string; economic_date: string; concept: string | null; counterparty_name: string | null;
   expense_category_id: string; category_name: string; fiscal_document_id: string | null; amount: number; paid: number; pending: number;
-  due_date: string | null; status: PayableStatus; origin: 'ERP' | 'WHATSAPP'; created_at: string;
+  /** 0110: the due date in force (contractual) and the internal estimated payment date — never a payment by themselves. */
+  due_date: string | null; status: PayableStatus; origin: 'ERP' | 'WHATSAPP'; created_at: string; planned_date: string | null;
 }
 export interface PayablePaymentRow { payment_id: number; payable_id: string; amount: number; effective_date: string; account_name: string }
 export const PAYABLE_STATUS_LABEL: Record<PayableStatus, string> = { PENDIENTE: 'Pendiente', PARCIAL: 'Pago parcial', PAGADO: 'Pagado' };

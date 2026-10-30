@@ -1,8 +1,11 @@
+import { useState } from 'react';
+import type { PurchasePaymentStatusRow } from '../../target/invoicePayments';
 import { errorMessage } from '../../target/messages';
 import { SUPPLIER_MOVEMENT, type InstrumentEstado, type SupplierAccount } from '../../target/treasury';
-import { formatearFechaLocal } from '../../utils/dateUtils';
+import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { Comprobantes } from './Comprobantes';
+import { FechasPagoModal } from './FechasPago';
 import { useDocumentLinks, usePurchaseAttachments, useSupplierInvoices } from './useInvoicePayments';
 import { useInstruments, useSupplierLedger } from './useTreasury';
 
@@ -23,7 +26,8 @@ const Seccion = ({ titulo, children }: { titulo: string; children: React.ReactNo
 
 /**
  * Lote 3A — the supplier's current account as the ERP already records it (nothing derived, nothing invented):
- *   · Facturas: each current purchase with the backend's payment status (fin_purchase_payment_status) and its receipts;
+ *   · Facturas: each current purchase with the backend's payment status (fin_purchase_payment_status) and its receipts, its
+ *     due date and estimated payment date (Lote 3B, 0110: planning only, editable from here);
  *   · Movimientos: the supplier ledger — obligations (+), real payments and own instruments (−), corrections;
  *   · Cheques / eCheqs: own instruments issued to this supplier and third-party cheques endorsed to it, with their PDFs.
  * The balance is report_balance_period's: a negative one is a credit in our favour (advance), never an expense.
@@ -36,6 +40,8 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
   const adjuntos = usePurchaseAttachments((facturas.data ?? []).map((f) => f.purchase_id));
   const pdfs = useDocumentLinks('FINANCIAL_INSTRUMENT', cheques.filter((c) => c.direction === 'ISSUED').map((c) => c.id));
   const error = facturas.error ?? movimientos.error ?? instrumentos.error;
+  const [fechas, setFechas] = useState<PurchasePaymentStatusRow | null>(null);
+  const hoy = getTodayDate();
 
   return (
     <div className="px-4 pb-4 border-t border-[#E4DCC8] bg-[#FAF6EE] text-xs">
@@ -53,7 +59,8 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
               <thead><tr className="text-[#8A7A5C] border-b border-[#E4DCC8]">
                 <th className={TH}>Fecha</th><th className={TH}>Factura</th><th className={`${TH} text-right`}>Total</th>
                 <th className={`${TH} text-right`}>Cheques programados</th><th className={`${TH} text-right`}>Debitado</th>
-                <th className={`${TH} text-right`}>Otros pagos</th><th className={`${TH} text-right`}>Pendiente</th><th className={TH}>Comprobante</th>
+                <th className={`${TH} text-right`}>Otros pagos</th><th className={`${TH} text-right`}>Pendiente</th>
+                <th className={TH}>Vencimiento</th><th className={TH}>Pago estimado</th><th className={TH}>Comprobante</th><th className={TH} />
               </tr></thead>
               <tbody>
                 {(facturas.data ?? []).map((f) => (
@@ -65,7 +72,10 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
                     <td className={`${TD} text-right tabular-nums`}>{f.debited ? formatoPesos(f.debited) : '—'}</td>
                     <td className={`${TD} text-right tabular-nums`}>{f.other_payments ? formatoPesos(f.other_payments) : '—'}</td>
                     <td className={`${TD} text-right tabular-nums font-semibold ${f.pending > 0 ? 'text-red-600' : 'text-gray-500'}`}>{formatoPesos(f.pending)}</td>
+                    <td className={`${TD} ${f.pending > 0 && f.due_date && f.due_date < hoy ? 'text-red-700 font-semibold' : ''}`}>{f.due_date ? formatearFechaLocal(f.due_date) : '—'}</td>
+                    <td className={`${TD} text-sky-800`}>{f.planned_date ? formatearFechaLocal(f.planned_date) : '—'}</td>
                     <td className={TD}><Comprobantes docs={adjuntos.data?.get(f.purchase_id)} compacto /></td>
+                    <td className={TD}>{f.pending > 0 && <button type="button" onClick={() => setFechas(f)} className="text-[#A8552E] hover:underline">Fechas</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -75,7 +85,7 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
         <p className="text-[11px] text-gray-500 mt-1">
           El pendiente de cada factura descuenta solo lo imputado a esa factura; un pago o cheque sin imputar baja la deuda total del
           proveedor, no una factura en particular. Los cheques programados ya bajan la deuda pero todavía no movieron el banco.
-          Para pagar o imputar una factura: Pagos de facturas.
+          Para pagar o imputar una factura: Pagos de facturas. Vencimiento y pago estimado son planificación: no registran pagos.
         </p>
       </Seccion>
 
@@ -129,6 +139,8 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
           </div>
         )}
       </Seccion>
+      {fechas && <FechasPagoModal purchaseId={fechas.purchase_id} rootId={fechas.purchase_root_id} titulo={`Factura ${fechas.supplier_invoice_number ?? formatearFechaLocal(fechas.economic_date)}`}
+        due={fechas.due_date} planned={fechas.planned_date} onClose={() => setFechas(null)} />}
     </div>
   );
 }

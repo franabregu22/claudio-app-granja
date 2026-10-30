@@ -265,6 +265,19 @@ const MESSAGES: Record<string, string> = {
   PAYABLE_MP_NOT_SUPPORTED: 'Un pago por Mercado Pago se clasifica desde Pendientes de clasificar.',
   INVALID_DUE_DATE: 'El vencimiento no puede ser anterior a la fecha del gasto.',
   CASUAL_PURCHASE_UNSETTLED: 'Un gasto sin proveedor debe estar pagado o registrado como gasto a pagar.',
+  // Lote 3B (0110): pending expense → supplier, due / estimated payment date
+  PAYABLE_LINKED_TO_SUPPLIER: 'Ese gasto ya pasó a la cuenta del proveedor: pagalo desde Cuentas a pagar → proveedor.',
+  PAYABLE_ALREADY_LINKED: 'Ese gasto ya está vinculado a un proveedor.',
+  PAYABLE_SETTLED: 'Ese gasto ya está pagado: no hace falta vincularlo.',
+  PAYABLE_NOT_LINKABLE: 'Solo se vincula un gasto a pagar que todavía no tiene proveedor.',
+  PAYABLE_AMOUNT_MISMATCH: 'El importe del gasto no coincide con su obligación: revisalo antes de vincularlo.',
+  DUPLICATE_INVOICE: 'Ese proveedor ya tiene una factura con ese número.',
+  INVOICE_NUMBER_MISMATCH: 'El gasto ya tiene otro número de factura: dejá el campo vacío para conservarlo.',
+  INVALID_INVOICE_NUMBER: 'El número de factura admite hasta 100 caracteres.',
+  INVALID_DATE_KIND: 'Tipo de fecha no válido.',
+  NOT_AN_OBLIGATION: 'Solo una factura de proveedor o un gasto a pagar tiene fechas de pago.',
+  INVALID_PAYMENT_DATE: 'La fecha no puede ser anterior a la del gasto, y el vencimiento no se puede borrar.',
+  INVALID_REASON: 'El motivo admite hasta 500 caracteres.',
 };
 
 export function errorMessage(err: unknown): string {

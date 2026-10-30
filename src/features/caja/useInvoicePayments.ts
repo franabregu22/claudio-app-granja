@@ -4,7 +4,7 @@ import { readTable } from '../../target/db';
 import { attachInstrumentDocument, listDocumentLinks, uploadErpDocument, type DocumentTargetKind, type ErpDocumentInput, type ViewableDocument } from '../../target/documents';
 import { removeAttachments } from '../../target/attachments';
 import {
-  allocatePurchasePayment, issuePurchaseInstruments, listDebitedInstruments, listInvoicePaymentDetail, listInvoicePaymentStatus, listScheduledPayments,
+  allocatePurchasePayment, issuePurchaseInstruments, listDebitedInstruments, listInvoicePaymentDetail, listInvoicePaymentStatus,
   listSupplierInvoices, listSupplierPayments, monthRange, type InstrumentToIssue,
 } from '../../target/invoicePayments';
 
@@ -39,13 +39,10 @@ export function useSupplierInvoices(supplierId: string) {
 export function useSupplierPayments(supplierId: string) {
   return useQuery({ queryKey: ['treasury', 'supplier-payments', supplierId], queryFn: () => listSupplierPayments(supabase, supplierId), enabled: supplierId !== '' });
 }
-/** The month of the maturity calendar: scheduled (to be debited) and real (debited) own instruments. */
-export function useMaturities(ym: string) {
+/** Own instruments debited in the month (REAL payments; the commitments are fin_payment_calendar, Lote 3B). */
+export function useDebitedInstruments(ym: string) {
   const { from, to } = monthRange(ym);
-  return useQuery({
-    queryKey: ['treasury', 'maturities', ym],
-    queryFn: async () => ({ scheduled: await listScheduledPayments(supabase, from, to), debited: await listDebitedInstruments(supabase, from, to) }),
-  });
+  return useQuery({ queryKey: ['treasury', 'maturities', 'debited', ym], queryFn: () => listDebitedInstruments(supabase, from, to) });
 }
 
 function useRefresh() {

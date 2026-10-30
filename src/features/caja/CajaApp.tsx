@@ -11,7 +11,7 @@ import { CuentasAPagar } from './CuentasAPagar';
 import { ResumenSaldos } from './ResumenSaldos';
 import { ExtractosBancarios } from './ExtractosBancarios';
 import { PagosFacturas } from './PagosFacturas';
-import { Vencimientos } from './Vencimientos';
+import { CalendarioPagos } from './CalendarioPagos';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 
 type Vista = 'saldos' | 'sinclasificar' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'pagosfactura' | 'vencimientos' | 'instrumentos' | 'extractos';
@@ -24,7 +24,7 @@ const VISTAS: { id: Vista; label: string }[] = [
   { id: 'pagar', label: 'Cuentas a pagar' },
   { id: 'compras', label: 'Compras y fletes' },
   { id: 'pagosfactura', label: 'Pagos de facturas' },   // ADR-025 stage 4 (0104): one invoice, several cheques / payments
-  { id: 'vencimientos', label: 'Vencimientos' },   // ADR-025 stage 4 (0104): scheduled vs debited own cheques
+  { id: 'vencimientos', label: 'Calendario de pagos' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
   { id: 'instrumentos', label: 'Cheques' },
   { id: 'extractos', label: 'Extractos bancarios' },
 ];
@@ -84,7 +84,7 @@ export function CajaApp() {
           {vista === 'pagar' && <CuentasAPagar />}
           {vista === 'compras' && <Compras />}
           {vista === 'pagosfactura' && <PagosFacturas />}
-          {vista === 'vencimientos' && <Vencimientos />}
+          {vista === 'vencimientos' && <CalendarioPagos />}
           {vista === 'instrumentos' && <Cheques />}
           {vista === 'extractos' && <ExtractosBancarios />}
         </div>

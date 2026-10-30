@@ -25,6 +25,7 @@ export const TARGET_VIEWS = [
   'fin_document_links',   // ADR-025 stage 4 (0103): receipts / PDFs linked to purchases, fiscal documents, pending expenses, instruments (ADMIN)
   'fin_purchase_payment_status', 'fin_purchase_payment_detail', 'fin_scheduled_payments',   // ADR-025 stage 4 (0104): invoice payments / maturities
   'fin_expense_payables', 'fin_expense_payable_payments',   // ADR-026 (0106): pending expenses and their payments
+  'fin_payment_calendar',   // Lote 3B (0110): every future commitment once (invoices, pending expenses, own cheques / eCheqs)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -45,6 +46,7 @@ export const TARGET_READ_TABLES = [
   'fin_statement_match', 'fin_statement_cutover',   // ADR-018 reconciliation / cut (ADMIN policy)
   'expense_category_group',   // ADR-024 (0096): the parent expense category (ADMIN policy)
   'supplier_ledger',   // Lote 3A: supplier current-account movements, read-only (ADMIN policy, 0017)
+  'purchase_payment_date',   // Lote 3B (0110): due / estimated payment date history, append-only (ADMIN policy)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -103,6 +105,7 @@ export const TARGET_RPCS = [
   'register_pending_expense', 'pay_pending_expense',   // ADR-026 (0106, ADMIN): the expense now, the money when paid
   'reverse_collection', 'rectify_collection',   // Lote 1E (0108, ADMIN): annul / rectify a cash or bank collection, append-only
   'set_profile_name',   // Lote 2A (0109, ADMIN): first / last name of a profile, audited
+  'assign_payable_to_supplier', 'set_payment_date',   // Lote 3B (0110, ADMIN): pending expense → supplier; due / estimated payment date
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

@@ -81,9 +81,9 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
     expect(f).toMatch(/useDocumentLinks\('FINANCIAL_INSTRUMENT'/);
     expect(f).toMatch(/Programado \(aún no debitado\)/);
   });
-  it('Pagos de facturas and Vencimientos stay as they were', () => {
+  it('Pagos de facturas stays; Vencimientos became the Calendario de pagos (Lote 3B)', () => {
     const c = SRC('features/caja/CajaApp.tsx');
     expect(c).toMatch(/\{ id: 'pagosfactura', label: 'Pagos de facturas' \}/);
-    expect(c).toMatch(/\{ id: 'vencimientos', label: 'Vencimientos' \}/);
+    expect(c).toMatch(/\{ id: 'vencimientos', label: 'Calendario de pagos' \}/);
   });
 });
