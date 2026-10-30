@@ -25,6 +25,7 @@ export const TARGET_VIEWS = [
   'fin_document_links',   // ADR-025 stage 4 (0103): receipts / PDFs linked to purchases, fiscal documents, pending expenses, instruments (ADMIN)
   'fin_purchase_payment_status', 'fin_purchase_payment_detail', 'fin_scheduled_payments',   // ADR-025 stage 4 (0104): invoice payments / maturities
   'fin_expense_payables', 'fin_expense_payable_payments',   // ADR-026 (0106): pending expenses and their payments
+  'fin_supplier_unallocated_payments',   // Lote 3B (0110): supplier payments still free to allocate (advances), shown apart
   'fin_payment_calendar',   // Lote 3B (0110): every future commitment once (invoices, pending expenses, own cheques / eCheqs)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];

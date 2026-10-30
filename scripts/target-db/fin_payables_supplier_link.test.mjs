@@ -246,6 +246,22 @@ expect('F-10 debiting the eCheq (mark_supplier_instrument_debited)',
   ADM(`SELECT mark_supplier_instrument_debited(${P(`(SELECT id FROM financial_instrument WHERE cheque_number = 'E-0110-1')`)}::uuid, '2026-11-15'::date, 'debitado')::text`), 'OK:%');
 expect('F-11 a debited instrument is a real movement: out of the calendar', CAL(`item_kind = 'ECHEQ' AND document_number = 'E-0110-1'`, 'item_kind'), 'none');
 
+// ── supplier payments free to allocate (advances): shown apart, allocated by hand only ──
+const UNALLOC = (s) => `(SELECT coalesce(string_agg(paid || '/' || allocated || '/' || available, ';' ORDER BY financial_operation_id), 'none') FROM fin_supplier_unallocated_payments WHERE supplier_id = '${s}')`;
+expect('H-1 before any advance, supplier A has nothing free to allocate (the linked expense payments are allocated by the link)', UNALLOC(SA), 'none');
+expect('H-2 an advance of 5.000 to supplier A (pay_supplier)',
+  ADM(`SELECT pay_supplier('${SA}'::uuid, 5000, '2026-10-22'::date, 'TRANSFER', ${P(BNA)}::uuid, 'T0110-ADV1', 'anticipo')::text`, 'adv1'), 'OK:%');
+expect('H-3 it is free to allocate in full; no invoice pending changes (never discounted automatically)',
+  `(${UNALLOC(SA)} || '|' || ${CAL(`supplier_id = '${SA}' AND item_kind = 'FACTURA'`, `document_number || ':' || amount`)})`,
+  '5000.00/0/5000.00|B-0001-00000042:10000.00;0003-00001:31000.00');
+expect('H-4 allocating 3.000 of it to invoice B-0001-00000042 by hand (allocate_purchase_payment)',
+  ADM(`SELECT allocate_purchase_payment(${P(RES('sap1', 'purchase_id'))}::uuid, ${P(RES('adv1', 'financial_operation_id'))}::bigint, 3000, 'T0110-ADV1-A', 'imputación manual')::text`), 'OK:%');
+expect('H-5 2.000 stay free; that invoice now pends 7.000, the other is untouched',
+  `(${UNALLOC(SA)} || '|' || ${CAL(`supplier_id = '${SA}' AND item_kind = 'FACTURA'`, `document_number || ':' || amount`)})`,
+  '5000.00/3000.00/2000.00|B-0001-00000042:7000.00;0003-00001:31000.00');
+expect('H-6 OPERATOR reads no free payment (RLS: 0 rows)',
+  as('authenticated', OPER, `SELECT (SELECT count(*) FROM fin_supplier_unallocated_payments)::text`), 'OK:0');
+
 // ── immutability and privileges ─────────────────────────────────────────────
 expect('G-1 the link and the dates are append-only',
   `(SELECT string_agg(r, '|') FROM (SELECT ${ADM(`UPDATE expense_payable_supplier_link SET reason = 'x' RETURNING 'x'`)} AS r UNION ALL SELECT ${ADM(`UPDATE purchase_payment_date SET value = NULL RETURNING 'x'`)}) q)`,

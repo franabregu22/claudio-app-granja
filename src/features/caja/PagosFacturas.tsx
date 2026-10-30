@@ -12,9 +12,10 @@ import { AccionModal, ACCION, ESTADO, TIPO } from './Cheques';
 import { Comprobantes } from './Comprobantes';
 import { campo, etiqueta, Modal } from './Modal';
 import type { InstrumentAction } from './useTreasury';
+import { useUnallocatedPayments } from './usePaymentCalendar';
 import {
   useAllocatePurchasePayment, useAttachInstrumentDocument, useDocumentLinks, useInvoicePaymentDetail, useInvoicePaymentStatus,
-  useIssuePurchaseInstruments, usePurchaseAttachments, useSupplierPayments,
+  useIssuePurchaseInstruments, usePurchaseAttachments,
 } from './useInvoicePayments';
 
 const ACEPTA = Object.keys(ATTACHMENT_TYPES).join(',');
@@ -218,12 +219,15 @@ function EmitirChequesModal({ f, reemplaza, onClose }: { f: PurchasePaymentStatu
 }
 
 function ImputarPagoModal({ f, onClose }: { f: PurchasePaymentStatusRow; onClose: () => void }) {
-  const pagos = useSupplierPayments(f.supplier_id);
+  // only payments with an amount still free to allocate (fin_supplier_unallocated_payments, 0110), with that amount
+  const libres = useUnallocatedPayments();
+  const pagos = { ...libres, data: (libres.data ?? []).filter((p) => p.supplier_id === f.supplier_id) };
   const imputar = useAllocatePurchasePayment();
   const [opId, setOpId] = useState('');
   const [monto, setMonto] = useState(String(f.pending));
   const [clave] = useState(() => `PALLOC-${crypto.randomUUID()}`);
-  const puede = opId !== '' && Number(monto) > 0 && Number(monto) <= f.pending + 0.005;
+  const disponible = pagos.data.find((p) => String(p.financial_operation_id) === opId)?.available ?? 0;
+  const puede = opId !== '' && Number(monto) > 0 && Number(monto) <= f.pending + 0.005 && Number(monto) <= disponible + 0.005;
 
   return (
     <Modal titulo={`Imputar pago — ${f.supplier_name}`} onClose={onClose} puedeGuardar={puede} guardando={imputar.isPending} error={imputar.error ?? pagos.error}
@@ -231,10 +235,11 @@ function ImputarPagoModal({ f, onClose }: { f: PurchasePaymentStatusRow; onClose
       <p className="text-xs text-[#6B5D45]">Un pago ya registrado al proveedor (Cuentas a pagar → Pagar) se asigna a esta factura. No se crea otro movimiento.</p>
       <label className={etiqueta}>Pago
         <select value={opId} onChange={(e) => setOpId(e.target.value)} className={campo}>
-          <option value="">{pagos.isLoading ? 'Cargando…' : (pagos.data ?? []).length === 0 ? 'No hay pagos a este proveedor' : 'Elegir pago…'}</option>
-          {(pagos.data ?? []).map((p) => <option key={p.id} value={p.id}>{formatearFechaLocal(p.effective_date)} · {formatoPesos(p.amount)}{p.reason ? ` · ${p.reason}` : ''}</option>)}
+          <option value="">{pagos.isLoading ? 'Cargando…' : pagos.data.length === 0 ? 'No hay pagos disponibles para imputar a este proveedor' : 'Elegir pago…'}</option>
+          {pagos.data.map((p) => <option key={p.financial_operation_id} value={p.financial_operation_id}>{formatearFechaLocal(p.effective_date)} · pagado {formatoPesos(p.paid)} · disponible {formatoPesos(p.available)}{p.reason ? ` · ${p.reason}` : ''}</option>)}
         </select>
       </label>
+      {opId !== '' && Number(monto) > disponible + 0.005 && <p className="text-xs text-red-700">Supera lo disponible de ese pago ({formatoPesos(disponible)}).</p>}
       <label className={etiqueta}>Monto a imputar<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
     </Modal>
   );

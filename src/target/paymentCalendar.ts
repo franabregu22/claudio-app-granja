@@ -78,26 +78,87 @@ export function monthCommitments(rows: CalendarRow[], ym: string, today: string)
   };
 }
 
-export interface SupplierCoverage { supplier_id: string; nombre: string; facturasPendientes: number; saldo: number; noDeterminado: number }
+export interface UnallocatedPaymentRow { financial_operation_id: number; supplier_id: string; effective_date: string; reason: string | null; paid: number; allocated: number; available: number }
+/** Supplier payments (pay_supplier: advances, payments on account) with an amount still free to allocate to an invoice. */
+export async function listUnallocatedPayments(client: SupabaseClient): Promise<UnallocatedPaymentRow[]> {
+  const rows = await readView<UnallocatedPaymentRow>(client, 'fin_supplier_unallocated_payments', (q) => q.order('effective_date').limit(1000));
+  return rows.map((r) => ({ ...r, paid: num(r.paid), allocated: num(r.allocated), available: num(r.available) }));
+}
+
+export interface SupplierPosition {
+  supplier_id: string; nombre: string;
+  /** Σ pending of its invoices, as served (nothing discounted). */
+  facturasPendientes: number;
+  /** Payments already made, free to allocate by hand in Pagos de facturas. */
+  pagosDisponibles: number;
+  /** Own cheques / eCheqs still to be debited, NOT allocated (they will leave the bank; their invoice is not determined). */
+  chequesSinImputar: number;
+  /** Own cheques / eCheqs still to be debited, allocated to an invoice (already excluded from that invoice's pending). */
+  chequesImputados: number;
+  /** The supplier account balance (authority): debt after every payment and issued cheque. */
+  saldo: number;
+  /** Money still to leave for this supplier: the debt (if any) plus the cheques still to be debited. */
+  necesidadNeta: number;
+  /** Invoices pending − balance − free payments − cheques without allocation: account items without an invoice in the calendar. */
+  otros: number;
+}
+const r2 = (n: number) => Math.round(n * 100) / 100;
 /**
- * Per supplier, what the invoices' pending says vs what the supplier account says. When the invoices add up to more than the
- * debt, the difference was paid with payments / cheques NOT allocated to any invoice: it is shown as "not determined" — never
- * assigned to an invoice here.
+ * Per supplier: the invoices' pending (gross, per document) vs the NET need of funds (supplier account balance + own cheques
+ * still to be debited). Free payments and cheques without allocation are shown apart: never assigned to an invoice, never
+ * discounted from one. A cheque counts once: allocated ones are already out of the invoice's pending, and the balance already
+ * excludes every issued cheque. Only suppliers where the two figures differ (or something is free to allocate) are returned.
  */
-export function supplierCoverage(rows: CalendarRow[], balances: readonly Pick<LedgerBalance, 'entity_id' | 'balance'>[]): SupplierCoverage[] {
-  const facturas = new Map<string, { nombre: string; total: number }>();
+export function supplierPositions(rows: CalendarRow[], balances: readonly Pick<LedgerBalance, 'entity_id' | 'balance'>[],
+  unallocated: readonly Pick<UnallocatedPaymentRow, 'supplier_id' | 'available'>[], names: ReadonlyMap<string, string> = new Map()): SupplierPosition[] {
+  const by = new Map<string, SupplierPosition>();
+  const get = (id: string, nombre: string | null) => {
+    let p = by.get(id);
+    if (!p) {
+      p = { supplier_id: id, nombre: nombre ?? names.get(id) ?? '', facturasPendientes: 0, pagosDisponibles: 0, chequesSinImputar: 0, chequesImputados: 0, saldo: 0, necesidadNeta: 0, otros: 0 };
+      by.set(id, p);
+    }
+    if (!p.nombre && nombre) p.nombre = nombre;
+    return p;
+  };
   for (const r of rows) {
-    if (r.item_kind !== 'FACTURA' || !r.supplier_id) continue;
-    const f = facturas.get(r.supplier_id) ?? { nombre: r.supplier_name ?? '', total: 0 };
-    f.total += r.amount;
-    facturas.set(r.supplier_id, f);
+    if (!r.supplier_id) continue;
+    const p = get(r.supplier_id, r.supplier_name);
+    if (r.item_kind === 'FACTURA') p.facturasPendientes += r.amount;
+    else if (r.item_kind === 'CHEQUE' || r.item_kind === 'ECHEQ') {
+      if (r.link_status === 'SIN_IMPUTAR') p.chequesSinImputar += r.amount; else p.chequesImputados += r.amount;
+    }
   }
-  const out: SupplierCoverage[] = [];
-  for (const [id, f] of facturas) {
-    const saldo = Math.round(num(balances.find((b) => b.entity_id === id)?.balance) * 100) / 100;
-    const total = Math.round(f.total * 100) / 100;
-    const noDeterminado = Math.round(Math.max(0, total - Math.max(saldo, 0)) * 100) / 100;
-    if (noDeterminado > 0) out.push({ supplier_id: id, nombre: f.nombre, facturasPendientes: total, saldo, noDeterminado });
+  for (const u of unallocated) get(u.supplier_id, null).pagosDisponibles += u.available;
+  const out: SupplierPosition[] = [];
+  for (const p of by.values()) {
+    p.facturasPendientes = r2(p.facturasPendientes); p.pagosDisponibles = r2(p.pagosDisponibles);
+    p.chequesSinImputar = r2(p.chequesSinImputar); p.chequesImputados = r2(p.chequesImputados);
+    p.saldo = r2(num(balances.find((b) => b.entity_id === p.supplier_id)?.balance));
+    p.necesidadNeta = r2(Math.max(p.saldo, 0) + p.chequesSinImputar + p.chequesImputados);
+    p.otros = r2(p.facturasPendientes - p.saldo - p.pagosDisponibles - p.chequesSinImputar);
+    if (p.pagosDisponibles > 0 || p.chequesSinImputar > 0 || p.otros !== 0) out.push(p);
   }
   return out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+/**
+ * The net need of funds of every commitment in the calendar (not by month: a free payment or a cheque without allocation is
+ * not assigned to any invoice, so it cannot be placed in a month): per supplier its necesidadNeta, plus the pending expenses
+ * without supplier. The gross sum of documents is returned apart, so the two are never confused.
+ */
+export function netFundsNeed(rows: CalendarRow[], balances: readonly Pick<LedgerBalance, 'entity_id' | 'balance'>[],
+  unallocated: readonly Pick<UnallocatedPaymentRow, 'supplier_id' | 'available'>[]): { bruto: number; neto: number; disponibles: number } {
+  const suppliers = new Set<string>();
+  for (const r of rows) if (r.supplier_id) suppliers.add(r.supplier_id);
+  let neto = 0;
+  for (const id of suppliers) {
+    const saldo = num(balances.find((b) => b.entity_id === id)?.balance);
+    const cheques = rows.filter((r) => r.supplier_id === id && (r.item_kind === 'CHEQUE' || r.item_kind === 'ECHEQ')).reduce((t, r) => t + r.amount, 0);
+    neto += Math.max(saldo, 0) + cheques;
+  }
+  neto += rows.filter((r) => r.item_kind === 'GASTO').reduce((t, r) => t + r.amount, 0);
+  const bruto = rows.filter((r) => r.link_status !== 'SIN_IMPUTAR').reduce((t, r) => t + r.amount, 0);
+  const disponibles = unallocated.filter((u) => suppliers.has(u.supplier_id)).reduce((t, u) => t + u.available, 0);
+  return { bruto: r2(bruto), neto: r2(neto), disponibles: r2(disponibles) };
 }

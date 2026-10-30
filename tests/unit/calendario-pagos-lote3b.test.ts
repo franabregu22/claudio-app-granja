@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { TARGET_READ_TABLES, TARGET_RPCS, TARGET_VIEWS } from '../../src/target/db';
 import { messageFor } from '../../src/target/messages';
 import {
-  assignPayableToSupplier, calendarDate, isOverdue, listPaymentCalendar, monthCommitments, setPaymentDate, supplierCoverage, type CalendarRow,
+  assignPayableToSupplier, calendarDate, isOverdue, listPaymentCalendar, listUnallocatedPayments, monthCommitments, netFundsNeed, setPaymentDate, supplierPositions, type CalendarRow,
 } from '../../src/target/paymentCalendar';
 
 const ROOT = resolve(__dirname, '../..');
@@ -47,10 +47,33 @@ describe('Lote 3B — calendar rules (dates are planning, never payments)', () =
     expect([m.confirmado, m.sinImputar, m.totalSinFecha]).toEqual([71000, 10000, 7000]);
     expect(monthCommitments(rows, '2026-12', '2026-11-12').vencidos.map((r) => r.item_id)).toEqual(['f1', 'g2']);
   });
-  it('invoices above the supplier debt: the difference is "not determined", never assigned to an invoice', () => {
-    const rows = [R({ amount: 10000, supplier_id: 's1' }), R({ amount: 31000, supplier_id: 's1' }), R({ amount: 5000, supplier_id: 's2', supplier_name: 'Envases' })];
-    expect(supplierCoverage(rows, [{ entity_id: 's1', balance: 31000 }, { entity_id: 's2', balance: 5000 }]))
-      .toEqual([{ supplier_id: 's1', nombre: 'Molino', facturasPendientes: 41000, saldo: 31000, noDeterminado: 10000 }]);
+  it('advance: the invoice keeps its pending; the advance is shown apart as free to allocate and the net need is the debt', () => {
+    // Envases: invoice 40.500 pending, an advance of 40.000 not allocated → balance 500
+    const rows = [R({ amount: 40500, supplier_id: 's2', supplier_name: 'Envases' })];
+    const [p] = supplierPositions(rows, [{ entity_id: 's2', balance: 500 }], [{ supplier_id: 's2', available: 40000 }]);
+    expect(p).toEqual({ supplier_id: 's2', nombre: 'Envases', facturasPendientes: 40500, pagosDisponibles: 40000, chequesSinImputar: 0, chequesImputados: 0,
+      saldo: 500, necesidadNeta: 500, otros: 0 });
+    expect(rows[0].amount).toBe(40500);   // never discounted from the invoice
+    expect(netFundsNeed(rows, [{ entity_id: 's2', balance: 500 }], [{ supplier_id: 's2', available: 40000 }])).toEqual({ bruto: 40500, neto: 500, disponibles: 40000 });
+  });
+  it('cheques count once: allocated ones are out of the invoice pending, unallocated ones are apart; both still leave the bank', () => {
+    // Molino: invoices 41.000 pending (31.000 + 10.000), eCheq 40.000 allocated (not in the pending), cheque 10.000 without allocation;
+    // balance = 41.000 − 10.000 = 31.000
+    const rows = [
+      R({ item_id: 'f1', amount: 31000 }), R({ item_id: 'f2', amount: 10000 }),
+      R({ item_kind: 'ECHEQ', item_id: 'e1', amount: 40000, link_status: 'IMPUTADO' }),
+      R({ item_kind: 'CHEQUE', item_id: 'c1', amount: 10000, link_status: 'SIN_IMPUTAR' }),
+    ];
+    const [p] = supplierPositions(rows, [{ entity_id: 's1', balance: 31000 }], []);
+    expect([p.facturasPendientes, p.chequesSinImputar, p.chequesImputados, p.saldo, p.otros, p.necesidadNeta]).toEqual([41000, 10000, 40000, 31000, 0, 81000]);
+    // gross by document: 31.000 + 10.000 + 40.000 (the unallocated cheque is NOT added on top of the invoices)
+    expect(netFundsNeed(rows, [{ entity_id: 's1', balance: 31000 }], [])).toEqual({ bruto: 81000, neto: 81000, disponibles: 0 });
+  });
+  it('a supplier whose invoices equal its debt is not listed; a credit balance never makes the net need negative', () => {
+    expect(supplierPositions([R({ amount: 5000 })], [{ entity_id: 's1', balance: 5000 }], [])).toEqual([]);
+    const [p] = supplierPositions([], [{ entity_id: 's3', balance: -2000 }], [{ supplier_id: 's3', available: 2000 }], new Map([['s3', 'Fletes']]));
+    expect([p.nombre, p.pagosDisponibles, p.saldo, p.necesidadNeta, p.otros]).toEqual(['Fletes', 2000, -2000, 0, 0]);
+    expect(netFundsNeed([R({ item_kind: 'GASTO', supplier_id: null, amount: 7000 })], [], []).neto).toBe(7000);
   });
 });
 
@@ -60,9 +83,15 @@ describe('Lote 3B — backend contract (allow-listed, as served)', () => {
     const [r] = await listPaymentCalendar(client);
     expect([r.amount, r.amount_total]).toEqual([31000, 121000]);
     expect(seen[0].url.pathname).toBe('/rest/v1/fin_payment_calendar');
-    expect(TARGET_VIEWS).toContain('fin_payment_calendar');
+    expect(TARGET_VIEWS).toEqual(expect.arrayContaining(['fin_payment_calendar', 'fin_supplier_unallocated_payments']));
     expect(TARGET_READ_TABLES).toContain('purchase_payment_date');
     expect(TARGET_RPCS).toEqual(expect.arrayContaining(['assign_payable_to_supplier', 'set_payment_date']));
+  });
+  it('free payments are read from fin_supplier_unallocated_payments, numbers as served', async () => {
+    const { client, seen } = fetchStub([{ financial_operation_id: 7, supplier_id: 's1', effective_date: '2026-10-22', reason: null, paid: '5000.00', allocated: '3000.00', available: '2000.00' }]);
+    const [u] = await listUnallocatedPayments(client);
+    expect([u.paid, u.allocated, u.available]).toEqual([5000, 3000, 2000]);
+    expect(seen[0].url.pathname).toBe('/rest/v1/fin_supplier_unallocated_payments');
   });
   it('link and dates send exactly the RPC arguments (empty invoice → null; cleared estimated date → null)', async () => {
     const { client, seen } = fetchStub({ replayed: false });
@@ -103,6 +132,16 @@ describe('Lote 3B — screens', () => {
     expect(c).toMatch(/Debitados en el mes \(pagos reales\)/);
     expect(c).toMatch(/<AccionModal action="debit"/);
     expect(c).toMatch(/Obligaciones sin fecha/);
-    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'vencimientos' && <CalendarioPagos \/>\}/);
+    expect(c).toMatch(/Necesidad neta de fondos/);
+    expect(c).toMatch(/Anticipos y diferencias por imputar/);
+    expect(c).toMatch(/Imputar en Pagos de facturas/);
+    expect(c).not.toMatch(/supplierCoverage/);
+    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'vencimientos' && <CalendarioPagos onImputar=\{\(\) => setVista\('pagosfactura'\)\} \/>\}/);
+  });
+  it('Pagos de facturas offers only payments with an amount free to allocate (and never above it); the ficha shows the total', () => {
+    const pf = SRC('features/caja/PagosFacturas.tsx');
+    expect(pf).toMatch(/useUnallocatedPayments\(\)/);
+    expect(pf).toMatch(/Number\(monto\) <= disponible \+ 0\.005/);
+    expect(SRC('features/caja/FichaProveedor.tsx')).toMatch(/Pagos disponibles para imputar a facturas/);
   });
 });

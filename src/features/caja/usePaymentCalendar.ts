@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { assignPayableToSupplier, listPaymentCalendar, listPaymentDateHistory, setPaymentDate, type PaymentDateKind } from '../../target/paymentCalendar';
+import { assignPayableToSupplier, listPaymentCalendar, listUnallocatedPayments, listPaymentDateHistory, setPaymentDate, type PaymentDateKind } from '../../target/paymentCalendar';
 
 /** Lote 3B (0110): every future commitment (invoices, pending expenses, own cheques / eCheqs to be debited). */
 export function usePaymentCalendar() {
   return useQuery({ queryKey: ['treasury', 'payment-calendar'], queryFn: () => listPaymentCalendar(supabase) });
+}
+/** Supplier payments still free to allocate to an invoice (allocated by hand in Pagos de facturas). */
+export function useUnallocatedPayments() {
+  return useQuery({ queryKey: ['treasury', 'unallocated-payments'], queryFn: () => listUnallocatedPayments(supabase) });
 }
 export function usePaymentDateHistory(rootId: string | null) {
   return useQuery({ queryKey: ['treasury', 'payment-dates', rootId], queryFn: () => listPaymentDateHistory(supabase, rootId!), enabled: !!rootId });

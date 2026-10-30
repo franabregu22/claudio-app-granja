@@ -6,6 +6,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { Comprobantes } from './Comprobantes';
 import { FechasPagoModal } from './FechasPago';
+import { useUnallocatedPayments } from './usePaymentCalendar';
 import { useDocumentLinks, usePurchaseAttachments, useSupplierInvoices } from './useInvoicePayments';
 import { useInstruments, useSupplierLedger } from './useTreasury';
 
@@ -39,7 +40,9 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
   const cheques = (instrumentos.data ?? []).filter((i) => (i.direction === 'ISSUED' && i.supplier_id === cuenta.supplier_id) || i.endorsed_to_supplier_id === cuenta.supplier_id);
   const adjuntos = usePurchaseAttachments((facturas.data ?? []).map((f) => f.purchase_id));
   const pdfs = useDocumentLinks('FINANCIAL_INSTRUMENT', cheques.filter((c) => c.direction === 'ISSUED').map((c) => c.id));
-  const error = facturas.error ?? movimientos.error ?? instrumentos.error;
+  const libres = useUnallocatedPayments();
+  const disponible = (libres.data ?? []).filter((p) => p.supplier_id === cuenta.supplier_id).reduce((t, p) => t + p.available, 0);
+  const error = facturas.error ?? movimientos.error ?? instrumentos.error ?? libres.error;
   const [fechas, setFechas] = useState<PurchasePaymentStatusRow | null>(null);
   const hoy = getTodayDate();
 
@@ -51,6 +54,9 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
           : cuenta.balance < 0 ? <>Saldo a favor (anticipo): <b className="text-green-700">{formatoPesos(-cuenta.balance)}</b> — no es un gasto: se descuenta de próximas compras.</>
             : 'Al día: sin deuda ni saldo a favor.'}
       </p>
+      {disponible > 0 && (
+        <p className="mt-1 text-[#6B5D45]">Pagos disponibles para imputar a facturas: <b className="text-green-700">{formatoPesos(disponible)}</b> — no se descuentan solos del pendiente de cada factura; imputalos desde Caja → Pagos de facturas.</p>
+      )}
 
       <Seccion titulo="Facturas y compras">
         {facturas.isLoading ? <p className="text-gray-500">Cargando…</p> : (facturas.data ?? []).length === 0 ? <p className="text-gray-500">Sin compras registradas.</p> : (

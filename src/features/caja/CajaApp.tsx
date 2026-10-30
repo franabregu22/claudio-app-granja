@@ -85,7 +85,7 @@ export function CajaApp() {
           {vista === 'pagar' && <CuentasAPagar />}
           {vista === 'compras' && <Compras />}
           {vista === 'pagosfactura' && <PagosFacturas />}
-          {vista === 'vencimientos' && <CalendarioPagos />}
+          {vista === 'vencimientos' && <CalendarioPagos onImputar={() => setVista('pagosfactura')} />}
           {vista === 'instrumentos' && <Cheques />}
           {vista === 'extractos' && <ExtractosBancarios />}
         </div>

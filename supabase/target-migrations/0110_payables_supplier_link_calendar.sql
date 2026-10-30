@@ -271,3 +271,17 @@ CREATE VIEW fin_payment_calendar WITH (security_invoker = true) AS
 ALTER VIEW fin_payment_calendar OWNER TO postgres;
 REVOKE ALL ON fin_payment_calendar FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON fin_payment_calendar TO authenticated;
+
+-- ── 4. supplier payments still free to allocate (owner, Lote 3B final adjustments) ──
+-- A SUPPLIER_PAYMENT (pay_supplier: advances, payments on account) minus what is already allocated to invoices. Shown apart in the
+-- calendar and allocated by hand in Pagos de facturas (allocate_purchase_payment); never discounted from an invoice here.
+CREATE VIEW fin_supplier_unallocated_payments WITH (security_invoker = true) AS
+  SELECT x.financial_operation_id, x.supplier_id, x.effective_date, x.reason, x.paid, x.allocated, x.paid - x.allocated AS available
+    FROM (SELECT o.id AS financial_operation_id, o.source_entity_id AS supplier_id, o.effective_date, o.reason,
+                 coalesce((SELECT -sum(p.signed_amount) FROM financial_posting p WHERE p.financial_operation_id = o.id), 0) AS paid,
+                 coalesce((SELECT sum(a.amount) FROM purchase_payment_allocation a WHERE a.financial_operation_id = o.id), 0) AS allocated
+            FROM financial_operation o WHERE o.operation_type::text = 'SUPPLIER_PAYMENT') x
+   WHERE x.paid - x.allocated > 0;
+ALTER VIEW fin_supplier_unallocated_payments OWNER TO postgres;
+REVOKE ALL ON fin_supplier_unallocated_payments FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON fin_supplier_unallocated_payments TO authenticated;

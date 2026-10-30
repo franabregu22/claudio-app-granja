@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
-import { calendarDate, isOverdue, monthCommitments, supplierCoverage, type CalendarItemKind, type CalendarRow } from '../../target/paymentCalendar';
+import { calendarDate, isOverdue, monthCommitments, netFundsNeed, supplierPositions, type CalendarItemKind, type CalendarRow } from '../../target/paymentCalendar';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { AccionModal } from './Cheques';
 import { Comprobantes } from './Comprobantes';
 import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { useDebitedInstruments, useDocumentLinks } from './useInvoicePayments';
-import { usePaymentCalendar } from './usePaymentCalendar';
+import { usePaymentCalendar, useUnallocatedPayments } from './usePaymentCalendar';
 import { useLedgerBalances } from './useTreasury';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -27,17 +27,22 @@ const suma = (xs: CalendarRow[]) => xs.reduce((t, x) => t + x.amount, 0);
  * the due date only. Kept apart: cheques WITHOUT allocation (their invoice is not determined, never matched here), obligations
  * without a date, and the instruments debited in the month (REAL movements, not commitments). No date ever moves money: the
  * bank moves only with "Marcar debitado"; an invoice or expense is paid from Cuentas a pagar.
+ * The month shows each document's pending (gross). The NET need of funds (supplier balance + cheques still to be debited +
+ * pending expenses) is shown apart, with the payments free to allocate (advances) and the differences per supplier: an advance
+ * is never discounted from a specific invoice here — it is allocated by hand in Pagos de facturas (onImputar).
  */
-export function CalendarioPagos() {
+export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
   const hoy = getTodayDate();
   const [mes, setMes] = useState(hoy.slice(0, 7));
   const calendario = usePaymentCalendar();
   const saldos = useLedgerBalances('SUPPLIER');
+  const libres = useUnallocatedPayments();
   const debitados = useDebitedInstruments(mes);
   const filas = calendario.data ?? [];
   const m = monthCommitments(filas, mes, hoy);
   const docs = useDocumentLinks('FINANCIAL_INSTRUMENT', filas.filter(esInstrumento).map((r) => r.item_id));
-  const cobertura = supplierCoverage(filas, saldos.data ?? []);
+  const posiciones = supplierPositions(filas, saldos.data ?? [], libres.data ?? []);
+  const neto = netFundsNeed(filas, saldos.data ?? [], libres.data ?? []);
   const [debitar, setDebitar] = useState<CalendarRow | null>(null);
   const [fechas, setFechas] = useState<CalendarRow | null>(null);
 
@@ -48,7 +53,7 @@ export function CalendarioPagos() {
   for (const r of m.enMes) { const d = Number(calendarDate(r)!.slice(8, 10)); porDia.set(d, [...(porDia.get(d) ?? []), r]); }
   const mover = (delta: number) => { const d = new Date(Date.UTC(y, mm - 1 + delta, 1)); setMes(d.toISOString().slice(0, 7)); };
   const totalDebitado = (debitados.data ?? []).reduce((t, d) => t + d.amount, 0);
-  const error = calendario.error ?? saldos.error ?? debitados.error;
+  const error = calendario.error ?? saldos.error ?? debitados.error ?? libres.error;
 
   const Fila = ({ r }: { r: CalendarRow }) => (
     <li className={`bg-white border rounded px-2 py-1.5 flex flex-wrap items-center gap-2 text-sm ${isOverdue(r, hoy) ? 'border-red-300' : 'border-[#E4DCC8]'}`}>
@@ -93,13 +98,19 @@ export function CalendarioPagos() {
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm">
         <div className="bg-white rounded-lg border border-[#E4DCC8] p-2"><p className="text-xs text-[#8A7A5C]">Compromisos del mes</p><b className="text-amber-900">{formatoPesos(m.confirmado)}</b>
-          <p className="text-[11px] text-gray-500">facturas, gastos y cheques imputados</p></div>
+          <p className="text-[11px] text-gray-500">pendiente por documento: facturas, gastos y cheques imputados</p></div>
         <div className="bg-white rounded-lg border border-[#E4DCC8] p-2"><p className="text-xs text-[#8A7A5C]">Cheques sin imputar del mes</p><b className="text-sky-900">{formatoPesos(m.sinImputar)}</b>
           <p className="text-[11px] text-gray-500">vinculación a factura no determinada</p></div>
         <div className="bg-white rounded-lg border border-[#E4DCC8] p-2"><p className="text-xs text-[#8A7A5C]">Sin fecha</p><b className="text-[#6B5D45]">{formatoPesos(m.totalSinFecha)}</b>
           <p className="text-[11px] text-gray-500">{m.sinFecha.length} obligación(es)</p></div>
         <div className="bg-white rounded-lg border border-[#E4DCC8] p-2"><p className="text-xs text-[#8A7A5C]">Debitado en el mes (real)</p><b className="text-green-800">{formatoPesos(totalDebitado)}</b>
           <p className="text-[11px] text-gray-500">movimientos de banco, no compromisos</p></div>
+      </div>
+      <div className="bg-white rounded-lg border border-[#E4DCC8] p-2 text-sm flex flex-wrap gap-x-6 gap-y-1" aria-label="Necesidad neta de fondos">
+        <span><span className="text-xs text-[#8A7A5C]">Pendiente por documentos (todas las fechas) </span><b>{formatoPesos(neto.bruto)}</b></span>
+        <span><span className="text-xs text-[#8A7A5C]">Necesidad neta de fondos </span><b className="text-amber-900">{formatoPesos(neto.neto)}</b></span>
+        <span><span className="text-xs text-[#8A7A5C]">Pagos disponibles para imputar </span><b className="text-green-800">{formatoPesos(neto.disponibles)}</b></span>
+        <p className="w-full text-[11px] text-gray-500">Neta = deuda en cuenta corriente de cada proveedor + cheques y eCheqs a debitar + gastos sin proveedor. No se reparte por mes: los anticipos y cheques sin imputar no se asignan a ninguna factura.</p>
       </div>
       <p className="text-xs text-[#8A7A5C]">Previsto, no pagado: ninguna fecha registra un pago. Cada compromiso aparece en su fecha estimada de pago o, si no tiene, en su vencimiento; “vencido” se decide solo por el vencimiento.</p>
 
@@ -132,18 +143,37 @@ export function CalendarioPagos() {
             <Lista titulo="Obligaciones sin fecha" xs={m.sinFecha} vacio="Todas las obligaciones tienen fecha."
               nota="Cargá su vencimiento o una fecha estimada de pago con “Fechas” para ubicarlas en el calendario." />
 
-            {cobertura.length > 0 && (
+            {posiciones.length > 0 && (
               <section>
-                <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-1">Pagos o cheques sin imputar a una factura</p>
-                <ul className="text-sm space-y-1">
-                  {cobertura.map((c) => (
-                    <li key={c.supplier_id} className="bg-white border border-[#E4DCC8] rounded px-2 py-1.5">
-                      <b>{c.nombre}</b>: facturas pendientes {formatoPesos(c.facturasPendientes)}, deuda en cuenta corriente {formatoPesos(Math.max(c.saldo, 0))}.
-                      {' '}{formatoPesos(c.noDeterminado)} ya se pagaron o se cubrieron con cheques sin imputar: no se determina a qué factura corresponden
-                      (imputalos desde Pagos de facturas).
-                    </li>
-                  ))}
-                </ul>
+                <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-1">Anticipos y diferencias por imputar</p>
+                <p className="text-xs text-[#8A7A5C] mb-1">El pendiente de cada factura no se descuenta solo: los pagos disponibles y los cheques sin imputar se imputan a mano en Pagos de facturas.</p>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm bg-white border border-[#E4DCC8] rounded">
+                    <thead><tr className="text-xs text-[#8A7A5C] text-left">
+                      <th className="px-2 py-1">Proveedor</th><th className="px-2 py-1 text-right">Facturas pendientes</th><th className="px-2 py-1 text-right">Pagos disponibles para imputar</th>
+                      <th className="px-2 py-1 text-right">Cheques sin imputar</th><th className="px-2 py-1 text-right">Otros sin factura</th>
+                      <th className="px-2 py-1 text-right">Saldo cuenta corriente</th><th className="px-2 py-1 text-right">Necesidad neta</th><th className="px-2 py-1" />
+                    </tr></thead>
+                    <tbody>
+                      {posiciones.map((p) => (
+                        <tr key={p.supplier_id} className="border-t border-[#E4DCC8]">
+                          <td className="px-2 py-1 font-semibold">{p.nombre || 'Proveedor'}</td>
+                          <td className="px-2 py-1 text-right">{formatoPesos(p.facturasPendientes)}</td>
+                          <td className="px-2 py-1 text-right text-green-800">{formatoPesos(p.pagosDisponibles)}</td>
+                          <td className="px-2 py-1 text-right text-sky-900">{formatoPesos(p.chequesSinImputar)}</td>
+                          <td className="px-2 py-1 text-right" title="Movimientos de la cuenta corriente sin una factura pendiente en el calendario (saldos iniciales, notas de crédito o débito)">{formatoPesos(p.otros)}</td>
+                          <td className="px-2 py-1 text-right">{p.saldo < 0 ? `${formatoPesos(-p.saldo)} a favor` : formatoPesos(p.saldo)}</td>
+                          <td className="px-2 py-1 text-right font-bold text-amber-900">{formatoPesos(p.necesidadNeta)}</td>
+                          <td className="px-2 py-1 text-right">
+                            {(p.pagosDisponibles > 0 || p.chequesSinImputar > 0) && onImputar
+                              && <button type="button" onClick={onImputar} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50 whitespace-nowrap">Imputar en Pagos de facturas</button>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">Facturas pendientes = saldo + pagos disponibles + cheques sin imputar + otros. Necesidad neta = deuda (si hay) + cheques y eCheqs a debitar, imputados o no.</p>
               </section>
             )}
 
