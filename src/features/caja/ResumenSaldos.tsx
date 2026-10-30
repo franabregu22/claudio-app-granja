@@ -9,17 +9,17 @@ import type { TransferHistoryRow } from '../../target/treasury';
 import { CuentaDetalle } from './CuentaDetalle';
 import { campo, etiqueta, Modal } from './Modal';
 import { SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './MovimientoMp';
-import { TarjetaPendientes } from './PendientesClasificar';
 import { useClassifyMp, useConfirmPayoutTransfer } from './useMpActivity';
 import { useBankTaxPeriods, useLedgerBalances, useTransfers, useTreasuryMutations } from './useTreasury';
 
 const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', EXTERNAL_SERVICE: 'Servicio externo' };
 
 /**
- * Account balances (F27-D): the latest closing balance of each account in report_balance_period (Σ financial_posting).
- * An active account with no posting yet shows "Sin movimientos"; no balance is computed here.
+ * Account balances (F27-D; Lote 3C: cards): the latest closing balance of each account in report_balance_period (Σ financial_posting).
+ * An active account with no posting yet shows "Sin movimientos"; no balance is computed here. Selecting a card opens its movements
+ * (CuentaDetalle) below the grid. The pending classifications live in their own tabs (Pendientes de clasificar / Entradas sin vincular).
  */
-export function ResumenSaldos({ onVerPendientes }: { onVerPendientes?: () => void } = {}) {
+export function ResumenSaldos() {
   const cuentas = useFinancialAccounts();
   const saldos = useLedgerBalances('ACCOUNT');
   const [transfiriendo, setTransfiriendo] = useState(false);
@@ -29,39 +29,42 @@ export function ResumenSaldos({ onVerPendientes }: { onVerPendientes?: () => voi
   const error = cuentas.error ?? saldos.error;
   if (error) return <p className="text-sm text-red-700">{errorMessage(error)}</p>;
 
+  const lista = cuentas.data ?? [];
   const porCuenta = new Map((saldos.data ?? []).map((s) => [s.entity_id, s]));
+  const c = lista.find((x) => x.id === abierta);
   return (
-    <>
-    {onVerPendientes && <TarjetaPendientes onAbrir={onVerPendientes} />}
-    <div className="bg-white rounded-lg border border-[#E4DCC8] p-4">
-      <div className="space-y-2">
-        {(cuentas.data ?? []).map((c) => {
-          const s = porCuenta.get(c.id);
-          return (
-            <button key={c.id} onClick={() => setAbierta(abierta === c.id ? null : c.id)} aria-expanded={abierta === c.id}
-              className={`w-full flex items-center justify-between text-sm rounded px-1 py-0.5 hover:bg-amber-50 ${abierta === c.id ? 'bg-amber-50' : ''}`}>
-              <span className="text-[#2C2419] font-medium">{c.nombre} <span className="text-xs text-[#8A7A5C]">· {TIPO[c.account_type] ?? c.account_type}</span></span>
-              {s ? <span className={`font-bold ${s.balance < 0 ? 'text-red-700' : 'text-[#2C2419]'}`}>{formatoPesos(s.balance)}</span>
-                : <span className="text-xs text-[#8A7A5C]">Sin movimientos</span>}
-            </button>
-          );
-        })}
-        {(cuentas.data ?? []).length === 0 && <p className="text-sm text-[#8A7A5C]">No hay cuentas activas. Crealas en Administración.</p>}
-        {(cuentas.data ?? []).length > 0 && !abierta && <p className="text-xs text-[#8A7A5C]">Tocá una cuenta para ver sus movimientos.</p>}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-[#8A7A5C]">{lista.length > 0 && !abierta ? 'Tocá una cuenta para ver sus movimientos.' : 'Saldo registrado en el ERP por cuenta.'}</p>
+        <button onClick={() => setTransfiriendo(true)} disabled={lista.length < 2}
+          className="flex items-center gap-2 text-sm px-3 py-2 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200 disabled:opacity-50">
+          <ArrowLeftRight className="w-4 h-4" /> Transferir entre cuentas
+        </button>
       </div>
-      {(() => {
-        const c = (cuentas.data ?? []).find((x) => x.id === abierta);
-        return c ? <CuentaDetalle key={c.id} cuenta={c} saldo={porCuenta.get(c.id)?.balance ?? null} onClose={() => setAbierta(null)} /> : null;
-      })()}
-      <button onClick={() => setTransfiriendo(true)} disabled={(cuentas.data ?? []).length < 2}
-        className="mt-4 flex items-center gap-2 text-sm px-3 py-2 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200 disabled:opacity-50">
-        <ArrowLeftRight className="w-4 h-4" /> Transferir entre cuentas
-      </button>
+      {lista.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay cuentas activas. Crealas en Administración.</p> : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" aria-label="Cuentas">
+          {lista.map((x) => {
+            const s = porCuenta.get(x.id);
+            const activa = abierta === x.id;
+            return (
+              <button key={x.id} type="button" onClick={() => setAbierta(activa ? null : x.id)} aria-expanded={activa}
+                className={`text-left rounded-lg border p-4 hover:border-[#A8552E] ${activa ? 'border-[#A8552E] ring-1 ring-[#A8552E] bg-amber-50' : 'bg-white border-[#E4DCC8]'}`}>
+                <p className="font-semibold text-[#2C2419] truncate">{x.nombre}</p>
+                <p className="text-xs text-[#8A7A5C]">{TIPO[x.account_type] ?? x.account_type}</p>
+                {s ? <p className={`mt-2 text-xl font-bold ${s.balance < 0 ? 'text-red-700' : 'text-[#2C2419]'}`}>{formatoPesos(s.balance)}</p>
+                  : <p className="mt-2 text-sm text-[#8A7A5C]">Sin movimientos</p>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {c && <CuentaDetalle key={c.id} cuenta={c} saldo={porCuenta.get(c.id)?.balance ?? null} onClose={() => setAbierta(null)} />}
       {transfiriendo && <TransferenciaModal onClose={() => setTransfiriendo(false)} />}
-      <HistorialTransferencias />
-      <ImpuestoPorPeriodo />
+      <div className="bg-white rounded-lg border border-[#E4DCC8] p-4">
+        <HistorialTransferencias />
+        <ImpuestoPorPeriodo />
+      </div>
     </div>
-    </>
   );
 }
 
@@ -73,7 +76,7 @@ function HistorialTransferencias() {
   if (transferencias.error) return <p className="mt-4 text-sm text-red-700">{errorMessage(transferencias.error)}</p>;
   const filas = transferencias.data ?? [];
   return (
-    <div className="mt-6">
+    <div>
       <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Transferencias</p>
       {filas.length === 0 && <p className="text-sm text-[#8A7A5C]">No hay transferencias registradas.</p>}
       <div className="space-y-2">

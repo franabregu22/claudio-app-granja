@@ -77,7 +77,7 @@ export function CajaApp() {
           </nav>
         </header>
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
-          {vista === 'saldos' && <ResumenSaldos onVerPendientes={() => setVista('pendientes')} />}
+          {vista === 'saldos' && <ResumenSaldos />}
           {vista === 'sinclasificar' && <GastosSinClasificar onVerPendientesMp={() => setVista('pendientes')} />}
           {vista === 'pendientes' && <PendientesClasificar />}
           {vista === 'entradas' && <EntradasSinVincular />}

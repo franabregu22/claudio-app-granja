@@ -133,13 +133,15 @@ describe('ADR-021 — activity and classification routes', () => {
     expect(mpOutflowCandidates(ACT, MATCH).map((c) => [c.sourceId, c.amount])).toEqual([['183240248717', 130889.55], ['184280177388', 67637.45]]);
     expect(mpOwnPayoutCandidates(ACT, MATCH, 'bna').map((c) => c.sourceId)).toEqual(['900']);
   });
-  it('Caja: Pendientes (mandatory, current / historical apart, paginated), Entradas sin vincular (optional), the Saldos card from the server summary', () => {
+  it('Caja: Pendientes (mandatory, current / historical apart, paginated, with their server totals), Entradas sin vincular (optional); no card on Saldos (Lote 3C)', () => {
     const app = SRC('features/caja/CajaApp.tsx');
     expect(app).toMatch(/\{ id: 'pendientes', label: 'Pendientes de clasificar' \}/);
     expect(app).toMatch(/\{ id: 'entradas', label: 'Entradas sin vincular' \}/);
-    expect(app).toMatch(/<ResumenSaldos onVerPendientes=\{\(\) => setVista\('pendientes'\)\} \/>/);
+    expect(app).toMatch(/\{vista === 'saldos' && <ResumenSaldos \/>\}/);
+    expect(SRC('features/caja/ResumenSaldos.tsx')).not.toMatch(/TarjetaPendientes|usePendingSummary|from '\.\/PendientesClasificar'/);
     const v = SRC('features/caja/PendientesClasificar.tsx');
-    expect(v).toMatch(/Pendientes de clasificar: \{s\.count\} · \{formatoPesos\(s\.outgoing\)\}/);
+    expect(v).toMatch(/total=\{resumen\.data\?\.PENDING_CURRENT\}/);
+    expect(v).toMatch(/total=\{resumen\.data\?\.PENDING_HISTORICAL\}/);
     expect(v).toMatch(/Todo clasificado/);
     expect(v).toMatch(/<ListaPendientes scope="current"/);
     expect(v).toMatch(/<ListaPendientes scope="historical"/);

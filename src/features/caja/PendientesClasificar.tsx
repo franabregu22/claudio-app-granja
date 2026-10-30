@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import { isMercadoPagoAccount, type MpActivityRow, type MpPayoutMatch } from '../../target/mpActivity';
 import {
-  DESTINATION_STATUS_LABEL, HISTORICAL_ACTION, type MpWhatsappNote, whatsappNoteText, HISTORICAL_PENDING_NOTE, mandatoryPending, maskedAccount, PAGE_SIZE, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL,
+  DESTINATION_STATUS_LABEL, HISTORICAL_ACTION, type MpWhatsappNote, whatsappNoteText, HISTORICAL_PENDING_NOTE, maskedAccount, PAGE_SIZE, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL,
   type PendingRow, type PendingScope, TECHNICAL_ISSUE_LABEL, type TechnicalRow,
 } from '../../target/pendingClassification';
 import { formatearFechaLocal } from '../../utils/dateUtils';
@@ -20,29 +20,6 @@ const hora = (ts: string | null) => (ts ? new Date(ts).toLocaleTimeString('es-AR
 function useMpAccountId(): string {
   const cuentas = useFinancialAccounts();
   return (cuentas.data ?? []).find((a) => isMercadoPagoAccount(a))?.id ?? '';
-}
-
-/**
- * Caja → Saldos: the pending-classification card. Mandatory outflows only (ADR-023), counted by the server. The totals are NOT a
- * balance difference — the outflows are already in the balance (ADR-021). Unlinked inflows are informational, never an alert.
- */
-export function TarjetaPendientes({ onAbrir }: { onAbrir: () => void }) {
-  const resumen = usePendingSummary();
-  if (resumen.isLoading || resumen.error || !resumen.data) return null;
-  const s = mandatoryPending(resumen.data);
-  const sinVincular = resumen.data.UNLINKED_CURRENT.count;
-  if (s.count === 0) {
-    return <div className="bg-green-50 border border-green-200 text-green-900 rounded-lg px-4 py-2 text-sm mb-3" role="status">Todo clasificado</div>;
-  }
-  return (
-    <button type="button" onClick={onAbrir} className="w-full text-left bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 mb-3 hover:bg-amber-100">
-      <p className="font-semibold text-amber-900">Pendientes de clasificar: {s.count} · {formatoPesos(s.outgoing)}</p>
-      <p className="text-xs text-amber-800 mt-0.5">
-        Actuales {s.current} · Históricos {s.historical} — las salidas ya están incluidas en el saldo.
-      </p>
-      {sinVincular > 0 && <p className="text-xs text-[#8A7A5C] mt-0.5">Entradas sin vincular: {sinVincular} (opcional)</p>}
-    </button>
-  );
 }
 
 /**
