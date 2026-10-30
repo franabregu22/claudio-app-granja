@@ -259,6 +259,11 @@ expect('H-4 allocating 3.000 of it to invoice B-0001-00000042 by hand (allocate_
 expect('H-5 2.000 stay free; that invoice now pends 7.000, the other is untouched',
   `(${UNALLOC(SA)} || '|' || ${CAL(`supplier_id = '${SA}' AND item_kind = 'FACTURA'`, `document_number || ':' || amount`)})`,
   '5000.00/3000.00/2000.00|B-0001-00000042:7000.00;0003-00001:31000.00');
+add(`INSERT INTO suppliers (id, nombre) VALUES ('${SX.replace('c3', 'd4')}', 'Proveedor 0110 D');
+INSERT INTO supplier_ledger (supplier_id, movement_type, signed_amount, effective_date, reason) VALUES ('${SX.replace('c3', 'd4')}', 'OPENING_BALANCE', 25000, '2026-10-01', 'deuda inicial');`);
+expect('H-7 a supplier in debt with nothing in the calendar is served by report_balance_period (the net need source) and absent from the calendar',
+  `(${as('authenticated', ADMIN, `SELECT (SELECT closing_balance FROM report_balance_period WHERE ledger = 'SUPPLIER' AND entity_id = '${SX.replace('c3', 'd4')}' ORDER BY period DESC LIMIT 1)::text`)} || '|' || ${CAL(`supplier_id = '${SX.replace('c3', 'd4')}'`, 'item_kind')})`,
+  'OK:25000.00|none');
 expect('H-6 OPERATOR reads no free payment (RLS: 0 rows)',
   as('authenticated', OPER, `SELECT (SELECT count(*) FROM fin_supplier_unallocated_payments)::text`), 'OK:0');
 

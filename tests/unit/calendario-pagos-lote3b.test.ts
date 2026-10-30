@@ -54,7 +54,7 @@ describe('Lote 3B — calendar rules (dates are planning, never payments)', () =
     expect(p).toEqual({ supplier_id: 's2', nombre: 'Envases', facturasPendientes: 40500, pagosDisponibles: 40000, chequesSinImputar: 0, chequesImputados: 0,
       saldo: 500, necesidadNeta: 500, otros: 0 });
     expect(rows[0].amount).toBe(40500);   // never discounted from the invoice
-    expect(netFundsNeed(rows, [{ entity_id: 's2', balance: 500 }], [{ supplier_id: 's2', available: 40000 }])).toEqual({ bruto: 40500, neto: 500, disponibles: 40000 });
+    expect(netFundsNeed(rows, [{ entity_id: 's2', balance: 500 }], [{ supplier_id: 's2', available: 40000 }])).toEqual({ bruto: 40500, neto: 500, deudaProveedores: 500, chequesPorDebitar: 0, gastosSinProveedor: 0, disponibles: 40000 });
   });
   it('cheques count once: allocated ones are out of the invoice pending, unallocated ones are apart; both still leave the bank', () => {
     // Molino: invoices 41.000 pending (31.000 + 10.000), eCheq 40.000 allocated (not in the pending), cheque 10.000 without allocation;
@@ -67,7 +67,37 @@ describe('Lote 3B — calendar rules (dates are planning, never payments)', () =
     const [p] = supplierPositions(rows, [{ entity_id: 's1', balance: 31000 }], []);
     expect([p.facturasPendientes, p.chequesSinImputar, p.chequesImputados, p.saldo, p.otros, p.necesidadNeta]).toEqual([41000, 10000, 40000, 31000, 0, 81000]);
     // gross by document: 31.000 + 10.000 + 40.000 (the unallocated cheque is NOT added on top of the invoices)
-    expect(netFundsNeed(rows, [{ entity_id: 's1', balance: 31000 }], [])).toEqual({ bruto: 81000, neto: 81000, disponibles: 0 });
+    expect(netFundsNeed(rows, [{ entity_id: 's1', balance: 31000 }], [])).toEqual({ bruto: 81000, neto: 81000, deudaProveedores: 31000, chequesPorDebitar: 50000, gastosSinProveedor: 0, disponibles: 0 });
+  });
+  it('net need reconciles with supplier_ledger + pending instruments + pending expenses, including a supplier with nothing in the calendar', () => {
+    // s1 Molino: invoice 121.000 with an eCheq 40.000 allocated (partial) → pending 81.000; a cheque 10.000 without allocation;
+    //            ledger 121.000 − 40.000 − 10.000 = 71.000
+    // s2 Envases: invoice 40.500 pending, advance 40.000 free → ledger 500
+    // s4 Fletes: opening debt 25.000, no invoice, no cheque, no date → only in supplier_ledger
+    // s5 Silos: credit balance −3.000 (advance, nothing pending) → counts 0, never negative
+    // pending expense without supplier 7.000
+    const rows = [
+      R({ item_id: 'f1', amount: 81000, amount_total: 121000 }),
+      R({ item_kind: 'ECHEQ', item_id: 'e1', amount: 40000, link_status: 'IMPUTADO' }),
+      R({ item_kind: 'CHEQUE', item_id: 'c1', amount: 10000, link_status: 'SIN_IMPUTAR' }),
+      R({ item_id: 'f2', amount: 40500, supplier_id: 's2', supplier_name: 'Envases' }),
+      R({ item_kind: 'GASTO', item_id: 'g1', supplier_id: null, supplier_name: null, amount: 7000 }),
+    ];
+    const ledger = [{ entity_id: 's1', entity_name: 'Molino', balance: 71000 }, { entity_id: 's2', entity_name: 'Envases', balance: 500 },
+      { entity_id: 's4', entity_name: 'Fletes', balance: 25000 }, { entity_id: 's5', entity_name: 'Silos', balance: -3000 }];
+    const libres = [{ supplier_id: 's2', available: 40000 }, { supplier_id: 's5', available: 3000 }];
+    const n = netFundsNeed(rows, ledger, libres);
+    expect(n).toEqual({ bruto: 168500, neto: 153500, deudaProveedores: 96500, chequesPorDebitar: 50000, gastosSinProveedor: 7000, disponibles: 43000 });
+    // money still to leave = ledger debts (71.000 + 500 + 25.000) + cheques to debit (40.000 + 10.000) + expense 7.000 — each cheque once
+    expect(n.neto).toBe(71000 + 500 + 25000 + 40000 + 10000 + 7000);
+    const pos = supplierPositions(rows, ledger, libres);
+    const fletes = pos.find((p) => p.supplier_id === 's4')!;
+    expect([fletes.nombre, fletes.facturasPendientes, fletes.saldo, fletes.otros, fletes.necesidadNeta]).toEqual(['Fletes', 0, 25000, -25000, 25000]);
+    const molino = pos.find((p) => p.supplier_id === 's1')!;
+    expect([molino.facturasPendientes, molino.chequesSinImputar, molino.chequesImputados, molino.otros, molino.necesidadNeta]).toEqual([81000, 10000, 40000, 0, 121000]);
+    // Σ per-supplier net need + expenses = global net need
+    expect(pos.reduce((t, p) => t + p.necesidadNeta, 0) + n.gastosSinProveedor).toBe(n.neto);
+    expect(rows.find((r) => r.item_id === 'f2')!.amount).toBe(40500);   // the advance is never discounted from the invoice
   });
   it('a supplier whose invoices equal its debt is not listed; a credit balance never makes the net need negative', () => {
     expect(supplierPositions([R({ amount: 5000 })], [{ entity_id: 's1', balance: 5000 }], [])).toEqual([]);

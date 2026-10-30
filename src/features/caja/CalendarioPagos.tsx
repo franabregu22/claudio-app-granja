@@ -110,7 +110,7 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
         <span><span className="text-xs text-[#8A7A5C]">Pendiente por documentos (todas las fechas) </span><b>{formatoPesos(neto.bruto)}</b></span>
         <span><span className="text-xs text-[#8A7A5C]">Necesidad neta de fondos </span><b className="text-amber-900">{formatoPesos(neto.neto)}</b></span>
         <span><span className="text-xs text-[#8A7A5C]">Pagos disponibles para imputar </span><b className="text-green-800">{formatoPesos(neto.disponibles)}</b></span>
-        <p className="w-full text-[11px] text-gray-500">Neta = deuda en cuenta corriente de cada proveedor + cheques y eCheqs a debitar + gastos sin proveedor. No se reparte por mes: los anticipos y cheques sin imputar no se asignan a ninguna factura.</p>
+        <p className="w-full text-[11px] text-gray-500">Neta = deuda de todos los proveedores con saldo deudor {formatoPesos(neto.deudaProveedores)} + cheques y eCheqs a debitar {formatoPesos(neto.chequesPorDebitar)} + gastos sin proveedor {formatoPesos(neto.gastosSinProveedor)}. Los anticipos ya están dentro del saldo. No se reparte por mes: los anticipos y cheques sin imputar no se asignan a ninguna factura.</p>
       </div>
       <p className="text-xs text-[#8A7A5C]">Previsto, no pagado: ninguna fecha registra un pago. Cada compromiso aparece en su fecha estimada de pago o, si no tiene, en su vencimiento; “vencido” se decide solo por el vencimiento.</p>
 
