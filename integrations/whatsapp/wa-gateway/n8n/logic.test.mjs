@@ -151,3 +151,52 @@ test('L-10 "Confirmar sin clasificar": route, buttons only when the subcategory 
   assert.equal(WA.compose({ to: '1', request: { action: 'confirm', draft_id: D } }, 422, { ok: false, error: { code: 'WA_UNCLASSIFIED_NOT_ALLOWED' } }, null, CFG).graph.text.body,
     'Ese borrador ya tiene subcategoría: usá el botón Confirmar del último resumen.');
 });
+
+// ── Lote 4 (0111): Mercado Pago confirmed without the operation number; the invoice details asked before any confirmation ──
+const WAR4 = new Function(readFileSync(new URL('./receipt.js', import.meta.url), 'utf8') + '\nreturn WAR;')();
+const WAI4 = new Function('WAR', readFileSync(new URL('./interpreter.js', import.meta.url), 'utf8') + '\nreturn WAI;')(WAR4);
+const ctx4 = { to: '5491155551234', request: { action: 'confirm', draft_id: D, expected_version: 1 } };
+
+test('L4-L1 a Mercado Pago expense confirmed without its movement: pending link, no number asked, no money moved', () => {
+  const r = { ok: true, draft_id: D, short_code: 'W-0012', state: 'CONFIRMED', mp_link_pending: true,
+    result: { mp_link_pending: true, financial_effect: 'NONE', amount: 70637.06, status: 'PENDIENTE_VINCULACION_MP' } };
+  const c = WA.compose(ctx4, 200, { result: r }, { open: { draft_id: D }, waiting: [] }, CFG);
+  assert.match(c.graph.text.body, /PENDIENTE DE VINCULAR/);
+  assert.match(c.graph.text.body, /no hace falta el número de operación/);
+  assert.doesNotMatch(c.graph.text.body, /mp <número/);
+  assert.equal(c.state.open, null);
+});
+
+test('L4-L2 a draft paid with Mercado Pago is confirmable (Confirmar button) and says it links later; never "Registrar sin clasif" while unlinked', () => {
+  const p = { total: 500, concept: 'Gasoil', category_id: 'c9', method: 'MERCADOPAGO', account_id: 'acc-mp', mp_link_pending: true, date: '2026-10-22' };
+  const ok = WA.compose({ to: '1', request: { action: 'propose' } }, 200, { result: { ok: true, draft_id: D, short_code: 'W-0012', version: 1, state: 'DRAFT', payload: p } }, null, CFG);
+  assert.equal(ok.graph.interactive.action.buttons[0].reply.id, 'CONFIRM:' + D + ':1');
+  assert.match(ok.graph.interactive.body.text, /se vincula después en el ERP/);
+  const onlyCat = { ...p, category_id: undefined, category_pending: true, category_options: [] };
+  const c = WA.compose({ to: '1', request: { action: 'propose' } }, 200, { result: { ok: true, draft_id: D, short_code: 'W-0012', version: 1, state: 'DRAFT', payload: onlyCat } }, null, CFG);
+  assert.equal(c.graph.type, 'text');   // the subcategory is asked; no UNCLASSIFIED button without the linked outflow
+});
+
+test('L4-L3 receiver / issuer CUIT pending: asked, no confirm button; the database refusal is explained', () => {
+  const p = { total: 70637.06, concept: 'Gasoil', category_id: 'c9', method: 'CASH', account_id: 'acc-cash', date: '2026-10-24', vat_receiver_pending: true, issuer_cuit_pending: true,
+    fiscal_pending: { components: [] }, receipt: { document_type: 'INVOICE_A', iva: [{ rate: 21, amount: 11647.14 }], other_taxes: [] } };
+  const c = WA.compose({ to: '1', request: { action: 'propose' } }, 200, { result: { ok: true, draft_id: D, short_code: 'W-0013', version: 1, state: 'DRAFT', payload: p } }, null, CFG);
+  assert.equal(c.graph.type, 'text');
+  assert.match(c.graph.text.body, /a nombre de Santo Tomás/);
+  assert.match(c.graph.text.body, /CUIT del emisor/);
+  for (const code of ['WA_RECEIVER_REQUIRED', 'WA_ISSUER_CUIT_REQUIRED']) {
+    const e = WA.compose(ctx4, 422, { error: { code } }, null, CFG);
+    assert.doesNotMatch(e.graph.text.body, /No pude procesar/);
+  }
+});
+
+test('L4-L4 "es de Santo Tomás" on the open draft → a correction of THAT draft (no GPT); help no longer asks for "mp <número>"', () => {
+  const p = { total: 1210, concept: 'Repuestos', category_id: 'c1', method: 'CASH', account_id: 'acc-cash', vat_receiver_pending: true,
+    fiscal: { document_type: 'INVOICE_A', components: [], issuer_tax_id: '20123456786' }, receipt: { document_type: 'INVOICE_A', iva: [{ rate: 21, base: 1000, amount: 210 }], other_taxes: [] } };
+  const ctx = { open: { draft_id: D, version: 3, state: 'DRAFT', short_code: 'W-0014', payload: p }, waiting: [], catalog: {} };
+  const r = WAI4.preRoute('sí, es de Santo Tomás', ctx, null, { ownCuits: [] });
+  assert.deepEqual([r.request.action, r.request.draft_id, r.request.expected_version, r.request.payload.fiscal.components.length, r.request.payload.vat_receiver_pending],
+    ['correct', D, 3, 1, undefined]);
+  assert.equal(r.changes[0].field, 'receiver');
+  assert.doesNotMatch(WAI4.preRoute('ayuda', ctx).reply, /mp <número>/);
+});

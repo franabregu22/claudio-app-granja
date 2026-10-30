@@ -27,18 +27,20 @@ const WAR = (() => {
     const ns = (desc) => ({ type: ['string', 'null'], description: desc });
     const nn = (desc) => ({ type: ['number', 'null'], description: desc });
     return { type: 'object', additionalProperties: false,
-      required: ['readable', 'document_type', 'issuer_name', 'issuer_cuit', 'number', 'date', 'total', 'net', 'iva', 'other_taxes', 'addressed_to_santo_tomas', 'concept', 'category', 'issues'],
+      required: ['readable', 'document_type', 'issuer_name', 'issuer_cuit', 'receiver_name', 'receiver_cuit', 'number', 'date', 'total', 'net', 'iva', 'other_taxes', 'addressed_to_santo_tomas', 'concept', 'category', 'issues'],
       properties: {
         readable: { type: 'boolean', description: 'false si no se puede leer con certeza el importe total' },
         document_type: { type: 'string', enum: DOC_TYPES },
-        issuer_name: ns('razón social o nombre del comercio emisor'), issuer_cuit: ns('CUIT del EMISOR, solo dígitos'),
+        issuer_name: ns('razón social o nombre del comercio emisor'), issuer_cuit: ns('CUIT del EMISOR (quien vende), solo los 11 dígitos'),
+        receiver_name: ns('razón social del RECEPTOR / cliente (Señor/es, Cliente, Razón social del cliente)'),
+        receiver_cuit: ns('CUIT del RECEPTOR / cliente, solo los 11 dígitos; null si no figura o no se distingue'),
         number: ns('número del comprobante tal como figura (ej. 0001-00012345)'), date: ns('fecha de emisión YYYY-MM-DD'),
         total: nn('importe TOTAL del comprobante en pesos'), net: nn('neto gravado, solo si figura discriminado'),
         iva: { type: 'array', description: 'IVA DISCRIMINADO por alícuota, solo si figura', items: { type: 'object', additionalProperties: false, required: ['rate', 'base', 'amount'],
           properties: { rate: { type: 'number', description: 'alícuota, ej. 21, 10.5, 27' }, base: nn('base imponible de esa alícuota'), amount: { type: 'number' } } } },
         other_taxes: { type: 'array', description: 'percepciones u otros impuestos discriminados', items: { type: 'object', additionalProperties: false, required: ['kind', 'amount'],
           properties: { kind: { type: 'string', enum: TAX_KINDS }, amount: { type: 'number' } } } },
-        addressed_to_santo_tomas: { type: ['boolean', 'null'], description: 'true si la factura está a nombre de Santo Tomás (receptor)' },
+        addressed_to_santo_tomas: { type: ['boolean', 'null'], description: 'orientativo: true si el receptor parece Santo Tomás; la decisión la toma el sistema con receiver_cuit' },
         concept: ns('el concepto que escribió el USUARIO en su mensaje (no los artículos del ticket), breve; null si no escribió ninguno'),
         category: { type: ['string', 'null'], enum: [...categoryCodes, null], description: 'código (S1, S2…) de la subcategoría que corresponde al CONCEPTO del usuario' },
         issues: { type: 'array', items: { type: 'string' }, description: 'dudas: importes contradictorios, partes ilegibles' },
@@ -51,6 +53,10 @@ const WAR = (() => {
     'No listes artículos ni renglones. total = el TOTAL del comprobante. Si el total no se lee con certeza: readable = false.',
     'concept y category salen del TEXTO DEL USUARIO (por ejemplo "gasté esto en gasoil" → concept "Gasoil"), nunca de los artículos. Sin texto del usuario: concept = null, category = null.',
     'Nunca inventes datos que no se ven: dejá null lo que no esté.',
+    'El diseño del comprobante varía: buscá cada dato por su rótulo, no por su posición. EMISOR = quien vende (sus datos fiscales: razón social, CUIT, Ingresos Brutos, Inicio de actividades). RECEPTOR = el cliente (bloque "Señor/es", "Cliente", "Razón social", "Condición frente al IVA", su CUIT).',
+    'Si hay dos CUIT no los confundas: el del emisor va junto a sus datos fiscales y el del receptor en el bloque del cliente. Copiá solo los 11 dígitos. Si no podés distinguir de quién es un CUIT, dejá null ese campo.',
+    'document_type: Factura A si la letra del recuadro es A o dice "Cód. 01" / "FACTURA A" (también un ticket factura A); B = "Cód. 06"; C = "Cód. 11"; M = "Cód. 51".',
+    'iva = cada línea de IVA discriminado ("IVA 21%", "IVA 10,5%", "IVA 27%", "IVA RI"); percepciones e impuestos (IIBB, ITC, internos, tasas) van en other_taxes.',
   ].join('\n');
 
   /** the ONLY data sent to OpenAI: the user's text, today, the subcategory names and the file (short-lived signed URL) */
@@ -66,8 +72,27 @@ const WAR = (() => {
     return { body, opts };
   }
 
+  /** the IVA credit of a receipt read (only what the invoice discriminates) */
+  function componentsFor(receipt, cap) {
+    const c = cap || 10000000;
+    const iva = (receipt?.iva || []).filter((x) => x && isMoney(x.amount, c) && typeof x.rate === 'number' && x.rate > 0 && x.rate <= 27);
+    const other = (receipt?.other_taxes || []).filter((x) => x && isMoney(x.amount, c) && TAX_KINDS.includes(x.kind));
+    return [
+      ...iva.map((x) => ({ tax_kind: 'IVA', direction: 'CREDITO', base_amount: x.base && isMoney(x.base, c) ? round2(x.base) : round2(x.amount * 100 / x.rate), rate_applied: x.rate, tax_amount: round2(x.amount) })),
+      ...other.map((x) => ({ tax_kind: x.kind === 'IIBB' || x.kind === 'PERCEPTION_IIBB' ? 'IIBB' : x.kind === 'PERCEPTION_IVA' ? 'PERCEPTION' : 'OTHER', direction: 'CREDITO', base_amount: 0, rate_applied: 0, tax_amount: round2(x.amount) }))];
+  }
+  /** owner rule (Lote 4): the RECEIVER CUIT decides — Santo Tomás → computable; another valid CUIT → not computable; not identified
+   *  (unreadable, absent, or the Santo Tomás CUIT not configured) → UNKNOWN: ask, never assumed different */
+  function receiverStatus(receiverCuit, ownCuits) {
+    const own = new Set((ownCuits || []).map(cuitValid).filter(Boolean));
+    const rc = cuitValid(receiverCuit);
+    if (rc && own.has(rc)) return 'OWN';
+    if (rc && own.size) return 'OTHER';
+    return 'UNKNOWN';
+  }
+
   /** the AI reading → ONE proposal or a reply. Everything is re-checked here; nothing is ever recorded without the buttons. */
-  function decide({ gpt, caption, ctx, today, amountCap, document, saidMethods, namedAccounts, accountOptions, pendingPayment, dueDate }) {
+  function decide({ gpt, caption, ctx, today, amountCap, document, saidMethods, namedAccounts, accountOptions, pendingPayment, dueDate, ownCuits }) {
     const cap = amountCap || 10000000;
     const g = gpt || {};
     if (ctx.open) return { reply: `Tenés el borrador ${ctx.open.short_code} abierto. Confirmalo, corregilo o escribí "cancelar" antes de mandar otro comprobante.`, outcome: 'open_draft' };
@@ -82,28 +107,35 @@ const WAR = (() => {
     if (net !== null && iva.length && Math.abs(net + taxes - total) > 1) {
       return { reply: `Leí un total de ${fmt(total)}, pero neto ${fmt(net)} + impuestos ${fmt(taxes)} da ${fmt(net + taxes)}. Mandá una foto más clara o escribime el total correcto.`, outcome: 'contradictory' };
     }
-    const cuit = cuitValid(g.issuer_cuit);
+    let cuit = cuitValid(g.issuer_cuit);
+    let receiverCuit = g.receiver_cuit;
+    // the two parties swapped: Santo Tomás is never the issuer of a purchase
+    if (cuit && receiverStatus(cuit, ownCuits) === 'OWN') { if (!cuitValid(receiverCuit)) receiverCuit = cuit; cuit = null; }
     const type = DOC_TYPES.includes(g.document_type) ? g.document_type : 'OTHER';
     const date = validDate(g.date, today) || today;
     const number = typeof g.number === 'string' && /^[0-9A-Za-z -]{1,40}$/.test(g.number.trim()) ? g.number.trim() : null;
     const issuer = typeof g.issuer_name === 'string' ? g.issuer_name.trim().slice(0, 120) || null : null;
     const discriminated = ['INVOICE_A', 'INVOICE_M'].includes(type) && iva.length > 0 && net !== null;
-    const computable = discriminated && g.addressed_to_santo_tomas === true;   // owner rule: IVA of invoices to Santo Tomás is computable
-    const receipt = { document_type: type, issuer_name: issuer, issuer_cuit: cuit, number, date: g.date || null, total, net, iva, other_taxes: other,
+    const receiver = discriminated ? receiverStatus(receiverCuit, ownCuits) : null;
+    const computable = receiver === 'OWN';
+    const receiverName = typeof g.receiver_name === 'string' ? g.receiver_name.trim().slice(0, 120) || null : null;
+    const receipt = { document_type: type, issuer_name: issuer, issuer_cuit: cuit, receiver_name: receiverName, receiver_cuit: cuitValid(receiverCuit),
+                      receiver_status: receiver, receiver_source: receiver && receiver !== 'UNKNOWN' ? 'CUIT' : null,
+                      number, date: g.date || null, total, net, iva, other_taxes: other,
                       addressed_to_santo_tomas: g.addressed_to_santo_tomas ?? null, issues: (g.issues || []).slice(0, 5).map((s) => String(s).slice(0, 120)) };
     const fiscalPeriod = date.slice(0, 8) + '01';
-    const components = computable ? [
-      ...iva.map((x) => ({ tax_kind: 'IVA', direction: 'CREDITO', base_amount: x.base && isMoney(x.base, cap) ? round2(x.base) : round2(x.amount * 100 / x.rate), rate_applied: x.rate, tax_amount: round2(x.amount) })),
-      ...other.map((x) => ({ tax_kind: x.kind === 'IIBB' || x.kind === 'PERCEPTION_IIBB' ? 'IIBB' : x.kind === 'PERCEPTION_IVA' ? 'PERCEPTION' : 'OTHER', direction: 'CREDITO', base_amount: 0, rate_applied: 0, tax_amount: round2(x.amount) }))] : [];
+    const components = computable ? componentsFor(receipt, cap) : [];
     const fiscal = (kind) => ({ document_type: kind, document_date: date, fiscal_period: fiscalPeriod, net_amount: discriminated ? net : total, total_amount: total,
       components, external_number: number, issuer_tax_id: cuit, issuer_name: issuer });
     const fiscalKind = type === 'INVOICE_M' ? 'OTHER' : type;
     // "solo IVA": only Fiscal, no expense and no money movement — needs a readable CUIT and IVA actually discriminated
     if (isVatOnly(caption)) {
       if (!cuit || !discriminated) return { reply: 'Para registrar solo el crédito fiscal necesito una factura con IVA discriminado y el CUIT del emisor legible. Mandá una foto más clara o el PDF.', outcome: 'vat_only_incomplete' };
-      if (!computable) return { reply: 'Esa factura no figura a nombre de Santo Tomás: su IVA no es computable. No la registré.', outcome: 'vat_only_not_addressed' };
-      return { request: { action: 'propose', type: 'VAT_ONLY_DOCUMENT', payload: { date, total, vat_only: true, fiscal: fiscal(fiscalKind), document_file_id: document.id, receipt } },
-               outcome: 'propose_vat_only', pending: [] };
+      if (receiver === 'OTHER') return { reply: 'El CUIT del receptor no es el de Santo Tomás: su IVA no es computable. No la registré.', outcome: 'vat_only_not_addressed' };
+      const ask = receiver === 'UNKNOWN';
+      return { request: { action: 'propose', type: 'VAT_ONLY_DOCUMENT', payload: { date, total, vat_only: true, fiscal: fiscal(fiscalKind), document_file_id: document.id, receipt,
+                                                                                  ...(ask ? { vat_receiver_pending: true } : {}) } },
+               outcome: ask ? 'propose_pending' : 'propose_vat_only', pending: ask ? ['receiver'] : [] };
     }
     // the expense: the TOTAL, the user's concept, the catalog subcategory of THAT concept; the method only if the user said it
     const conceptRaw = typeof g.concept === 'string' ? g.concept.trim() : '';
@@ -122,12 +154,20 @@ const WAR = (() => {
     if (toPay) { /* nothing: no payment data */ }
     else if (named.length === 1 && methods.every((m) => m === named[0].method)) { acc = named[0]; method = acc.method; }
     else if (methods.length === 1 && !named.length) { method = methods[0]; const fit = accs.filter((a) => a.method === method); if (fit.length === 1) acc = fit[0]; }
-    const withInvoice = cuit && ['INVOICE_A', 'INVOICE_B', 'INVOICE_C', 'INVOICE_M'].includes(type);
+    // an invoice is never dropped silently: without a readable issuer CUIT its fiscal data wait apart (fiscal_pending) until the user
+    // writes the CUIT or says "sin factura" (W-0007: Factura A, IVA discriminated, issuer CUIT unread → was proposed without its IVA)
+    const isInvoice = ['INVOICE_A', 'INVOICE_B', 'INVOICE_C', 'INVOICE_M'].includes(type);
+    const withInvoice = isInvoice && !!cuit;
+    const issuerPending = isInvoice && !cuit;
+    const receiverPending = receiver === 'UNKNOWN';
     const payload = { date, total, nature: 'OPERATING', document_file_id: document.id, receipt,
       ...(concept ? { concept } : { concept_pending: true }), ...(cat ? { category_id: cat.id } : { category_options: [] }),
       ...(method ? { method } : {}), ...(acc ? { account_id: acc.id } : {}), ...(withInvoice ? { fiscal: fiscal(fiscalKind) } : {}),
+      ...(issuerPending ? { fiscal_pending: fiscal(fiscalKind), issuer_cuit_pending: true } : {}),
+      ...(receiverPending ? { vat_receiver_pending: true } : {}),
       ...(toPay ? { pending_payment: true, ...(due ? { due_date: due } : {}) } : {}) };
-    const pending = [...(concept ? [] : ['concept']), ...(cat ? [] : ['category']), ...(toPay ? [] : [...(method ? [] : ['method']), ...(acc ? [] : ['account'])])];
+    const pending = [...(concept ? [] : ['concept']), ...(cat ? [] : ['category']), ...(toPay ? [] : [...(method ? [] : ['method']), ...(acc ? [] : ['account'])]),
+      ...(issuerPending ? ['issuer_cuit'] : []), ...(receiverPending ? ['receiver'] : [])];
     return { request: { action: 'propose', type: withInvoice ? 'CASUAL_WITH_INVOICE' : 'CASUAL_EXPENSE', payload }, outcome: pending.length ? 'propose_pending' : 'propose', pending };
   }
 
@@ -136,10 +176,61 @@ const WAR = (() => {
   function line(p) {
     const r = p.receipt; if (!r) return '';
     const iva = (r.iva || []).map((x) => `IVA ${x.rate}% ${fmt(x.amount)}`).join(' + ');
-    const comp = (p.fiscal?.components || []).length;
-    return `\n📎 ${TYPE_ES[r.document_type] || 'Comprobante'}${r.number ? ' ' + r.number : ''}${r.issuer_name ? ' · ' + r.issuer_name : ''}${r.issuer_cuit ? ' · CUIT ' + r.issuer_cuit : ''}`
-      + (iva ? `\n   ${iva}${comp ? ' (crédito fiscal)' : ' (no computable: la factura no está a nombre de Santo Tomás)'}` : '')
+    const comp = ((p.fiscal || p.fiscal_pending)?.components || []).length;
+    const why = p.vat_receiver_pending ? ' (a confirmar: no pude identificar el CUIT del receptor)'
+      : comp ? ` (crédito fiscal: receptor Santo Tomás${r.receiver_source === 'USER' ? ', según indicaste' : ''})`
+        : r.receiver_status === 'OTHER' ? ` (no computable: ${r.receiver_source === 'USER' ? 'indicaste que no está a nombre de Santo Tomás' : 'CUIT receptor ' + (r.receiver_cuit || '') + ' distinto de Santo Tomás'})`
+          : ' (no computable)';
+    return `\n📎 ${TYPE_ES[r.document_type] || 'Comprobante'}${r.number ? ' ' + r.number : ''}${r.issuer_name ? ' · ' + r.issuer_name : ''}`
+      + (p.issuer_cuit_pending ? ' · CUIT emisor: no legible' : r.issuer_cuit ? ' · CUIT ' + r.issuer_cuit : '')
+      + (iva ? `\n   ${iva}${why}` : '')
       + '\n   (datos leídos del comprobante: revisalos antes de confirmar)';
   }
-  return { isVatOnly, cuitValid, schema, SYSTEM, buildRequest, decide, line, DOC_TYPES };
+
+  // natural-language answers about the open draft's invoice (deterministic; always a correction of the SAME draft, never a confirmation)
+  const OWN_SAID = /\b(es|esta|va|sale)\s+(a nombre\s+)?de\s+(santo tomas|la granja|nosotros|la empresa)\b|\ba nombre de (santo tomas|la granja|nosotros)\b|\b(es|son)\s+(nuestra|nuestro)\b|^si\b[,.!]?\s*(es\s+)?((de|a nombre de)\s+)?(santo tomas|nosotros)?[.!]?$|\biva\s+computable\b|\bcomputa(r|ble)?\s+(el\s+)?iva\b/;
+  const OTHER_SAID = /\bno\s+(es|esta|va)\s+(a nombre\s+)?de\s+(santo tomas|la granja|nosotros)\b|\b(es|esta)\s+(a nombre\s+)?de\s+otr[oa]\b|\ba nombre de otr[oa]\b|\bno\s+(es\s+)?computable\b|\bsin\s+credito\s+fiscal\b|\bno\s+(se\s+)?computa\b/;
+  const NO_INVOICE = /^(sin factura|no tiene cuit|no hay cuit|sin cuit|registralo sin factura)[.!]?$/;
+  /** an answer / correction about the invoice of the open draft → { payload, changes } | { reply } | null (not about the invoice).
+   *  Receiver: in words ("es de Santo Tomás" / "no, es de otro") or by its CUIT ("receptor 30-…"). Issuer CUIT: "cuit 30-…" or
+   *  "emisor 30-…" while it is pending; "sin factura" drops the invoice (no IVA). */
+  function invoiceAnswer(text, open, ownCuits, amountCap) {
+    const p0 = open && open.state === 'DRAFT' ? open.payload : null;
+    if (!p0 || !p0.receipt) return null;
+    const n = norm(text);
+    const cuits = [...new Set((String(text).match(/\b\d{2}[- .]?\d{8}[- .]?\d\b/g) || []).map(cuitValid).filter(Boolean))];
+    const saysReceiver = /\breceptor\b|\ba nombre\b|\bcliente\b/.test(n);
+    const saysIssuer = /\bemisor\b|\bvendedor\b|\bproveedor\b|\bcomercio\b/.test(n);
+    const p = JSON.parse(JSON.stringify(p0)); const changes = [];
+    const fkey = p.fiscal ? 'fiscal' : p.fiscal_pending ? 'fiscal_pending' : null;
+    const hasIva = (p.receipt.iva || []).length > 0 && ['INVOICE_A', 'INVOICE_M'].includes(p.receipt.document_type);
+    let receiver = null; let byCuit = false;
+    if (cuits.length === 1 && (saysReceiver || (!saysIssuer && !p.issuer_cuit_pending && p.vat_receiver_pending))) {
+      receiver = receiverStatus(cuits[0], ownCuits); byCuit = true;
+      if (receiver === 'UNKNOWN') return { reply: 'Todavía no tengo cargado el CUIT de Santo Tomás para compararlo. Respondé "es de Santo Tomás" o "es de otro".' };
+    } else if (OTHER_SAID.test(n)) receiver = 'OTHER';
+    else if (OWN_SAID.test(n)) receiver = 'OWN';
+    if (receiver) {
+      if (!hasIva || !fkey) return { reply: 'Ese comprobante no tiene IVA discriminado de factura A: no hay crédito fiscal para computar.' };
+      if (p.vat_only && receiver === 'OTHER') return { reply: 'Si no está a nombre de Santo Tomás su IVA no es computable y no hay nada para registrar en Fiscal. Escribí "cancelar".' };
+      const before = p.vat_receiver_pending ? 'UNKNOWN' : (p.receipt.receiver_status || 'UNKNOWN');
+      p[fkey] = { ...p[fkey], components: receiver === 'OWN' ? componentsFor(p.receipt, amountCap) : [] };
+      p.receipt.receiver_status = receiver; p.receipt.receiver_source = byCuit ? 'CUIT' : 'USER';
+      if (byCuit) p.receipt.receiver_cuit = cuits[0];
+      delete p.vat_receiver_pending;
+      changes.push({ field: 'receiver', from: before, to: receiver });
+    }
+    if (p.issuer_cuit_pending) {
+      if (NO_INVOICE.test(n)) {
+        delete p.fiscal_pending; delete p.issuer_cuit_pending; delete p.vat_receiver_pending;
+        changes.push({ field: 'issuer_cuit', from: null, to: 'SIN_FACTURA' });
+      } else if (cuits.length === 1 && !byCuit) {
+        if (receiverStatus(cuits[0], ownCuits) === 'OWN') return { reply: 'Ese es el CUIT de Santo Tomás (el receptor). Necesito el CUIT del EMISOR, el comercio que te vendió.' };
+        p.fiscal = { ...p.fiscal_pending, issuer_tax_id: cuits[0] }; delete p.fiscal_pending; delete p.issuer_cuit_pending;
+        p.receipt.issuer_cuit = cuits[0]; changes.push({ field: 'issuer_cuit', from: null, to: cuits[0] });
+      }
+    }
+    return changes.length ? { payload: p, changes } : null;
+  }
+  return { isVatOnly, cuitValid, schema, SYSTEM, buildRequest, decide, line, DOC_TYPES, componentsFor, receiverStatus, invoiceAnswer };
 })();

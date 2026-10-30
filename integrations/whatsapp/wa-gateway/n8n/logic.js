@@ -89,7 +89,9 @@ const WA = (() => {
     WA_CONFIRMATION_NOT_EXPLICIT: 'Ese botón es de una versión anterior. Usá el del último resumen.',
     WA_NOT_DRAFT_OWNER: 'Ese borrador no es tuyo.',
     WA_DRAFT_EXPIRED: 'El borrador venció. Mandá el gasto de nuevo.',
-    WA_WAITING_MP: 'Falta vincular el pago de Mercado Pago: respondé "mp <número de operación>".',
+    WA_WAITING_MP: 'Ese gasto espera su movimiento de Mercado Pago: se vincula desde el ERP (Caja → Pendientes de clasificar).',
+    WA_RECEIVER_REQUIRED: 'Antes de confirmar decime si la factura está a nombre de Santo Tomás: "es de Santo Tomás" o "es de otro".',
+    WA_ISSUER_CUIT_REQUIRED: 'Antes de confirmar necesito el CUIT del emisor (por ejemplo "cuit 30-12345678-9"), o respondé "sin factura".',
     WA_WAITING_MP_LIMIT: 'Tenés demasiados gastos esperando a Mercado Pago.',
     WA_MP_OUTFLOW_NOT_MATCHING: 'No encontré un egreso de Mercado Pago pendiente con ese número, monto y fecha.',
     WA_MP_OUTFLOW_TAKEN: 'Ese movimiento de Mercado Pago ya está vinculado a otro borrador.',
@@ -138,14 +140,18 @@ const WA = (() => {
     }
     if (p.method_pending) q.push('¿Cómo lo pagaste? Efectivo, transferencia o Mercado Pago.');
     else if (p.account_pending) q.push(`¿Desde qué cuenta lo pagaste? ${accList(cfg).filter((a) => a.method === p.method).map((a) => a.nombre).join(' o ')}.`);
+    if (p.issuer_cuit_pending) q.push('No pude leer el CUIT del emisor de la factura. Escribilo (por ejemplo "cuit 30-12345678-9") o respondé "sin factura" para registrarlo sin crédito fiscal.');
+    if (p.vat_receiver_pending) q.push('¿La factura está a nombre de Santo Tomás? No pude identificar el CUIT del receptor. Respondé "es de Santo Tomás" (IVA computable) o "es de otro" (no computable).');
     return q;
   };
   // paying accounts come live from the ERP (context); the method of each comes from the database (older contexts: from its type)
   const TYPE_METHOD = { CASH: 'CASH', BANK_ACCOUNT: 'TRANSFER', EXTERNAL_SERVICE: 'MERCADOPAGO' };
   const accList = (cfg) => Object.values(cfg.accounts || {}).filter(Boolean).map((a) => ({ ...a, method: a.method || TYPE_METHOD[a.account_type] }));
   const accName = (cfg, id) => (id ? ((accList(cfg).find((a) => a.id === id) || {}).nombre || '(ya no habilitada)') : '(sin elegir)');
-  const FIELD = { total: 'Importe', concept: 'Concepto', category_id: 'Categoría', method: 'Pago', account_id: 'Cuenta', date: 'Fecha' };
+  const FIELD = { total: 'Importe', concept: 'Concepto', category_id: 'Categoría', method: 'Pago', account_id: 'Cuenta', date: 'Fecha', receiver: 'Receptor', issuer_cuit: 'CUIT emisor' };
+  const RECEIVER = { OWN: 'Santo Tomás (IVA computable)', OTHER: 'otro (IVA no computable)', UNKNOWN: '(sin identificar)' };
   const fmtField = (f, v, cfg) => f === 'total' ? money(v) : f === 'date' ? ddmmyyyy(v) : f === 'method' ? (v === 'PENDING' ? 'A pagar' : v ? METHOD[v] || v : '(a elegir)')
+    : f === 'receiver' ? RECEIVER[v] || '(sin identificar)' : f === 'issuer_cuit' ? (v === 'SIN_FACTURA' ? 'sin factura' : v || '(no legible)')
     : f === 'category_id' ? catLabel(cfg, v) : f === 'account_id' ? accName(cfg, v) : `"${String(v ?? '').slice(0, 60)}"`;
   const changeLine = (r, changes, cfg) => {
     const ch = (changes || []).filter((c) => c && FIELD[c.field]);
@@ -166,7 +172,7 @@ const WA = (() => {
     const acc = p.account_id ? ' (' + accName(cfg, p.account_id) + ')' : (p.account_pending ? ' (cuenta a elegir)' : '');
     return changeLine(r, changes, cfg)
       + `Borrador ${r.short_code} (v${r.version}) — STAGING, simulación\nTotal: ${money(p.total)}${mark('total')}\nConcepto: ${p.concept_pending ? '(a definir)' : p.concept}${mark('concept')}\n`
-      + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${p.pending_payment ? 'A PAGAR — no mueve Caja ni Bancos' + (p.due_date ? ' · vence ' + ddmmyyyy(p.due_date) : '') : p.method ? (METHOD[p.method] || p.method) + acc : '(a elegir)'}${mark('method') || mark('account_id')}\n`
+      + `Categoría: ${catLabel(cfg, p.category_id)}${mark('category_id')}\nPago: ${p.pending_payment ? 'A PAGAR — no mueve Caja ni Bancos' + (p.due_date ? ' · vence ' + ddmmyyyy(p.due_date) : '') : p.method ? (METHOD[p.method] || p.method) + acc + (p.mp_link_pending ? ' — sin número de operación: se vincula después en el ERP' : '') : '(a elegir)'}${mark('method') || mark('account_id')}\n`
       + `Fecha: ${ddmmyyyy(p.date)}${mark('date')}` + receiptLine(p) + dupLines(r);
   };
   // the receipt read (receipt.js, when embedded) and the "solo IVA" variant (no category / payment: only Fiscal)
@@ -211,6 +217,11 @@ const WA = (() => {
         : `✅ Registré el egreso ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''}: ya descuenta de la cuenta. Queda SIN CLASIFICAR: la subcategoría se elige después en el ERP (sin otro movimiento).`;
       return { graph: text(ctx.to, body + ' (simulación STAGING; no afecta la contabilidad real).'), state: drop(st, r.draft_id) };
     }
+    if (r.state === 'CONFIRMED' && r.result && r.result.mp_link_pending) {   // Lote 4 (0111): paid with Mercado Pago, linked later in the ERP
+      const x = r.result;
+      return { graph: text(ctx.to, `✅ Confirmé ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''} pagado con Mercado Pago. Queda PENDIENTE DE VINCULAR con su movimiento de Mercado Pago: `
+        + 'no hace falta el número de operación. Se registra en el ERP cuando lo vincules (Caja → Pendientes de clasificar), sin otra salida de dinero.'), state: drop(st, r.draft_id) };
+    }
     if (r.state === 'CONFIRMED' && r.result && r.result.payable_id) {   // ADR-026: a pending expense
       const x = r.result;
       return { graph: text(ctx.to, `✅ Registré ${r.short_code} como gasto A PAGAR${x.amount ? ' de ' + money(x.amount) : ''}: ya figura en resultados, sin mover Caja ni Bancos.`
@@ -236,7 +247,9 @@ const WA = (() => {
       // a mandatory datum is still to choose. The account (a financial datum) pending → NO confirmation at all. Only the
       // subcategory pending → answer it, or the explicit "Confirmar sin clasificar" (the money now, the subcategory later in the ERP)
       const q = pendingQuestions(p, cfg);
-      const onlyCategory = p.category_pending && !p.concept_pending && !p.fiscal && !p.account_pending && !p.method_pending && p.account_id && p.method;
+      // "Registrar sin clasificar" needs the Mercado Pago outflow already linked; an invoice detail still pending is answered first
+      const onlyCategory = p.category_pending && !p.concept_pending && !p.fiscal && !p.fiscal_pending && !p.vat_receiver_pending && !p.account_pending && !p.method_pending
+        && p.account_id && p.method && !(p.method === 'MERCADOPAGO' && !p.mp_source_id);
       if (p.vat_only) return { graph: buttons(ctx.to, vatSummary(r) + '\n\n¿Confirmás? "cancelar" lo descarta.', r.draft_id, r.version),
                                state: { open: { draft_id: r.draft_id, version: r.version, state: 'DRAFT', code: r.short_code }, waiting: s.waiting } };
       const graph = p.method_pending

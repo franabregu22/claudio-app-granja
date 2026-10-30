@@ -152,7 +152,8 @@ const WAI = (() => {
 
   const help = 'Mandame el gasto en una línea, por ejemplo:\n• "gasté 18 mil de combustible en efectivo"\n• "pagué 2.300 de limpieza por transferencia"\n'
     + 'Si algo del borrador está mal, decime solo lo que cambia: "eran 15 mil", "era transferencia", "la categoría es limpieza", "fue ayer". '
-    + '"estado" muestra el borrador; "cancelar" lo descarta; "mp <número>" vincula un pago de Mercado Pago. Para registrar siempre tocá Confirmar.';
+    + 'Si es una factura, podés aclarar "es de Santo Tomás", "es de otro", "cuit 30-…" o "sin factura". '
+    + '"estado" muestra el borrador; "cancelar" lo descarta. Si lo pagaste con Mercado Pago no hace falta el número de operación: se vincula después en el ERP. Para registrar siempre tocá Confirmar.';
   const statusText = (ctx) => {
     const o = ctx.open; const w = ctx.waiting || [];
     if (!o && !w.length) return 'No tenés borradores abiertos.';
@@ -164,7 +165,7 @@ const WAI = (() => {
 
   /** deterministic commands BEFORE GPT, resolved against the database context. pick = a payment-method button
    *  { draft_id, version, method }: valid only for the sender's open draft, at THAT version, while its method is pending */
-  function preRoute(text, ctx, pick) {
+  function preRoute(text, ctx, pick, opts) {
     if (pick) {
       const b = ctx.open;
       if (!b || b.draft_id !== pick.draft_id || b.version !== pick.version || b.state !== 'DRAFT' || !b.payload?.method_pending || !METHODS.includes(pick.method)) {
@@ -190,6 +191,12 @@ const WAI = (() => {
     // the open draft waits for its payment method, subcategory and / or paying account and the message names exactly one valid
     // option of each pending datum → set what is unambiguous (deterministic, no GPT); the rest stays pending and is asked again
     const o = ctx.open;
+    // Lote 4: an answer / correction about the draft's invoice (receiver, IVA treatment, issuer CUIT, "sin factura") → the SAME draft
+    if (o && !pick && typeof WAR !== 'undefined') {
+      const ia = WAR.invoiceAnswer(text, o, (opts && opts.ownCuits) || [], opts && opts.amountCap);
+      if (ia && ia.reply) return { reply: ia.reply };
+      if (ia) return { request: { action: 'correct', draft_id: o.draft_id, expected_version: o.version, payload: ia.payload }, changes: ia.changes };
+    }
     // ADR-026: the answer to "¿Cómo lo pagaste?" is "a pagar" → the same draft becomes a PENDING expense (deterministic, no GPT)
     if (o && o.state === 'DRAFT' && !o.payload?.pending_payment && !o.payload?.vat_only && (o.payload?.method_pending || o.payload?.account_pending) && pendingPayment(text)) {
       const p = { ...o.payload }; ['needs_mp', 'method', 'account_id', 'method_pending', 'account_pending', 'mp_source_id'].forEach((k) => delete p[k]);

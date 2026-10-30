@@ -6,6 +6,7 @@ import {
   type MpOutflowInput,
 } from '../../target/mpActivity';
 import { allocateToClient, mapPayerToClient } from '../../target/mp';
+import { linkWaMpExpense, listWaMpLinkPending } from '../../target/waMpLink';
 import {
   listMpWhatsappNotes, listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
 } from '../../target/pendingClassification';
@@ -89,4 +90,14 @@ export function useTechnicalReview() {
 export function useRetryProvisional() {
   const onSettled = useRefreshAfterMp();
   return useMutation({ mutationFn: (sourceId: string) => postPendingOutflow(supabase, sourceId), onSettled });
+}
+
+/** Lote 4 (0111): WhatsApp expenses paid with Mercado Pago, confirmed without the operation number, still to link. */
+export function useWaMpLinkPending() {
+  return useQuery({ queryKey: ['mp-pending', 'wa-mp-link'], queryFn: () => listWaMpLinkPending(supabase) });
+}
+/** Records the expense against the chosen real outflow (once; replay-safe) and refreshes the balances, the pendings and the P&L. */
+export function useLinkWaMpExpense() {
+  const onSettled = useRefreshAfterMp();
+  return useMutation({ mutationFn: (p: Parameters<typeof linkWaMpExpense>[1]) => linkWaMpExpense(supabase, p), onSettled });
 }

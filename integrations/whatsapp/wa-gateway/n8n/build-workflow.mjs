@@ -62,8 +62,12 @@ if (!allowPlaceholder && !/^[0-9]{6,20}$/.test(String(catalog.phone_number_id)))
 if (TARGET === 'production' && !allowPlaceholder && typeof catalog.ar_strip_9 !== 'boolean') throw new Error(`${T.catalog}: ar_strip_9 must be decided explicitly (true | false)`);
 if (!allowPlaceholder && (!/^[a-z0-9][a-z0-9.\-]{2,60}$/.test(conf.model) || conf.model === 'PENDING_EVAL')) throw new Error('interpreter-config.json: model not chosen yet (run the evaluation)');
 const CFG = JSON.stringify({ ar_strip_9: !!catalog.ar_strip_9 });
+// Lote 4: the CUIT(s) of Santo Tomás — the receiver of a Factura A whose IVA is computable (public data, not a secret). Empty → every
+// Factura A with IVA asks "¿está a nombre de Santo Tomás?" (never assumed computable nor foreign)
+const OWN_CUITS = Array.isArray(conf.santo_tomas_cuits) ? conf.santo_tomas_cuits.map(String) : [];
+if (OWN_CUITS.some((c) => !/^[0-9]{11}$/.test(c))) throw new Error('interpreter-config.json: santo_tomas_cuits must be 11-digit CUITs');
 const ICONF = JSON.stringify({ model: conf.model, effort: conf.reasoning_effort, maxOutputTokens: conf.max_output_tokens, amountCap: conf.amount_cap,
-  perHour: conf.gpt_calls_per_hour_per_sender, rModel: conf.receipt_model || conf.model, rMax: conf.receipt_max_output_tokens || 900 });   // paying accounts come live from the ERP (wa_context), never from config
+  perHour: conf.gpt_calls_per_hour_per_sender, rModel: conf.receipt_model || conf.model, rMax: conf.receipt_max_output_tokens || 900, ownCuits: OWN_CUITS });   // paying accounts come live from the ERP (wa_context), never from config
 const PNID = JSON.stringify(String(catalog.phone_number_id));
 const TEXT = `const PNID = ${PNID};
 const textMsg = (to, body) => ({ messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: String(body).slice(0, 4000) } });`;
@@ -120,7 +124,7 @@ if (ctx.media) {   // a photo / PDF stored by the Edge: the receipt reader (Open
   console.log(JSON.stringify({ evt: 'receipt_read', inbound_id: ctx.inbound_id, mime: ctx.media.mime, duplicate: ctx.media.duplicate }));
   return { json: { mode: 'gpt', receipt: true, to: ctx.to, key: ctx.key, inbound_id: ctx.inbound_id, cap: ctx.request.cap, text: ctx.text, media: ctx.media, context, openai_body: rb.body } };
 }
-const pre = WAI.preRoute(ctx.text, context, ctx.pick);   // pick: a payment-method button (checked against the open draft)
+const pre = WAI.preRoute(ctx.text, context, ctx.pick, { ownCuits: IC.ownCuits, amountCap: IC.amountCap });   // pick: a payment-method button (checked against the open draft)
 if (pre) {
   console.log(JSON.stringify({ evt: 'command', inbound_id: ctx.inbound_id, action: pre.request ? pre.request.action : 'reply' }));
   return { json: pre.request
@@ -154,7 +158,7 @@ if (!p.ok) {
 const d = a.receipt
   ? WAR.decide({ gpt: p.data, caption: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap, document: a.media,
                  saidMethods: WAI.saidMethods, namedAccounts: WAI.namedAccounts, accountOptions: WAI.accountOptions,
-                 pendingPayment: WAI.pendingPayment, dueDate: WAI.dueDate })
+                 pendingPayment: WAI.pendingPayment, dueDate: WAI.dueDate, ownCuits: IC.ownCuits })
   : WAI.decide({ gpt: p.data, text: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap });
 console.log(JSON.stringify({ evt: 'gpt', inbound_id: a.inbound_id, model: IC.model, intent: p.data.intent, outcome: d.outcome, changed: d.changed || null,
   tokens_in: p.usage ? p.usage.input : null, tokens_out: p.usage ? p.usage.output : null }));

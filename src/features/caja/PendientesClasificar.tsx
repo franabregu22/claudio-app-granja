@@ -9,10 +9,13 @@ import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { ClasificarSalida, DestinoRetiro } from './CuentaDetalle';
-import { useMpPayoutMatches, useMpWhatsappNotes, usePendingPage, usePendingSummary, useRetryProvisional, useTechnicalReview } from './useMpActivity';
+import {
+  useLinkWaMpExpense, useMpPayoutMatches, useMpWhatsappNotes, usePendingPage, usePendingSummary, useRetryProvisional, useTechnicalReview, useWaMpLinkPending,
+} from './useMpActivity';
 import { Comprobantes } from './Comprobantes';
 import { useDocumentLinks } from './useInvoicePayments';
 import type { DocumentLinkRow } from '../../target/documents';
+import type { WaMpLinkPendingRow } from '../../target/waMpLink';
 
 const hora = (ts: string | null) => (ts ? new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' }) : '');
 
@@ -36,12 +39,70 @@ export function PendientesClasificar() {
   const matches: ReadonlyMap<string, MpPayoutMatch> = coincidencias.data ?? new Map();
   return (
     <div className="space-y-6">
+      <GastosWhatsappMp />
       <ListaPendientes scope="current" titulo="Pendientes actuales" nota={PENDING_BALANCE_NOTE} matches={matches}
         total={resumen.data?.PENDING_CURRENT} />
       <ListaPendientes scope="historical" titulo="Pendientes históricos (antes del corte)" nota={HISTORICAL_PENDING_NOTE} matches={matches}
         total={resumen.data?.PENDING_HISTORICAL} />
       <RevisionTecnica filas={tecnicos.data ?? []} cargando={tecnicos.isLoading} error={tecnicos.error} />
     </div>
+  );
+}
+
+/**
+ * Lote 4 (0111): WhatsApp expenses paid with Mercado Pago, confirmed without the operation number. Nothing was recorded yet:
+ * the user picks the real outflow (pending outflows of the same amount are listed, never chosen automatically) and the SAME
+ * expense is recorded against it, dated on the outflow — no second Mercado Pago movement.
+ */
+function GastosWhatsappMp() {
+  const q = useWaMpLinkPending();
+  const filas = q.data ?? [];
+  if (q.isLoading || (!q.error && filas.length === 0)) return null;
+  return (
+    <section className="space-y-2" aria-label="Gastos de WhatsApp pagados con Mercado Pago">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold text-[#3D3424]">Gastos de WhatsApp pagados con Mercado Pago, pendientes de vincular: {filas.length}</p>
+        <p className="text-xs text-[#6B5D45]">Todavía no figuran en resultados. Al vincular su movimiento se registran una sola vez, sin otra salida de dinero.</p>
+      </div>
+      {q.error ? <p className="text-sm text-red-700">{errorMessage(q.error)}</p> : (
+        <ul className="space-y-2">{filas.map((f) => <FilaWhatsappMp key={f.draft_id} f={f} />)}</ul>
+      )}
+    </section>
+  );
+}
+
+function FilaWhatsappMp({ f }: { f: WaMpLinkPendingRow }) {
+  const vincular = useLinkWaMpExpense();
+  const [origen, setOrigen] = useState('');
+  const elegido = f.candidates.find((c) => c.source_id === origen);
+  return (
+    <li className="bg-white rounded-lg border border-[#E4DCC8] p-3 text-sm space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">{f.short_code}</span>
+        <span>{f.concept ?? 'Gasto'}</span>
+        <span className="text-[#8A7A5C]">{f.category_name ?? 'sin categoría'} · {formatearFechaLocal(f.expense_date)}</span>
+        <span className="flex-1" />
+        <span className="font-bold">{formatoPesos(f.total)}</span>
+      </div>
+      {f.candidates.length === 0 ? (
+        <p className="text-xs text-[#8A7A5C]">Todavía no hay un egreso de Mercado Pago pendiente de ese importe. Aparece cuando se importe el movimiento.</p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={origen} onChange={(e) => setOrigen(e.target.value)} aria-label={`Movimiento de Mercado Pago para ${f.short_code}`}
+            className="border border-[#E4DCC8] rounded px-2 py-1 bg-white text-sm">
+            <option value="">Elegir movimiento…</option>
+            {f.candidates.map((c) => <option key={c.source_id} value={c.source_id}>Op {c.source_id} · {formatearFechaLocal(c.date)} · {formatoPesos(c.amount)}</option>)}
+          </select>
+          <button type="button" disabled={!origen || vincular.isPending}
+            onClick={() => vincular.mutate({ draftId: f.draft_id, sourceId: origen, reason: 'Vinculación manual desde Pendientes de clasificar' })}
+            className="text-xs px-3 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8F4626] disabled:opacity-50">Vincular</button>
+          {elegido && elegido.date !== f.expense_date && (
+            <span className="text-xs text-[#8A7A5C]">Se registra con la fecha del movimiento ({formatearFechaLocal(elegido.date)}).</span>
+          )}
+        </div>
+      )}
+      {vincular.error && <p className="text-xs text-red-700">{errorMessage(vincular.error)}</p>}
+    </li>
   );
 }
 

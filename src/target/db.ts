@@ -107,6 +107,7 @@ export const TARGET_RPCS = [
   'reverse_collection', 'rectify_collection',   // Lote 1E (0108, ADMIN): annul / rectify a cash or bank collection, append-only
   'set_profile_name',   // Lote 2A (0109, ADMIN): first / last name of a profile, audited
   'assign_payable_to_supplier', 'set_payment_date',   // Lote 3B (0110, ADMIN): pending expense → supplier; due / estimated payment date
+  'wa_mp_link_pending', 'wa_link_mp_expense',   // Lote 4 (0111, ADMIN): WhatsApp expenses paid with Mercado Pago, linked to their real outflow
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 
