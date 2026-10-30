@@ -157,12 +157,13 @@ const WAR4 = new Function(readFileSync(new URL('./receipt.js', import.meta.url),
 const WAI4 = new Function('WAR', readFileSync(new URL('./interpreter.js', import.meta.url), 'utf8') + '\nreturn WAI;')(WAR4);
 const ctx4 = { to: '5491155551234', request: { action: 'confirm', draft_id: D, expected_version: 1 } };
 
-test('L4-L1 a Mercado Pago expense confirmed without its movement: pending link, no number asked, no money moved', () => {
+test('L4-L1 a Mercado Pago expense confirmed without its movement: in the P&L now, movement pending link, no number asked', () => {
   const r = { ok: true, draft_id: D, short_code: 'W-0012', state: 'CONFIRMED', mp_link_pending: true,
-    result: { mp_link_pending: true, financial_effect: 'NONE', amount: 70637.06, status: 'PENDIENTE_VINCULACION_MP' } };
+    result: { mp_link_pending: true, financial_effect: 'NONE', amount: 70637.06, purchase_id: 'p1', fiscal_document_id: 'f1', status: 'PENDIENTE_VINCULACION_MP' } };
   const c = WA.compose(ctx4, 200, { result: r }, { open: { draft_id: D }, waiting: [] }, CFG);
+  assert.match(c.graph.text.body, /ya figura en resultados y su IVA en Fiscal/);
   assert.match(c.graph.text.body, /PENDIENTE DE VINCULAR/);
-  assert.match(c.graph.text.body, /no hace falta el número de operación/);
+  assert.match(c.graph.text.body, /no hace falta el número de operación/i);
   assert.doesNotMatch(c.graph.text.body, /mp <número/);
   assert.equal(c.state.open, null);
 });

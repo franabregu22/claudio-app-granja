@@ -148,7 +148,7 @@ describe('ADR-025 stage 3 — WhatsApp notes on the Mercado Pago pending outflow
   it('the pending screen only reads the notes (no write, no MP classification RPC added) and pre-fills the existing route with the concept', () => {
     const code = SRC('features/caja/PendientesClasificar.tsx');
     expect(code).toMatch(/useMpWhatsappNotes\(scope === 'current'/);
-    expect(code).toMatch(/<ClasificarSalida sourceId=\{r\.source_id\} conceptoInicial=\{nota\?\.concept\} \/>/);
+    expect(code).toMatch(/<ClasificarSalida sourceId=\{r\.source_id\} conceptoInicial=\{nota\?\.concept\}( gastosMpPendientes=\{posibles\})? \/>/);
     expect(SRC('target/pendingClassification.ts')).not.toMatch(/\.(insert|update|upsert|delete)\(/);
     // applied when the form opens (the note arrives after the row is mounted — found in the browser walkthrough)
     expect(SRC('features/caja/CuentaDetalle.tsx')).toMatch(/if \(concepto === '' && conceptoInicial\) setConcepto\(conceptoInicial\); setAbierto\(true\);/);

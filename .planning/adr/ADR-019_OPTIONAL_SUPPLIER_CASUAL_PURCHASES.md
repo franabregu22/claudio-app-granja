@@ -149,3 +149,18 @@ CREATE UNIQUE INDEX idx_fiscal_document_issuer_number ON fiscal_document(issuer_
 - **Issuer identity quality:** a CUIT typed by hand can be wrong; it is validated as 11 digits only (no AFIP lookup).
 - **Pre-existing gap, outside this ADR:** `pay_supplier` from the Mercado Pago account (Cuentas a pagar) is not anchored to an MP SOURCE_ID, so it could duplicate an outflow later classified from the MP activity. A follow-up should apply the same gateway to supplier payments from MP.
 - **New operation type:** reports that enumerate operation types must include `PURCHASE_PAYMENT`.
+
+---
+
+## AMENDMENT — Lote 4 (owner GO "opción A", 2026-10-30; migration 0111)
+
+The casual-purchase invariant (already widened by ADR-026 / 0106) reads:
+
+> a casual purchase is born paid by exactly one payment operation, **or** pending (ADR-026, `expense_payable`), **or** paid by
+> Mercado Pago awaiting its movement (`purchase_mp_link`, settled once by the ADR-021 §2.3(c) route `PURCHASE_MP_LINK`);
+> never more than one of these.
+
+Enforced at commit by `purchase_casual_settlement_check` (`CASUAL_PURCHASE_UNSETTLED` / `CASUAL_PURCHASE_AMBIGUOUS`). A
+purchase paid with Mercado Pago awaiting its movement has no `paid_operation_id`; once linked, its payment operation is
+recorded in `purchase_mp_settlement` (the purchase row is never rewritten). It never touches the supplier current account.
+

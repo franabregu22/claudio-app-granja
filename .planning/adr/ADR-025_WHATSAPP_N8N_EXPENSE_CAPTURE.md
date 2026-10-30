@@ -958,3 +958,21 @@ named enabled account, which decides the method) or from a **payment-method butt
   after the upgrade, new suite 149/149, idempotent re-apply, rollback to identical definitions.
 - **Order:** upgrade-005 requires upgrade-004; a rollback of 004 must be preceded by the rollback of 005. The n8n workflow
   with the new logic must be published only after upgrade-005 (the published V2 works with and without it).
+
+---
+
+## AMENDMENT — Lote 4 (owner GO "opción A", 2026-10-30; migration 0111)
+
+1. **Mercado Pago without the operation number.** A WhatsApp expense paid with Mercado Pago is an ordinary `DRAFT`: no
+   `WAITING_MP`, no candidate search, no "mp <número>". Its explicit confirmation records the purchase and its IVA (P&L now)
+   through `register_casual_purchase_mp_pending`, with NO financial operation and no supplier debt; the state is
+   "Gasto registrado · MP pendiente de vincular". The Mercado Pago movement is linked later from Caja → Pendientes de
+   clasificar (`settle_purchase_mp`, ADR-021 §2.3(c)): only the payment side, on the movement's date. §6 is superseded for
+   new drafts; legacy `WAITING_MP` drafts keep `wa_link_mp`.
+2. **Factura A — receiver.** The reader returns the receiver CUIT; the decision is deterministic: receiver = Santo Tomás CUIT
+   (configuration `santo_tomas_cuits`) → IVA computable; another valid CUIT → not computable; not identified → the draft asks
+   (`vat_receiver_pending`, `WA_RECEIVER_REQUIRED`) and never assumes. An unreadable issuer CUIT never drops the invoice: its
+   fiscal data wait (`fiscal_pending`, `issuer_cuit_pending`, `WA_ISSUER_CUIT_REQUIRED`) until the user writes the CUIT or says
+   "sin factura". Natural answers ("es de Santo Tomás", "es de otro", "receptor 30-…", "no es computable", "cuit 30-…")
+   correct the SAME draft; the confirmation stays explicit and the original receipt is kept.
+

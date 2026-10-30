@@ -6,7 +6,7 @@ import {
   type MpOutflowInput,
 } from '../../target/mpActivity';
 import { allocateToClient, mapPayerToClient } from '../../target/mp';
-import { linkWaMpExpense, listWaMpLinkPending } from '../../target/waMpLink';
+import { listPurchaseMpLinks, settlePurchaseMp } from '../../target/purchaseMpLink';
 import {
   listMpWhatsappNotes, listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
 } from '../../target/pendingClassification';
@@ -92,12 +92,12 @@ export function useRetryProvisional() {
   return useMutation({ mutationFn: (sourceId: string) => postPendingOutflow(supabase, sourceId), onSettled });
 }
 
-/** Lote 4 (0111): WhatsApp expenses paid with Mercado Pago, confirmed without the operation number, still to link. */
-export function useWaMpLinkPending() {
-  return useQuery({ queryKey: ['mp-pending', 'wa-mp-link'], queryFn: () => listWaMpLinkPending(supabase) });
+/** Lote 4 (0111): purchases paid with Mercado Pago — pending link (with same-amount outflows) or linked. */
+export function usePurchaseMpLinks() {
+  return useQuery({ queryKey: ['mp-pending', 'purchase-mp-link'], queryFn: () => listPurchaseMpLinks(supabase) });
 }
-/** Records the expense against the chosen real outflow (once; replay-safe) and refreshes the balances, the pendings and the P&L. */
-export function useLinkWaMpExpense() {
+/** ADR-021 §2.3(c): only the payment side against the chosen outflow (once; replay-safe); refreshes balances, pendings and P&L. */
+export function useSettlePurchaseMp() {
   const onSettled = useRefreshAfterMp();
-  return useMutation({ mutationFn: (p: Parameters<typeof linkWaMpExpense>[1]) => linkWaMpExpense(supabase, p), onSettled });
+  return useMutation({ mutationFn: (p: Parameters<typeof settlePurchaseMp>[1]) => settlePurchaseMp(supabase, p), onSettled });
 }

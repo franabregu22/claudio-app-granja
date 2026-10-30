@@ -6,5 +6,7 @@
  "gpt_calls_per_hour_per_sender": 30,
  "receipt_model": "gpt-5.6-luna",
  "receipt_max_output_tokens": 900,
- "santo_tomas_cuits": []
+ "santo_tomas_cuits": [
+  "30719089891"
+ ]
 }

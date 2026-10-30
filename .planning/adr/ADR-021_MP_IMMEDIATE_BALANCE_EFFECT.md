@@ -62,3 +62,34 @@ gap is exactly the three unclassified debits 183240248717, 184280177388, 1843274
   reaches the balance only when classified — it comes through the payment API path, not the report, and changing A1 is out
   of this decision. It is counted as pending classification and blocks the period close; its immediate effect is a separate
   decision.
+
+---
+
+## AMENDMENT 1 — Lote 4 (owner GO "opción A", 2026-10-30; migration 0111)
+
+**Owner decision:** an expense paid with Mercado Pago and confirmed from WhatsApp is recognised in the P&L (and its IVA) at
+confirmation, even before its Mercado Pago movement is imported; the financial link is made later, by hand, from Caja.
+
+§2.3 gains a third clause:
+
+> (c) **Settlement of an already recognised purchase.** When the outflow pays a casual purchase recognised earlier (e.g.
+> confirmed from WhatsApp as *paid with Mercado Pago, movement to link* — `purchase_mp_link`), the route `PURCHASE_MP_LINK`
+> (`settle_purchase_mp`) releases the provisional as in (a) and writes ONLY the payment side of (b) — the `PURCHASE_PAYMENT`
+> of `|gross|` on the movement's date, its tax / fee charges (ADR-020, apart) and the `CASUAL_PURCHASE` classification
+> pointing to that existing purchase. It writes no purchase, no fiscal document and no P&L line: the economic amount was
+> recognised once, at the purchase's economic date. The purchase total must equal the outflow's comparable gross exactly.
+> An outflow already classified or applied is never re-pointed (`ALREADY_CLASSIFIED` / `PAYOUT_ALREADY_APPLIED`). Only the
+> movement's period must be open (the purchase is not rewritten). Replays write nothing (one link per purchase, per SOURCE_ID,
+> per idempotency key); every link is audited (`SETTLE_MP`).
+
+§2.7 is complemented (not changed): a period that still holds purchases paid with Mercado Pago awaiting their movement can
+be closed — the close only raises a warning and records `CLOSE_WITH_MP_LINK_PENDING` in the audit. The existing blocks
+(`PENDING_CLASSIFICATION`, `MP_UNPOSTED_OUTFLOWS`) are unchanged.
+
+Classifying, from Pendientes de clasificar, an outflow as a NEW purchase while a recorded purchase awaiting its movement has
+the same amount shows a duplicate warning and needs an explicit confirmation (owner: warn, never block by amount).
+
+Not changed: the provisional of every outflow (§2.1–2.2), the release before any classified effect (§2.3(a)), the guard
+`MP_PENDING_NOT_RELEASED` (§2.4), the SOURCE_ID invariant (0091), ADR-020's tax / fee split, ADR-026 (pending expenses stay the
+only obligations "to pay"; a purchase paid with Mercado Pago is never an `expense_payable`).
+

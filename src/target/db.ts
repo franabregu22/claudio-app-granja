@@ -19,6 +19,7 @@ export const TARGET_VIEWS = [
   'fin_mp_report_activity',   // ADR-018 §15 (0079)
   'fin_customer_collections',   // Meta A (0092): Caja → Cobros de clientes
   'fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status',   // ADR-021 (0093)
+  'fin_purchase_mp_link',   // Lote 4 (0111): purchases paid with Mercado Pago, pending / linked to their movement
   'fin_mp_unlinked_inflows', 'fin_mp_pending_summary',   // ADR-023 (0095)
   'fin_expense_pending_classification',   // ADR-025 stage 3 (0101): Caja → Gastos sin clasificar (ADMIN)
   'fin_mp_whatsapp_notes',   // ADR-025 stage 3 (0102): the WhatsApp concept of a pending MP outflow (ADMIN, read-only)
@@ -107,7 +108,7 @@ export const TARGET_RPCS = [
   'reverse_collection', 'rectify_collection',   // Lote 1E (0108, ADMIN): annul / rectify a cash or bank collection, append-only
   'set_profile_name',   // Lote 2A (0109, ADMIN): first / last name of a profile, audited
   'assign_payable_to_supplier', 'set_payment_date',   // Lote 3B (0110, ADMIN): pending expense → supplier; due / estimated payment date
-  'wa_mp_link_pending', 'wa_link_mp_expense',   // Lote 4 (0111, ADMIN): WhatsApp expenses paid with Mercado Pago, linked to their real outflow
+  'settle_purchase_mp',   // Lote 4 (0111, ADMIN, ADR-021 §2.3(c)): a purchase paid with Mercado Pago, linked to its real outflow
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

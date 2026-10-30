@@ -217,10 +217,11 @@ const WA = (() => {
         : `✅ Registré el egreso ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''}: ya descuenta de la cuenta. Queda SIN CLASIFICAR: la subcategoría se elige después en el ERP (sin otro movimiento).`;
       return { graph: text(ctx.to, body + ' (simulación STAGING; no afecta la contabilidad real).'), state: drop(st, r.draft_id) };
     }
-    if (r.state === 'CONFIRMED' && r.result && r.result.mp_link_pending) {   // Lote 4 (0111): paid with Mercado Pago, linked later in the ERP
+    if (r.state === 'CONFIRMED' && r.result && r.result.mp_link_pending) {   // Lote 4 (0111, ADR-021 §2.3(c)): the purchase now, the MP movement linked later
       const x = r.result;
-      return { graph: text(ctx.to, `✅ Confirmé ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''} pagado con Mercado Pago. Queda PENDIENTE DE VINCULAR con su movimiento de Mercado Pago: `
-        + 'no hace falta el número de operación. Se registra en el ERP cuando lo vincules (Caja → Pendientes de clasificar), sin otra salida de dinero.'), state: drop(st, r.draft_id) };
+      return { graph: text(ctx.to, `✅ Registré ${r.short_code}${x.amount ? ' de ' + money(x.amount) : ''}: ya figura en resultados${x.fiscal_document_id ? ' y su IVA en Fiscal' : ''}. `
+        + 'Pagado con Mercado Pago: el movimiento queda PENDIENTE DE VINCULAR. No hace falta el número de operación; se vincula desde Caja → Pendientes de clasificar, sin otra salida de dinero.'),
+               state: drop(st, r.draft_id) };
     }
     if (r.state === 'CONFIRMED' && r.result && r.result.payable_id) {   // ADR-026: a pending expense
       const x = r.result;

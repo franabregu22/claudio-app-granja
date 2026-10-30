@@ -4,6 +4,7 @@ import { bankHistoryStatus, CUTOVER_NOTICE, importe, needsCutoverNotice, type St
 import type { FinancialAccountRow } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
 import { postingOperationLabel } from '../../target/pendingClassification';
+import type { PurchaseMpLinkRow } from '../../target/purchaseMpLink';
 import { isClassifiableOutbound, isMercadoPagoAccount, PENDING_ACTIVITY_NOTE, isVisibleActivity, MP_OUTFLOW_CHOICE_LABEL, type MpActivityRow, mpActivityType, type MpCoverageStatus, type MpOutflowChoice, type MpPayoutMatch, mpStatusLabel, payoutMatchLabel } from '../../target/mpActivity';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
@@ -215,7 +216,9 @@ const ACCION_CLS = 'text-xs px-2 py-0.5 rounded border border-amber-300 bg-white
  * Own-account payouts keep their own confirmation. ADR-020 (0090): an unclassified outbound payment uses the same form; the
  * purchase gets the economic amount and the Mercado Pago tax is booked apart by the server.
  */
-export function ClasificarSalida({ sourceId, conceptoInicial }: { sourceId: string; /** ADR-025: the WhatsApp concept, pre-filled (editable) */ conceptoInicial?: string }) {
+export function ClasificarSalida({ sourceId, conceptoInicial, gastosMpPendientes = [] }: { sourceId: string; /** ADR-025: the WhatsApp concept, pre-filled (editable) */ conceptoInicial?: string;
+  /** Lote 4 (0111): purchases ALREADY recorded as paid with Mercado Pago for this same amount — classifying the outflow as a NEW purchase needs an explicit confirmation (owner: warn, never block) */
+  gastosMpPendientes?: readonly PurchaseMpLinkRow[] }) {
   const [abierto, setAbierto] = useState(false);
   const [tipo, setTipo] = useState<MpOutflowChoice>('PURCHASE');
   const [proveedor, setProveedor] = useState('');
@@ -224,6 +227,7 @@ export function ClasificarSalida({ sourceId, conceptoInicial }: { sourceId: stri
   const [naturaleza, setNaturaleza] = useState<'OPERATING' | 'REINVESTMENT' | 'INVESTMENT'>('OPERATING');
   const [aDeuda, setADeuda] = useState(false);
   const [comercio, setComercio] = useState('');
+  const [esOtroGasto, setEsOtroGasto] = useState(false);
   const proveedores = useSuppliers();
   const saldos = useLedgerBalances('SUPPLIER');
   const { outflow } = useClassifyMp();
@@ -234,7 +238,9 @@ export function ClasificarSalida({ sourceId, conceptoInicial }: { sourceId: stri
   const sinProveedor = proveedor === SIN_PROVEEDOR;
   const deuda = sinProveedor ? 0 : (saldos.data ?? []).find((x) => x.entity_id === proveedor)?.balance ?? 0;
   const pagoDeuda = tipo === 'PURCHASE' && aDeuda && deuda > 0;
-  const listo = tipo === 'OWNER_WITHDRAWAL' || (proveedor !== '' && (pagoDeuda || (categoria !== '' && concepto.trim() !== '')));
+  // a NEW purchase / expense while an already recorded MP purchase has this amount: possible duplicate → explicit confirmation
+  const posibleDuplicado = tipo === 'PURCHASE' && !pagoDeuda && gastosMpPendientes.length > 0;
+  const listo = (tipo === 'OWNER_WITHDRAWAL' || (proveedor !== '' && (pagoDeuda || (categoria !== '' && concepto.trim() !== '')))) && (!posibleDuplicado || esOtroGasto);
   const confirmar = () => outflow.mutate(tipo === 'OWNER_WITHDRAWAL' ? { sourceId, classification: 'OWNER_WITHDRAWAL' }
     : pagoDeuda ? { sourceId, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor }
       : sinProveedor ? { sourceId, classification: 'CASUAL_PURCHASE', expenseCategoryId: categoria, nature: naturaleza, concept: concepto.trim(), counterpartyName: comercio.trim() || null }
@@ -268,6 +274,14 @@ export function ClasificarSalida({ sourceId, conceptoInicial }: { sourceId: stri
             </>
           )}
         </>
+      )}
+      {posibleDuplicado && (
+        <div className="w-full bg-amber-50 border border-amber-300 rounded p-2 text-xs text-amber-900" role="alert">
+          <p className="font-semibold">Posible duplicado: ya hay {gastosMpPendientes.length === 1 ? 'un gasto registrado' : gastosMpPendientes.length + ' gastos registrados'} pagado con Mercado Pago por este importe, esperando su movimiento:</p>
+          <ul className="list-disc ml-4">{gastosMpPendientes.map((g) => <li key={g.purchase_root_id}>{[g.origin_code, g.concept, formatearFechaLocal(g.economic_date), formatoPesos(g.amount_total)].filter(Boolean).join(' · ')}</li>)}</ul>
+          <p>Si es ese gasto, vinculalo arriba en "Gastos registrados pagados con Mercado Pago" (no se registra otra compra).</p>
+          <label className="flex items-center gap-1 mt-1"><input type="checkbox" checked={esOtroGasto} onChange={(e) => setEsOtroGasto(e.target.checked)} /> Confirmo que es un gasto distinto y quiero registrarlo como compra nueva</label>
+        </div>
       )}
       <button type="button" className={ACCION_CLS} disabled={!listo || outflow.isPending} onClick={confirmar}>
         {outflow.isPending ? 'Confirmando...' : 'Confirmar'}

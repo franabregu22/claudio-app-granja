@@ -147,7 +147,7 @@ describe('ADR-021 — activity and classification routes', () => {
     expect(v).toMatch(/<ListaPendientes scope="historical"/);
     expect(v).toMatch(/\{r\.is_historical \? <span className="text-xs text-\[#8A7A5C\]">\{HISTORICAL_ACTION\}<\/span> : \(/);   // no unsupported action on history
     // ADR-025 stage 3: the same route, with the WhatsApp concept (when there is one) pre-filled
-    expect(v).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\}( conceptoInicial=\{nota\?\.concept\})? \/>\}/);
+    expect(v).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\}( conceptoInicial=\{nota\?\.concept\})?( gastosMpPendientes=\{posibles\})? \/>\}/);
     expect(v).toMatch(/\{r\.kind === 'PAYOUT' && <DestinoRetiro r=\{actividad\} matches=\{matches\} \/>\}/);
     expect(v).not.toMatch(/CLASSIFY_INFLOW|ClasificarIngreso|summarizePending/);   // inflows are never a mandatory classification (ADR-023)
     expect(v).toMatch(/aria-label="Revisión técnica"/);
