@@ -7,7 +7,7 @@
  *   node scripts/target-db/apply-incremental.mjs --from 0072 --to 0077 --client <psql client container> [--dry-run]
  *        [--production --expected-project-ref <ref> --forbidden-refs <ref,…>
  *         --confirm-project <ref> --confirm-from 0072 --confirm-to 0077]
- *        [--verify-profile ADR018_POST_0077 | ADR018_POST_0078 | ADR018_POST_0079 | ADR018_POST_0080 | ADR018_POST_0081 | ADR018_POST_0082 | ADR018_POST_0083 | ADR018_POST_0084 | ADR018_POST_0085 | ADR018_POST_0086 | ADR018_POST_0087 | ADR018_POST_0088 | ADR018_POST_0089 | ADR018_POST_0090 | ADR018_POST_0091 | ADR018_POST_0092 | ADR018_POST_0093 | ADR018_POST_0094 | ADR018_POST_0095 | ADR018_POST_0098 | ADR018_POST_0099 | ADR018_POST_0100 | ADR025_POST_0101 | ADR025_POST_0102 | ADR025_POST_0104 | ADR025_POST_0105 | ADR025_POST_0106 | ADR025_POST_0107 | ADR025_POST_0108 | ADR025_POST_0109 | ADR025_POST_0110 [--deployment-check]] [--verify-only]
+ *        [--verify-profile ADR018_POST_0077 | ADR018_POST_0078 | ADR018_POST_0079 | ADR018_POST_0080 | ADR018_POST_0081 | ADR018_POST_0082 | ADR018_POST_0083 | ADR018_POST_0084 | ADR018_POST_0085 | ADR018_POST_0086 | ADR018_POST_0087 | ADR018_POST_0088 | ADR018_POST_0089 | ADR018_POST_0090 | ADR018_POST_0091 | ADR018_POST_0092 | ADR018_POST_0093 | ADR018_POST_0094 | ADR018_POST_0095 | ADR018_POST_0098 | ADR018_POST_0099 | ADR018_POST_0100 | ADR025_POST_0101 | ADR025_POST_0102 | ADR025_POST_0104 | ADR025_POST_0105 | ADR025_POST_0106 | ADR025_POST_0107 | ADR025_POST_0108 | ADR025_POST_0109 | ADR025_POST_0110 | ADR025_POST_0111 [--deployment-check]] [--verify-only]
  *        [--lock-timeout 5s] [--statement-timeout 120s]
  *        [--migrations-dir <dir>]                         (non-production only: tests)
  *
@@ -90,6 +90,7 @@ const PROFILES = {
   ADR025_POST_0108: './verify-profiles/adr025-post-0108.mjs',
   ADR025_POST_0109: './verify-profiles/adr025-post-0109.mjs',
   ADR025_POST_0110: './verify-profiles/adr025-post-0110.mjs',
+  ADR025_POST_0111: './verify-profiles/adr025-post-0111.mjs',
 };
 const t0 = Date.now();
 
