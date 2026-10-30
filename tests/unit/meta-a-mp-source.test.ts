@@ -85,7 +85,7 @@ describe('Meta A — Mercado Pago candidates of the manual routes', () => {
     // Lote 1B: the amount may be lower than what is left (split / partial), never higher
     expect(cobro).toMatch(/montoMpNum > 0 && montoMpNum <= \(elegidoMp\?\.amount \?\? 0\)/);
     const pagar = SRC('features/caja/CuentasAPagar.tsx');
-    expect(pagar).toMatch(/outflow\.mutate\(\{ sourceId: movimientoMp, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor\.entity_id \}/);
+    expect(pagar).toMatch(/outflow\.mutate\(\{ sourceId: movimientoMp, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor\.supplier_id \}/);
     const retiro = SRC('features/finanzas/EventoGestionModal.tsx');
     expect(retiro).toMatch(/outflow\.mutate\(\{ sourceId: movimientoMp, classification: 'OWNER_WITHDRAWAL' \}/);
     const trf = SRC('features/caja/ResumenSaldos.tsx');

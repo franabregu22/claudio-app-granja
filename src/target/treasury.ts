@@ -67,6 +67,59 @@ export async function listLedgerBalances(client: SupabaseClient, ledger: 'ACCOUN
   return [...latest.values()].sort((a, b) => a.entity_name.localeCompare(b.entity_name));
 }
 
+// ── supplier current accounts (Lote 3A, frontend only) ──────────────────────
+export type SupplierLedgerMovement = 'PURCHASE' | 'PAYMENT' | 'CHEQUE_ENDORSED' | 'INSTRUMENT_ISSUED' | 'INSTRUMENT_REJECTED' | 'FREIGHT'
+  | 'ADJUSTMENT' | 'REVERSAL' | 'OPENING_BALANCE';
+export interface SupplierLedgerRow {
+  id: number; movement_type: SupplierLedgerMovement; signed_amount: number; effective_date: string; source_entity_type: string | null;
+  reason: string | null; created_at: string;
+}
+/**
+ * What each supplier-ledger movement IS (never mixed): an obligation (the debt grows), real money that left an account, an own
+ * instrument (a scheduled payment: the bank moves only when it is debited) or a correction. + raises the debt, − lowers it.
+ */
+export const SUPPLIER_MOVEMENT: Record<SupplierLedgerMovement, { label: string; kind: 'OBLIGACION' | 'PAGO' | 'INSTRUMENTO' | 'CORRECCION' }> = {
+  PURCHASE: { label: 'Compra / factura', kind: 'OBLIGACION' }, FREIGHT: { label: 'Flete', kind: 'OBLIGACION' },
+  OPENING_BALANCE: { label: 'Saldo inicial', kind: 'OBLIGACION' },
+  PAYMENT: { label: 'Pago', kind: 'PAGO' },
+  INSTRUMENT_ISSUED: { label: 'Cheque / eCheq emitido', kind: 'INSTRUMENTO' }, CHEQUE_ENDORSED: { label: 'Cheque de tercero endosado', kind: 'INSTRUMENTO' },
+  INSTRUMENT_REJECTED: { label: 'Cheque / eCheq rechazado o anulado', kind: 'INSTRUMENTO' },
+  ADJUSTMENT: { label: 'Ajuste', kind: 'CORRECCION' }, REVERSAL: { label: 'Rectificación', kind: 'CORRECCION' },
+};
+
+/** The supplier-ledger movements of one supplier, newest first (ADMIN; the balance stays report_balance_period). */
+export async function listSupplierLedger(client: SupabaseClient, supplierId: string, limit = 200): Promise<SupplierLedgerRow[]> {
+  const rows = await readTable<SupplierLedgerRow>(client, 'supplier_ledger',
+    (q) => q.eq('supplier_id', supplierId).order('effective_date', { ascending: false }).order('id', { ascending: false }).limit(limit),
+    'id, movement_type, signed_amount, effective_date, source_entity_type, reason, created_at');
+  return rows.map((r) => ({ ...r, signed_amount: num(r.signed_amount) }));
+}
+
+export type SupplierSituation = 'DEUDA' | 'AL_DIA' | 'A_FAVOR';
+export interface SupplierAccount { supplier_id: string; nombre: string; balance: number; situation: SupplierSituation; activo: boolean }
+/**
+ * Every supplier with its situation: the supplier-ledger balance as read (report_balance_period); an active supplier without any
+ * movement is "al día" (balance 0). A negative balance is a credit in our favour (an advance), never an expense. Inactive suppliers
+ * are listed only while their balance is not zero.
+ */
+export function classifySuppliers(balances: readonly LedgerBalance[], suppliers: readonly { id: string; nombre: string; activo: boolean }[]): SupplierAccount[] {
+  const bal = new Map(balances.map((b) => [b.entity_id, b]));
+  const out: SupplierAccount[] = [];
+  const seen = new Set<string>();
+  for (const s of suppliers) {
+    const balance = Math.round((bal.get(s.id)?.balance ?? 0) * 100) / 100;
+    if (!s.activo && balance === 0) continue;
+    seen.add(s.id);
+    out.push({ supplier_id: s.id, nombre: s.nombre, balance, activo: s.activo, situation: balance > 0 ? 'DEUDA' : balance < 0 ? 'A_FAVOR' : 'AL_DIA' });
+  }
+  for (const b of balances) {   // a balance whose supplier is not in the master list (not visible): still shown, never hidden
+    if (seen.has(b.entity_id)) continue;
+    const balance = Math.round(b.balance * 100) / 100;
+    out.push({ supplier_id: b.entity_id, nombre: b.entity_name, balance, activo: true, situation: balance > 0 ? 'DEUDA' : balance < 0 ? 'A_FAVOR' : 'AL_DIA' });
+  }
+  return out.sort((a, b) => a.nombre.localeCompare(b.nombre));
+}
+
 type RawInstrument = Omit<InstrumentRow, 'cliente_nombre' | 'supplier_nombre' | 'endosado_nombre'> & {
   clients: { nombre: string } | null; emisor: { nombre: string } | null; endosado: { nombre: string } | null;
 };

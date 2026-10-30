@@ -54,6 +54,14 @@ export async function listInvoicePaymentDetail(client: SupabaseClient, rootId: s
   return rows.map((r) => ({ ...r, amount: num(r.amount), document_count: num(r.document_count) }));
 }
 
+/** Lote 3A: every invoice (current purchase) of ONE supplier with its payment status, newest first — the backend's figures. */
+export async function listSupplierInvoices(client: SupabaseClient, supplierId: string): Promise<PurchasePaymentStatusRow[]> {
+  const rows = await readView<PurchasePaymentStatusRow>(client, 'fin_purchase_payment_status',
+    (q) => q.eq('supplier_id', supplierId).order('economic_date', { ascending: false }).limit(200));
+  return rows.map((r) => ({ ...r, amount_total: num(r.amount_total), scheduled: num(r.scheduled), debited: num(r.debited),
+    other_payments: num(r.other_payments), pending: num(r.pending), voided_instruments: num(r.voided_instruments) }));
+}
+
 /** Own instruments still to be debited whose maturity falls in [from, to] (the maturity calendar). */
 export async function listScheduledPayments(client: SupabaseClient, from: string, to: string): Promise<ScheduledPaymentRow[]> {
   const rows = await readView<ScheduledPaymentRow>(client, 'fin_scheduled_payments',

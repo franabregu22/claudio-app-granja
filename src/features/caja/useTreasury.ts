@@ -4,7 +4,7 @@ import { createPurchaseWithAttachments } from '../../target/attachments';
 import { listMaster, type ClientRow, type ExpenseCategoryGroupRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
 import {
   assignFreightToPurchase, cancelSupplierInstrument, listAccountPostings, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
-  listInstruments, listLedgerBalances, listPnlMonths, listPurchases, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
+  listInstruments, listLedgerBalances, listPnlMonths, listSupplierLedger, listPurchases, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
   registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listTransfers, listBankTaxPeriods, transferWithBankTax,
 } from '../../target/treasury';
 
@@ -21,6 +21,10 @@ function useRefresh() {
 
 export function useLedgerBalances(ledger: 'ACCOUNT' | 'SUPPLIER') {
   return useQuery({ queryKey: [...BALANCES, ledger], queryFn: () => listLedgerBalances(supabase, ledger) });
+}
+/** Lote 3A: the supplier-ledger movements of one supplier (supplier ficha). */
+export function useSupplierLedger(supplierId: string) {
+  return useQuery({ queryKey: [...BALANCES, 'supplier-ledger', supplierId], queryFn: () => listSupplierLedger(supabase, supplierId), enabled: supplierId !== '' });
 }
 export function useAccountPostings(accountId: string) {
   return useQuery({ queryKey: [...TREASURY, 'postings', accountId], queryFn: () => listAccountPostings(supabase, accountId), enabled: accountId !== '' });

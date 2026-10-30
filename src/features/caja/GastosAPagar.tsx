@@ -19,7 +19,7 @@ export function usePayables(onlyOpen: boolean) {
  * P&L by their date and category; here only the obligation is paid, totally or partially — each payment is ONE real movement on a
  * cash / bank account (Mercado Pago outflows are classified from Pendientes MP).
  */
-export function GastosAPagar() {
+export function GastosAPagar({ titulo = 'Gastos a pagar' }: { titulo?: string } = {}) {
   const gastos = usePayables(true);
   const [pagando, setPagando] = useState<PayableRow | null>(null);
   const [abierto, setAbierto] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export function GastosAPagar() {
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Gastos a pagar</p>
+        <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">{titulo}</p>
         {filas.length > 0 && <span className="text-sm">Total pendiente: <b className="text-red-600">{formatoPesos(filas.reduce((s, g) => s + g.pending, 0))}</b></span>}
       </div>
       <p className="text-xs text-[#8A7A5C]">Ya figuran en resultados desde su registro; pagarlos solo mueve Caja / Bancos.</p>

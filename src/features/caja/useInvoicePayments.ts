@@ -5,7 +5,7 @@ import { attachInstrumentDocument, listDocumentLinks, uploadErpDocument, type Do
 import { removeAttachments } from '../../target/attachments';
 import {
   allocatePurchasePayment, issuePurchaseInstruments, listDebitedInstruments, listInvoicePaymentDetail, listInvoicePaymentStatus, listScheduledPayments,
-  listSupplierPayments, monthRange, type InstrumentToIssue,
+  listSupplierInvoices, listSupplierPayments, monthRange, type InstrumentToIssue,
 } from '../../target/invoicePayments';
 
 /** ADR-025 stage 4: documents of the visible records (one request per list). */
@@ -31,6 +31,10 @@ export function useInvoicePaymentStatus(onlyPending: boolean) {
 }
 export function useInvoicePaymentDetail(rootId: string | null) {
   return useQuery({ queryKey: ['treasury', 'invoice-payments', 'detail', rootId], queryFn: () => listInvoicePaymentDetail(supabase, rootId!), enabled: !!rootId });
+}
+/** Lote 3A: the invoices of one supplier with their payment status (supplier ficha). */
+export function useSupplierInvoices(supplierId: string) {
+  return useQuery({ queryKey: ['treasury', 'invoice-payments', 'supplier', supplierId], queryFn: () => listSupplierInvoices(supabase, supplierId), enabled: supplierId !== '' });
 }
 export function useSupplierPayments(supplierId: string) {
   return useQuery({ queryKey: ['treasury', 'supplier-payments', supplierId], queryFn: () => listSupplierPayments(supabase, supplierId), enabled: supplierId !== '' });

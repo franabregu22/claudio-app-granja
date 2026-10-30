@@ -44,6 +44,7 @@ export const TARGET_READ_TABLES = [
   'fin_statement_account_config', 'fin_import_run',   // ADR-018 bank statement import (ADMIN policy; config read as account ids only)
   'fin_statement_match', 'fin_statement_cutover',   // ADR-018 reconciliation / cut (ADMIN policy)
   'expense_category_group',   // ADR-024 (0096): the parent expense category (ADMIN policy)
+  'supplier_ledger',   // Lote 3A: supplier current-account movements, read-only (ADMIN policy, 0017)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
