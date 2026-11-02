@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
   cancelOrder, createPendingOrder, deliverOrder, listClientBalances, listOrders, listSalesLines,
-  rectifyCollection, rectifyDeliveredOrder, registerCollection, reverseCollection, updatePendingOrder, type LineInput, type OrderEstado,
+  rectifyCollection, rectifyDeclaredCollection, rectifyDeliveredOrder, registerCollection, registerDeclaredCollection, reverseCollection, reverseDeclaredCollection, updatePendingOrder, type LineInput, type OrderEstado,
 } from '../../target/commercial';
 import { listClientCollections } from '../../target/customerCollections';
 import { listCurrentPrices, listMaster, listProfileDisplayNames, type ClientRow, type FinancialAccountRow, type ProductRow } from '../../target/masters';
@@ -84,6 +84,25 @@ export function useRegisterCollection() {
     mutationFn: (p: Parameters<typeof registerCollection>[1]) => registerCollection(supabase, p),
     onSuccess: () => Promise.all([BALANCES, CUSTOMER_COLLECTIONS].map((queryKey) => qc.invalidateQueries({ queryKey }))),
   });
+}
+
+/** ADR-027 (0112): a declared Mercado Pago collection touches only the client: balances and collections are refreshed. */
+export function useRegisterDeclaredCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (p: Parameters<typeof registerDeclaredCollection>[1]) => registerDeclaredCollection(supabase, p),
+    onSuccess: () => Promise.all([BALANCES, CUSTOMER_COLLECTIONS].map((queryKey) => qc.invalidateQueries({ queryKey }))),
+  });
+}
+
+/** ADR-027 (0112): annul / rectify a declared collection. */
+export function useDeclaredCollectionReversal() {
+  const qc = useQueryClient();
+  const refresh = () => Promise.all([BALANCES, CUSTOMER_COLLECTIONS].map((queryKey) => qc.invalidateQueries({ queryKey })));
+  return {
+    annul: useMutation({ mutationFn: (p: Parameters<typeof reverseDeclaredCollection>[1]) => reverseDeclaredCollection(supabase, p), onSuccess: refresh }),
+    rectify: useMutation({ mutationFn: (p: Parameters<typeof rectifyDeclaredCollection>[1]) => rectifyDeclaredCollection(supabase, p), onSuccess: refresh }),
+  };
 }
 
 export function useSalesLines(from: string, to: string, enabled = true) {

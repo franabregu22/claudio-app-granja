@@ -60,6 +60,8 @@ const MESSAGES: Record<string, string> = {
   RUN_NOT_FOUND: 'La importación no existe.',
   IMPORT_FAILED: 'No se pudo procesar el extracto.',
   IMPORT_UNREACHABLE: 'No se pudo contactar al servidor. Revisá la conexión e intentá de nuevo.',
+  // ADR-027 (0112): declared Mercado Pago collections
+  MP_CLIENT_ALLOCATION_DISABLED: 'Los cobros de Mercado Pago se registran como cobro declarado desde Cuentas corrientes.',
   // F27-D treasury / suppliers / purchases / instruments
   SAME_ACCOUNT: 'La cuenta de origen y la de destino deben ser distintas.',
   SOURCE_ACCOUNT_NOT_FOUND_OR_INACTIVE: 'La cuenta de origen no existe o está inactiva.',

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
-  COLLECTION_METHOD_LABEL, COLLECTION_ORIGIN_LABEL, COLLECTION_STATUS_LABEL, type CustomerCollectionRow, type CustomerCollectionStatus,
+  COLLECTION_METHOD_LABEL, COLLECTION_ORIGIN_LABEL, COLLECTION_STATUS_LABEL, collectionTotals, type CustomerCollectionRow, type CustomerCollectionStatus,
   filterLogicalCollections, groupCustomerCollections, listCustomerCollections,
 } from '../../target/customerCollections';
 import { errorMessage } from '../../target/messages';
@@ -13,7 +13,7 @@ const SELECT_CLS = 'text-sm border border-[#E4DCC8] rounded px-2 py-1 bg-white';
 const ESTADO_ESTILO: Record<CustomerCollectionStatus, string> = {
   CORRECTED: 'bg-stone-200 text-stone-700', MANUAL_WITHOUT_SOURCE: 'bg-red-100 text-red-800', CONCILIATED: 'bg-green-100 text-green-800',
   PENDING_RECONCILIATION: 'bg-amber-100 text-amber-900', CASH: 'bg-stone-100 text-stone-700', ALLOCATED_TO_CUSTOMER: 'bg-sky-100 text-sky-900',
-  ANNULLED: 'bg-stone-200 text-stone-700 line-through', RECTIFIED: 'bg-stone-200 text-stone-700',
+  ANNULLED: 'bg-stone-200 text-stone-700 line-through', RECTIFIED: 'bg-stone-200 text-stone-700', DECLARED: 'bg-sky-100 text-sky-900',
 };
 const corto = (t: string | null, n = 60) => (t && t.length > n ? `${t.slice(0, n)}…` : t ?? '');
 
@@ -43,7 +43,8 @@ export function CobrosClientes() {
   const metodos = [...new Set(filas.map((r) => r.payment_method))].sort();
   const items = filterLogicalCollections(groupCustomerCollections(filas), { clienteId: cliente, account: cuenta, method: metodo, status: estado });
   // 0108: an annulled / rectified original is shown as evidence but is no longer money (its replacement is its own row)
-  const total = items.reduce((s, i) => s + (i.main.reversal_kind ? 0 : i.amount), 0);
+  // ADR-027: a declared collection lowers a client's balance; it never entered an account
+  const totales = collectionTotals(items);
 
   return (
     <div className="space-y-3">
@@ -85,7 +86,7 @@ export function CobrosClientes() {
               </table>
             </div>
           )}
-      {items.length > 0 && <p className="text-xs text-[#8A7A5C]">{items.length} cobro(s) · total para clientes {formatoPesos(total)}. Un cobro corregido se muestra una vez, con las partes que lo reemplazan.</p>}
+      {items.length > 0 && <p className="text-xs text-[#8A7A5C]">{items.length} cobro(s) · total para clientes {formatoPesos(totales.dinero)}{totales.declarado > 0 ? ` · declarados sin movimiento de dinero ${formatoPesos(totales.declarado)}` : ''}. Un cobro corregido se muestra una vez, con las partes que lo reemplazan.</p>}
     </div>
   );
 }

@@ -100,6 +100,7 @@ describe('Lote 1E — UI guards', () => {
     expect(t).toMatch(/Rectificación/);
   });
   it('Caja → Cobros de clientes: a reversed original is not added to the total', () => {
-    expect(SRC('features/caja/CobrosClientes.tsx')).toMatch(/s \+ \(i\.main\.reversal_kind \? 0 : i\.amount\)/);
+    expect(SRC('target/customerCollections.ts')).toMatch(/const vivos = items\.filter\(\(i\) => !i\.main\.reversal_kind\)/);
+    expect(SRC('features/caja/CobrosClientes.tsx')).toMatch(/collectionTotals\(items\)/);
   });
 });

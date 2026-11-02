@@ -15,7 +15,7 @@ import { TARGET_VIEWS } from '../../src/target/db';
 import { errorMessage } from '../../src/target/messages';
 import {
   isClassifiableOutbound, MP_SOURCE_MISSING_MESSAGE, MP_STATUS_LABEL, type MpActivityRow, type MpPayoutMatch, mpOutflowCandidates,
-  mpOwnInflowCandidates, mpOwnPayoutCandidates, mpReceiptCandidates,
+  mpOwnInflowCandidates, mpOwnPayoutCandidates,
 } from '../../src/target/mpActivity';
 
 const SRC = (f: string) => readFileSync(resolve(__dirname, '../../src', f), 'utf8');
@@ -65,15 +65,6 @@ describe('Meta A — Mercado Pago candidates of the manual routes', () => {
   it('own account → MP: only inflows awaiting classification', () => {
     expect(mpOwnInflowCandidates(ACT).map((c) => c.sourceId)).toEqual(['182961933745']);
   });
-  it('client receipts: applied in treasury with an unassigned part; offered amount = what is left to assign', () => {
-    const r = mpReceiptCandidates([
-      { mp_financial_movement_id: 1, payment_id: '182488096484', occurred_date: '2026-10-05', axis_a_state: 'POSTED', effective_applied_receipt: 450000, active_attributed: 0 },
-      { mp_financial_movement_id: 2, payment_id: '181962105709', occurred_date: '2026-10-07', axis_a_state: 'REPORT_CONFIRMED', effective_applied_receipt: 72000, active_attributed: 72000 },
-      { mp_financial_movement_id: 3, payment_id: '1', occurred_date: '2026-10-07', axis_a_state: 'NORMALIZED', effective_applied_receipt: 10, active_attributed: 0 },
-      { mp_financial_movement_id: 4, payment_id: '182485544561', occurred_date: '2026-10-10', axis_a_state: 'POSTED', effective_applied_receipt: 150000, active_attributed: 40000.5 },
-    ]);
-    expect(r.map((c) => [c.movementId, c.sourceId, c.amount, c.date])).toEqual([[1, '182488096484', 450000, '2026-10-05'], [4, '182485544561', 109999.5, '2026-10-10']]);
-  });
   it('no candidate → the fixed blocking message; the database code shows the same text', () => {
     expect(MP_SOURCE_MISSING_MESSAGE).toBe('No encontramos todavía el movimiento correspondiente en Mercado Pago. Esperá a que aparezca en Actividad Mercado Pago o registralo desde allí.');
     expect(errorMessage({ message: 'MP_POSTING_REQUIRES_SOURCE: operation 9 moves Mercado Pago without SOURCE_ID' })).toBe(MP_SOURCE_MISSING_MESSAGE);
@@ -81,9 +72,9 @@ describe('Meta A — Mercado Pago candidates of the manual routes', () => {
   });
   it('every manual route uses the Mercado Pago movement (or blocks) when the account is Mercado Pago', () => {
     const cobro = SRC('features/cobros/RegistroPagoModal.tsx');
-    expect(cobro).toMatch(/asignar\.mutate\(\{ movementId: elegidoMp\.movementId, clienteId: cliente\.cliente_id, amount: montoMpNum, effectiveDate: elegidoMp\.date/);
-    // Lote 1B: the amount may be lower than what is left (split / partial), never higher
-    expect(cobro).toMatch(/montoMpNum > 0 && montoMpNum <= \(elegidoMp\?\.amount \?\? 0\)/);
+    // ADR-027: a client collection on Mercado Pago is declared; it never searches a movement
+    expect(cobro).toMatch(/declarar\.mutate\(\{ clienteId: cliente\.cliente_id, amount: montoNum, effectiveDate: fecha, note: notas/);
+    expect(cobro).not.toMatch(/BuscadorCobroMp|elegidoMp|allocateToClient/);
     const pagar = SRC('features/caja/CuentasAPagar.tsx');
     expect(pagar).toMatch(/outflow\.mutate\(\{ sourceId: movimientoMp, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor\.supplier_id \}/);
     const retiro = SRC('features/finanzas/EventoGestionModal.tsx');

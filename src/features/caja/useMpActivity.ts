@@ -5,7 +5,6 @@ import {
   classifyMpInflowAsCollection, classifyMpInflowAsOwnTransfer, classifyMpOutflow, confirmMpPayoutTransfer, listMpActivity, listMpPayoutMatches,
   type MpOutflowInput,
 } from '../../target/mpActivity';
-import { allocateToClient, mapPayerToClient } from '../../target/mp';
 import { listPurchaseMpLinks, settlePurchaseMp } from '../../target/purchaseMpLink';
 import {
   listMpWhatsappNotes, listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
@@ -38,7 +37,8 @@ export function useClassifyMp() {
   const onSettled = useRefreshAfterMp();
   return {
     outflow: useMutation({ mutationFn: (i: MpOutflowInput) => classifyMpOutflow(supabase, i), onSettled }),
-    collection: useMutation({ mutationFn: (i: { paymentId: string; clientId: string | null }) => classifyMpInflowAsCollection(supabase, i.paymentId, i.clientId), onSettled }),
+    // ADR-027: never with a client (the database refuses it): a collection is declared in Cuentas corrientes
+    collection: useMutation({ mutationFn: (i: { paymentId: string }) => classifyMpInflowAsCollection(supabase, i.paymentId, null), onSettled }),
     ownTransfer: useMutation({ mutationFn: (i: { paymentId: string; fromAccountId: string }) => classifyMpInflowAsOwnTransfer(supabase, i.paymentId, i.fromAccountId), onSettled }),
   };
 }
@@ -66,19 +66,6 @@ export function usePendingSummary() {
 /** ADR-023: one page of "Entradas sin vincular" (optional; never an alert). */
 export function useUnlinkedInflows(filter: UnlinkedFilter, page: number) {
   return useQuery({ queryKey: ['mp-pending', 'unlinked', filter, page], queryFn: () => listUnlinkedPage(supabase, filter, page), placeholderData: keepPreviousData });
-}
-
-/** ADR-024: "Recordar este pagador" — the existing payer.id → client mapping (future payments of that payer auto-allocate). */
-export function useRememberPayer() {
-  const onSettled = useRefreshAfterMp();
-  return useMutation({ mutationFn: (p: { payerId: string; clienteId: string }) => mapPayerToClient(supabase, { ...p, reason: 'Recordar este pagador (ADR-024)' }), onSettled });
-}
-
-/** ADR-023: link an inflow to a customer (no date: the server applies the closed-period rule); never moves Mercado Pago. */
-export function useLinkInflow() {
-  const onSettled = useRefreshAfterMp();
-  return useMutation({ mutationFn: (p: { movementId: number; clienteId: string; amount: number; idempotencyKey: string }) =>
-    allocateToClient(supabase, { ...p, effectiveDate: null, reason: 'Vinculación de entrada de Mercado Pago (ADR-023)' }), onSettled });
 }
 
 /** ADR-021 (0093): technical exceptions (unposted outflows, report rows in error), never mixed with the pendings. */

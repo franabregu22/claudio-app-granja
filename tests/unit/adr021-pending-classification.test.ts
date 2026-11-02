@@ -152,9 +152,7 @@ describe('ADR-021 — activity and classification routes', () => {
     expect(v).not.toMatch(/CLASSIFY_INFLOW|ClasificarIngreso|summarizePending/);   // inflows are never a mandatory classification (ADR-023)
     expect(v).toMatch(/aria-label="Revisión técnica"/);
     const e = SRC('features/caja/EntradasSinVincular.tsx');
-    expect(e).toMatch(/Vincular a cliente/);
-    expect(e).toMatch(/Movimiento recibido: /);
-    expect(e).toMatch(/Vinculado al cliente: /);
+    expect(e).not.toMatch(/Vincular a cliente/);   // ADR-027: a collection is declared, never linked
     expect(e).not.toMatch(/raw_row|destination_value|PAYOUT_BANK_ACCOUNT_NUMBER/);
   });
 });

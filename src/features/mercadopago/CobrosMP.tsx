@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { errorMessage } from '../../target/messages';
 import {
-  AXIS_A_LABELS, AXIS_B_LABELS, OUTCOME_LABELS, REVIEW_REASON_LABELS, allocateToClient, canAllocate, clearAttributionFlag, flagForAttribution,
+  AXIS_A_LABELS, AXIS_B_LABELS, OUTCOME_LABELS, REVIEW_REASON_LABELS, clearAttributionFlag,
   requestRefetch, reverseAllocation, uiIdempotencyKey, type ReceiptDetail,
 } from '../../target/mp';
 import { shiftDate } from '../../target/production';
@@ -128,15 +128,11 @@ function DetalleCobro({ movementId, onBack }: { movementId: number; onBack: () =
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            {canAllocate(r) && <button onClick={() => setAccion('asignar')} className={boton}>Asignar a cliente</button>}
             {(asignaciones.data ?? []).length > 0 && <button onClick={() => setAccion('revertir')} className={boton}>Revertir asignación</button>}
-            {r.open_flag ? <button onClick={() => setAccion('cerrar')} className={boton}>Cerrar solicitud</button>
-              : <button onClick={() => setAccion('solicitar')} className={boton}>Solicitar asignación</button>}
+            {r.open_flag && <button onClick={() => setAccion('cerrar')} className={boton}>Cerrar solicitud</button>}
             {r.payment_id && <button onClick={() => setAccion('reconsultar')} className={boton}>Volver a consultar el pago</button>}
           </div>
-          {accion === 'asignar' && <AsignarModal r={r} onClose={() => setAccion(null)} />}
           {accion === 'revertir' && <RevertirModal movementId={movementId} onClose={() => setAccion(null)} />}
-          {accion === 'solicitar' && <MotivoModal titulo="Solicitar asignación" fn={flagForAttribution} params={{ movementId }} onClose={() => setAccion(null)} />}
           {accion === 'cerrar' && r.open_flag_id && <MotivoModal titulo="Cerrar solicitud" fn={clearAttributionFlag} params={{ flagId: r.open_flag_id }} onClose={() => setAccion(null)} />}
           {accion === 'reconsultar' && r.payment_id && <MotivoModal titulo="Volver a consultar el pago" fn={requestRefetch} params={{ paymentId: r.payment_id }} onClose={() => setAccion(null)} />}
         </>
@@ -155,33 +151,6 @@ export function MotivoModal<P extends object>({ titulo, fn, params, onClose, not
     <Modal titulo={titulo} onClose={onClose} puedeGuardar={motivo.trim() !== ''} guardando={accion.isPending} error={accion.error} textoGuardar="Confirmar"
       onSubmit={() => accion.mutate({ ...params, reason: motivo.trim() }, { onSuccess: onClose })}>
       {nota && <p className="text-sm text-gray-600">{nota}</p>}
-      <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
-    </Modal>
-  );
-}
-
-function AsignarModal({ r, onClose }: { r: ReceiptDetail; onClose: () => void }) {
-  const accion = useMPAction(allocateToClient);
-  const clientes = useClients();
-  const [clienteId, setClienteId] = useState('');
-  const [monto, setMonto] = useState('');
-  const [fecha, setFecha] = useState(r.occurred_date);
-  const [motivo, setMotivo] = useState('');
-  const [clave, setClave] = useState(() => uiIdempotencyKey());   // one per submission; a retry reuses it
-  return (
-    <Modal titulo="Asignar a cliente" onClose={onClose} puedeGuardar={clienteId !== '' && Number(monto) > 0 && fecha !== '' && motivo.trim() !== ''}
-      guardando={accion.isPending} error={accion.error ?? clientes.error} textoGuardar="Asignar"
-      onSubmit={() => accion.mutate({ movementId: r.mp_financial_movement_id, clienteId, amount: Number(monto), effectiveDate: fecha, idempotencyKey: clave, reason: motivo.trim() },
-        { onSuccess: () => { setClave(uiIdempotencyKey()); onClose(); } })}>
-      <label className={etiqueta}>Cliente
-        <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className={campo}>
-          <option value="">Elegir cliente…</option>
-          {(clientes.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
-      </label>
-      <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
-      <p className="text-xs text-gray-500">Cobro aplicado {formatoPesos(r.effective_applied_receipt)} · ya asignado {formatoPesos(r.active_attributed)}. El tope lo controla el sistema.</p>
-      <label className={etiqueta}>Fecha (desde {r.occurred_date})<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
     </Modal>
   );

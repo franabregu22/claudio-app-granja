@@ -296,15 +296,14 @@ type TipoIngreso = 'OWN_TRANSFER' | 'COLLECTION';
 
 /**
  * 0088 — "Clasificar ingreso" for an account_fund + DEBIN inflow (CLASSIFY_INFLOW): money from an own account (one
- * TRANSFER, 0086) or a client receipt (applied server-side; the client is optional). "Otro ingreso" is not offered yet.
+ * TRANSFER, 0086) or a client receipt (applied server-side). ADR-027: it never names a client (a collection is declared in Cuentas
+ * corrientes, so it would be discounted twice). "Otro ingreso" is not offered yet.
  */
 export function ClasificarIngreso({ paymentId }: { paymentId: string }) {
   const [abierto, setAbierto] = useState(false);
   const [tipo, setTipo] = useState<TipoIngreso>('OWN_TRANSFER');
   const [cuenta, setCuenta] = useState('');
-  const [cliente, setCliente] = useState('');
   const cuentas = useOwnBankAccounts();
-  const clientes = useClients();
   const { collection, ownTransfer } = useClassifyMp();
   const pendiente = collection.isPending || ownTransfer.isPending;
   const error = collection.error ?? ownTransfer.error;
@@ -315,21 +314,16 @@ export function ClasificarIngreso({ paymentId }: { paymentId: string }) {
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="Clasificar ingreso">
       <select aria-label="Tipo de ingreso" className={SELECT_CLS} value={tipo} onChange={(e) => setTipo(e.target.value as TipoIngreso)}>
-        <option value="OWN_TRANSFER">Transferencia desde cuenta propia</option><option value="COLLECTION">Cobro de cliente</option>
+        <option value="OWN_TRANSFER">Transferencia desde cuenta propia</option><option value="COLLECTION">Cobro de cliente (sin asignar)</option>
       </select>
-      {tipo === 'OWN_TRANSFER' ? (
+      {tipo === 'OWN_TRANSFER' && (
         <select aria-label="Cuenta propia de origen" className={SELECT_CLS} value={cuenta} onChange={(e) => setCuenta(e.target.value)}>
           <option value="">Cuenta…</option>
           {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
-      ) : (
-        <select aria-label="Cliente" className={SELECT_CLS} value={cliente} onChange={(e) => setCliente(e.target.value)}>
-          <option value="">Sin cliente</option>
-          {(clientes.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
       )}
       <button type="button" className={ACCION_CLS} disabled={!listo || pendiente}
-        onClick={() => (tipo === 'OWN_TRANSFER' ? ownTransfer.mutate({ paymentId, fromAccountId: cuenta }) : collection.mutate({ paymentId, clientId: cliente || null }))}>
+        onClick={() => (tipo === 'OWN_TRANSFER' ? ownTransfer.mutate({ paymentId, fromAccountId: cuenta }) : collection.mutate({ paymentId }))}>
         {pendiente ? 'Confirmando...' : 'Confirmar'}
       </button>
       <button type="button" className="text-xs text-[#8A7A5C] underline" onClick={() => setAbierto(false)}>Cancelar</button>

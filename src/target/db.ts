@@ -105,6 +105,7 @@ export const TARGET_RPCS = [
   'classify_pending_expense',   // ADR-025 stage 3 (0101): classify an expense already paid (no new movement; ADMIN)
   'issue_purchase_instruments', 'allocate_purchase_payment', 'attach_instrument_document', 'register_erp_document',   // ADR-025 stage 4 (0104, ADMIN)
   'register_pending_expense', 'pay_pending_expense',   // ADR-026 (0106, ADMIN): the expense now, the money when paid
+  'register_declared_collection', 'reverse_declared_collection', 'rectify_declared_collection',   // ADR-027 (0112, ADMIN): Mercado Pago collection declared, no money
   'reverse_collection', 'rectify_collection',   // Lote 1E (0108, ADMIN): annul / rectify a cash or bank collection, append-only
   'set_profile_name',   // Lote 2A (0109, ADMIN): first / last name of a profile, audited
   'assign_payable_to_supplier', 'set_payment_date',   // Lote 3B (0110, ADMIN): pending expense → supplier; due / estimated payment date

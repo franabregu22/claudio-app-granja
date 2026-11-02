@@ -1,9 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../../lib/supabase';
 import type { FinancialAccountRow } from '../../target/masters';
-import { allocateToClient, listReceipts } from '../../target/mp';
 import { isMercadoPagoAccount, MP_ROUTE_BLOCKED_MESSAGE, MP_SOURCE_MISSING_MESSAGE, type MpCandidate } from '../../target/mpActivity';
-import { getTodayDate } from '../../utils/dateUtils';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta } from './Modal';
 import { useMpActivity, useMpPayoutMatches } from './useMpActivity';
@@ -21,25 +17,6 @@ export function useActividadMp(accountId: string, activo: boolean) {
   const actividad = useMpActivity(id);
   const matches = useMpPayoutMatches(id);
   return { rows: actividad.data ?? [], matches: matches.data ?? new Map(), cargando: activo && (actividad.isLoading || matches.isLoading), error: actividad.error ?? matches.error };
-}
-
-/** Client receipts in Mercado Pago of the last 120 days (report_mp_receipt_status), only while the account is Mercado Pago. */
-export function useCobrosMp(activo: boolean) {
-  const hasta = getTodayDate();
-  const d = new Date(`${hasta}T12:00:00`); d.setDate(d.getDate() - 120);
-  const desde = d.toISOString().slice(0, 10);
-  const q = useQuery({ queryKey: ['mp', 'receipts', { from: desde, to: hasta, axisA: null, axisB: null }], enabled: activo,
-    queryFn: () => listReceipts(supabase, { from: desde, to: hasta }) });
-  return { rows: q.data ?? [], cargando: activo && q.isLoading, error: q.error };
-}
-
-/** C1 from a manual "Registrar cobro" on Mercado Pago: mp_allocate_to_client on the chosen receipt (never register_collection). */
-export function useAsignarCobroMp() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (p: Parameters<typeof allocateToClient>[1]) => allocateToClient(supabase, p),
-    onSuccess: () => Promise.all([['mp'], ['commercial'], ['treasury'], ['customer-collections']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
-  });
 }
 
 /**

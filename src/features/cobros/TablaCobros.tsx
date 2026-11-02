@@ -1,13 +1,14 @@
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { allocationIdOf, canAnnulMpAllocation, canReverseManualCollection, listAllocationHistory, type CustomerCollectionRow } from '../../target/customerCollections';
+import { allocationIdOf, canAnnulMpAllocation, canReverseDeclaredCollection, canReverseManualCollection, DECLARED_LABEL, listAllocationHistory, type CustomerCollectionRow } from '../../target/customerCollections';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { RESPONSABLE_NO_DISPONIBLE } from '../../target/masters';
 import { formatoPesos } from '../pedidos/helpers';
 import { useProfileDisplayNames } from '../pedidos/useCommercial';
 import { AnularCobroModal } from './AnularCobroModal';
 import { AnularCobroMpModal } from './AnularCobroMpModal';
+import { AnularCobroDeclaradoModal, RectificarCobroDeclaradoModal } from './CobroDeclaradoModales';
 import { NotaPopover } from './NotaPopover';
 import { RectificarCobroModal } from './RectificarCobroModal';
 
@@ -29,11 +30,12 @@ const ENLACE = 'ml-2 text-[11px] underline';
  * mp_client_allocation; "Anular" is offered only while something is still reversible (canAnnulMpAllocation).
  * A cash / bank collection (0108) offers "Anular" / "Rectificar" (canReverseManualCollection); an annulled / rectified original
  * stays listed as evidence (struck through, not counted) with its reversal line, and a replacement is tagged "Rectificación".
+ * A declared Mercado Pago collection (ADR-027) is tagged as such and offers the same two actions, without any money.
  */
 export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollectionRow[]; clienteNombre: string }) {
   const [anulando, setAnulando] = useState<CustomerCollectionRow | null>(null);
   const nombres = useProfileDisplayNames().data ?? new Map<string, string>();
-  const [accion, setAccion] = useState<{ tipo: 'anular' | 'rectificar'; cobro: CustomerCollectionRow } | null>(null);
+  const [accion, setAccion] = useState<{ tipo: 'anular' | 'rectificar' | 'anular-declarado' | 'rectificar-declarado'; cobro: CustomerCollectionRow } | null>(null);
   const ids = cobros.map(allocationIdOf).filter((x): x is string => x !== null).sort();
   const historial = useQuery({ queryKey: ['customer-collections', 'allocation-history', ids], enabled: ids.length > 0,
     queryFn: () => listAllocationHistory(supabase, ids) });
@@ -71,6 +73,11 @@ export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollect
                       <button type="button" onClick={() => setAccion({ tipo: 'anular', cobro: p })} className={`${ENLACE} text-red-700 hover:text-red-900`}>Anular</button>
                       <button type="button" onClick={() => setAccion({ tipo: 'rectificar', cobro: p })} className={`${ENLACE} text-amber-800 hover:text-amber-950`}>Rectificar</button>
                     </>}
+                    {p.origin === 'DECLARED_MP' && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-900">{DECLARED_LABEL}</span>}
+                    {canReverseDeclaredCollection(p) && <>
+                      <button type="button" onClick={() => setAccion({ tipo: 'anular-declarado', cobro: p })} className={`${ENLACE} text-red-700 hover:text-red-900`}>Anular</button>
+                      <button type="button" onClick={() => setAccion({ tipo: 'rectificar-declarado', cobro: p })} className={`${ENLACE} text-amber-800 hover:text-amber-950`}>Rectificar</button>
+                    </>}
                     {((revertido && p.amount === 0) || manual) && (
                       <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-stone-200 text-stone-700">{manual ? REVERSION_MANUAL[manual] : 'Anulado'}</span>
                     )}
@@ -105,6 +112,8 @@ export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollect
       {anulando && <AnularCobroMpModal cobro={anulando} clienteNombre={clienteNombre} onClose={() => setAnulando(null)} />}
       {accion?.tipo === 'anular' && <AnularCobroModal cobro={accion.cobro} clienteNombre={clienteNombre} onClose={() => setAccion(null)} />}
       {accion?.tipo === 'rectificar' && <RectificarCobroModal cobro={accion.cobro} clienteNombre={clienteNombre} onClose={() => setAccion(null)} />}
+      {accion?.tipo === 'anular-declarado' && <AnularCobroDeclaradoModal cobro={accion.cobro} clienteNombre={clienteNombre} onClose={() => setAccion(null)} />}
+      {accion?.tipo === 'rectificar-declarado' && <RectificarCobroDeclaradoModal cobro={accion.cobro} clienteNombre={clienteNombre} onClose={() => setAccion(null)} />}
     </div>
   );
 }

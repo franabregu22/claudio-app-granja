@@ -264,6 +264,25 @@ export function registerCollection(client: SupabaseClient, p: {
   });
 }
 
+/** ADR-027 (0112): a client says it paid by Mercado Pago. Lowers its current account only: no money moves, no movement is linked. */
+export function registerDeclaredCollection(client: SupabaseClient, p: { clienteId: string; amount: number; effectiveDate: string; note?: string | null; idempotencyKey: string }) {
+  return callRpc<{ replayed: boolean; declared_collection_id: string; client_ledger_id: number }>(client, 'register_declared_collection', {
+    p_cliente_id: p.clienteId, p_amount: p.amount, p_effective_date: p.effectiveDate, p_note: p.note && p.note.trim() !== '' ? p.note.trim() : null, p_idempotency_key: p.idempotencyKey,
+  });
+}
+
+/** ADR-027 (0112): annul a declared collection — compensation in the client ledger at its date; the original stays as evidence. */
+export function reverseDeclaredCollection(client: SupabaseClient, p: { id: string; reason: string; idempotencyKey: string }) {
+  return callRpc<{ replayed: boolean; reversal_id: number }>(client, 'reverse_declared_collection', { p_id: p.id, p_reason: p.reason, p_idempotency_key: p.idempotencyKey });
+}
+
+/** ADR-027 (0112): reversal of the declaration + the correct one, in ONE server transaction. */
+export function rectifyDeclaredCollection(client: SupabaseClient, p: { id: string; clienteId: string; amount: number; effectiveDate: string; reason: string; idempotencyKey: string }) {
+  return callRpc<{ replayed: boolean; reversal_id: number; replacement_id: string }>(client, 'rectify_declared_collection', {
+    p_id: p.id, p_cliente_id: p.clienteId, p_amount: p.amount, p_effective_date: p.effectiveDate, p_reason: p.reason, p_idempotency_key: p.idempotencyKey,
+  });
+}
+
 /** Lote 1E (0108): annul a cash / bank collection — compensating reversal at its date; the original stays as evidence. */
 export function reverseCollection(client: SupabaseClient, p: { collectionId: string; reason: string; idempotencyKey: string }) {
   return callRpc<{ replayed: boolean; reversal_id: number; reversal_operation_id: number }>(client, 'reverse_collection',

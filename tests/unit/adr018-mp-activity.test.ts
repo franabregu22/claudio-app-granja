@@ -291,7 +291,7 @@ describe('MP activity — classification (0088)', () => {
     for (const x of seen) expect(x.body).not.toMatch(/amount/);
     expect(TARGET_RPCS).toEqual(expect.arrayContaining(['mp_classify_payout_outflow', 'mp_classify_inflow_as_collection', 'mp_reclassify_inbound_own_transfer']));
   });
-  it('the screen: "Clasificar salida" only under a classifiable payout ("Compra / gasto" or "Retiro de socios" only; no own transfer, no "Otra salida"); "Clasificar ingreso" only on CLASSIFY_INFLOW rows (own account / client, no "Otro ingreso")', () => {
+  it('the screen: "Clasificar salida" only under a classifiable payout ("Compra / gasto" or "Retiro de socios" only; no own transfer, no "Otra salida"); "Clasificar ingreso" only on CLASSIFY_INFLOW rows (own account / client receipt without a client, ADR-027; no "Otro ingreso")', () => {
     const s = SRC('features/caja/CuentaDetalle.tsx');
     expect(s).toMatch(/\{m\.canClassify && r\.source_id && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
     expect(s).toMatch(/\{r\.coverage_status === 'CLASSIFY_INFLOW' && r\.source_id && <ClasificarIngreso paymentId=\{r\.source_id\} \/>\}/);
@@ -305,7 +305,7 @@ describe('MP activity — classification (0088)', () => {
     expect(salida).toMatch(/aria-label="Concepto"/);
     expect(salida).toMatch(/\{deuda > 0 && \(/);   // "apply to the existing debt" only when the supplier owes
     const ingreso = s.slice(s.indexOf('function ClasificarIngreso'));
-    expect(ingreso).toMatch(/>Transferencia desde cuenta propia<\/option><option value="COLLECTION">Cobro de cliente<\/option>/);
+    expect(ingreso).toMatch(/>Transferencia desde cuenta propia<\/option><option value="COLLECTION">Cobro de cliente \(sin asignar\)<\/option>/);
     expect(ingreso).not.toMatch(/Otro ingreso<\/option>/);
     const lib = SRC('target/mpActivity.ts');
     expect(s.slice(s.indexOf('function ClasificarSalida')) + lib.slice(lib.indexOf('export interface MpOutflowInput'))).not.toMatch(/p_amount|p_financial_account_id|p_effective_date|p_signed/);

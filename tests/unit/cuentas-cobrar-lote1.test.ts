@@ -5,8 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 import { balanceAfterCollection, balanceState, collectionMethodFor } from '../../src/target/commercial';
 import { allocationIdOf, canAnnulMpAllocation, type CustomerCollectionRow, listAllocationHistory, listClientCollections } from '../../src/target/customerCollections';
-import { filterMpReceipts, mpReceiptCandidates, type MpReceiptCandidate } from '../../src/target/mpActivity';
-import { listPayerNames } from '../../src/target/pendingClassification';
 
 const SRC = (f: string) => readFileSync(resolve(__dirname, '../../src', f), 'utf8');
 
@@ -60,60 +58,7 @@ describe('Lote 1 — Cuentas a cobrar', () => {
   });
 });
 
-const R = (p: Partial<MpReceiptCandidate>): MpReceiptCandidate =>
-  ({ sourceId: '1', date: '2026-10-05', amount: 0, label: '', movementId: 1, original: 0, assigned: 0, ...p });
-const CANDS = [
-  R({ movementId: 1, sourceId: '182488096484', date: '2026-10-05', original: 450000, amount: 450000 }),
-  R({ movementId: 4, sourceId: '182485544561', date: '2026-10-10', original: 150000, amount: 109999.5, assigned: 40000.5 }),
-];
-const NOMBRES = new Map([[4, 'José Pérez']]);
-const buscar = (q: string) => filterMpReceipts(CANDS, q, (c) => NOMBRES.get(c.movementId) ?? null).map((c) => c.movementId);
-
-describe('Lote 1B — Mercado Pago receipt search', () => {
-  it('candidates carry the original amount, what is assigned and what is left', () => {
-    const [c] = mpReceiptCandidates([{ mp_financial_movement_id: 4, payment_id: '182485544561', occurred_date: '2026-10-10', axis_a_state: 'POSTED',
-      effective_applied_receipt: 150000, active_attributed: 40000.5, gross_amount: 150000 }]);
-    expect([c.original, c.assigned, c.amount]).toEqual([150000, 40000.5, 109999.5]);
-  });
-
-  it('search by payer name (accents / case free), date, reference and amount; empty = everything', () => {
-    expect(buscar('')).toEqual([1, 4]);
-    expect(buscar('jose perez')).toEqual([4]);
-    expect(buscar('10/10/2026')).toEqual([4]);
-    expect(buscar('2026-10-05')).toEqual([1]);
-    expect(buscar('96484')).toEqual([1]);
-    expect(buscar('450.000')).toEqual([1]);
-    expect(buscar('109.999,5')).toEqual([4]);
-    expect(buscar('150000')).toEqual([4]);
-    expect(buscar('maría')).toEqual([]);
-  });
-
-  it('payer names: fin_mp_unlinked_inflows, only the offered movements, only id + display name', async () => {
-    const seen: URL[] = [];
-    const client = createClient('http://127.0.0.1:54321', 'anon-key', { auth: { persistSession: false }, global: { fetch: (async (input: RequestInfo | URL) => {
-      seen.push(new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url));
-      return new Response(JSON.stringify([{ movement_id: '4', payer_display_name: ' José Pérez ' }, { movement_id: '7', payer_display_name: '  ' }]), { status: 200, headers: { 'content-type': 'application/json' } });
-    }) as typeof fetch } });
-    const m = await listPayerNames(client, [4, 7]);
-    expect([...m.entries()]).toEqual([[4, 'José Pérez']]);
-    expect(seen[0].pathname).toBe('/rest/v1/fin_mp_unlinked_inflows');
-    expect(seen[0].searchParams.get('select')).toBe('movement_id,payer_display_name');
-    expect(seen[0].searchParams.get('movement_id')).toBe('in.(4,7)');
-    expect((await listPayerNames(client, [])).size).toBe(0);
-    expect(seen).toHaveLength(1);
-  });
-
-  it('the search is never pre-filtered by the client and replaces the HTML select in Cuentas a cobrar', () => {
-    const b = SRC('features/cobros/BuscadorCobroMp.tsx');
-    expect(b).not.toMatch(/cliente/);
-    expect(b).toMatch(/Pagador no disponible/);
-    expect(b).toMatch(/candidatos\.length === 0\) return <BloqueoMp mensaje=\{MP_SOURCE_MISSING_MESSAGE\} \/>/);
-    const t = SRC('features/cobros/RegistroPagoModal.tsx');
-    expect(t).not.toMatch(/SelectorMovimientoMp/);
-    expect(t).toMatch(/<BuscadorCobroMp /);
-    expect(t).not.toMatch(/registerCollection|registrar\.mutate\(\{[^}]*elegidoMp/);   // an MP receipt is allocated, never re-booked as money
-  });
-
+describe('Lote 1B — collections table', () => {
   it('collections table: "Nota" is the last column of the same row (icon + popover, not inline text)', () => {
     const t = SRC('features/cobros/TablaCobros.tsx');
     expect(t).toMatch(/Quién registró<\/th>\s*<th className="[^"]*w-full">Nota<\/th>/);
@@ -155,14 +100,12 @@ describe('Lote 1C — Cuentas corrientes', () => {
     expect(SRC('features/cobros/CobrosApp.tsx')).toMatch(/onRegistrarPago: setCliente/);
   });
 
-  it('modal: current and resulting balance; a credit blocks saving until that exact balance is confirmed; Disponible MP stays apart', () => {
+  it('modal: current and resulting balance; a credit blocks saving until that exact balance is confirmed', () => {
     const t = SRC('features/cobros/RegistroPagoModal.tsx');
     expect(t).toMatch(/Saldo actual:/);
     expect(t).toMatch(/Saldo resultante:/);
     expect(t).toMatch(/const creditoOk = !generaCredito \|\| creditoConfirmado === resultante;/);
     expect(t).toMatch(/const puedeGuardar = creditoOk && /);
-    expect(t).toMatch(/Disponible MP: \{formatoPesos\(elegidoMp\.amount\)\}/);
-    expect(t).not.toMatch(/balanceAfterCollection\([^)]*elegidoMp\.amount/);   // the MP available amount is not the client's balance
   });
 });
 

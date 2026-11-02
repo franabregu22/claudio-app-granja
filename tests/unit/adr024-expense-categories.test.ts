@@ -78,7 +78,7 @@ describe('ADR-024 — fiscal-only VAT credit and safe payer display', () => {
     expect(inflowTitle({ payer_display_name: 'Juan Pérez', inflow_subtype: 'DEBIN' })).toBe('Juan Pérez');
     expect(inflowTitle({ payer_display_name: null, inflow_subtype: 'CVU' })).toBe('Transferencia (CVU)');
     const e = SRC('features/caja/EntradasSinVincular.tsx');
-    expect(e).toMatch(/Recordar este pagador/);
+    expect(e).not.toMatch(/Recordar este pagador/);   // ADR-027
     expect(e).toMatch(/Cliente asociado: /);
     expect(e).toMatch(/>Ignorar</);
     const cols = /const UNLINKED_COLUMNS = [^;]*;/.exec(SRC('target/pendingClassification.ts'))?.[0] ?? '';

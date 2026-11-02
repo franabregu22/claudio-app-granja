@@ -1,24 +1,21 @@
 import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
-import { uiIdempotencyKey } from '../../target/mp';
 import {
-  INFLOW_SUBTYPE_LABEL, inflowTitle, linkDates, PAGE_SIZE, type UnlinkedFilter, type UnlinkedInflowRow, UNLINKED_NOTE,
+  INFLOW_SUBTYPE_LABEL, inflowTitle, PAGE_SIZE, type UnlinkedFilter, type UnlinkedInflowRow, UNLINKED_NOTE,
 } from '../../target/pendingClassification';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { Paginador } from './PendientesClasificar';
-import { useClassifyMp, useLinkInflow, useOwnBankAccounts, usePendingSummary, useRememberPayer, useUnlinkedInflows } from './useMpActivity';
-import { useClients } from './useTreasury';
+import { useClassifyMp, useOwnBankAccounts, usePendingSummary, useUnlinkedInflows } from './useMpActivity';
 
 const campo = 'border border-[#E4DCC8] rounded px-2 py-1 text-sm bg-white';
 const ALCANCE: { id: UnlinkedFilter['scope']; label: string }[] = [{ id: 'current', label: 'Actuales' }, { id: 'historical', label: 'Históricas' }, { id: 'all', label: 'Todas' }];
 
 /**
  * Caja → Entradas sin vincular (ADR-023, ADMIN): Mercado Pago inflows already in the balance and not (fully) linked to a
- * customer. Optional and informational — leaving an inflow unlinked is a valid permanent state and never blocks the close.
- * Server-side filters and pagination (thousands of historical receipts are never downloaded). Linking sends only the
- * movement, the customer and the amount; the server decides the date (the movement's date when its month is open, otherwise
- * today) and never moves Mercado Pago again.
+ * customer. Informational — an unlinked inflow is a valid permanent state and never blocks the close. Server-side filters and
+ * pagination (thousands of historical receipts are never downloaded). ADR-027: an inflow is no longer linked to a client (a
+ * collection is declared in Cuentas corrientes, so a link would discount the client twice); the own-account origin stays.
  */
 export function EntradasSinVincular() {
   const [filtro, setFiltro] = useState<UnlinkedFilter>({ scope: 'current' });
@@ -77,7 +74,7 @@ export function EntradasSinVincular() {
 }
 
 function FilaEntrada({ r }: { r: UnlinkedInflowRow }) {
-  const [accion, setAccion] = useState<'none' | 'cliente' | 'propia' | 'ignorada'>('none');
+  const [accion, setAccion] = useState<'none' | 'propia' | 'ignorada'>('none');
   return (
     <tr className="border-b border-stone-100 last:border-0 align-top">
       <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(r.business_date)}{r.is_historical && <span className="text-[11px] text-[#8A7A5C]"> · histórica</span>}</td>
@@ -96,70 +93,16 @@ function FilaEntrada({ r }: { r: UnlinkedInflowRow }) {
       <td className="px-3 py-2">
         {accion === 'none' && (
           <div className="flex flex-wrap gap-1">
-            <button type="button" onClick={() => setAccion('cliente')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">
-              {r.mapped_client_name ? `Vincular a ${r.mapped_client_name}` : 'Vincular a cliente'}
-            </button>
             <button type="button" onClick={() => setAccion('ignorada')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Ignorar</button>
             {r.account_fund && !r.is_historical && r.allocated_amount === 0 && (
               <button type="button" onClick={() => setAccion('propia')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Transferencia desde cuenta propia</button>
             )}
           </div>
         )}
-        {accion === 'cliente' && <VincularCliente r={r} onCerrar={() => setAccion('none')} />}
         {accion === 'ignorada' && <p className="text-[11px] text-[#8A7A5C]">Queda sin vincular (es un estado válido).</p>}
         {accion === 'propia' && <TransferenciaPropia r={r} onCerrar={() => setAccion('none')} />}
       </td>
     </tr>
-  );
-}
-
-/** Optional link to a customer: the amount defaults to what is left; one idempotency key per opened form. */
-function VincularCliente({ r, onCerrar }: { r: UnlinkedInflowRow; onCerrar: () => void }) {
-  const clientes = useClients();
-  const vincular = useLinkInflow();
-  const recordar = useRememberPayer();
-  const [cliente, setCliente] = useState(r.mapped_client_id ?? '');
-  const [recordarPagador, setRecordarPagador] = useState(false);
-  const puedeRecordar = r.payer_id !== null && r.mapped_client_id === null;
-  const [monto, setMonto] = useState(r.remaining_amount.toFixed(2));
-  const [clave] = useState(() => uiIdempotencyKey());
-  const importe = Number(monto);
-  const valido = cliente !== '' && importe > 0 && importe <= r.remaining_amount;
-  const hecho = vincular.data ? linkDates(vincular.data) : null;
-  if (hecho) {
-    return (
-      <div className="text-xs text-green-800" role="status">
-        <p>Movimiento recibido: {hecho.recibido ? formatearFechaLocal(hecho.recibido) : '—'}</p>
-        <p>Vinculado al cliente: {hecho.vinculado ? formatearFechaLocal(hecho.vinculado) : '—'}</p>
-        {recordar.isSuccess && <p>Pagador recordado para próximos pagos.</p>}
-        {recordar.error && <p className="text-red-700">{errorMessage(recordar.error)}</p>}
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-1 text-xs">
-      <select aria-label="Cliente" className={campo} value={cliente} onChange={(e) => setCliente(e.target.value)}>
-        <option value="">Elegir cliente…</option>
-        {(clientes.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-      </select>
-      <input aria-label="Monto a vincular" type="number" min="0.01" step="0.01" max={r.remaining_amount} className={`${campo} w-28`} value={monto} onChange={(e) => setMonto(e.target.value)} />
-      {puedeRecordar && (
-        <label className="flex items-center gap-1 text-[#6B5D45]">
-          <input type="checkbox" checked={recordarPagador} onChange={(e) => setRecordarPagador(e.target.checked)} />
-          Recordar este pagador (sus próximos pagos se vinculan solos a este cliente)
-        </label>
-      )}
-      <div className="flex gap-1">
-        <button type="button" disabled={!valido || vincular.isPending || recordar.isPending}
-          onClick={() => vincular.mutate({ movementId: r.movement_id, clienteId: cliente, amount: importe, idempotencyKey: clave }, {
-            onSuccess: () => { if (recordarPagador && puedeRecordar && r.payer_id) recordar.mutate({ payerId: r.payer_id, clienteId: cliente }); },
-          })}
-          className="px-2 py-0.5 rounded border border-[#3D3424] bg-white disabled:opacity-40">{vincular.isPending ? 'Vinculando...' : 'Vincular'}</button>
-        <button type="button" onClick={onCerrar} className="px-2 py-0.5 rounded border border-[#E4DCC8] bg-white">Cancelar</button>
-      </div>
-      {vincular.error && <p className="text-red-700">{errorMessage(vincular.error)}</p>}
-      {recordar.error && <p className="text-red-700">{errorMessage(recordar.error)}</p>}
-    </div>
   );
 }
 

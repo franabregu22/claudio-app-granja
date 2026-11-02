@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import {
-  OUTCOME_LABELS, R2_AVAILABILITY, RESOLUTIONS, RESOLUTION_LABELS, mapPayerToClient, requestRefetch, requeueConfigBlocked, resolveChargebackSignal,
+  OUTCOME_LABELS, R2_AVAILABILITY, RESOLUTIONS, RESOLUTION_LABELS, requestRefetch, requeueConfigBlocked, resolveChargebackSignal,
   resolveMatch, unmapPayer, type ReportException, type Resolution,
 } from '../../target/mp';
 import { campo, etiqueta, Modal } from '../caja/Modal';
@@ -160,16 +160,14 @@ function ResolverModal({ ex, onClose }: { ex: ReportException; onClose: () => vo
   );
 }
 
-/** S-I: active payer → client mappings (lookup L-C7, identifiers only), C6 and C7. */
+/** S-I: active payer → client mappings (lookup L-C7, identifiers only) and C7. ADR-027: a new mapping is no longer offered. */
 export function PagadoresMP() {
   const mapeos = useMappingLookup();
   const clientes = useClients();
-  const [nuevo, setNuevo] = useState(false);
   const [quitando, setQuitando] = useState<string | null>(null);
   const nombre = (id: string) => (clientes.data ?? []).find((c) => c.id === id)?.nombre ?? '—';
   return (
     <div className="space-y-3">
-      <button onClick={() => setNuevo(true)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Mapear pagador a cliente</button>
       {mapeos.isLoading ? <p className="text-sm text-gray-500">Cargando…</p> : mapeos.error ? <p className="text-sm text-red-700">{errorMessage(mapeos.error)}</p>
         : (mapeos.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">Sin mapeos activos.</p> : (mapeos.data ?? []).map((m) => (
           <div key={m.id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 flex items-center justify-between text-sm">
@@ -177,30 +175,7 @@ export function PagadoresMP() {
             <button onClick={() => setQuitando(m.id)} className={boton}>Quitar mapeo</button>
           </div>
         ))}
-      {nuevo && <MapearModal onClose={() => setNuevo(false)} />}
       {quitando && <MotivoModal titulo="Quitar mapeo" fn={unmapPayer} params={{ mappingId: quitando }} onClose={() => setQuitando(null)} />}
     </div>
-  );
-}
-
-function MapearModal({ onClose }: { onClose: () => void }) {
-  const accion = useMPAction(mapPayerToClient);
-  const clientes = useClients();
-  const [pagador, setPagador] = useState('');
-  const [clienteId, setClienteId] = useState('');
-  const [motivo, setMotivo] = useState('');
-  return (
-    <Modal titulo="Mapear pagador a cliente" onClose={onClose} puedeGuardar={/^\d+$/.test(pagador) && clienteId !== '' && motivo.trim() !== ''}
-      guardando={accion.isPending} error={accion.error ?? clientes.error} textoGuardar="Mapear"
-      onSubmit={() => accion.mutate({ payerId: pagador, clienteId, reason: motivo.trim() }, { onSuccess: onClose })}>
-      <label className={etiqueta}>Id de pagador de Mercado Pago<input type="text" inputMode="numeric" value={pagador} onChange={(e) => setPagador(e.target.value.trim())} className={campo} /></label>
-      <label className={etiqueta}>Cliente
-        <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className={campo}>
-          <option value="">Elegir cliente…</option>
-          {(clientes.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
-      </label>
-      <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
-    </Modal>
   );
 }

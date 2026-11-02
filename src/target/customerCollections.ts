@@ -2,14 +2,16 @@
  * Caja → Cobros de clientes (0092): every client collection, read from the view fin_customer_collections (ADMIN). Manual
  * collections (cash, bank, legacy manual Mercado Pago) and client allocations of Mercado Pago receipts. A corrected manual
  * Mercado Pago collection and the components that replace it (allocation of the real MP payment / cash / partner
- * withdrawal side) are shown as ONE logical collection. Read-only: nothing is computed for the balance here.
+ * withdrawal side) are shown as ONE logical collection. Declared collections (ADR-027, 0112) lower the client's balance and are never money.
+ * Read-only: nothing is computed for the balance here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { readTable, readView } from './db';
 
-export type CustomerCollectionOrigin = 'CORRECTION' | 'CASH' | 'BANK' | 'MANUAL_MP' | 'AUTO_MP';
+export type CustomerCollectionOrigin = 'CORRECTION' | 'CASH' | 'BANK' | 'MANUAL_MP' | 'AUTO_MP' | 'DECLARED_MP';
 export type CustomerCollectionStatus = 'CORRECTED' | 'MANUAL_WITHOUT_SOURCE' | 'CONCILIATED' | 'PENDING_RECONCILIATION' | 'CASH' | 'ALLOCATED_TO_CUSTOMER'
-  | 'ANNULLED' | 'RECTIFIED';   // 0108
+  | 'ANNULLED' | 'RECTIFIED'   // 0108
+  | 'DECLARED';   // ADR-027
 export type CorrectionRole = 'CORRECTED_ORIGINAL' | 'COMPONENT' | 'SINGLE';
 
 export interface CustomerCollectionRow {
@@ -27,13 +29,16 @@ export interface CustomerCollectionRow {
 const COLUMNS = 'row_id, business_date, created_at, cliente_id, client_name, amount, account_name, account_type, payment_method, notes, '
   + 'financial_operation_id, source_id, origin, status, correction_id, correction_role, counts_for_customer, reversal_kind, reversal_reason, reversal_at, replacement_of, sales_session_id, registered_by, reversal_by';
 
+/** ADR-027: how a declared collection is named everywhere. */
+export const DECLARED_LABEL = 'Cobro declarado · Sin conciliación individual';
+
 export const COLLECTION_STATUS_LABEL: Record<CustomerCollectionStatus, string> = {
   CORRECTED: 'Corregido', MANUAL_WITHOUT_SOURCE: 'Manual sin movimiento de Mercado Pago', CONCILIATED: 'Conciliado',
   PENDING_RECONCILIATION: 'Pendiente de conciliar', CASH: 'Efectivo', ALLOCATED_TO_CUSTOMER: 'Asignado desde Mercado Pago',
-  ANNULLED: 'Anulado', RECTIFIED: 'Rectificado',
+  ANNULLED: 'Anulado', RECTIFIED: 'Rectificado', DECLARED: DECLARED_LABEL,
 };
 export const COLLECTION_ORIGIN_LABEL: Record<CustomerCollectionOrigin, string> = {
-  CORRECTION: 'Corrección', CASH: 'Caja', BANK: 'Banco', MANUAL_MP: 'Manual en Mercado Pago', AUTO_MP: 'Mercado Pago',
+  CORRECTION: 'Corrección', CASH: 'Caja', BANK: 'Banco', MANUAL_MP: 'Manual en Mercado Pago', AUTO_MP: 'Mercado Pago', DECLARED_MP: 'Declarado',
 };
 export const COLLECTION_METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'Mercado Pago', CHEQUE: 'Cheque' };
 
@@ -87,6 +92,26 @@ export function collectionIdOf(row: Pick<CustomerCollectionRow, 'row_id'>): stri
 export function canReverseManualCollection(row: CustomerCollectionRow): boolean {
   return collectionIdOf(row) !== null && (row.account_type === 'CASH' || row.account_type === 'BANK_ACCOUNT') && row.counts_for_customer
     && row.correction_id === null && row.reversal_kind === null && row.sales_session_id === null && row.status !== 'CONCILIATED';
+}
+
+/** The declaration behind a row ('D:' || declared_collection.id, 0112), or null. */
+export function declaredIdOf(row: Pick<CustomerCollectionRow, 'row_id'>): string | null {
+  const m = /^D:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(row.row_id);
+  return m ? m[1] : null;
+}
+
+/** "Anular" / "Rectificar" of a declared collection that still counts. The server re-checks everything, closed periods included. */
+export function canReverseDeclaredCollection(row: CustomerCollectionRow): boolean {
+  return declaredIdOf(row) !== null && row.origin === 'DECLARED_MP' && row.counts_for_customer && row.reversal_kind === null;
+}
+
+/** Caja: money collected vs. declared. A declaration never entered an account, and an annulled / rectified original no longer counts. */
+export function collectionTotals(items: readonly LogicalCollection[]): { dinero: number; declarado: number } {
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  const vivos = items.filter((i) => !i.main.reversal_kind);
+  const declarados = vivos.filter((i) => i.main.origin === 'DECLARED_MP');
+  const suma = (l: readonly LogicalCollection[]) => r2(l.reduce((s, i) => s + i.amount, 0));
+  return { dinero: suma(vivos.filter((i) => i.main.origin !== 'DECLARED_MP')), declarado: suma(declarados) };
 }
 
 /** One reversal of an allocation: MANUAL_REVERSAL (an ADMIN undid it) or MP_REVERSAL (refund / chargeback in Mercado Pago). */
