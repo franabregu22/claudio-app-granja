@@ -44,7 +44,7 @@ describe('Caja — no money rule moved with the screens', () => {
     for (const s of [mov, pr, pagar, app]) expect(s).not.toMatch(/\.rpc\(|callRpc|\.insert\(|\.update\(|\.delete\(|\.mutate\(|reduce\(/);
   });
   it('declared collections and unpaid obligations have no place in Movimientos', () => {
-    expect(mov).not.toMatch(/customerCollections|CobrosClientes|usePayables|GastosAPagar|listCustomerCollections/);
+    for (const s of [mov, SRC('features/caja/HistorialFinanciero.tsx'), SRC('target/movementHistory.ts')]) expect(s).not.toMatch(/customerCollections|CobrosClientes|usePayables|GastosAPagar|listCustomerCollections|\.from\(/);
   });
   it('Transferencias keeps its idempotency keys, the Mercado Pago routes and the tax retry', () => {
     expect(trf).toMatch(/`TRF-\$\{crypto\.randomUUID\(\)\}`/);

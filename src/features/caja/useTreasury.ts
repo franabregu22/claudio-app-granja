@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { createPurchaseWithAttachments } from '../../target/attachments';
 import { listMaster, type ClientRow, type ExpenseCategoryGroupRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
@@ -7,6 +7,7 @@ import {
   listInstruments, listLedgerBalances, listPnlMonths, listSupplierLedger, listPurchases, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
   registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listTransfers, listBankTaxPeriods, transferWithBankTax,
 } from '../../target/treasury';
+import { listMovementHistory, type MovementFilter } from '../../target/movementHistory';
 
 const TREASURY = ['treasury'];
 const BALANCES = ['treasury', 'balances'];
@@ -19,6 +20,10 @@ function useRefresh() {
   return () => Promise.all([TREASURY, ['commercial', 'balances'], ['fiscal'], ['pnl']].map((queryKey) => qc.invalidateQueries({ queryKey })));
 }
 
+/** 0113: one page of the unified history (server filters, page and total); refreshed with every treasury operation. */
+export function useMovementHistory(filter: MovementFilter, page: number) {
+  return useQuery({ queryKey: ['treasury', 'movements', filter, page], queryFn: () => listMovementHistory(supabase, filter, page), placeholderData: keepPreviousData });
+}
 export function useLedgerBalances(ledger: 'ACCOUNT' | 'SUPPLIER') {
   return useQuery({ queryKey: [...BALANCES, ledger], queryFn: () => listLedgerBalances(supabase, ledger) });
 }

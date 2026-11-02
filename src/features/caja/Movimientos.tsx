@@ -3,6 +3,7 @@ import { errorMessage } from '../../target/messages';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { CuentaDetalle } from './CuentaDetalle';
+import { HistorialFinanciero } from './HistorialFinanciero';
 import { PanelResolver, type PanelPorResolver, TarjetasPorResolver } from './PorResolver';
 import { useLedgerBalances } from './useTreasury';
 
@@ -11,9 +12,9 @@ const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', 
 /**
  * Caja → Movimientos. Account balances (F27-D; Lote 3C: cards): the latest closing balance of each account in
  * report_balance_period (Σ financial_posting); an active account with no posting yet shows "Sin movimientos"; no balance is
- * computed here. Below them, Por resolver and one content space: a selected account's movements (CuentaDetalle) or a Por resolver
- * list, never both. That space is reserved for the unified paginated history; only posted money will belong there, so a declared
- * Mercado Pago collection and an unpaid obligation stay out of it (ADR-027 / ADR-026) and a transfer counts as one operation.
+ * computed here. Below them, Por resolver and one content space: the unified history (HistorialFinanciero, 0113), or a selected
+ * account's detail (CuentaDetalle), or a Por resolver list. Only posted money is a movement: a declared Mercado Pago collection and
+ * an unpaid obligation stay out of it (ADR-027 / ADR-026) and a transfer counts as one operation.
  */
 export function Movimientos() {
   const cuentas = useFinancialAccounts();
@@ -52,7 +53,7 @@ export function Movimientos() {
       <section aria-label="Historial financiero">
         {panel ? <PanelResolver panel={panel} onPanel={abrirPanel} />
           : c ? <CuentaDetalle key={c.id} cuenta={c} saldo={porCuenta.get(c.id)?.balance ?? null} onClose={() => setAbierta(null)} />
-            : lista.length > 0 && <p className="text-xs text-[#8A7A5C]">Tocá una cuenta para ver sus movimientos.</p>}
+            : <HistorialFinanciero cuentas={lista} />}
       </section>
     </div>
   );
