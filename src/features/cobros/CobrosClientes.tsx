@@ -23,7 +23,7 @@ function primerDiaMesAnterior(hoy: string): string {
 }
 
 /**
- * Caja → Cobros de clientes (0092, ADMIN, read-only): every client collection from fin_customer_collections. A corrected
+ * Cuentas corrientes → Cobros (0092, ADMIN, read-only): every client collection from fin_customer_collections. A corrected
  * manual Mercado Pago collection is shown once, with the parts that replace it (real Mercado Pago payment / cash).
  * No CBU / CVU is ever read; the reference is the Mercado Pago operation number (SOURCE_ID).
  */

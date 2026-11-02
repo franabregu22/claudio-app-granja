@@ -1,5 +1,5 @@
 /**
- * Caja → Cobros de clientes (0092): every client collection, read from the view fin_customer_collections (ADMIN). Manual
+ * Cuentas corrientes → Cobros (0092): every client collection, read from the view fin_customer_collections (ADMIN). Manual
  * collections (cash, bank, legacy manual Mercado Pago) and client allocations of Mercado Pago receipts. A corrected manual
  * Mercado Pago collection and the components that replace it (allocation of the real MP payment / cash / partner
  * withdrawal side) are shown as ONE logical collection. Declared collections (ADR-027, 0112) lower the client's balance and are never money.

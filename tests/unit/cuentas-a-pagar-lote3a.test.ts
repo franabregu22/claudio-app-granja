@@ -60,10 +60,11 @@ describe('Lote 3A — data the ficha reads (as recorded, never derived)', () => 
 
 describe('Lote 3A — Cuentas a pagar screen', () => {
   const t = SRC('features/caja/CuentasAPagar.tsx');
-  it('four selectable cards, one list at a time, default suppliers with debt', () => {
-    for (const s of ['Proveedores con deuda', 'Gastos sin proveedor', 'Proveedores al día', 'Saldos a favor / anticipos']) expect(t).toContain(`titulo: '${s}'`);
+  it('three selectable supplier cards, one list at a time, default suppliers with debt; pending expenses are their own section', () => {
+    for (const s of ['Proveedores con deuda', 'Proveedores al día', 'Saldos a favor / anticipos']) expect(t).toContain(`titulo: '${s}'`);
     expect(t).toMatch(/useState<Tarjeta>\('DEUDA'\)/);
-    expect(t).toMatch(/tarjeta === 'SIN_PROVEEDOR' \? <GastosAPagar titulo="Gastos sin proveedor" \/>/);
+    expect(t).not.toMatch(/GastosAPagar titulo/);
+    expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/<GastosAPagar titulo="Gastos pendientes" \/>/);
   });
   it('each supplier opens its ficha; paying more than the debt is an advance (credit), never an expense', () => {
     expect(t).toMatch(/\{open && <FichaProveedor cuenta=\{c\} \/>\}/);
@@ -81,9 +82,8 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
     expect(f).toMatch(/useDocumentLinks\('FINANCIAL_INSTRUMENT'/);
     expect(f).toMatch(/Programado \(aún no debitado\)/);
   });
-  it('Pagos de facturas stays; Vencimientos became the Calendario de pagos (Lote 3B)', () => {
-    const c = SRC('features/caja/CajaApp.tsx');
-    expect(c).toMatch(/\{ id: 'pagosfactura', label: 'Pagos de facturas' \}/);
-    expect(c).toMatch(/\{ id: 'vencimientos', label: 'Calendario de pagos' \}/);
+  it('Facturas is a section of Cuentas a pagar; Vencimientos became the Calendario (Lote 3B)', () => {
+    expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/\{ id: 'pagosfactura', label: 'Facturas' \}/);
+    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{ id: 'calendario', label: 'Calendario' \}/);
   });
 });

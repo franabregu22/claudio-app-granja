@@ -82,7 +82,7 @@ export function Cheques() {
       </section>
       <section>
         <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Emitidos a proveedores</p>
-        <p className="text-xs text-[#8A7A5C] mb-2">Para pagar una factura con uno o varios cheques: Pagos de facturas. Sin factura: Cuentas a pagar → Pagar → Cheque / eCheq.</p>
+        <p className="text-xs text-[#8A7A5C] mb-2">Para pagar una factura con uno o varios cheques: Cuentas a pagar → Facturas. Sin factura: Cuentas a pagar → Proveedores → Pagar → Cheque / eCheq.</p>
         {emitidos.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay cheques emitidos.</p> : <div className="space-y-2">{emitidos.map(fila)}</div>}
       </section>
       {recibiendo && <RecibirChequeModal onClose={() => setRecibiendo(false)} />}

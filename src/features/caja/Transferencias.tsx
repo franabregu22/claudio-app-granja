@@ -6,59 +6,28 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import type { TransferHistoryRow } from '../../target/treasury';
-import { CuentaDetalle } from './CuentaDetalle';
 import { campo, etiqueta, Modal } from './Modal';
 import { SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './MovimientoMp';
 import { useClassifyMp, useConfirmPayoutTransfer } from './useMpActivity';
-import { useBankTaxPeriods, useLedgerBalances, useTransfers, useTreasuryMutations } from './useTreasury';
-
-const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', EXTERNAL_SERVICE: 'Servicio externo' };
+import { useBankTaxPeriods, useTransfers, useTreasuryMutations } from './useTreasury';
 
 /**
- * Account balances (F27-D; Lote 3C: cards): the latest closing balance of each account in report_balance_period (Σ financial_posting).
- * An active account with no posting yet shows "Sin movimientos"; no balance is computed here. Selecting a card opens its movements
- * (CuentaDetalle) below the grid. The pending classifications live in their own tabs (Pendientes de clasificar / Entradas sin vincular).
+ * Caja → Transferencias: the history of transfers between own accounts, their related tax and a new manual transfer
+ * (TransferenciaModal keeps its idempotency key per opened form and its Mercado Pago routes). A transfer is one operation with
+ * two postings, listed once here.
  */
-export function ResumenSaldos() {
+export function Transferencias() {
   const cuentas = useFinancialAccounts();
-  const saldos = useLedgerBalances('ACCOUNT');
   const [transfiriendo, setTransfiriendo] = useState(false);
-  const [abierta, setAbierta] = useState<string | null>(null);
-
-  if (cuentas.isLoading || saldos.isLoading) return <p className="text-sm text-gray-500">Cargando saldos...</p>;
-  const error = cuentas.error ?? saldos.error;
-  if (error) return <p className="text-sm text-red-700">{errorMessage(error)}</p>;
-
-  const lista = cuentas.data ?? [];
-  const porCuenta = new Map((saldos.data ?? []).map((s) => [s.entity_id, s]));
-  const c = lista.find((x) => x.id === abierta);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-[#8A7A5C]">{lista.length > 0 && !abierta ? 'Tocá una cuenta para ver sus movimientos.' : 'Saldo registrado en el ERP por cuenta.'}</p>
-        <button onClick={() => setTransfiriendo(true)} disabled={lista.length < 2}
+        <p className="text-xs text-[#8A7A5C]">Movimientos entre cuentas propias.</p>
+        <button onClick={() => setTransfiriendo(true)} disabled={(cuentas.data ?? []).length < 2}
           className="flex items-center gap-2 text-sm px-3 py-2 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200 disabled:opacity-50">
           <ArrowLeftRight className="w-4 h-4" /> Transferir entre cuentas
         </button>
       </div>
-      {lista.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay cuentas activas. Crealas en Administración.</p> : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" aria-label="Cuentas">
-          {lista.map((x) => {
-            const s = porCuenta.get(x.id);
-            const activa = abierta === x.id;
-            return (
-              <button key={x.id} type="button" onClick={() => setAbierta(activa ? null : x.id)} aria-expanded={activa}
-                className={`text-left rounded-lg border p-4 hover:border-[#A8552E] ${activa ? 'border-[#A8552E] ring-1 ring-[#A8552E] bg-amber-50' : 'bg-white border-[#E4DCC8]'}`}>
-                <p className="font-semibold text-[#2C2419] truncate">{x.nombre}</p>
-                <p className="text-xs text-[#8A7A5C]">{TIPO[x.account_type] ?? x.account_type}</p>
-                {s ? <p className={`mt-2 text-xl font-bold ${s.balance < 0 ? 'text-red-700' : 'text-[#2C2419]'}`}>{formatoPesos(s.balance)}</p>
-                  : <p className="mt-2 text-sm text-[#8A7A5C]">Sin movimientos</p>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {c && <CuentaDetalle key={c.id} cuenta={c} saldo={porCuenta.get(c.id)?.balance ?? null} onClose={() => setAbierta(null)} />}
       {transfiriendo && <TransferenciaModal onClose={() => setTransfiriendo(false)} />}
       <div className="bg-white rounded-lg border border-[#E4DCC8] p-4">
         <HistorialTransferencias />
@@ -77,7 +46,7 @@ function HistorialTransferencias() {
   const filas = transferencias.data ?? [];
   return (
     <div>
-      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Transferencias</p>
+      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Historial</p>
       {filas.length === 0 && <p className="text-sm text-[#8A7A5C]">No hay transferencias registradas.</p>}
       <div className="space-y-2">
         {filas.map((t) => (
@@ -94,6 +63,7 @@ function HistorialTransferencias() {
           </div>
         ))}
       </div>
+      {filas.length >= 50 && <p className="text-xs text-[#8A7A5C] mt-2">Se muestran las 50 transferencias más recientes.</p>}
       {agregando && <ImpuestoModal transferencia={agregando} onClose={() => setAgregando(null)} />}
     </div>
   );

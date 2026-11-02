@@ -79,12 +79,12 @@ describe('Meta A — Mercado Pago candidates of the manual routes', () => {
     expect(pagar).toMatch(/outflow\.mutate\(\{ sourceId: movimientoMp, classification: 'SUPPLIER_PAYMENT', supplierId: proveedor\.supplier_id \}/);
     const retiro = SRC('features/finanzas/EventoGestionModal.tsx');
     expect(retiro).toMatch(/outflow\.mutate\(\{ sourceId: movimientoMp, classification: 'OWNER_WITHDRAWAL' \}/);
-    const trf = SRC('features/caja/ResumenSaldos.tsx');
+    const trf = SRC('features/caja/Transferencias.tsx');
     expect(trf).toMatch(/confirmarRetiro\.mutate\(movimientoMp/);
     expect(trf).toMatch(/ownTransfer\.mutate\(\{ paymentId: movimientoMp, fromAccountId: origen \}/);
     expect(SRC('features/fiscal/FiscalApp.tsx')).toMatch(/\{esMp && <BloqueoMp \/>\}/);
     expect(SRC('features/caja/Cheques.tsx')).toMatch(/\{esMp && <BloqueoMp \/>\}/);
-    for (const f of ['features/cobros/RegistroPagoModal.tsx', 'features/caja/CuentasAPagar.tsx', 'features/finanzas/EventoGestionModal.tsx', 'features/caja/ResumenSaldos.tsx']) {
+    for (const f of ['features/cobros/RegistroPagoModal.tsx', 'features/caja/CuentasAPagar.tsx', 'features/finanzas/EventoGestionModal.tsx', 'features/caja/Transferencias.tsx']) {
       expect(SRC(f)).toMatch(/useEsCuentaMp\(/);
     }
   });
@@ -129,7 +129,7 @@ describe('Meta A — Caja → Cobros de clientes (0092)', () => {
     expect(filterLogicalCollections(g, { status: 'CORRECTED' }).map((i) => i.key)).toEqual(['K:k200']);
     expect(filterLogicalCollections(g, { clienteId: 'c2' }).map((i) => i.key)).toEqual(['C:bank']);
   });
-  it('the Caja tab exists', () => {
-    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{ id: 'cobros', label: 'Cobros de clientes' \}/);
+  it('the list lives in Cuentas corrientes', () => {
+    expect(SRC('features/cobros/CobrosApp.tsx')).toMatch(/seccion === 'cobros' \? .*<CobrosClientes \/>/);
   });
 });

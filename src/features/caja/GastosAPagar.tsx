@@ -116,7 +116,7 @@ function PagarGastoModal({ gasto, onClose }: { gasto: PayableRow; onClose: () =>
           {habilitadas.map((a) => <option key={a.id} value={a.id}>{a.nombre}{a.account_type === 'CASH' ? ' (efectivo)' : ' (transferencia)'}</option>)}
         </select>
       </label>
-      <p className="text-xs text-gray-500">Un pago por Mercado Pago se clasifica desde Pendientes de clasificar.</p>
+      <p className="text-xs text-gray-500">Un pago por Mercado Pago se clasifica desde Caja → Movimientos → Por resolver → Pendientes de clasificar.</p>
     </Modal>
   );
 }

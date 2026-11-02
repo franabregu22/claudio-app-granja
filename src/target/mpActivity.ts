@@ -29,7 +29,7 @@ const COLUMNS = 'run_id, row_number, occurred_at, business_date, description, so
   + 'payment_method_type, coverage_status, financial_operation_id, counterpart_account_name, classification, classification_detail';
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-/** Readable coverage status (Caja → Saldos → Mercado Pago → Actividad Mercado Pago). */
+/** Readable coverage status (Caja → Movimientos → Mercado Pago → Actividad Mercado Pago). */
 export const MP_STATUS_LABEL: Record<MpCoverageStatus, string> = {
   CONTROL: 'Control del reporte',
   PRE_CUTOVER: 'Anterior al corte',

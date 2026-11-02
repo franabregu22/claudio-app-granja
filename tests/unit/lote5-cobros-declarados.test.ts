@@ -81,7 +81,7 @@ describe('Lote 5 — declared collections: reading', () => {
     const rows = [fila({ row_id: `C:${ID}`, origin: 'CASH', account_type: 'CASH', amount: 700, financial_operation_id: 9 }), fila({ amount: 300 }),
       fila({ row_id: 'D:other', amount: 50, reversal_kind: 'ANNUL', counts_for_customer: false, status: 'ANNULLED' })];
     expect(collectionTotals(groupCustomerCollections(rows))).toEqual({ dinero: 700, declarado: 300 });
-    expect(SRC('features/caja/CobrosClientes.tsx')).toMatch(/cobrado en dinero .*declarados, sin movimiento de dinero/);
+    expect(SRC('features/cobros/CobrosClientes.tsx')).toMatch(/cobrado en dinero .*declarados, sin movimiento de dinero/);
   });
 
   it('the refusal of the old routes explains the new one', () => {

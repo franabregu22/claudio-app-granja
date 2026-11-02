@@ -56,7 +56,7 @@ export function FiscalApp() {
       <div>
         <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
         <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Fiscal</h1>
-        <p className="text-xs text-[#8A7A5C] mt-1">Posición fiscal consolidada a partir de lo cargado. Las facturas de compra se cargan en Caja → Compras. La aplicación no emite comprobantes ante AFIP / ARCA.</p>
+        <p className="text-xs text-[#8A7A5C] mt-1">Posición fiscal consolidada a partir de lo cargado. Las facturas de compra se cargan en Caja → Cuentas a pagar → Compras y fletes. La aplicación no emite comprobantes ante AFIP / ARCA.</p>
       </div>
       {error ? <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded text-sm">{errorMessage(error)}</div> : null}
 

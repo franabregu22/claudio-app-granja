@@ -28,10 +28,10 @@ const MP_ESTILO: Record<MpCoverageStatus, string> = {
 };
 
 /**
- * One account inside Caja → Saldos. "Movimientos ERP" are its financial_posting rows (they make the ERP balance);
+ * One account inside Caja → Movimientos. "Movimientos ERP" are its financial_posting rows (they make the ERP balance);
  * "Movimientos bancarios" (bank accounts only) are the imported statement lines (ADR-018): bank evidence, shown whatever
  * the statement cut, read-only — importing a statement never creates money, so they never change the ERP balance.
- * Reconciliation and the cut stay in Caja → Extractos bancarios → Conciliación. "Actividad Mercado Pago" (the MP account
+ * Reconciliation and the cut stay in Caja → Extractos → Conciliación. "Actividad Mercado Pago" (the MP account
  * only) is what the official release report says, with its coverage status (ADR-018 §15): read-only evidence; payment
  * money comes only from the Mercado Pago payment circuit, so this list never changes the ERP balance either.
  */
@@ -100,7 +100,7 @@ function MovimientosBancarios({ accountId }: { accountId: string }) {
   if (historial.error) return <p className="text-sm text-red-700">{errorMessage(historial.error)}</p>;
   const lineas: StatementLine[] = historial.data ?? [];
   if (lineas.length === 0) {
-    return <p className="text-sm text-[#8A7A5C]">Todavía no se importaron extractos de esta cuenta (Caja → Extractos bancarios → Importaciones).</p>;
+    return <p className="text-sm text-[#8A7A5C]">Todavía no se importaron extractos de esta cuenta (Caja → Extractos → Importaciones).</p>;
   }
   return (
     <div className="space-y-2">
@@ -129,7 +129,7 @@ function MovimientosBancarios({ accountId }: { accountId: string }) {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-[#8A7A5C]">{lineas.length} movimiento(s), los más recientes primero. La conciliación se hace en Extractos bancarios → Conciliación.</p>
+      <p className="text-xs text-[#8A7A5C]">{lineas.length} movimiento(s), los más recientes primero. La conciliación se hace en Caja → Extractos → Conciliación.</p>
     </div>
   );
 }

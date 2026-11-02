@@ -99,7 +99,7 @@ export function FinanzasApp() {
                           <td className="px-3 py-2 text-left whitespace-nowrap">{label}</td>
                           {filas.map((f) => (
                             <td key={f.period} className={`px-3 py-2 text-right whitespace-nowrap ${resultado && f[col] < 0 ? 'text-red-700' : ''} ${col === 'gastos_sin_clasificar' && f[col] !== 0 ? 'text-amber-800 font-medium' : ''}`}
-                              title={col === 'gastos_sin_clasificar' && f[col] !== 0 ? 'Egresos ya pagados sin categoría (incluidos en el resultado). Clasificalos en Caja → Gastos sin clasificar.' : undefined}>{formatoPesos(f[col])}</td>
+                              title={col === 'gastos_sin_clasificar' && f[col] !== 0 ? 'Egresos ya pagados sin categoría (incluidos en el resultado). Clasificalos en Caja → Movimientos → Por resolver → Gastos sin clasificar.' : undefined}>{formatoPesos(f[col])}</td>
                           ))}
                         </tr>
                       );

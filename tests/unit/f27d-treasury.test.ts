@@ -201,7 +201,7 @@ describe('ADR-008 purchase attachments: upload → register_purchase with compen
 
 describe('F27-D migrated files carry no legacy or duplicated authority', () => {
   const SRC = resolve(__dirname, '../../src');
-  const FILES = ['target/treasury.ts', 'features/caja/useTreasury.ts', 'features/caja/CajaApp.tsx', 'features/caja/ResumenSaldos.tsx',
+  const FILES = ['target/treasury.ts', 'features/caja/useTreasury.ts', 'features/caja/CajaApp.tsx', 'features/caja/Movimientos.tsx', 'features/caja/Transferencias.tsx',
     'features/caja/CuentasAPagar.tsx', 'features/caja/Compras.tsx', 'features/caja/Cheques.tsx', 'features/finanzas/TendenciaMeses.tsx', 'features/caja/Modal.tsx'];
 
   it.each(FILES)('%s: no legacy table / hook, no direct PostgREST call, no balance or cash-flow computation', (f) => {

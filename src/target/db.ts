@@ -17,7 +17,7 @@ export const TARGET_VIEWS = [
   'report_feria_closing',   // ADR-016
   'fin_statement_line_status',   // ADR-018 (0076)
   'fin_mp_report_activity',   // ADR-018 §15 (0079)
-  'fin_customer_collections',   // Meta A (0092): Caja → Cobros de clientes
+  'fin_customer_collections',   // Meta A (0092): Cuentas corrientes → Cobros
   'fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status',   // ADR-021 (0093)
   'fin_purchase_mp_link',   // Lote 4 (0111): purchases paid with Mercado Pago, pending / linked to their movement
   'fin_mp_unlinked_inflows', 'fin_mp_pending_summary',   // ADR-023 (0095)

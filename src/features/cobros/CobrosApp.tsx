@@ -4,6 +4,7 @@ import type { ClientBalance } from '../../target/commercial';
 import { errorMessage } from '../../target/messages';
 import { formatoPesos } from '../pedidos/helpers';
 import { useClientBalances, useClientCollections, useOrders } from '../pedidos/useCommercial';
+import { CobrosClientes } from './CobrosClientes';
 import { ListaSaldosClientes, type Variante } from './ListaSaldosClientes';
 import { RegistroPagoModal } from './RegistroPagoModal';
 
@@ -11,6 +12,7 @@ import { RegistroPagoModal } from './RegistroPagoModal';
  * Cuentas corrientes (F27-C, ADMIN). Balances come only from report_balance_period (client ledger); collections are
  * registered through register_collection (or the Mercado Pago allocation) and read from fin_customer_collections. The
  * three cards split clients by the sign of that balance (debe / al día / a favor); only the chosen card's list is shown.
+ * Cobros lists every collection, money and declared apart (CobrosClientes, moved here from Caja; read-only).
  */
 export function CobrosApp() {
   const { rol } = useAuth();
@@ -19,6 +21,7 @@ export function CobrosApp() {
   const entregas = useOrders(['DELIVERED']);
   const [cliente, setCliente] = useState<ClientBalance | null>(null);
   const [vista, setVista] = useState<Variante>('deudor');
+  const [seccion, setSeccion] = useState<'saldos' | 'cobros'>('saldos');
 
   if (rol !== 'ADMIN') {
     return (
@@ -52,8 +55,16 @@ export function CobrosApp() {
       <div className="w-full max-w-7xl bg-[#FAF6EE] min-h-screen flex flex-col relative">
         <div className="px-5 pt-6 pb-3 border-b border-[#E4DCC8] bg-white/50">
           <h2 className="text-lg font-bold text-[#8A5A0B]">Cuentas corrientes</h2>
+          <div className="flex gap-2 mt-3" role="tablist" aria-label="Secciones de cuentas corrientes">
+            {([['saldos', 'Saldos de clientes'], ['cobros', 'Cobros']] as const).map(([id, label]) => (
+              <button key={id} role="tab" aria-selected={seccion === id} onClick={() => setSeccion(id)}
+                className={`px-3 py-1 rounded-full text-sm font-medium ${seccion === id ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-white text-[#6B5D45] border border-[#E4DCC8] hover:bg-stone-50'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        {error ? (
+        {seccion === 'cobros' ? <div className="p-5 min-w-0"><CobrosClientes /></div> : error ? (
           <div className="m-5 bg-[#FCE4E4] border border-[#E4B0B0] text-[#A32D2D] text-sm px-4 py-3 rounded-lg">{errorMessage(error)}</div>
         ) : cargando ? (
           <p className="text-sm text-gray-500 px-5 py-6">Cargando saldos...</p>

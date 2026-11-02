@@ -81,8 +81,8 @@ describe('ADR-018 bank history in Caja — data', () => {
 
 describe('ADR-018 bank history in Caja — screen', () => {
   const detalle = SRC('features/caja/CuentaDetalle.tsx');
-  it('Caja → Saldos opens an account; its detail has ERP and bank tabs (bank tab only for bank accounts)', () => {
-    const saldos = SRC('features/caja/ResumenSaldos.tsx');
+  it('Caja → Movimientos opens an account; its detail has ERP and bank tabs (bank tab only for bank accounts)', () => {
+    const saldos = SRC('features/caja/Movimientos.tsx');
     expect(saldos).toMatch(/<CuentaDetalle key=\{c\.id\} cuenta=\{c\} saldo=\{porCuenta\.get\(c\.id\)\?\.balance \?\? null\}/);
     expect(saldos).toMatch(/useLedgerBalances\('ACCOUNT'\)/);   // the ERP balance source is unchanged
     expect(detalle).toMatch(/\['erp', 'Movimientos ERP'\], \.\.\.\(esBanco \? \[\['banco', 'Movimientos bancarios'\]\] : \[\]\),/);

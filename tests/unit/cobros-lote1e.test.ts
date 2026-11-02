@@ -99,8 +99,8 @@ describe('Lote 1E — UI guards', () => {
     expect(t).toMatch(/<NotaPopover nota=\{p\.reversal_reason\} \/>/);
     expect(t).toMatch(/Rectificación/);
   });
-  it('Caja → Cobros de clientes: a reversed original is not added to the total', () => {
+  it('Cuentas corrientes → Cobros: a reversed original is not added to the total', () => {
     expect(SRC('target/customerCollections.ts')).toMatch(/const vivos = items\.filter\(\(i\) => !i\.main\.reversal_kind\)/);
-    expect(SRC('features/caja/CobrosClientes.tsx')).toMatch(/collectionTotals\(items\)/);
+    expect(SRC('features/cobros/CobrosClientes.tsx')).toMatch(/collectionTotals\(items\)/);
   });
 });

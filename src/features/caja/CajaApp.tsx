@@ -1,44 +1,36 @@
 import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
-import { Cheques } from './Cheques';
-import { CobrosClientes } from './CobrosClientes';
-import { PendientesClasificar } from './PendientesClasificar';
-import { GastosSinClasificar } from './GastosSinClasificar';
-import { useBadgeSinClasificar } from './useUnclassified';
-import { EntradasSinVincular } from './EntradasSinVincular';
-import { Compras } from './Compras';
-import { CuentasAPagar } from './CuentasAPagar';
-import { ResumenSaldos } from './ResumenSaldos';
+import { Movimientos } from './Movimientos';
+import { Transferencias } from './Transferencias';
+import { SolapaPagar, type SubPagar } from './SolapaPagar';
 import { ExtractosBancarios } from './ExtractosBancarios';
-import { PagosFacturas } from './PagosFacturas';
 import { CalendarioPagos } from './CalendarioPagos';
+import { usePendingSummary } from './useMpActivity';
+import { useBadgeSinClasificar } from './useUnclassified';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 
-type Vista = 'saldos' | 'sinclasificar' | 'pendientes' | 'entradas' | 'cobros' | 'pagar' | 'compras' | 'pagosfactura' | 'vencimientos' | 'instrumentos' | 'extractos';
+type Vista = 'movimientos' | 'transferencias' | 'pagar' | 'calendario' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
-  { id: 'saldos', label: 'Saldos' },
-  { id: 'sinclasificar', label: 'Gastos sin clasificar' },   // ADR-025 (0101): paid expenses whose category is pending
-  { id: 'pendientes', label: 'Pendientes de clasificar' },
-  { id: 'entradas', label: 'Entradas sin vincular' },   // ADR-023: optional, never an alert
-  { id: 'cobros', label: 'Cobros de clientes' },
-  { id: 'pagar', label: 'Cuentas a pagar' },
-  { id: 'compras', label: 'Compras y fletes' },
-  { id: 'pagosfactura', label: 'Pagos de facturas' },   // ADR-025 stage 4 (0104): one invoice, several cheques / payments
-  { id: 'vencimientos', label: 'Calendario de pagos' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
-  { id: 'instrumentos', label: 'Cheques' },
-  { id: 'extractos', label: 'Extractos bancarios' },
+  { id: 'movimientos', label: 'Movimientos' },   // balances, Por resolver (classification lists) and the account movements
+  { id: 'transferencias', label: 'Transferencias' },
+  { id: 'pagar', label: 'Cuentas a pagar' },   // suppliers, pending expenses, purchases and freight, invoices, cheques
+  { id: 'calendario', label: 'Calendario' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
+  { id: 'extractos', label: 'Extractos' },
 ];
 
 /**
  * Caja (F27-D, ADMIN): treasury over the target. There is no free-form movement CRUD: money moves only through the
- * contract operations (collections in Cobros; transfers, supplier payments, purchases / freight and instruments here),
+ * contract operations (collections in Cuentas corrientes; transfers, supplier payments, purchases / freight and instruments here),
  * and balances are read from report_balance_period. The monthly trend lives in Finanzas (F27-G). The general cash count (arqueo) is retired in V1 (P27-D1).
  */
 export function CajaApp() {
   const { rol } = useAuth();
-  const [vista, setVista] = useState<Vista>('saldos');
+  const [vista, setVista] = useState<Vista>('movimientos');
+  const [subPagar, setSubPagar] = useState<SubPagar>('proveedores');
   const [retiro, setRetiro] = useState(false);
   const sinClasificar = useBadgeSinClasificar();
+  const mp = usePendingSummary();
+  const porResolver = sinClasificar + (mp.data?.PENDING_CURRENT.count ?? 0);   // historical Mercado Pago rows and optional inflows are not an alert
 
   if (rol !== 'ADMIN') {
     return (
@@ -71,22 +63,16 @@ export function CajaApp() {
               <button key={v.id} onClick={() => setVista(v.id)}
                 className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-sm font-medium ${vista === v.id ? 'bg-[#A8552E] text-white' : 'bg-white text-[#6B5D45] border border-[#E4DCC8] hover:bg-stone-50'}`}>
                 {v.label}
-                {v.id === 'sinclasificar' && sinClasificar > 0 && <span className="ml-1.5 inline-block min-w-5 px-1.5 rounded-full bg-amber-500 text-white text-xs" aria-label={`${sinClasificar} pendientes`}>{sinClasificar}</span>}
+                {v.id === 'movimientos' && porResolver > 0 && <span className="ml-1.5 inline-block min-w-5 px-1.5 rounded-full bg-amber-500 text-white text-xs" aria-label={`${porResolver} por resolver`}>{porResolver}</span>}
               </button>
             ))}
           </nav>
         </header>
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
-          {vista === 'saldos' && <ResumenSaldos />}
-          {vista === 'sinclasificar' && <GastosSinClasificar onVerPendientesMp={() => setVista('pendientes')} />}
-          {vista === 'pendientes' && <PendientesClasificar />}
-          {vista === 'entradas' && <EntradasSinVincular />}
-          {vista === 'cobros' && <CobrosClientes />}
-          {vista === 'pagar' && <CuentasAPagar />}
-          {vista === 'compras' && <Compras />}
-          {vista === 'pagosfactura' && <PagosFacturas />}
-          {vista === 'vencimientos' && <CalendarioPagos onImputar={() => setVista('pagosfactura')} />}
-          {vista === 'instrumentos' && <Cheques />}
+          {vista === 'movimientos' && <Movimientos />}
+          {vista === 'transferencias' && <Transferencias />}
+          {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
+          {vista === 'calendario' && <CalendarioPagos onImputar={() => { setSubPagar('pagosfactura'); setVista('pagar'); }} />}
           {vista === 'extractos' && <ExtractosBancarios />}
         </div>
         {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}

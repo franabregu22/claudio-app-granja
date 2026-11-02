@@ -42,7 +42,7 @@ const MESSAGES: Record<string, string> = {
   ACCOUNT_REQUIRED: 'Elegí la cuenta de dinero para esta operación.',
   CLIENT_NOT_FOUND_OR_INACTIVE: 'El cliente no existe o está inactivo.',
   DUPLICATE_RECEIPT: 'Ya existe un cobro o cheque con ese comprobante.',
-  USE_RECEIVE_CHEQUE: 'Los cheques se registran desde Caja → Cheques → Recibir cheque.',
+  USE_RECEIVE_CHEQUE: 'Los cheques se registran desde Caja → Cuentas a pagar → Cheques → Recibir cheque.',
   // ADR-018 bank statement import (Edge fin-statement-import request errors)
   ADMIN_REQUIRED: 'Solo un administrador puede importar extractos.',
   FILE_REQUIRED: 'Elegí el archivo PDF del extracto.',
@@ -256,12 +256,12 @@ const MESSAGES: Record<string, string> = {
   // ADR-021 (0093): immediate balance effect of real MP outflows
   PENDING_CLASSIFICATION: 'Hay movimientos pendientes de clasificar en este período. Clasificalos antes de cerrarlo.',
   MP_UNPOSTED_OUTFLOWS: 'Hay salidas de Mercado Pago sin registrar en este período. Revisalas en Revisión técnica antes de cerrarlo.',
-  MP_PENDING_NOT_RELEASED: 'Ese movimiento de Mercado Pago está pendiente de clasificar: clasificalo desde Pendientes de clasificar.',
+  MP_PENDING_NOT_RELEASED: 'Ese movimiento de Mercado Pago está pendiente de clasificar: clasificalo desde Caja → Movimientos → Por resolver → Pendientes de clasificar.',
   // ADR-025 stage 3 (0101): expenses already paid whose classification is pending
   PENDING_NOT_FOUND: 'Ese gasto sin clasificar no existe.',
   CATEGORY_GROUP_INACTIVE: 'La categoría de esa subcategoría está inactiva: elegí una subcategoría de una categoría activa.',
-  PENDING_EXPENSE_CLASSIFICATION: 'Hay gastos sin clasificar en este período. Clasificalos (Caja → Gastos sin clasificar) antes de cerrarlo.',
-  MP_USE_PENDING_OUTFLOW: 'Un egreso de Mercado Pago ya figura en Pendientes de clasificar: clasificalo desde ahí.',
+  PENDING_EXPENSE_CLASSIFICATION: 'Hay gastos sin clasificar en este período. Clasificalos (Caja → Movimientos → Por resolver → Gastos sin clasificar) antes de cerrarlo.',
+  MP_USE_PENDING_OUTFLOW: 'Un egreso de Mercado Pago ya figura en Caja → Movimientos → Por resolver → Pendientes de clasificar: clasificalo desde ahí.',
   IDEMPOTENCY_CONFLICT: 'Ese gasto ya fue registrado con otros datos.',
   // ADR-025 stage 4 (0103 / 0104): documents and invoice payments
   INVALID_DOCUMENT: 'El archivo no se pudo registrar: volvé a subirlo.',
@@ -271,7 +271,7 @@ const MESSAGES: Record<string, string> = {
   // ADR-026 (0106): pending expenses
   OVER_PAYMENT: 'El monto supera el saldo pendiente de ese gasto.',
   PAYABLE_NOT_FOUND: 'Ese gasto a pagar no existe.',
-  PAYABLE_MP_NOT_SUPPORTED: 'Un pago por Mercado Pago se clasifica desde Pendientes de clasificar.',
+  PAYABLE_MP_NOT_SUPPORTED: 'Un pago por Mercado Pago se clasifica desde Caja → Movimientos → Por resolver → Pendientes de clasificar.',
   INVALID_DUE_DATE: 'El vencimiento no puede ser anterior a la fecha del gasto.',
   CASUAL_PURCHASE_UNSETTLED: 'Un gasto sin proveedor tiene que estar pagado, a pagar o pagado con Mercado Pago esperando su movimiento.',
   // Lote 3B (0110): pending expense → supplier, due / estimated payment date

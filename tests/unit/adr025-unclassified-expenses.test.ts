@@ -114,7 +114,7 @@ describe('ADR-025 stage 3 — authorization surface and no double financial impa
     expect(modulesFor('OPERATOR')).not.toContain('caja');
     expect(modulesFor(null)).toEqual([]);
     expect(SRC('features/caja/CajaApp.tsx')).toMatch(/rol !== 'ADMIN'/);
-    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/vista === 'sinclasificar' && <GastosSinClasificar/);
+    expect(SRC('features/caja/PorResolver.tsx')).toMatch(/<GastosSinClasificar onVerPendientesMp=/);
   });
 
   it('P&L: GASTOS_SIN_CLASIFICAR is shown as a component of the operating result, read from the server, never re-added', async () => {

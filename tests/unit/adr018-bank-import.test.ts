@@ -53,7 +53,7 @@ describe('ADR-018 access: ADMIN only', () => {
     const guard = caja.indexOf("if (rol !== 'ADMIN')");
     expect(guard).toBeGreaterThan(0);
     expect(caja.indexOf('<ExtractosBancarios />')).toBeGreaterThan(guard);
-    expect(caja).toMatch(/\{ id: 'extractos', label: 'Extractos bancarios' \}/);
+    expect(caja).toMatch(/\{ id: 'extractos', label: 'Extractos' \}/);
     expect(readFileSync(resolve(__dirname, '../../src/App.tsx'), 'utf8')).not.toMatch(/ExtractosBancarios/);
   });
   it('the UI never writes fin_* tables, never touches Storage directly and holds no service key', () => {
