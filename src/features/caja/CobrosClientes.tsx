@@ -86,7 +86,7 @@ export function CobrosClientes() {
               </table>
             </div>
           )}
-      {items.length > 0 && <p className="text-xs text-[#8A7A5C]">{items.length} cobro(s) · total para clientes {formatoPesos(totales.dinero)}{totales.declarado > 0 ? ` · declarados sin movimiento de dinero ${formatoPesos(totales.declarado)}` : ''}. Un cobro corregido se muestra una vez, con las partes que lo reemplazan.</p>}
+      {items.length > 0 && <p className="text-xs text-[#8A7A5C]">{items.length} cobro(s) · cobrado en dinero {formatoPesos(totales.dinero)}{totales.declarado > 0 ? ` · declarados, sin movimiento de dinero, ${formatoPesos(totales.declarado)}` : ''}. Un cobro corregido se muestra una vez, con las partes que lo reemplazan.</p>}
     </div>
   );
 }

@@ -81,11 +81,12 @@ describe('Lote 5 — declared collections: reading', () => {
     const rows = [fila({ row_id: `C:${ID}`, origin: 'CASH', account_type: 'CASH', amount: 700, financial_operation_id: 9 }), fila({ amount: 300 }),
       fila({ row_id: 'D:other', amount: 50, reversal_kind: 'ANNUL', counts_for_customer: false, status: 'ANNULLED' })];
     expect(collectionTotals(groupCustomerCollections(rows))).toEqual({ dinero: 700, declarado: 300 });
-    expect(SRC('features/caja/CobrosClientes.tsx')).toMatch(/declarados sin movimiento de dinero/);
+    expect(SRC('features/caja/CobrosClientes.tsx')).toMatch(/cobrado en dinero .*declarados, sin movimiento de dinero/);
   });
 
-  it('the refusal of the old route explains the new one', () => {
+  it('the refusal of the old routes explains the new one', () => {
     expect(errorMessage({ message: 'MP_CLIENT_ALLOCATION_DISABLED: x' })).toMatch(/cobro declarado/);
+    expect(errorMessage({ message: 'MP_PAYER_MAP_DISABLED: x' })).toMatch(/se declaran/);
   });
 });
 
@@ -96,6 +97,7 @@ describe('Lote 5 — Registrar cobro', () => {
     expect(existsSync(resolve(__dirname, '../../src/features/cobros/BuscadorCobroMp.tsx'))).toBe(false);
     expect(modal).toMatch(/useRegisterDeclaredCollection/);
     expect(modal).toMatch(/\{DECLARED_LABEL\}/);
+    expect(modal).toMatch(/esMp \? 'Medio de cobro' : 'Cuenta donde entra el dinero'/);   // on Mercado Pago no money enters here
     expect(modal).not.toMatch(/\{!esMp && <label/);   // amount and date for every account
     expect(modal).not.toMatch(/candidatosMp|useCobrosMp|elegidoMp|Disponible MP/);
   });
@@ -115,6 +117,7 @@ describe('Lote 5 — Registrar cobro', () => {
     expect(t).toMatch(/canReverseDeclaredCollection\(p\)/);
     expect(t).toMatch(/\{DECLARED_LABEL\}/);
     expect(t).toMatch(/<AnularCobroDeclaradoModal /);
+    expect(t.indexOf('canReverseDeclaredCollection(p) &&')).toBeLessThan(t.indexOf("p.origin === 'DECLARED_MP' && <span"));   // mobile: the actions stay visible, the label goes below
     expect(t).toMatch(/<RectificarCobroDeclaradoModal /);
   });
 

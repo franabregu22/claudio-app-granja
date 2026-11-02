@@ -73,7 +73,6 @@ export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollect
                       <button type="button" onClick={() => setAccion({ tipo: 'anular', cobro: p })} className={`${ENLACE} text-red-700 hover:text-red-900`}>Anular</button>
                       <button type="button" onClick={() => setAccion({ tipo: 'rectificar', cobro: p })} className={`${ENLACE} text-amber-800 hover:text-amber-950`}>Rectificar</button>
                     </>}
-                    {p.origin === 'DECLARED_MP' && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-900">{DECLARED_LABEL}</span>}
                     {canReverseDeclaredCollection(p) && <>
                       <button type="button" onClick={() => setAccion({ tipo: 'anular-declarado', cobro: p })} className={`${ENLACE} text-red-700 hover:text-red-900`}>Anular</button>
                       <button type="button" onClick={() => setAccion({ tipo: 'rectificar-declarado', cobro: p })} className={`${ENLACE} text-amber-800 hover:text-amber-950`}>Rectificar</button>
@@ -82,6 +81,7 @@ export function TablaCobros({ cobros, clienteNombre }: { cobros: CustomerCollect
                       <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-stone-200 text-stone-700">{manual ? REVERSION_MANUAL[manual] : 'Anulado'}</span>
                     )}
                     {p.replacement_of && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">Rectificación</span>}
+                    {p.origin === 'DECLARED_MP' && <span className="block w-fit max-w-44 whitespace-normal mt-0.5 text-[10px] leading-tight px-1.5 py-0.5 rounded bg-sky-100 text-sky-900">{DECLARED_LABEL}</span>}
                   </td>
                   <Persona id={p.registered_by} names={nombres} />
                   <td className="py-0.5 align-top"><NotaPopover nota={p.notes} /></td>

@@ -81,7 +81,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
         <label className="block text-sm font-medium text-gray-700">Importe a registrar
           <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={`${campo} mt-1`} placeholder="0" />
         </label>
-        <label className="block text-sm font-medium text-gray-700">Cuenta donde entra el dinero
+        <label className="block text-sm font-medium text-gray-700">{esMp ? 'Medio de cobro' : 'Cuenta donde entra el dinero'}
           <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={`${campo} mt-1`}>
             <option value="">{cuentas.isLoading ? 'Cargando cuentas…' : 'Elegir cuenta…'}</option>
             {(cuentas.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}

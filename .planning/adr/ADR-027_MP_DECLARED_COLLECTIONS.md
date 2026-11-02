@@ -32,23 +32,27 @@ the usual import; what is missing is only that the client's debt goes down.
    covers `mp_allocate_to_client` and `mp_classify_inflow_as_collection` with a client. The classification without a client stays available. The UI no
    longer offers: assign to a client (Mercado Pago → Cobros), link an inflow to a client (Entradas sin vincular), name a client when classifying an inflow
    (Clasificar ingreso), request an assignment, "Recordar este pagador", map a payer.
+7. **No new association.** The database refuses a new payer mapping, reactivating one and pointing one to another client or payer
+   (`MP_PAYER_MAP_DISABLED`), through any route. Deactivating a mapping and every historical row stay.
 
 ## 3. What stays, and why
 
-- **`mp_auto_allocate`** is not refused. On 2026-11-02 production had 0 active mappings, so it allocates nothing; refusing it would abort the worker's
-  item and retry it forever. If a mapping is ever created by hand, its payments would discount the client. The owner has not decided to deactivate
-  mappings, and there is nothing to deactivate today.
+- **`mp_auto_allocate` and the worker** are not changed: refusing them would abort the worker's item and retry it forever. On 2026-11-02 production had 0
+  mappings, 0 AUTO allocations and 0 payments with an `external_reference`, so it allocates nothing, and `trg_mp_payer_client_map_guard` keeps it that way
+  for payers.
+- **Its other evidence remains (known limit):** a payment whose `external_reference` is exactly `GST:C:<uuid>` or `GST:P:<uuid>` would still allocate AUTO. Nothing
+  in the ERP creates such a reference; a client paying by transfer cannot set one. Closing it needs a change to `mp_auto_allocate`, out of this decision.
 - **Reversals of existing allocations** stay (`mp_reverse_client_allocation`): history is corrected as before.
 - **`mp_correct_manual_collection`** stays allowed: it re-expresses a client collection that already counted, net zero on the client.
-- **Old RPCs are not removed:** `mp_allocate_to_client`, `mp_classify_inflow_as_collection`, `mp_map_payer_to_client` keep their signature.
+- **Old RPCs are not removed:** `mp_allocate_to_client`, `mp_classify_inflow_as_collection`, `mp_map_payer_to_client` keep their signature and contract; the two guards refuse what no longer applies.
 - **Period close:** only unresolved outflows block it (ADR-023, 0095). An inflow never needs a classification to close, so nothing here touches it.
 
 ## 4. Testing the old routes
 
 `scripts/target-db/fin_declared_collections.test.mjs` proves the guard. Older suites that exercise a manual allocation (mp_realtime, mp_atomic_application,
-mp_worker, mp_views, fin_mp_classify, fin_mp_unlinked_inflows, fin_collection_correction) are expected to stop at `MP_CLIENT_ALLOCATION_DISABLED`, and an aborted
-run can leave fixture rows behind. To regress them, on the local test database only: `ALTER TABLE mp_client_allocation DISABLE TRIGGER
-trg_mp_client_allocation_manual_guard;`, run them, then `ENABLE TRIGGER`.
+mp_worker, mp_views, fin_mp_classify, fin_mp_unlinked_inflows, fin_collection_correction) or a new mapping (fin_mp_payer_privacy) are expected to stop at `MP_CLIENT_ALLOCATION_DISABLED` / `MP_PAYER_MAP_DISABLED`, and an aborted
+run can leave fixture rows behind. To regress them, on the local test database only: `DISABLE TRIGGER` `trg_mp_client_allocation_manual_guard` and
+`trg_mp_payer_client_map_guard`, run them, then `ENABLE TRIGGER`.
 
 ## 5. Consequences
 

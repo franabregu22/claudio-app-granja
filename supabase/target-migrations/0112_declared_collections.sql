@@ -16,8 +16,10 @@
 --      (MP_CLIENT_ALLOCATION_DISABLED). That is the single door of mp_allocate_to_client and of
 --      mp_classify_inflow_as_collection with a client; the classification without a client still works. Not refused: reversals of
 --      existing allocations (mp_reverse_client_allocation), the historical correction mp_correct_manual_collection (net zero on
---      the client) and AUTO (mp_auto_allocate: production has no active mapping; refusing it would abort the worker's item, so it
---      stays as it is and the UI no longer creates mappings).
+--      the client) and AUTO (mp_auto_allocate: refusing it would abort the worker's item, so it stays as it is).
+--   5. No new automatic association: trg_mp_payer_client_map_guard refuses a new mapping, reactivating one or pointing one to another
+--      client (MP_PAYER_MAP_DISABLED). mp_map_payer_to_client stays, and refuses. Deactivating a mapping (mp_unmap_payer) and every
+--      historical row stay. Production has no mapping (2026-11-02), so mp_auto_allocate finds no payer evidence from now on.
 -- No existing row, function, table or period rule changes. Period close: only outflows block it (0095), so nothing here touches it.
 -- SECURITY DEFINER set +5 (3 RPC + 2 internal cores no API role can execute).
 -- ============================================================================
@@ -389,3 +391,22 @@ REVOKE ALL ON FUNCTION client_allocation_manual_guard() FROM PUBLIC, anon, authe
 CREATE TRIGGER trg_mp_client_allocation_manual_guard
   BEFORE INSERT ON mp_client_allocation
   FOR EACH ROW EXECUTE FUNCTION client_allocation_manual_guard();
+
+-- ── no double discount: no new payer → client association ──────────────────
+CREATE OR REPLACE FUNCTION payer_client_map_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' OR (NEW.activo AND NOT OLD.activo) OR NEW.cliente_id IS DISTINCT FROM OLD.cliente_id OR NEW.mp_payer_id IS DISTINCT FROM OLD.mp_payer_id THEN
+    RAISE EXCEPTION 'MP_PAYER_MAP_DISABLED: a Mercado Pago payer is no longer associated with a client (ADR-027)';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+ALTER FUNCTION payer_client_map_guard() OWNER TO postgres;
+REVOKE ALL ON FUNCTION payer_client_map_guard() FROM PUBLIC, anon, authenticated, service_role;
+CREATE TRIGGER trg_mp_payer_client_map_guard
+  BEFORE INSERT OR UPDATE ON mp_payer_client_map
+  FOR EACH ROW EXECUTE FUNCTION payer_client_map_guard();

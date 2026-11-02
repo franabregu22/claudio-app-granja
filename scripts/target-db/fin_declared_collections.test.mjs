@@ -4,7 +4,8 @@
  *
  * A declaration lowers the client's balance and moves no money; advances work; annul and rectify compensate in client_ledger; idempotency,
  * audit, closed periods; only ADMIN; a new manual Mercado Pago allocation is refused (with or without classification), while reversals of
- * existing allocations, the historical correction, AUTO and the classification without a client stay; cash and bank unchanged.
+ * existing allocations, the historical correction, AUTO and the classification without a client stay; a new payer mapping is refused
+ * (create, reactivate, repoint) while history and unmapping stay; cash and bank unchanged.
  *
  * Everything runs inside ONE transaction that is rolled back.
  *
@@ -119,10 +120,11 @@ function payment(k, pid, amount, payerId) {
   add(`SELECT pg_temp.must(${lit(`${k} apply`)}, ${svc(`SELECT mp_apply_transition(${P(MV(pid))})::text`)});`);
 }
 const MV = (pid) => `(SELECT t.mp_financial_movement_id FROM mp_transition_identity t WHERE t.resource_type = 'payment' AND t.resource_id = '${pid}' AND t.transition = 'APPROVAL')`;
-const P1 = '971200000101'; const P2 = '971200000102'; const P3 = '971200000103';
+const P1 = '971200000101'; const P2 = '971200000102'; const P3 = '971200000103'; const P4 = '971200000104';
 payment('P1', P1, 4000, '800000101');
 payment('P2', P2, 3000, '800000102');
 payment('P3', P3, 2000, '800000103');
+payment('P4', P4, 1500, '800000104');
 
 add(`CREATE TEMP TABLE snap AS ${counts()};`);
 add(`CREATE TEMP TABLE bal AS SELECT ${BALANCES} AS b;`);
@@ -163,7 +165,7 @@ expect('D-4 the debt goes back up, at the original date', `(${BAL(CLI)} || '|' |
 expect('D-5 the same request replays', A(rev('k-c1')), 'OK:%"replayed": true%');
 expect('D-6 … nothing written', BAL(CLI), '7490.00');
 expect('D-7 another request is refused', A(rev('k-c1', 'otro')), 'ERR:ALREADY_REVERSED%');
-expect('D-8 audited with its reason', `(SELECT count(*) || '|' || min(reason) FROM audit_events WHERE action = 'ANNUL_DECLARED_COLLECTION')`, '1|error de carga');
+expect('D-8 audited with its reason', `(SELECT count(*) || '|' || min(reason) FROM audit_events WHERE action = 'ANNUL_DECLARED_COLLECTION' AND after_values ->> 'declared_collection_id' IN (SELECT d.id::text FROM declared_collection d WHERE d.cliente_id IN ('${CLI}', '${CLI2}')))`, '1|error de carga');
 expect('D-9 no money', delta('snap'), 'none');
 
 // ── E. rectify ──
@@ -176,7 +178,7 @@ expect('E-5 replay writes nothing', `(${A(rect('k-a1', CLI, 2000, DAY, 'r1'))} |
 expect('E-6 the original cannot be touched again', A(rect('k-a1', CLI, 1000, DAY, 'r2')), 'ERR:ALREADY_REVERSED%');
 expect('E-7 a rectification may move it to another client', A(`SELECT rectify_declared_collection(${P(RES('e3', 'replacement_id'))}::uuid, '${CLI2}'::uuid, 2000, '${DAY}'::date, 'era otro cliente', 'r3')::text`), 'OK:%');
 expect('E-8 … both balances follow', `(${BAL(CLI)} || '|' || ${BAL(CLI2)})`, '9990.00|-2300.00');
-expect('E-9 audited', `(SELECT count(*)::text FROM audit_events WHERE action = 'RECTIFY_DECLARED_COLLECTION')`, '2');
+expect('E-9 audited', `(SELECT count(*)::text FROM audit_events WHERE action = 'RECTIFY_DECLARED_COLLECTION' AND after_values ->> 'declared_collection_id' IN (SELECT d.id::text FROM declared_collection d WHERE d.cliente_id IN ('${CLI}', '${CLI2}')))`, '2');
 expect('E-10 no money', delta('snap'), 'none');
 expect('E-11 a rectification into a closed period rolls everything back', A(rect('k-a7', CLI, 10, CLOSED, 'r4')), 'ERR:%');
 expect('E-12 … the declaration stays alive', `(SELECT count(*)::text FROM declared_collection_reversal WHERE idempotency_key = 'r4')`, '0');
@@ -195,7 +197,7 @@ expect('F-4 … not reversed', `(SELECT count(*)::text FROM declared_collection_
 const VIEW = (key, cols) => A(`SELECT ${cols} FROM fin_customer_collections WHERE row_id = 'D:' || ${P(`(SELECT id::text FROM declared_collection WHERE idempotency_key = '${key}')`)}`);
 expect('G-1 a live declaration: origin, status, no operation, not a real account', VIEW('k-a7', `origin || '|' || status || '|' || account_type || '|' || coalesce(financial_operation_id::text, '-') || '|' || coalesce(source_id, '-') || '|' || counts_for_customer`), 'OK:DECLARED_MP|DECLARED|DECLARED|-|-|true');
 expect('G-2 an annulled one: evidence, not counted', VIEW('k-c1', `status || '|' || reversal_kind || '|' || counts_for_customer || '|' || reversal_reason`), 'OK:ANNULLED|ANNUL|false|error de carga');
-expect('G-3 a rectified one points nowhere; its replacement points to it', A(`SELECT count(*)::text FROM fin_customer_collections WHERE origin = 'DECLARED_MP' AND replacement_of IS NOT NULL`), 'OK:2');
+expect('G-3 a rectified one points nowhere; its replacement points to it', A(`SELECT count(*)::text FROM fin_customer_collections WHERE origin = 'DECLARED_MP' AND replacement_of IS NOT NULL AND cliente_id IN ('${CLI}', '${CLI2}')`), 'OK:2');
 expect('G-4 the sum of the view is the ledger', A(`SELECT (SELECT sum(amount) FROM fin_customer_collections WHERE origin = 'DECLARED_MP' AND counts_for_customer AND cliente_id = '${CLI}')::text`), 'OK:15.00');
 expect('G-5 an OPERATOR sees nothing', `(${O(`SELECT count(*)::text FROM declared_collection`)} || '|' || ${O(`SELECT count(*)::text FROM fin_customer_collections`)})`, 'OK:0|OK:0');
 expect('G-6 an OPERATOR cannot declare', O(reg(10, 'k-g6')), 'ERR:FORBIDDEN%');
@@ -210,13 +212,31 @@ const alloc = (pid, amount, key) => `SELECT mp_allocate_to_client(${P(MV(pid))}:
 expect('H-1 a new manual allocation is refused', A(alloc(P1, 1000, 'h1')), 'ERR:MP_CLIENT_ALLOCATION_DISABLED%');
 expect('H-2 … nothing stays: no ledger, no allocation', delta('snap2'), 'none');
 expect('H-3 Entradas sin vincular has no other door: same RPC, no date', A(`SELECT mp_allocate_to_client(${P(MV(P1))}::bigint, '${CLI}'::uuid, 1000, NULL, 'h3', 'test')::text`), 'ERR:MP_CLIENT_ALLOCATION_DISABLED%');
-expect('H-4 a mapped payer still allocates AUTO (the worker is not aborted)', A(`SELECT mp_map_payer_to_client('800000103', '${CLI}'::uuid, 'Lote 5 test')::text`), 'OK:%');
-expect('H-5 … mp_auto_allocate', svc(`SELECT mp_auto_allocate(${P(MV(P3))})::text`), 'OK:%"allocated": true%');
+// a mapping made before 0112: the worker's route is not aborted
+add(`ALTER TABLE mp_payer_client_map DISABLE TRIGGER trg_mp_payer_client_map_guard;`);
+add(`SELECT pg_temp.must('H-4 setup: a mapping made before 0112', ${A(`SELECT mp_map_payer_to_client('800000103', '${CLI}'::uuid, 'Lote 5 test')::text`, 'h4')});`);
+add(`SELECT pg_temp.must('H-4b setup: a deactivated one', ${A(`SELECT mp_map_payer_to_client('800000104', '${CLI}'::uuid, 'Lote 5 test')::text`, 'h4b')});`);
+add(`ALTER TABLE mp_payer_client_map ENABLE TRIGGER trg_mp_payer_client_map_guard;`);
+expect('H-5 an existing active mapping still allocates AUTO: the worker is not aborted', svc(`SELECT mp_auto_allocate(${P(MV(P3))})::text`), 'OK:%"allocated": true%');
 add(`ALTER TABLE mp_client_allocation DISABLE TRIGGER trg_mp_client_allocation_manual_guard;`);
 add(`SELECT pg_temp.must('H-6 setup: an allocation made before 0112', ${A(alloc(P2, 1000, 'h6'), 'h6')});`);
 add(`ALTER TABLE mp_client_allocation ENABLE TRIGGER trg_mp_client_allocation_manual_guard;`);
 expect('H-7 an existing allocation can still be reverted', A(`SELECT mp_reverse_client_allocation(${P(RES('h6', 'allocation_id'))}::uuid, 1000, 'h7', 'Lote 5 test')::text`), 'OK:%');
 expect('H-8 the historical correction key still passes the guard for that client', `(SELECT pg_temp.err_of(format($q$INSERT INTO mp_client_allocation (mp_financial_movement_id, cliente_id, amount, origin, mode, effective_date, idempotency_key, reason, client_ledger_id) VALUES (%s, %L, 1, 'ALLOCATION', 'MANUAL', %L, 'COLLECTION-CORRECTION-MP:00000000-0000-0000-0000-000000000000', 'x', NULL)$q$, ${MV(P2)}, '${CLI}', '${DAY}')))`, 'ERR:MP_CLIENT_ALLOCATION_DISABLED%');
+
+// ── J. no new payer → client association ──
+add(`CREATE TEMP TABLE map_before AS SELECT count(*) AS n FROM mp_payer_client_map;`);
+const MAP = (key) => `${RES(key, 'mapping_id')}`;
+expect('J-1 a new mapping through the RPC is refused', A(`SELECT mp_map_payer_to_client('800000199', '${CLI}'::uuid, 'Lote 5 test')::text`), 'ERR:MP_PAYER_MAP_DISABLED%');
+expect('J-2 a new mapping by SQL, even as the owner, is refused', `pg_temp.err_of($q$INSERT INTO mp_payer_client_map (mp_payer_id, cliente_id) VALUES ('800000198', '${CLI}')$q$)`, 'ERR:MP_PAYER_MAP_DISABLED%');
+expect('J-3 an active mapping cannot point to another client', `pg_temp.err_of('UPDATE mp_payer_client_map SET cliente_id = ''${CLI2}'' WHERE id = ''' || ${MAP('h4')} || '''')`, 'ERR:MP_PAYER_MAP_DISABLED%');
+expect('J-4 an active mapping cannot change its payer', `pg_temp.err_of('UPDATE mp_payer_client_map SET mp_payer_id = ''800000197'' WHERE id = ''' || ${MAP('h4')} || '''')`, 'ERR:MP_PAYER_MAP_DISABLED%');
+expect('J-5 deactivating still works', A(`SELECT mp_unmap_payer(${P(MAP('h4b'))}::uuid, 'Lote 5 test')::text`), 'OK:%"activo": false%');
+expect('J-6 a deactivated mapping cannot be reactivated', `pg_temp.err_of('UPDATE mp_payer_client_map SET activo = true, deactivated_at = NULL, deactivated_by = NULL, deactivation_reason = NULL WHERE id = ''' || ${MAP('h4b')} || '''')`, 'ERR:MP_PAYER_MAP_DISABLED%');
+expect('J-7 nor recreated through the RPC', A(`SELECT mp_map_payer_to_client('800000104', '${CLI}'::uuid, 'Lote 5 test')::text`), 'ERR:MP_PAYER_MAP_DISABLED%');
+expect('J-8 history stays: no row lost or added', `(SELECT (count(*) = (SELECT n FROM map_before))::text FROM mp_payer_client_map)`, 'true');
+expect('J-9 a payer whose mapping is gone: mp_auto_allocate finds no evidence and does not discount', `(${svc(`SELECT mp_auto_allocate(${P(MV(P4))})::text`)} || '|' || (SELECT count(*) FROM mp_client_allocation WHERE mp_financial_movement_id = ${MV(P4)}))`, 'OK:%"reason": "NO_EVIDENCE"%|0');
+expect('J-10 no active association can be created: only the pre-0112 active one remains', `(SELECT count(*)::text FROM mp_payer_client_map WHERE activo AND mp_payer_id LIKE '80000%')`, '1');
 
 // ── I. cash and bank unchanged ──
 const CASHACC = `(SELECT id FROM financial_account WHERE account_type = 'CASH' AND activo ORDER BY nombre LIMIT 1)`;
