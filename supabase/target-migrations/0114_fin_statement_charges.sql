@@ -19,11 +19,17 @@
 --        BANK_TAX_DEBCRED → register_bank_tax (DEBITOS_CREDITOS; ADR-011: never in the P&L, never an extra expense)
 --        BANK_IVA        → a BANK_TAX operation with bank_tax_charge.tax_kind IVA: its own fiscal category, not an expense and not
 --                          a computable fiscal credit (no fiscal_document is written)
---        BANK_FEE        → register_casual_purchase paid from the account (one expense, in its category, in the P&L)
+--        BANK_FEE        → register_casual_purchase paid from the account (one expense, in "Gastos bancarios", in the P&L)
 --      and fin_match_statement_line pairs the line with that posting. Idempotent: the same key and lines replay the result; a key
 --      used for other lines is refused; a line is booked once (primary key). Atomic: any failure books nothing. Closed periods are
 --      refused by the reused functions.
--- No existing row, table or function changes. SECURITY DEFINER set +2.
+--   6. The expense category "Gastos bancarios" (owner decision): a subcategory of the existing group "Servicios", OPERATING, created
+--      only if no category of that name exists (names are unique). The debits / credits tax and the IVA never use a category.
+--   7. fin_movement_class (0113) learns one reference: the payment of a booked fee ('PURCHASE-PAY:STMT-LINE:…') reads "Cargo bancario"
+--      (kind CARGO) instead of "Pago de compra". Only the name in Caja → Movimientos changes: the operation, its posting, its amount
+--      and its P&L effect are the ones register_casual_purchase writes. The reason of every booked line carries the bank's own
+--      description and the account.
+-- No existing row or table changes. SECURITY DEFINER set +2.
 -- ============================================================================
 
 CREATE TABLE fin_statement_charge_rule (
@@ -48,13 +54,20 @@ REVOKE ALL ON SEQUENCE fin_statement_charge_rule_id_seq FROM PUBLIC, anon, authe
 GRANT SELECT ON TABLE fin_statement_charge_rule TO authenticated;
 CREATE POLICY fin_statement_charge_rule_admin_select ON fin_statement_charge_rule FOR SELECT USING (current_app_role() = 'ADMIN');
 
+-- the expense category of bank fees (owner decision 2026-11-03): reused when it exists, otherwise a subcategory of "Servicios"
+INSERT INTO expense_category (nombre, description, group_id, default_nature, activo)
+SELECT 'Gastos bancarios', 'Comisiones y cargos cobrados por los bancos (registrados desde el extracto)', g.id, 'OPERATING', true
+  FROM expense_category_group g
+ WHERE g.nombre = 'Servicios' AND g.kind = 'EXPENSE'
+   AND NOT EXISTS (SELECT 1 FROM expense_category c WHERE c.nombre = 'Gastos bancarios');
+
 -- the descriptions seen on the real statements (2026-11-03); an anchored pattern never matches a longer, different concept
 INSERT INTO fin_statement_charge_rule (format_code, pattern, kind, label, expense_category_id) VALUES
   ('BNA_MONTHLY_PDF_V1', '^GRAVAMEN LEY 25413 S/(DEB|CRED)$', 'BANK_TAX_DEBCRED', 'Impuesto Débitos/Créditos (Ley 25.413)', NULL),
   ('BNA_MONTHLY_PDF_V1', '^COMIS\.COMPENSACION ATEN C$', 'BANK_FEE', 'Comisión bancaria',
-     (SELECT id FROM expense_category WHERE nombre = 'Comisiones' AND activo ORDER BY id LIMIT 1)),
+     (SELECT id FROM expense_category WHERE nombre = 'Gastos bancarios')),
   ('BNA_MONTHLY_PDF_V1', '^ECHEQ\.EMI\.NRO [0-9]+$', 'BANK_FEE', 'Cargo por emisión de eCheq',
-     (SELECT id FROM expense_category WHERE nombre = 'Comisiones' AND activo ORDER BY id LIMIT 1)),
+     (SELECT id FROM expense_category WHERE nombre = 'Gastos bancarios')),
   ('BNA_MONTHLY_PDF_V1', '^I\.V\.A\. BASE$', 'BANK_IVA', 'IVA bancario', NULL),
   ('PATAGONIA_STATEMENT_PDF_V1', '^IMP\.DB/CR BANCARIOS P/(CREDITOS|DEBITOS)$', 'BANK_TAX_DEBCRED', 'Impuesto Débitos/Créditos (Ley 25.413)', NULL);
 
@@ -256,7 +269,7 @@ BEGIN
 
     v_amount := -v_line.signed_amount;
     v_ref    := 'STMT-LINE:' || v_line.id;
-    v_reason := v_prop.label || ' · extracto ' || v_acc.nombre || ' ' || to_char(v_line.value_date, 'DD/MM/YYYY') || ' · línea ' || v_line.id;
+    v_reason := v_prop.label || ': ' || v_line.description_raw || ' · ' || v_acc.nombre || ' ' || to_char(v_line.value_date, 'DD/MM/YYYY') || ' · línea ' || v_line.id;
     v_purch  := NULL;
     IF v_prop.kind = 'BANK_TAX_DEBCRED' THEN
       v_res := register_bank_tax(p_account_id, v_amount, v_line.value_date, 'DEBITOS_CREDITOS', v_ref, NULL, v_reason);
@@ -291,3 +304,53 @@ $$;
 ALTER  FUNCTION fin_book_statement_charges(UUID, JSONB, VARCHAR) OWNER TO postgres;
 REVOKE ALL     ON FUNCTION fin_book_statement_charges(UUID, JSONB, VARCHAR) FROM PUBLIC, anon, service_role;
 GRANT  EXECUTE ON FUNCTION fin_book_statement_charges(UUID, JSONB, VARCHAR) TO authenticated;
+
+-- ── Caja → Movimientos: a booked bank fee reads as a bank charge (0113 classifier, one reference added first) ─────────────
+CREATE OR REPLACE FUNCTION fin_movement_class(p_type TEXT, p_ref TEXT, OUT kind TEXT, OUT label TEXT)
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT
+    CASE
+      WHEN p_ref LIKE 'PURCHASE-PAY:STMT-LINE:%' THEN 'CARGO'
+      WHEN p_ref LIKE 'MP-PENDING%' THEN 'PENDIENTE_MP'
+      WHEN p_type = 'TRANSFER' THEN 'TRANSFERENCIA'
+      WHEN p_ref LIKE 'MP-INBOUND-RECLASS:%' THEN 'OTRO'
+      WHEN p_type IN ('COLLECTION', 'MP_SETTLEMENT', 'CHEQUE_CLEAR') THEN 'COBRO'
+      WHEN p_type IN ('SUPPLIER_PAYMENT', 'PURCHASE_PAYMENT', 'FREIGHT_PAYMENT', 'INSTRUMENT_DEBIT', 'FISCAL_PAYMENT') THEN 'PAGO'
+      WHEN p_type IN ('BANK_TAX', 'FEE') OR p_ref LIKE 'MP-OUTFLOW-TAX:%' OR (p_type = 'ADJUSTMENT' AND p_ref LIKE 'MP:%') THEN 'CARGO'
+      ELSE 'OTRO'
+    END,
+    CASE
+      WHEN p_ref LIKE 'PURCHASE-PAY:STMT-LINE:%' THEN 'Cargo bancario'
+      WHEN p_ref LIKE 'MP-PENDING-RELEASE:%' THEN 'Clasificación de salida'
+      WHEN p_ref LIKE 'MP-PENDING:%' THEN 'Pendiente de clasificar'
+      WHEN p_ref LIKE 'EXPENSE-PENDING:%' THEN 'Gasto (sin clasificar al registrarse)'
+      WHEN p_ref LIKE 'MP-INBOUND-RECLASS:%' THEN 'Reclasificación de entrada Mercado Pago'
+      WHEN p_ref LIKE 'MP-OUTFLOW-TAX:%' THEN 'Impuesto Débitos/Créditos (Mercado Pago)'
+      WHEN p_type = 'ADJUSTMENT' AND p_ref LIKE 'MP:%' THEN 'Impuesto de Mercado Pago'
+      WHEN p_ref LIKE 'COLLECTION-CORRECTION%' THEN 'Corrección de cobro'
+      WHEN p_ref LIKE 'PHASE31-OPENING%' THEN 'Saldo inicial'
+      WHEN p_ref LIKE 'MP-HIST-OPENING-NEUTRALIZATION:%' THEN 'Neutralización de saldo inicial'
+      WHEN p_type = 'TRANSFER' THEN 'Transferencia'
+      WHEN p_type = 'FEE' THEN 'Comisión'
+      WHEN p_type = 'COLLECTION' THEN 'Cobro'
+      WHEN p_type = 'CHEQUE_CLEAR' THEN 'Cheque acreditado'
+      WHEN p_type = 'CHEQUE_REJECTION' THEN 'Cheque rechazado'
+      WHEN p_type = 'SUPPLIER_PAYMENT' THEN 'Pago a proveedor'
+      WHEN p_type = 'PURCHASE_PAYMENT' THEN 'Pago de compra'
+      WHEN p_type = 'FREIGHT_PAYMENT' THEN 'Pago de flete'
+      WHEN p_type = 'INSTRUMENT_DEBIT' THEN 'Cheque debitado'
+      WHEN p_type = 'INSTRUMENT_DEBIT_REVERSAL' THEN 'Reversión de cheque debitado'
+      WHEN p_type = 'FISCAL_PAYMENT' THEN 'Pago fiscal'
+      WHEN p_type = 'SESSION_CASH' THEN 'Efectivo de feria'
+      WHEN p_type = 'MP_SETTLEMENT' THEN 'Cobro Mercado Pago'
+      WHEN p_type = 'OWNER_WITHDRAWAL' THEN 'Retiro de socios'
+      WHEN p_type = 'BANK_TAX' THEN 'Impuesto bancario'
+      WHEN p_type = 'ADJUSTMENT' THEN 'Ajuste'
+      ELSE p_type
+    END;
+$$;
+ALTER  FUNCTION fin_movement_class(TEXT, TEXT) OWNER TO postgres;
+REVOKE ALL ON FUNCTION fin_movement_class(TEXT, TEXT) FROM PUBLIC, anon, authenticated, service_role;

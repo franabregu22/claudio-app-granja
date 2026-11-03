@@ -122,7 +122,7 @@ INSERT INTO fin_import_run (id, source_kind, mode, financial_account_id, format_
 VALUES ('${RUN}', 'BANK_STATEMENT', 'NORMAL', '${ACC}', 'BNA_MONTHLY_PDF_V1', 'test-0114', repeat('a', 64), 'test/0114.pdf', '0114.pdf', 1, '${Y}-01-01', '${Y}-02-28', 'PARSED', '${ADMIN}');
 -- an ambiguous concept (two kinds) and a fee rule whose category is inactive; both rolled back with the rest
 INSERT INTO fin_statement_charge_rule (format_code, pattern, kind, label) VALUES ('BNA_MONTHLY_PDF_V1', '^AMBIGUO TEST$', 'BANK_IVA', 'prueba A'), ('BNA_MONTHLY_PDF_V1', '^AMBIGUO .*$', 'BANK_TAX_DEBCRED', 'prueba B');
-INSERT INTO expense_category (id, nombre, activo, group_id) SELECT 'dddddddd-0114-0000-0000-0000000000c1', 'ZZ categoria inactiva 0114', false, group_id FROM expense_category WHERE nombre = 'Comisiones' AND activo LIMIT 1;
+INSERT INTO expense_category (id, nombre, activo, group_id) SELECT 'dddddddd-0114-0000-0000-0000000000c1', 'ZZ categoria inactiva 0114', false, group_id FROM expense_category WHERE nombre = 'Gastos bancarios' LIMIT 1;
 INSERT INTO fin_statement_charge_rule (format_code, pattern, kind, label, expense_category_id) VALUES ('BNA_MONTHLY_PDF_V1', '^FEE SIN CATEGORIA$', 'BANK_FEE', 'prueba C', 'dddddddd-0114-0000-0000-0000000000c1');`);
 let running = 400000;
 for (const [n, d, amt] of LINES) {
@@ -157,7 +157,12 @@ for (const [n, want] of [[3, 'PROPOSED:BANK_TAX_DEBCRED'], [4, 'PROPOSED:BANK_TA
   expect(`C-1 line ${n}: ${LINES[n - 1][1]} → ${want}`, prop('p1', n), want);
 }
 expect('C-2 the line before the anchor and the anchor itself are not listed', `(SELECT count(*)::text FROM res, json_array_elements(v::json) x WHERE k = 'p1' AND x ->> 'n' IN ('1', '2'))`, '0');
-expect('C-3 a fee shows its category', `(SELECT x ->> 'c' FROM res, json_array_elements(v::json) x WHERE k = 'p1' AND x ->> 'n' = '5')`, 'Comisiones');
+expect('C-3 a fee shows its category', `(SELECT x ->> 'c' FROM res, json_array_elements(v::json) x WHERE k = 'p1' AND x ->> 'n' = '5')`, 'Gastos bancarios');
+expect('C-5 "Gastos bancarios" is a subcategory of the existing group Servicios, OPERATING, active; both fee rules use it, the taxes none',
+  `(SELECT c.nombre || '|' || g.nombre || '|' || c.default_nature || '|' || c.activo || '|' || (SELECT string_agg(r.kind || '=' || coalesce(rc.nombre, '-'), ',' ORDER BY r.id) FROM fin_statement_charge_rule r LEFT JOIN expense_category rc ON rc.id = r.expense_category_id WHERE r.format_code = 'BNA_MONTHLY_PDF_V1' AND r.label NOT LIKE 'prueba%')
+     FROM expense_category c JOIN expense_category_group g ON g.id = c.group_id WHERE c.nombre = 'Gastos bancarios')`,
+  'Gastos bancarios|Servicios|OPERATING|true|BANK_TAX_DEBCRED=-,BANK_FEE=Gastos bancarios,BANK_FEE=Gastos bancarios,BANK_IVA=-');
+expect('C-6 no category "Comisiones" is used by any rule', `(SELECT count(*)::text FROM fin_statement_charge_rule r JOIN expense_category c ON c.id = r.expense_category_id WHERE c.nombre = 'Comisiones')`, '0');
 expect('C-4 the proposals of an account show no line of another', A(`SELECT count(*)::text FROM fin_statement_charge_proposals('${ACC2}'::uuid)`), 'OK:0');
 
 // ── D. refusals: nothing is booked ──
@@ -191,13 +196,19 @@ expect('E-6 one operation per line', `(SELECT count(DISTINCT financial_operation
 expect('E-7 the debits / credits tax went through register_bank_tax (BANK_TAX, DEBITOS_CREDITOS); the IVA is BANK_TAX of kind IVA',
   `(SELECT string_agg(b.kind || ':' || o.operation_type || ':' || c.tax_kind, ',' ORDER BY b.statement_line_id) FROM fin_statement_charge_booking b JOIN financial_operation o ON o.id = b.financial_operation_id
      JOIN bank_tax_charge c ON c.financial_operation_id = o.id WHERE b.batch_key = 'lote-1')`, 'BANK_TAX_DEBCRED:BANK_TAX:DEBITOS_CREDITOS,BANK_TAX_DEBCRED:BANK_TAX:DEBITOS_CREDITOS,BANK_IVA:BANK_TAX:IVA');
-expect('E-8 a fee is one casual purchase paid from the account, category Comisiones, net = total, no fiscal document',
+expect('E-8 a fee is one casual purchase paid from the account, category Gastos bancarios, net = total, no fiscal document',
   `(SELECT string_agg(o.operation_type || ':' || c.nombre || ':' || pu.amount_net || '=' || pu.amount_total || ':' || (pu.fiscal_document_id IS NULL) || ':' || (pu.supplier_id IS NULL), ',' ORDER BY b.statement_line_id)
      FROM fin_statement_charge_booking b JOIN purchases pu ON pu.id = b.purchase_id JOIN expense_category c ON c.id = pu.expense_category_id JOIN financial_operation o ON o.id = pu.paid_operation_id
-    WHERE b.batch_key = 'lote-1' AND o.id = b.financial_operation_id)`, 'PURCHASE_PAYMENT:Comisiones:69000.00=69000.00:true:true,PURCHASE_PAYMENT:Comisiones:50.00=50.00:true:true');
-expect('E-9 the history names them: two taxes and the IVA as bank charges, the fees as purchase payments',
-  `(SELECT string_agg(k.kind, ',' ORDER BY b.statement_line_id) FROM fin_statement_charge_booking b JOIN financial_operation o ON o.id = b.financial_operation_id CROSS JOIN LATERAL fin_movement_class(o.operation_type::text, o.external_ref) k WHERE b.batch_key = 'lote-1')`,
-  'CARGO,CARGO,PAGO,PAGO,CARGO');
+    WHERE b.batch_key = 'lote-1' AND o.id = b.financial_operation_id)`, 'PURCHASE_PAYMENT:Gastos bancarios:69000.00=69000.00:true:true,PURCHASE_PAYMENT:Gastos bancarios:50.00=50.00:true:true');
+expect('E-9 Caja → Movimientos: every booked line is a bank charge; the fees read "Cargo bancario", the taxes "Impuesto bancario"',
+  `(SELECT string_agg(k.kind || ':' || k.label, ',' ORDER BY b.statement_line_id) FROM fin_statement_charge_booking b JOIN financial_operation o ON o.id = b.financial_operation_id CROSS JOIN LATERAL fin_movement_class(o.operation_type::text, o.external_ref) k WHERE b.batch_key = 'lote-1')`,
+  'CARGO:Impuesto bancario,CARGO:Impuesto bancario,CARGO:Cargo bancario,CARGO:Cargo bancario,CARGO:Impuesto bancario');
+add(`SELECT pg_temp.must('hist', ${A(`SELECT fin_movement_history('${Y}-01-01'::date, '${Y}-01-31'::date, '${ACC}'::uuid, 'CARGO', 'COMIS.COMPENSACION', NULL, 50, 0)::text`, 'hist')});`);
+expect('E-12 the history row of the fee: "Cargo bancario", the bank\'s own description, the account, the amount once',
+  `(SELECT (r ->> 'label') || '|' || (r ->> 'reason') || '|' || (r -> 'postings' -> 0 ->> 'account_name') || '|' || (r ->> 'net_amount') || '|' || jsonb_array_length(r -> 'postings') FROM res, jsonb_array_elements(v::jsonb -> 'rows') r WHERE k = 'hist')`,
+  'Cargo bancario|Comisión bancaria: COMIS.COMPENSACION ATEN C [5] · ZZ Banco Cargos % · línea %|ZZ Banco Cargos|-69000.00|1');
+expect('E-13 a purchase payment not booked from a statement still reads "Pago de compra"', `(SELECT k.kind || ':' || k.label FROM fin_movement_class('PURCHASE_PAYMENT', 'PURCHASE-PAY:otra') k)`, 'PAGO:Pago de compra');
+expect('E-14 the fee is one expense in the P&L source, in Gastos bancarios, once', `(SELECT count(*)::text || '|' || sum(pu.amount_total) FROM fin_statement_charge_booking b JOIN purchases pu ON pu.id = b.purchase_id JOIN expense_category c ON c.id = pu.expense_category_id WHERE b.batch_key = 'lote-1' AND pu.is_current AND c.nombre = 'Gastos bancarios')`, '2|69050.00');
 expect('E-10 one batch audit with its total', `(SELECT (after_values ->> 'total') FROM audit_events WHERE action = 'FIN_STATEMENT_CHARGES_BOOKED' AND after_values ->> 'batch_key' = 'lote-1')`, '89540.30');
 add(`SELECT pg_temp.must('p2', ${A(props, 'p2')});`);
 expect('E-11 booked lines leave the proposals', `(SELECT count(*)::text FROM res, json_array_elements(v::json) x WHERE k = 'p2' AND x ->> 'n' IN ('3', '4', '5', '6', '7'))`, '0');

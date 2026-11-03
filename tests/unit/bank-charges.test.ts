@@ -24,16 +24,16 @@ const P = (id: number, kind: ChargeProposal['kind'], amount: number, status: Cha
 
 describe('0114 — totals before confirming', () => {
   it('per kind (fees per category) and overall, positive, to the cent; only proposals count', () => {
-    const r = summarizeCharges([P(1, 'BANK_TAX_DEBCRED', -6000), P(2, 'BANK_TAX_DEBCRED', -0.3), P(3, 'BANK_FEE', -69000, 'PROPOSED', 'Comisiones'),
-      P(4, 'BANK_FEE', -50, 'PROPOSED', 'Comisiones'), P(5, 'BANK_IVA', -14490), P(6, null, -300000, 'NO_RULE')]);
+    const r = summarizeCharges([P(1, 'BANK_TAX_DEBCRED', -6000), P(2, 'BANK_TAX_DEBCRED', -0.3), P(3, 'BANK_FEE', -69000, 'PROPOSED', 'Gastos bancarios'),
+      P(4, 'BANK_FEE', -50, 'PROPOSED', 'Gastos bancarios'), P(5, 'BANK_IVA', -14490), P(6, null, -300000, 'NO_RULE')]);
     expect(r.groups.map((g) => [g.title, g.count, g.total])).toEqual([
-      ['Impuesto Débitos/Créditos', 2, 6000.3], ['Gasto bancario · Comisiones', 2, 69050], ['IVA bancario', 1, 14490]]);
+      ['Impuesto Débitos/Créditos', 2, 6000.3], ['Gasto bancario · Gastos bancarios', 2, 69050], ['IVA bancario', 1, 14490]]);
     expect([r.count, r.total]).toEqual([5, 89540.3]);
   });
   it('the 28 BNA lines add up to 165,006.11', () => {
     const gravamen = [-6000, -4966.29, -1800, -13200, -600, -6000, -600, -0.3, -0.3, -0.3, -0.19, -816.16, -759.56, -4694.17, -15000, -14864.46, -1800, -1800, -6000, -1931.94, -414, -86.94];
-    const rows = [...gravamen.map((a, i) => P(i, 'BANK_TAX_DEBCRED', a)), P(100, 'BANK_FEE', -69000, 'PROPOSED', 'Comisiones'),
-      P(101, 'BANK_FEE', -50, 'PROPOSED', 'Comisiones'), P(102, 'BANK_FEE', -50, 'PROPOSED', 'Comisiones'), P(103, 'BANK_FEE', -50, 'PROPOSED', 'Comisiones'),
+    const rows = [...gravamen.map((a, i) => P(i, 'BANK_TAX_DEBCRED', a)), P(100, 'BANK_FEE', -69000, 'PROPOSED', 'Gastos bancarios'),
+      P(101, 'BANK_FEE', -50, 'PROPOSED', 'Gastos bancarios'), P(102, 'BANK_FEE', -50, 'PROPOSED', 'Gastos bancarios'), P(103, 'BANK_FEE', -50, 'PROPOSED', 'Gastos bancarios'),
       P(104, 'BANK_IVA', -31.5), P(105, 'BANK_IVA', -14490)];
     const r = summarizeCharges(rows);
     expect(r.groups.map((g) => [g.count, g.total])).toEqual([[22, 81334.61], [4, 69150], [2, 14521.5]]);
@@ -89,6 +89,20 @@ describe('0114 — the screen', () => {
 });
 
 describe('0114 — the migration', () => {
+  it('bank fees go to "Gastos bancarios" (a subcategory of the existing group Servicios), never to "Comisiones"', () => {
+    expect(MIG).toMatch(/SELECT 'Gastos bancarios', [^\n]+, g\.id, 'OPERATING', true\n\s+FROM expense_category_group g\n\s+WHERE g\.nombre = 'Servicios'/);
+    expect(MIG).toMatch(/NOT EXISTS \(SELECT 1 FROM expense_category c WHERE c\.nombre = 'Gastos bancarios'\)/);
+    expect(MIG).not.toMatch(/nombre = 'Comisiones'/);
+  });
+  it('the history classifier only learns the booked fee: "Cargo bancario", kind CARGO, before any other rule', () => {
+    const cls = MIG.slice(MIG.indexOf('CREATE OR REPLACE FUNCTION fin_movement_class'));
+    expect(cls).toMatch(/CASE\n\s+WHEN p_ref LIKE 'PURCHASE-PAY:STMT-LINE:%' THEN 'CARGO'/);
+    expect(cls).toMatch(/CASE\n\s+WHEN p_ref LIKE 'PURCHASE-PAY:STMT-LINE:%' THEN 'Cargo bancario'/);
+    expect(cls).toMatch(/WHEN p_type = 'PURCHASE_PAYMENT' THEN 'Pago de compra'/);
+  });
+  it('the reason of a booked line carries the bank description and the account', () => {
+    expect(MIG).toMatch(/v_reason := v_prop\.label \|\| ': ' \|\| v_line\.description_raw \|\| ' · ' \|\| v_acc\.nombre/);
+  });
   it('cheques, fiscal instalments, transfers and unknown concepts have no rule', () => {
     const seed = MIG.slice(MIG.indexOf('INSERT INTO fin_statement_charge_rule'), MIG.indexOf('CREATE TABLE fin_statement_charge_booking'));
     expect(seed).not.toMatch(/48HS|DEBITO PAGO|DEBIN|TRANSF|INTERESES|VARIOS/);
