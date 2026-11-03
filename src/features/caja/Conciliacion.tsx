@@ -4,6 +4,7 @@ import {
   DEFAULT_FILTERS, importe, type LineFilters, RECONCILIATION_LABEL, reconciliationErrorMessage, type ReconciliationStatus, type StatementLine,
 } from '../../target/bankReconciliation';
 import { formatearFechaLocal } from '../../utils/dateUtils';
+import { CargosBancarios } from './CargosBancarios';
 import { campo, etiqueta, Modal } from './Modal';
 import { useStatementAccounts } from './useBankStatements';
 import {
@@ -50,6 +51,8 @@ export function Conciliacion() {
       </section>
 
       {cuentaId && <BloqueCorte accountId={cuentaId} />}
+
+      {cuentaId && <CargosBancarios accountId={cuentaId} />}
 
       {cuentaId && (
         <section>

@@ -4,6 +4,7 @@ import {
   accountStatementFormat, countMatchedLines, getMatchDetail, listBankHistory, type LineFilters, listAnchorCandidates, listCutovers, listPostingCandidates, listStatementLines,
   matchStatementLine, resolveStatementCutover, reverseStatementMatch, type StatementLine,
 } from '../../target/bankReconciliation';
+import { bookCharges, listChargeProposals } from '../../target/bankCharges';
 
 const ROOT = ['bank-reconciliation'];
 
@@ -28,6 +29,10 @@ export function useAnchorCandidates(accountId: string) {
 export function usePostingCandidates(line: StatementLine) {
   return useQuery({ queryKey: [...ROOT, 'candidates', line.statement_line_id], queryFn: () => listPostingCandidates(supabase, line) });
 }
+/** 0114: the bank charges proposed for one account (read-only). */
+export function useChargeProposals(accountId: string) {
+  return useQuery({ queryKey: [...ROOT, 'charges', accountId], queryFn: () => listChargeProposals(supabase, accountId), enabled: accountId !== '' });
+}
 export function useMatchDetail(matchId: number | null) {
   return useQuery({ queryKey: [...ROOT, 'match', matchId], queryFn: () => getMatchDetail(supabase, matchId as number), enabled: matchId !== null });
 }
@@ -40,5 +45,8 @@ export function useReconciliationMutations() {
     match: useMutation({ mutationFn: (p: Parameters<typeof matchStatementLine>[1]) => matchStatementLine(supabase, p), onSuccess }),
     reverse: useMutation({ mutationFn: (p: Parameters<typeof reverseStatementMatch>[1]) => reverseStatementMatch(supabase, p), onSuccess }),
     resolveCutover: useMutation({ mutationFn: (p: Parameters<typeof resolveStatementCutover>[1]) => resolveStatementCutover(supabase, p), onSuccess }),
+    // a booked charge moves the account balance and the history: the treasury and the P&L are re-read too
+    bookCharges: useMutation({ mutationFn: (p: Parameters<typeof bookCharges>[1]) => bookCharges(supabase, p),
+      onSuccess: () => Promise.all([ROOT, ['treasury'], ['pnl']].map((queryKey) => qc.invalidateQueries({ queryKey }))) }),
   };
 }

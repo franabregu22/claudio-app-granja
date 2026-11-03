@@ -8,6 +8,7 @@
 **AMENDED:** 2026-10-11 (owner decision) — invariant: every active `fin_statement_match` refers to a `POST_CUTOVER` line under the account's active cut; resolving or superseding a cut that would break it fails atomically, with no automatic reversal (§6.6, §8, §14, §16 #24, §17).
 **AMENDED:** 2026-10-14 (owner decisions, MP NORMAL mode; implemented by migration 0079) — (1) a NORMAL `asset_management` (yield) row takes effect through the existing circuit only: RPC 40 claim `yield / YIELD` → A1 `mp_apply_transition` → `financial_operation` / `financial_posting`, the frozen ADR-006 auto-applicable pair (0052); no alternative path, no new ADR. (2) A NORMAL report run is fail closed as a whole: if any economic or structural row is invalid (unknown `DESCRIPTION`, malformed amount / date, invalid payment `SOURCE_ID`, duplicate identity, …) the run is `REJECTED`, nothing reaches `mp_source_record`, no back-fill and no financial effect; the appearances are kept as evidence. This refines the §9.2 rows "SOURCE_ID missing or not numeric" and "Unknown `DESCRIPTION`": such rows are rejected at ingestion instead of being recorded as RPC 40 `ERROR`. No partial processing.
 **AMENDED:** 2026-10-14 (owner decision, "MP EMPTY DAILY REPORTS"; implemented by migration 0080, parser `mp-release-report-csv/1.1.0`) — a valid release report holding only CONTROL rows (opening balance / totals) and zero economic movements is a day without activity, not an error: NORMAL → `PARSED` (CONTROL rows `IGNORED`, 0 `NEW`, 0 back-fills, 0 effects); VALIDATION → `VALIDATED`. CONTROL rows must themselves be well-formed (canonical amounts, `DATE` empty or a timestamp, descriptive fields empty), otherwise `INVALID` → run `REJECTED`. Every other fail-closed rule is unchanged. Runs rejected `NO_MOVEMENT_ROWS` under parser 1.0.0 stay as evidence; a reprocess of the stored bytes with 1.1.0 creates a new run linked by `previous_run_id`.
+**AMENDED:** 2026-11-03 (owner decision, GO BNA fase 2; implemented by migration 0114) — bank charges are recognised on the statement and booked from it after an explicit ADMIN confirmation, one operation and one match per line (§23). The import itself still never creates money.
 **RAISED BY:** post-cutover gap (2026-10-04 ~20:36): a real transfer to the MP alias/CVU never reached the webhook, and the target has no report channel (L-1 removed the legacy `sync-mercadopago-releases` / `upload-settlement-csv`). Separately, the target has no way to ingest bank statements (BNA, Patagonia).
 **NEW SCOPE (owner decision):** "Importación y conciliación de extractos financieros" is part of the ERP.
 
@@ -617,6 +618,35 @@ This ADR is accepted with these gates open; only the dependent parts are blocked
 
 ---
 
+## 23. Amendment 2026-11-03 — bank charges booked from the statement (migration 0114)
+
+**Decision (owner, GO BNA fase 2).** §2.2 stands: importing a statement never creates money. What changes is that a post-cut statement
+line recognised as a **bank charge** may be turned into its financial operation from Conciliación, **only after an ADMIN confirms it**,
+instead of being registered elsewhere and matched by hand. ADR-011 (`register_bank_tax`) is unchanged and is the path of the debits /
+credits tax; it is now also reached from a confirmed statement line.
+
+1. **Recognition is data, per statement format.** `fin_statement_charge_rule` holds anchored, case-insensitive patterns on
+   `description_norm`, each with a kind: `BANK_TAX_DEBCRED`, `BANK_FEE` (with its expense category) or `BANK_IVA`. Each bank writes its
+   own descriptions, so rules belong to a format (`BNA_MONTHLY_PDF_V1`, `PATAGONIA_STATEMENT_PDF_V1`); a new bank or concept is new
+   rows, reviewed like a migration. Seeded: BNA `GRAVAMEN LEY 25413 S/DEB|S/CRED`, `COMIS.COMPENSACION ATEN C`, `ECHEQ.EMI.NRO <n>`,
+   `I.V.A. BASE`; Patagonia `IMP.DB/CR BANCARIOS P/CREDITOS|DEBITOS`.
+2. **What is proposed.** Only a debit, post-cut under the active cut, with no active match and never booked, whose description matches
+   rules of exactly one kind. No rule, rules of two kinds, a credit or a fee without an active category are listed **for review** and
+   never booked. Cheques (`48HS.`), fiscal instalments (`DEBITO PAGO DIRECTO`), transfers (`DEBIN`, `DB TRANSFERENCI…`), interest and
+   `VARIOS` have no rule on purpose.
+3. **What confirming books, per line.** `BANK_TAX_DEBCRED` → `register_bank_tax` (DEBITOS_CREDITOS; not in the P&L, never an additional
+   expense). `BANK_IVA` → a `BANK_TAX` operation with `bank_tax_charge.tax_kind = IVA`: its own fiscal category; no fiscal document is
+   written, so it is **not** taken as a computable fiscal credit (a later decision may change that). `BANK_FEE` → one casual purchase
+   paid from the account (`register_casual_purchase`, category of the rule): the expense, once. Each line then gets its 1:1 match
+   (`fin_match_statement_line`) and its row in `fin_statement_charge_booking` (immutable evidence: rule, operation, posting, match,
+   purchase, batch key, who and when).
+4. **Batch, atomic, idempotent.** `fin_book_statement_charges(account, [{line, kind}], key)`: ADMIN; 1–100 lines; every line is locked
+   and re-checked against the proposal the user saw (`PROPOSAL_CHANGED` otherwise); any failure books nothing. The same key and lines
+   replay; a key used for other lines is refused; a line is booked once, ever — reversing its match does not make it bookable again.
+   Closed periods are refused by the reused functions.
+5. **Not in scope.** Cheques, IVA payment plans and transfers keep their own circuits; no rule ever books them. The movement history
+   shows a booked fee as a purchase payment (its reason names the charge) and the two taxes as bank charges.
+
 ## Compatibility verification
 
 **Real conflicts amended explicitly by this ADR:**
@@ -636,6 +666,6 @@ This ADR is accepted with these gates open; only the dependent parts are blocked
 - **ADR-006:** all other clauses, including §5.1 atomic application (payout is never auto-applied), §6 real-time flow, §7 idempotency, §8 steps 1–3 and 5–7, and `yield` REPORT_ONLY.
 - **ADR-003:** Liberaciones remains the only report layout; D1 parser unchanged.
 - **ADR-008:** `purchase-attachments` is untouched; the new bucket has its own perimeter.
-- **ADR-011:** `register_bank_tax` is unchanged; bank-tax lines are reconciled against its operations, never auto-created.
+- **ADR-011:** `register_bank_tax` is unchanged; bank-tax lines are reconciled against its operations, never auto-created (since §23 they may be created from a statement line, only on an explicit ADMIN confirmation).
 - **ADR-017:** `mp_cutover_boundary` is the only MP authority; RPC 40's guard is unchanged; validation mode inserts no `mp_source_record`, so the guard is not exercised; banks do not reuse `cutover_at` as their cut.
 - **ADR006_V4_DIRECTION_CORRECTION:** back-fill is restricted to inbound rows; outbound rows never back-fill.

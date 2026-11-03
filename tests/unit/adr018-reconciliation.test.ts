@@ -55,9 +55,9 @@ describe('ADR-018 reconciliation access: ADMIN only', () => {
     expect([...lib.matchAll(/callRpc<[^>]*>\(client, '([a-z_]+)'/g)].map((m) => m[1]).sort())
       .toEqual(['fin_match_statement_line', 'fin_resolve_statement_cutover', 'fin_reverse_statement_match']);
   });
-  it('allowlist: exactly the 3 ADR-018 reconciliation RPCs + the read-only MP payout match (0084) and unified history (0113); view and the two tables registered', () => {
-    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover', 'fin_mp_payout_matches', 'fin_movement_history']));
-    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toHaveLength(5);
+  it('allowlist: exactly the 3 ADR-018 reconciliation RPCs + the read-only MP payout match (0084), unified history (0113) and bank charges (0114); view and the two tables registered', () => {
+    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover', 'fin_mp_payout_matches', 'fin_movement_history', 'fin_statement_charge_proposals', 'fin_book_statement_charges']));
+    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toHaveLength(7);
     expect(TARGET_RPCS).not.toContain('fin_import_bank_statement');
     expect(TARGET_VIEWS).toContain('fin_statement_line_status');
     expect(TARGET_READ_TABLES).toEqual(expect.arrayContaining(['fin_statement_match', 'fin_statement_cutover']));
