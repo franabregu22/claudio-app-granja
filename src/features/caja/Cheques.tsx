@@ -6,7 +6,7 @@ import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta, Modal } from './Modal';
 import { BloqueoMp, useEsCuentaMp } from './MovimientoMp';
-import { useClients, useInstrumentAction, useInstruments, useSuppliers, useTreasuryMutations, type InstrumentAction } from './useTreasury';
+import { useClients, useInstrumentAction, useInstruments, usePrecutCandidates, useSuppliers, useTreasuryMutations, type InstrumentAction } from './useTreasury';
 import { Comprobantes } from './Comprobantes';
 import { useDocumentLinks } from './useInvoicePayments';
 
@@ -36,6 +36,7 @@ export function Cheques() {
   const instrumentos = useInstruments();
   const [recibiendo, setRecibiendo] = useState(false);
   const [accion, setAccion] = useState<{ action: InstrumentAction; inst: InstrumentRow } | null>(null);
+  const [anteriorCorte, setAnteriorCorte] = useState<InstrumentRow | null>(null);
   const docs = useDocumentLinks('FINANCIAL_INSTRUMENT', (instrumentos.data ?? []).filter((i) => i.direction === 'ISSUED').map((i) => i.id));   // ADR-025 stage 4: cheque PDFs
 
   if (instrumentos.isLoading) return <p className="text-sm text-gray-500">Cargando cheques...</p>;
@@ -43,6 +44,8 @@ export function Cheques() {
   const recibidos = (instrumentos.data ?? []).filter((i) => i.direction === 'RECEIVED');
   const emitidos = (instrumentos.data ?? []).filter((i) => i.direction === 'ISSUED');
 
+  // 0115: a cheque debited before the bank cut stays debited (its debit is in the opening balance; a rejection would credit it back)
+  const acciones = (i: InstrumentRow) => INSTRUMENT_ACTIONS[i.estado].filter((a) => !(a === 'reject' && i.precut_line_id !== null));
   const fila = (i: InstrumentRow) => (
     <div key={i.id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 text-sm">
       <div className="flex items-center justify-between gap-2">
@@ -51,6 +54,9 @@ export function Cheques() {
           <span className="text-[#8A7A5C]"> · {i.direction === 'RECEIVED' ? i.cliente_nombre : i.supplier_nombre}</span>
           {i.endosado_nombre && <span className="text-[#8A7A5C]"> → {i.endosado_nombre}</span>}
           {i.maturity_date && <span className="text-[#8A7A5C]"> · vence {formatearFechaLocal(i.maturity_date)}</span>}
+          {i.precut_line_id !== null && i.debited_date && (
+            <span className="text-[#8A7A5C]"> · debitado {formatearFechaLocal(i.debited_date)}, antes del corte (línea {i.precut_line_id})</span>
+          )}
           {docs.data?.get(i.id) && <span className="ml-2"><Comprobantes docs={docs.data.get(i.id)} compacto /></span>}
         </span>
         <span className="flex items-center gap-2">
@@ -58,14 +64,19 @@ export function Cheques() {
           <span className={`text-xs px-2 py-0.5 rounded ${ESTADO[i.estado].clase}`}>{ESTADO[i.estado].texto}</span>
         </span>
       </div>
-      {INSTRUMENT_ACTIONS[i.estado].length > 0 && (
+      {acciones(i).length > 0 && (
         <div className="flex flex-wrap gap-2 mt-2">
-          {INSTRUMENT_ACTIONS[i.estado].map((a) => (
+          {acciones(i).map((a) => (
             <button key={a} onClick={() => setAccion({ action: a, inst: i })}
               className={`text-xs px-2 py-1 rounded ${a === 'reject' || a === 'cancel' ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-amber-100 text-amber-900 hover:bg-amber-200'}`}>
               {ACCION[a]}
             </button>
           ))}
+          {i.direction === 'ISSUED' && i.estado === 'ISSUED' && (
+            <button onClick={() => setAnteriorCorte(i)} className="text-xs px-2 py-1 rounded bg-stone-100 text-stone-800 hover:bg-stone-200">
+              Debitado antes del corte
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -87,7 +98,59 @@ export function Cheques() {
       </section>
       {recibiendo && <RecibirChequeModal onClose={() => setRecibiendo(false)} />}
       {accion && <AccionModal action={accion.action} inst={accion.inst} onClose={() => setAccion(null)} />}
+      {anteriorCorte && <DebitoAnteriorCorteModal inst={anteriorCorte} onClose={() => setAnteriorCorte(null)} />}
     </div>
+  );
+}
+
+/**
+ * 0115: an own cheque the bank debited BEFORE the cut of its account. That debit is already inside the opening balance, so it is
+ * marked debited on the date of its statement line without moving any balance. Only the lines the server finds (same account, exact
+ * amount, same cheque number, before the anchor, unused) can be chosen; the server re-checks everything.
+ */
+function DebitoAnteriorCorteModal({ inst, onClose }: { inst: InstrumentRow; onClose: () => void }) {
+  const candidatos = usePrecutCandidates(inst.id);
+  const { markPrecut } = useTreasuryMutations();
+  const [lineaId, setLineaId] = useState<number | null>(null);
+  const [notas, setNotas] = useState('');
+  const [clave] = useState(() => `PRECUT-${crypto.randomUUID()}`);   // idempotency: one per opened form
+  const lista = candidatos.data ?? [];
+  const elegida = lista.find((c) => c.statement_line_id === lineaId) ?? (lista.length === 1 ? lista[0] : null);
+
+  return (
+    <Modal titulo={`Debitado antes del corte — ${TIPO[inst.instrument_type]} ${inst.cheque_number ?? ''} (${formatoPesos(inst.amount)})`} onClose={onClose}
+      puedeGuardar={elegida !== null} guardando={markPrecut.isPending} error={markPrecut.error ?? candidatos.error} textoGuardar="Registrar débito"
+      onSubmit={() => elegida && markPrecut.mutate({
+        instrumentId: inst.id, statementLineId: elegida.statement_line_id, debitedDate: elegida.value_date, idempotencyKey: clave, reason: notas,
+      }, { onSuccess: onClose })}>
+      <p className="text-xs text-gray-600">
+        Para un cheque que el banco debitó antes del corte de la cuenta: ese débito ya está dentro del saldo inicial.
+        Se marca debitado en la fecha del extracto y <b>el saldo de la cuenta no cambia</b>.
+      </p>
+      {candidatos.isLoading ? <p className="text-sm text-gray-500">Buscando la línea del extracto...</p>
+        : lista.length === 0 ? (
+          <p className="text-sm text-[#8A7A5C]">
+            No hay ninguna línea del extracto anterior al corte con la misma cuenta, el mismo importe y el mismo número de cheque.
+            Si el banco lo debitó después del corte, usá "Marcar debitado" y conciliá la línea en Extractos.
+          </p>
+        ) : (
+          <fieldset className="space-y-2" aria-label="Línea del extracto">
+            {lista.map((c) => (
+              <label key={c.statement_line_id} className="flex items-start gap-2 text-sm bg-stone-50 rounded p-2">
+                <input type="radio" name="linea" checked={elegida?.statement_line_id === c.statement_line_id} onChange={() => setLineaId(c.statement_line_id)} />
+                <span>
+                  <span className="font-semibold">{formatearFechaLocal(c.value_date)}</span> · {c.description_raw}
+                  {c.bank_reference && <span className="text-[#8A7A5C]"> · ref. {c.bank_reference}</span>}
+                  <span className="block text-[#8A7A5C]">{formatoPesos(-c.signed_amount)} · línea {c.statement_line_id}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+      <label className={etiqueta}>Notas (opcional)
+        <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
+      </label>
+    </Modal>
   );
 }
 

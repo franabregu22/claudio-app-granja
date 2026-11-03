@@ -30,6 +30,12 @@ export interface InstrumentRow {
   deposited_date: string | null; cleared_date: string | null; endorsed_date: string | null; issued_date: string | null;
   debited_date: string | null; rejected_date: string | null; cancelled_date: string | null; created_at: string;
   cliente_nombre: string | null; supplier_nombre: string | null; endosado_nombre: string | null;
+  /** 0115: the statement line of a debit before the bank cut (no money moved in the ERP); null otherwise */
+  precut_line_id: number | null;
+}
+/** 0115: a statement line that settles an own cheque before the bank cut (same account, amount and number; before the anchor). */
+export interface PrecutCandidate {
+  statement_line_id: number; value_date: string; description_raw: string; bank_reference: string | null; signed_amount: number; running_balance: number | null;
 }
 export interface PurchaseLineRow {
   id: string; producto_id: string | null; feed_ingredient_id: string | null; descripcion: string; cantidad: number; unit_type: UnitType;
@@ -120,17 +126,21 @@ export function classifySuppliers(balances: readonly LedgerBalance[], suppliers:
   return out.sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
-type RawInstrument = Omit<InstrumentRow, 'cliente_nombre' | 'supplier_nombre' | 'endosado_nombre'> & {
+type RawInstrument = Omit<InstrumentRow, 'cliente_nombre' | 'supplier_nombre' | 'endosado_nombre' | 'precut_line_id'> & {
   clients: { nombre: string } | null; emisor: { nombre: string } | null; endosado: { nombre: string } | null;
+  precut: { statement_line_id: number } | { statement_line_id: number }[] | null;
 };
 export async function listInstruments(client: SupabaseClient): Promise<InstrumentRow[]> {
   const rows = await readTable<RawInstrument>(client, 'financial_instrument', (q) => q.order('created_at', { ascending: false }),
     '*, clients(nombre), emisor:suppliers!financial_instrument_supplier_id_fkey(nombre), '
-    + 'endosado:suppliers!financial_instrument_endorsed_to_supplier_id_fkey(nombre)');
-  return rows.map(({ clients, emisor, endosado, ...i }) => ({
-    ...i, amount: num(i.amount), cliente_nombre: clients?.nombre ?? null, supplier_nombre: emisor?.nombre ?? null,
-    endosado_nombre: endosado?.nombre ?? null,
-  }));
+    + 'endosado:suppliers!financial_instrument_endorsed_to_supplier_id_fkey(nombre), precut:fin_instrument_precut_debit(statement_line_id)');
+  return rows.map(({ clients, emisor, endosado, precut, ...i }) => {
+    const p = Array.isArray(precut) ? precut[0] ?? null : precut;
+    return {
+      ...i, amount: num(i.amount), cliente_nombre: clients?.nombre ?? null, supplier_nombre: emisor?.nombre ?? null,
+      endosado_nombre: endosado?.nombre ?? null, precut_line_id: p ? Number(p.statement_line_id) : null,
+    };
+  });
 }
 
 type RawPurchase = Omit<PurchaseRow, 'supplier_nombre' | 'categoria_nombre' | 'lineas'> & {
@@ -381,6 +391,27 @@ export function issueSupplierInstrument(client: SupabaseClient, p: {
 
 export function markSupplierInstrumentDebited(client: SupabaseClient, instrumentId: string, date: string, reason?: string | null) {
   return callRpc(client, 'mark_supplier_instrument_debited', { p_instrument_id: instrumentId, p_debited_date: date, p_reason: reasonOrNull(reason) });
+}
+
+/** 0115: the statement lines that settle this own cheque before the bank cut (ADMIN, read only). */
+export async function listPrecutCandidates(client: SupabaseClient, instrumentId: string): Promise<PrecutCandidate[]> {
+  const rows = await callRpc<PrecutCandidate[]>(client, 'fin_instrument_precut_candidates', { p_instrument_id: instrumentId });
+  return (rows ?? []).map((r) => ({ ...r, statement_line_id: Number(r.statement_line_id), signed_amount: num(r.signed_amount),
+    running_balance: r.running_balance === null ? null : num(r.running_balance) }));
+}
+
+/**
+ * 0115: an own cheque debited by the bank BEFORE the cut — its debit is already in the opening balance, so it is marked debited on the
+ * date of its statement line with NO operation or posting. The server re-checks account, amount, number, date and the cut.
+ */
+export function markInstrumentDebitedPrecut(client: SupabaseClient, p: {
+  instrumentId: string; statementLineId: number; debitedDate: string; idempotencyKey: string; reason?: string | null;
+}) {
+  return callRpc<{ replayed: boolean; instrument_id: string; statement_line_id: number; debited_date: string; estado: 'DEBITED' }>(client,
+    'fin_mark_instrument_debited_precut', {
+      p_instrument_id: p.instrumentId, p_statement_line_id: p.statementLineId, p_debited_date: p.debitedDate, p_idempotency_key: p.idempotencyKey,
+      p_reason: reasonOrNull(p.reason),
+    });
 }
 
 export function cancelSupplierInstrument(client: SupabaseClient, instrumentId: string, date: string, reason: string) {

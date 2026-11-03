@@ -112,6 +112,7 @@ export const TARGET_RPCS = [
   'set_profile_name',   // Lote 2A (0109, ADMIN): first / last name of a profile, audited
   'assign_payable_to_supplier', 'set_payment_date',   // Lote 3B (0110, ADMIN): pending expense → supplier; due / estimated payment date
   'settle_purchase_mp',   // Lote 4 (0111, ADMIN, ADR-021 §2.3(c)): a purchase paid with Mercado Pago, linked to its real outflow
+  'fin_instrument_precut_candidates', 'fin_mark_instrument_debited_precut',   // 0115 (ADMIN): an own cheque debited before the bank cut, no money moves
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

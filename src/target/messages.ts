@@ -108,6 +108,17 @@ const MESSAGES: Record<string, string> = {
   WRONG_DIRECTION: 'Esta acción no corresponde a este tipo de cheque (recibido / emitido).',
   ALREADY_REJECTED: 'El cheque ya fue rechazado.',
   DUPLICATE_EXTERNAL_REF: 'Ese cheque ya fue emitido.',
+  // 0115: a cheque debited before the bank cut (no money moves)
+  LINE_NOT_FOUND: 'La línea del extracto no existe.',
+  LINE_NOT_IN_ACCOUNT: 'La línea del extracto es de otra cuenta que la del cheque.',
+  AMOUNT_MISMATCH: 'El importe de la línea del extracto no es el del cheque.',
+  CHEQUE_NUMBER_MISMATCH: 'El número de la línea del extracto no es el del cheque.',
+  DEBIT_DATE_MISMATCH: 'La fecha del débito tiene que ser la de la línea del extracto.',
+  DEBIT_BEFORE_ISSUE: 'El banco no puede haber debitado el cheque antes de su emisión.',
+  NOT_PRE_CUTOVER: 'Esa línea es posterior al corte del banco: usá "Marcar debitado" y conciliala en Extractos.',
+  LINE_ALREADY_USED: 'Esa línea del extracto ya está asociada a otro movimiento o cheque.',
+  IDEMPOTENCY_KEY_REUSED: 'Ese envío ya registró otro cheque. Cerrá y volvé a abrir el formulario.',
+  PRECUT_DEBIT_FINAL: 'El cheque se debitó antes del corte del banco: su débito ya está en el saldo inicial y no se puede revertir desde acá.',
   // F27-E production / population / classification / feed
   FLOCK_NOT_ASSIGNED: 'No tenés asignado ese lote.',
   DUPLICATE_PRODUCTION: 'Ya hay producción cargada para ese lote en esa fecha: rectificala.',

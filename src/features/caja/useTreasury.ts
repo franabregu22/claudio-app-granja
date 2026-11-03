@@ -4,7 +4,7 @@ import { createPurchaseWithAttachments } from '../../target/attachments';
 import { listMaster, type ClientRow, type ExpenseCategoryGroupRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
 import {
   assignFreightToPurchase, cancelSupplierInstrument, listAccountPostings, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
-  listInstruments, listLedgerBalances, listPnlMonths, listSupplierLedger, listPurchases, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
+  listInstruments, listLedgerBalances, listPnlMonths, listPrecutCandidates, listSupplierLedger, listPurchases, markInstrumentDebitedPrecut, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
   registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listTransfers, listBankTaxPeriods, transferWithBankTax,
 } from '../../target/treasury';
 import { listMovementHistory, type MovementFilter } from '../../target/movementHistory';
@@ -36,6 +36,10 @@ export function useAccountPostings(accountId: string) {
 }
 export function useInstruments() {
   return useQuery({ queryKey: INSTRUMENTS, queryFn: () => listInstruments(supabase) });
+}
+/** 0115: the statement lines that settle one own cheque before the bank cut (read only; only while the form is open). */
+export function usePrecutCandidates(instrumentId: string) {
+  return useQuery({ queryKey: [...INSTRUMENTS, 'precut', instrumentId], queryFn: () => listPrecutCandidates(supabase, instrumentId), enabled: instrumentId !== '' });
 }
 export function usePurchases() {
   return useQuery({ queryKey: PURCHASES, queryFn: () => listPurchases(supabase) });
@@ -83,6 +87,7 @@ export function useTreasuryMutations() {
     registerFreight: useMutation({ mutationFn: (p: Args<typeof registerFreight>[0]) => registerFreight(supabase, p), onSuccess }),
     assignFreight: useMutation({ mutationFn: (p: Args<typeof assignFreightToPurchase>[0]) => assignFreightToPurchase(supabase, p), onSuccess }),
     receiveCheque: useMutation({ mutationFn: (p: Args<typeof receiveCheque>[0]) => receiveCheque(supabase, p), onSuccess }),
+    markPrecut: useMutation({ mutationFn: (p: Args<typeof markInstrumentDebitedPrecut>[0]) => markInstrumentDebitedPrecut(supabase, p), onSuccess }),
     createPurchase: useMutation({
       mutationFn: (p: Omit<Args<typeof createPurchaseWithAttachments>[0], 'onCleanupFailure'>) => createPurchaseWithAttachments(supabase, {
         ...p,
