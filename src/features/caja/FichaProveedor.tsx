@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { PurchasePaymentStatusRow } from '../../target/invoicePayments';
 import { errorMessage } from '../../target/messages';
-import { SUPPLIER_MOVEMENT, type InstrumentEstado, type SupplierAccount } from '../../target/treasury';
+import { NO_CHEQUES, SUPPLIER_MOVEMENT, supplierChequeSummary, supplierState, type InstrumentEstado, type InstrumentRow, type SupplierAccount } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { Comprobantes } from './Comprobantes';
@@ -11,8 +11,11 @@ import { useDocumentLinks, usePurchaseAttachments, useSupplierInvoices } from '.
 import { useInstruments, useSupplierLedger } from './useTreasury';
 
 const ESTADO_INSTRUMENTO: Partial<Record<InstrumentEstado, string>> = {
-  ISSUED: 'Programado (aún no debitado)', DEBITED: 'Debitado', REJECTED: 'Rechazado', CANCELLED: 'Anulado', ENDORSED: 'Endosado',
+  ISSUED: 'Pendiente de débito', DEBITED: 'Debitado', REJECTED: 'Rechazado', CANCELLED: 'Anulado', ENDORSED: 'Endosado',
 };
+/** The state of one cheque: endorsed third-party cheques, debited before the bank cut, or the instrument's own state. */
+const estadoCheque = (c: InstrumentRow) => c.direction === 'RECEIVED' ? 'Endosado'
+  : c.estado === 'DEBITED' && c.precut_line_id !== null ? 'Debitado antes del corte' : ESTADO_INSTRUMENTO[c.estado] ?? c.estado;
 const TIPO_MOV: Record<'OBLIGACION' | 'PAGO' | 'INSTRUMENTO' | 'CORRECCION', string> = {
   OBLIGACION: 'bg-red-50 text-red-800', PAGO: 'bg-green-50 text-green-800', INSTRUMENTO: 'bg-sky-50 text-sky-900', CORRECCION: 'bg-stone-100 text-stone-700',
 };
@@ -38,6 +41,8 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
   const movimientos = useSupplierLedger(cuenta.supplier_id);
   const instrumentos = useInstruments();
   const cheques = (instrumentos.data ?? []).filter((i) => (i.direction === 'ISSUED' && i.supplier_id === cuenta.supplier_id) || i.endorsed_to_supplier_id === cuenta.supplier_id);
+  const resumen = supplierChequeSummary(instrumentos.data ?? []).get(cuenta.supplier_id) ?? NO_CHEQUES;
+  const estado = supplierState(cuenta.balance, resumen);
   const adjuntos = usePurchaseAttachments((facturas.data ?? []).map((f) => f.purchase_id));
   const pdfs = useDocumentLinks('FINANCIAL_INSTRUMENT', cheques.filter((c) => c.direction === 'ISSUED').map((c) => c.id));
   const libres = useUnallocatedPayments();
@@ -50,10 +55,17 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
     <div className="px-4 pb-4 border-t border-[#E4DCC8] bg-[#FAF6EE] text-xs">
       {error && <p className="mt-3 text-red-700">{errorMessage(error)}</p>}
       <p className="mt-3 text-[#6B5D45]">
-        {cuenta.balance > 0 ? <>Deuda con el proveedor: <b className="text-red-600">{formatoPesos(cuenta.balance)}</b></>
-          : cuenta.balance < 0 ? <>Saldo a favor (anticipo): <b className="text-green-700">{formatoPesos(-cuenta.balance)}</b> — no es un gasto: se descuenta de próximas compras.</>
-            : 'Al día: sin deuda ni saldo a favor.'}
+        {estado === 'DEUDA' ? <>Deuda sin cubrir: <b className="text-red-600">{formatoPesos(cuenta.balance)}</b></>
+          : estado === 'A_FAVOR' ? <>Saldo a favor (anticipo): <b className="text-green-700">{formatoPesos(-cuenta.balance)}</b> — no es un gasto: se descuenta de próximas compras.</>
+            : estado === 'CHEQUES_PENDIENTES' ? <><b className="text-sky-800">Cheques pendientes:</b> sin deuda sin cubrir; quedan <b className="text-sky-800">{formatoPesos(resumen.pending)}</b> en cheques emitidos que el banco todavía no debitó.</>
+              : 'Al día: sin deuda ni saldo a favor.'}
       </p>
+      {(resumen.pending > 0 || resumen.debited > 0) && (
+        <p className="mt-1 text-[#6B5D45]">
+          Cheques pendientes de débito: <b className="text-sky-800">{formatoPesos(resumen.pending)}</b> · Cheques debitados: <b>{formatoPesos(resumen.debited)}</b> — ya
+          descontados de la deuda: no se suman a ella.
+        </p>
+      )}
       {disponible > 0 && (
         <p className="mt-1 text-[#6B5D45]">Pagos disponibles para imputar a facturas: <b className="text-green-700">{formatoPesos(disponible)}</b> — no se descuentan solos del pendiente de cada factura; imputalos desde Caja → Cuentas a pagar → Facturas.</p>
       )}
@@ -136,7 +148,7 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
                     <td className={`${TD} text-right tabular-nums`}>{formatoPesos(c.amount)}</td>
                     <td className={TD}>{c.issued_date ? formatearFechaLocal(c.issued_date) : c.endorsed_date ? formatearFechaLocal(c.endorsed_date) : '—'}</td>
                     <td className={TD}>{c.maturity_date ? formatearFechaLocal(c.maturity_date) : '—'}</td>
-                    <td className={TD}>{(c.direction === 'RECEIVED' ? 'Endosado' : ESTADO_INSTRUMENTO[c.estado]) ?? c.estado}</td>
+                    <td className={`${TD} ${c.direction === 'ISSUED' && c.estado === 'ISSUED' ? 'text-sky-800 font-semibold' : ''}`}>{estadoCheque(c)}</td>
                     <td className={TD}>{c.direction === 'ISSUED' ? <Comprobantes docs={pdfs.data?.get(c.id)} compacto /> : '—'}</td>
                   </tr>
                 ))}

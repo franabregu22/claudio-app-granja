@@ -126,6 +126,34 @@ export function classifySuppliers(balances: readonly LedgerBalance[], suppliers:
   return out.sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
+/**
+ * Own cheques / eCheqs per supplier, read from the instruments already listed (no new query). Issuing one already lowered the
+ * supplier balance, so these amounts are shown APART from the debt and never added to it:
+ *   · pending: ISSUED (not yet debited by the bank);
+ *   · debited: DEBITED, including the ones debited before the bank cut (precut_line_id).
+ * Cancelled and rejected instruments count in neither; third-party cheques endorsed to the supplier are not own cheques.
+ */
+export interface SupplierChequeSummary { pending: number; pendingCount: number; debited: number; debitedCount: number }
+export const NO_CHEQUES: SupplierChequeSummary = { pending: 0, pendingCount: 0, debited: 0, debitedCount: 0 };
+export function supplierChequeSummary(instruments: readonly Pick<InstrumentRow, 'direction' | 'supplier_id' | 'estado' | 'amount'>[]): Map<string, SupplierChequeSummary> {
+  const out = new Map<string, SupplierChequeSummary>();
+  for (const i of instruments) {
+    if (i.direction !== 'ISSUED' || i.supplier_id === null || (i.estado !== 'ISSUED' && i.estado !== 'DEBITED')) continue;
+    const s = out.get(i.supplier_id) ?? { ...NO_CHEQUES };
+    if (i.estado === 'ISSUED') { s.pending = Math.round((s.pending + i.amount) * 100) / 100; s.pendingCount += 1; }
+    else { s.debited = Math.round((s.debited + i.amount) * 100) / 100; s.debitedCount += 1; }
+    out.set(i.supplier_id, s);
+  }
+  return out;
+}
+/** The supplier's visible state: its debt, its credit, "Cheques pendientes" (no uncovered debt but cheques not yet debited) or "Al día". */
+export type SupplierState = 'DEUDA' | 'A_FAVOR' | 'CHEQUES_PENDIENTES' | 'AL_DIA';
+export function supplierState(balance: number, cheques: SupplierChequeSummary): SupplierState {
+  if (balance > 0) return 'DEUDA';
+  if (balance < 0) return 'A_FAVOR';
+  return cheques.pending > 0 ? 'CHEQUES_PENDIENTES' : 'AL_DIA';
+}
+
 type RawInstrument = Omit<InstrumentRow, 'cliente_nombre' | 'supplier_nombre' | 'endosado_nombre' | 'precut_line_id'> & {
   clients: { nombre: string } | null; emisor: { nombre: string } | null; endosado: { nombre: string } | null;
   precut: { statement_line_id: number } | { statement_line_id: number }[] | null;

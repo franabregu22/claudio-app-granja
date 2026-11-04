@@ -80,7 +80,7 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
     expect(f).toMatch(/useSupplierLedger\(cuenta\.supplier_id\)/);
     expect(f).toMatch(/usePurchaseAttachments\(/);
     expect(f).toMatch(/useDocumentLinks\('FINANCIAL_INSTRUMENT'/);
-    expect(f).toMatch(/Programado \(aún no debitado\)/);
+    expect(f).toMatch(/Pendiente de débito/);
   });
   it('Facturas is a section of Cuentas a pagar; Vencimientos became the Calendario (Lote 3B)', () => {
     expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/\{ id: 'pagosfactura', label: 'Facturas' \}/);

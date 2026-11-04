@@ -3,7 +3,7 @@ import { errorMessage } from '../../target/messages';
 import { mpOutflowCandidates } from '../../target/mpActivity';
 import { ChevronDown } from 'lucide-react';
 import type { SupplierRow } from '../../target/masters';
-import { classifySuppliers, INSTRUMENT_TYPES, SUPPLIER_PAYMENT_METHODS, type InstrumentType, type SupplierAccount, type SupplierPaymentMethod } from '../../target/treasury';
+import { classifySuppliers, INSTRUMENT_TYPES, NO_CHEQUES, supplierChequeSummary, supplierState, type SupplierChequeSummary, type SupplierState, SUPPLIER_PAYMENT_METHODS, type InstrumentType, type SupplierAccount, type SupplierPaymentMethod } from '../../target/treasury';
 import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
@@ -11,13 +11,16 @@ import { campo, etiqueta, Modal } from './Modal';
 import { BloqueoMp, SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './MovimientoMp';
 import { useClassifyMp } from './useMpActivity';
 import { FichaProveedor } from './FichaProveedor';
-import { useActiveMaster, useLedgerBalances, useTreasuryMutations } from './useTreasury';
+import { useActiveMaster, useInstruments, useLedgerBalances, useTreasuryMutations } from './useTreasury';
 
 const METODO: Record<SupplierPaymentMethod | InstrumentType, string> = {
   CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'MercadoPago', CHEQUE: 'Cheque', ECHEQ: 'eCheq',
 };
 
 type Tarjeta = 'DEUDA' | 'AL_DIA' | 'A_FAVOR';
+const TONO_ESTADO: Record<SupplierState, string> = {
+  DEUDA: 'text-red-600', A_FAVOR: 'text-green-700', CHEQUES_PENDIENTES: 'text-sky-800', AL_DIA: 'text-[#6B7A4E]',
+};
 
 /**
  * Cuentas a pagar → Proveedores (F27-D; Lote 3A): selectable cards — suppliers with debt, suppliers up to date, credits in our
@@ -26,30 +29,37 @@ type Tarjeta = 'DEUDA' | 'AL_DIA' | 'A_FAVOR';
  * payments − issued / endorsed instruments, all booked by the backend); each supplier opens its ficha (FichaProveedor).
  * Paying is pay_supplier; paying with a cheque or eCheq is issue_supplier_instrument (the contract's only path); paying more than
  * the debt leaves a credit in our favour (an advance — never an expense). Pending expenses keep their own circuit (GastosAPagar, section Gastos pendientes).
+ * Own cheques / eCheqs (supplierChequeSummary, from the instruments already listed): each supplier shows its uncovered debt, its
+ * cheques pending bank debit and its debited cheques as three separate amounts — pending cheques already lowered the debt and are
+ * never added back to it; a supplier with no uncovered debt but pending cheques reads "Cheques pendientes", not "Al día".
  * Meta A (0091): paying from Mercado Pago is the payment of the supplier debt with a Mercado Pago outflow (payout to a third
  * party or outbound payment) chosen here: mp_classify_payout_outflow SUPPLIER_PAYMENT; amount and date come from the movement.
  */
 export function CuentasAPagar() {
   const saldos = useLedgerBalances('SUPPLIER');
   const proveedores = useActiveMaster<SupplierRow>('suppliers');
+  const instrumentos = useInstruments();
   const [tarjeta, setTarjeta] = useState<Tarjeta>('DEUDA');
   const [abierto, setAbierto] = useState<string | null>(null);
   const [pagando, setPagando] = useState<SupplierAccount | null>(null);
 
-  const cargando = saldos.isLoading || proveedores.isLoading;
-  const error = saldos.error ?? proveedores.error;
+  const cargando = saldos.isLoading || proveedores.isLoading || instrumentos.isLoading;
+  const error = saldos.error ?? proveedores.error ?? instrumentos.error;
   if (cargando) return <p className="text-sm text-gray-500">Cargando cuentas a pagar...</p>;
   if (error) return <p className="text-sm text-red-700">{errorMessage(error)}</p>;
 
   const cuentas = classifySuppliers(saldos.data ?? [], proveedores.data ?? []);
+  const chequesPor = supplierChequeSummary(instrumentos.data ?? []);
+  const chequesDe = (id: string) => chequesPor.get(id) ?? NO_CHEQUES;
   const de = (s: SupplierAccount['situation']) => cuentas.filter((c) => c.situation === s);
   const deuda = de('DEUDA').sort((a, b) => b.balance - a.balance);
   const alDia = de('AL_DIA');
   const aFavor = de('A_FAVOR').sort((a, b) => a.balance - b.balance);
   const suma = (xs: number[]) => xs.reduce((t, x) => t + x, 0);
+  const conCheques = alDia.filter((c) => chequesDe(c.supplier_id).pending > 0);
   const tarjetas: { id: Tarjeta; titulo: string; cantidad: number; detalle: string; tono: string }[] = [
     { id: 'DEUDA', titulo: 'Proveedores con deuda', cantidad: deuda.length, detalle: `${formatoPesos(suma(deuda.map((c) => c.balance)))} a pagar`, tono: 'text-red-600' },
-    { id: 'AL_DIA', titulo: 'Proveedores al día', cantidad: alDia.length, detalle: 'Saldo cero', tono: 'text-[#6B7A4E]' },
+    { id: 'AL_DIA', titulo: 'Proveedores al día', cantidad: alDia.length, detalle: conCheques.length > 0 ? `${conCheques.length} con cheques pendientes` : 'Saldo cero', tono: conCheques.length > 0 ? 'text-sky-800' : 'text-[#6B7A4E]' },
     { id: 'A_FAVOR', titulo: 'Saldos a favor / anticipos', cantidad: aFavor.length, detalle: `${formatoPesos(suma(aFavor.map((c) => -c.balance)))} a favor`, tono: 'text-green-700' },
   ];
   const lista = tarjeta === 'DEUDA' ? deuda : tarjeta === 'AL_DIA' ? alDia : aFavor;
@@ -71,6 +81,8 @@ export function CuentasAPagar() {
         {lista.length === 0 && <p className="text-sm text-[#8A7A5C]">No hay proveedores en esta situación.</p>}
         {lista.map((c) => {
           const open = abierto === c.supplier_id;
+          const ch = chequesDe(c.supplier_id);
+          const estado = supplierState(c.balance, ch);
           return (
             <div key={c.supplier_id} className="bg-white rounded-lg border border-[#E4DCC8] overflow-hidden">
               <div className="p-3 flex items-center justify-between gap-2">
@@ -78,15 +90,16 @@ export function CuentasAPagar() {
                   <ChevronDown className={`w-4 h-4 shrink-0 transition ${open ? 'rotate-180' : ''}`} />
                   <span className="font-semibold text-amber-900 truncate">{c.nombre}</span>
                 </button>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className={`font-bold ${c.balance > 0 ? 'text-red-600' : c.balance < 0 ? 'text-green-700' : 'text-[#6B7A4E]'}`}>
-                    {c.balance > 0 ? formatoPesos(c.balance) : c.balance < 0 ? `A favor ${formatoPesos(-c.balance)}` : 'Al día'}
+                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                  <span className={`font-bold text-right leading-tight max-w-[6rem] sm:max-w-none ${TONO_ESTADO[estado]}`}>
+                    {estado === 'DEUDA' ? formatoPesos(c.balance) : estado === 'A_FAVOR' ? `A favor ${formatoPesos(-c.balance)}` : estado === 'CHEQUES_PENDIENTES' ? 'Cheques pendientes' : 'Al día'}
                   </span>
                   <button onClick={() => setPagando(c)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
                     {c.balance > 0 ? 'Pagar' : 'Anticipo'}
                   </button>
                 </div>
               </div>
+              <ImportesProveedor balance={c.balance} cheques={ch} />
               {open && <FichaProveedor cuenta={c} />}
             </div>
           );
@@ -94,6 +107,19 @@ export function CuentasAPagar() {
       </div>
       {pagando && <PagoProveedorModal proveedor={pagando} onClose={() => setPagando(null)} />}
     </div>
+  );
+}
+
+/** The three amounts of a supplier, apart: uncovered debt, own cheques pending bank debit, own cheques already debited. */
+function ImportesProveedor({ balance, cheques }: { balance: number; cheques: SupplierChequeSummary }) {
+  const deuda = Math.max(balance, 0);
+  const n = (k: number) => (k === 1 ? '1 cheque' : `${k} cheques`);
+  return (
+    <dl className="px-3 pb-2 -mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] sm:text-xs text-[#6B5D45]">
+      <div className="flex gap-1"><dt>Deuda sin cubrir:</dt><dd className={`font-semibold tabular-nums ${deuda > 0 ? 'text-red-600' : 'text-gray-600'}`}>{formatoPesos(deuda)}</dd></div>
+      <div className="flex gap-1"><dt>Cheques pendientes de débito:</dt><dd className={`font-semibold tabular-nums ${cheques.pending > 0 ? 'text-sky-800' : 'text-gray-600'}`}>{formatoPesos(cheques.pending)}{cheques.pendingCount > 0 && ` (${n(cheques.pendingCount)})`}</dd></div>
+      <div className="flex gap-1"><dt>Cheques debitados:</dt><dd className="font-semibold tabular-nums text-gray-600">{formatoPesos(cheques.debited)}{cheques.debitedCount > 0 && ` (${n(cheques.debitedCount)})`}</dd></div>
+    </dl>
   );
 }
 
