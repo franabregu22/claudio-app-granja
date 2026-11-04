@@ -69,7 +69,7 @@ export function CajaApp() {
           </nav>
         </header>
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
-          {vista === 'movimientos' && <Movimientos />}
+          {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} />}
           {vista === 'transferencias' && <Transferencias />}
           {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
           {vista === 'calendario' && <CalendarioPagos onImputar={() => { setSubPagar('pagosfactura'); setVista('pagar'); }} />}

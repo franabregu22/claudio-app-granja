@@ -1,108 +1,49 @@
 import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
-import {
-  INFLOW_SUBTYPE_LABEL, inflowTitle, PAGE_SIZE, type UnlinkedFilter, type UnlinkedInflowRow, UNLINKED_NOTE,
-} from '../../target/pendingClassification';
-import { formatearFechaLocal } from '../../utils/dateUtils';
+import { INFLOW_SUBTYPE_LABEL, inflowTitle, type UnlinkedInflowRow } from '../../target/pendingClassification';
 import { formatoPesos } from '../pedidos/helpers';
-import { Paginador } from './PendientesClasificar';
-import { useClassifyMp, useOwnBankAccounts, usePendingSummary, useUnlinkedInflows } from './useMpActivity';
+import { isMercadoPagoAccount } from '../../target/mpActivity';
+import { formatearFechaLocal } from '../../utils/dateUtils';
+import { useFinancialAccounts } from '../pedidos/useCommercial';
+import { ClasificarIngreso } from './AccionesMp';
+import { useClassifyMp, useMpActivity, useOwnBankAccounts, useUnlinkedByMovement } from './useMpActivity';
 
 const campo = 'border border-[#E4DCC8] rounded px-2 py-1 text-sm bg-white';
-const ALCANCE: { id: UnlinkedFilter['scope']; label: string }[] = [{ id: 'current', label: 'Actuales' }, { id: 'historical', label: 'Históricas' }, { id: 'all', label: 'Todas' }];
 
 /**
- * Caja → Entradas sin vincular (ADR-023, ADMIN): Mercado Pago inflows already in the balance and not (fully) linked to a
- * customer. Informational — an unlinked inflow is a valid permanent state and never blocks the close. Server-side filters and
- * pagination (thousands of historical receipts are never downloaded). ADR-027: an inflow is no longer linked to a client (a
- * collection is declared in Cuentas corrientes, so a link would discount the client twice); the own-account origin stays.
+ * Caja → Movimientos → Por resolver → Entradas sin vincular (ADR-023, ADMIN; 0116: a filter of the movement list). A Mercado Pago inflow
+ * already in the balance and not (fully) linked to a customer. Optional: an unlinked inflow is a valid permanent state and never
+ * blocks the close. ADR-027: an inflow is not linked to a client here (a collection is declared in Cuentas corrientes); the own-account
+ * origin stays (0086, live account_fund only).
  */
-export function EntradasSinVincular() {
-  const [filtro, setFiltro] = useState<UnlinkedFilter>({ scope: 'current' });
-  const [borrador, setBorrador] = useState({ from: '', to: '', min: '', max: '', search: '' });
-  const [pagina, setPagina] = useState(0);
-  const q = useUnlinkedInflows(filtro, pagina);
-  const resumen = usePendingSummary();
-  const filas = q.data?.rows ?? [];
-  const total = q.data?.total ?? 0;
-  const aplicar = (scope: UnlinkedFilter['scope'] = filtro.scope) => {
-    const n = (v: string) => (v.trim() === '' ? undefined : Number(v));
-    setFiltro({ scope, from: borrador.from || undefined, to: borrador.to || undefined, min: n(borrador.min), max: n(borrador.max), search: borrador.search || undefined });
-    setPagina(0);
-  };
-  return (
-    <section className="space-y-3" aria-label="Entradas sin vincular">
-      <p className="text-sm text-[#6B5D45]">{UNLINKED_NOTE}</p>
-      {resumen.data && (
-        <p className="text-xs text-[#8A7A5C]">
-          Actuales {resumen.data.UNLINKED_CURRENT.count} · {formatoPesos(resumen.data.UNLINKED_CURRENT.amount)} — Históricas {resumen.data.UNLINKED_HISTORICAL.count} · {formatoPesos(resumen.data.UNLINKED_HISTORICAL.amount)}
-        </p>
-      )}
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="flex gap-1" role="group" aria-label="Alcance">
-          {ALCANCE.map((a) => (
-            <button key={a.id} type="button" onClick={() => aplicar(a.id)}
-              className={`text-xs px-2 py-1 rounded border ${filtro.scope === a.id ? 'bg-[#3D3424] text-white border-[#3D3424]' : 'bg-white border-[#E4DCC8]'}`}>{a.label}</button>
-          ))}
-        </div>
-        <label className="text-xs text-[#6B5D45]">Desde <input type="date" className={campo} value={borrador.from} onChange={(e) => setBorrador({ ...borrador, from: e.target.value })} /></label>
-        <label className="text-xs text-[#6B5D45]">Hasta <input type="date" className={campo} value={borrador.to} onChange={(e) => setBorrador({ ...borrador, to: e.target.value })} /></label>
-        <label className="text-xs text-[#6B5D45]">Monto mín. <input type="number" min="0" step="0.01" className={`${campo} w-24`} value={borrador.min} onChange={(e) => setBorrador({ ...borrador, min: e.target.value })} /></label>
-        <label className="text-xs text-[#6B5D45]">Monto máx. <input type="number" min="0" step="0.01" className={`${campo} w-24`} value={borrador.max} onChange={(e) => setBorrador({ ...borrador, max: e.target.value })} /></label>
-        <label className="text-xs text-[#6B5D45]">Buscar <input type="search" placeholder="Nº Mercado Pago o descripción" className={campo} value={borrador.search} onChange={(e) => setBorrador({ ...borrador, search: e.target.value })} /></label>
-        <button type="button" onClick={() => aplicar()} className="text-xs px-3 py-1 rounded border border-[#3D3424] bg-white">Filtrar</button>
-      </div>
-      {q.isLoading ? <p className="text-sm text-gray-500">Cargando entradas...</p>
-        : q.error ? <p className="text-sm text-red-700">{errorMessage(q.error)}</p>
-          : total === 0 ? <p className="text-sm text-[#6B5D45]">No hay entradas sin vincular con estos filtros.</p> : (
-            <>
-              <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
-                <table className="w-full text-sm" aria-label="Entradas sin vincular">
-                  <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
-                    <th className="px-3 py-2">Fecha</th><th className="px-3 py-2 text-right">Importe</th><th className="px-3 py-2">Tipo</th>
-                    <th className="px-3 py-2">Descripción</th><th className="px-3 py-2">Nº Mercado Pago</th><th className="px-3 py-2 text-right">Sin vincular</th>
-                    <th className="px-3 py-2">Acción (opcional)</th>
-                  </tr></thead>
-                  <tbody>{filas.map((r) => <FilaEntrada key={r.movement_id} r={r} />)}</tbody>
-                </table>
-              </div>
-              <Paginador pagina={pagina} paginas={Math.max(1, Math.ceil(total / PAGE_SIZE))} total={total} onCambiar={setPagina} />
-            </>
-          )}
-    </section>
-  );
-}
-
-function FilaEntrada({ r }: { r: UnlinkedInflowRow }) {
+export function AccionEntrada({ movementId }: { movementId: number }) {
+  const q = useUnlinkedByMovement(movementId);
   const [accion, setAccion] = useState<'none' | 'propia' | 'ignorada'>('none');
+  const r = q.data;
+  if (q.isLoading) return <p className="text-xs text-gray-500">Buscando la entrada...</p>;
+  if (q.error) return <p className="text-xs text-red-700">{errorMessage(q.error)}</p>;
+  if (!r) return <p className="text-xs text-green-800">Ya vinculada.</p>;
   return (
-    <tr className="border-b border-stone-100 last:border-0 align-top">
-      <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(r.business_date)}{r.is_historical && <span className="text-[11px] text-[#8A7A5C]"> · histórica</span>}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap font-medium text-green-800">{formatoPesos(r.amount)}</td>
-      <td className="px-3 py-2">
-        <p className="font-medium">{inflowTitle(r)}</p>
-        {r.payer_display_name && <p className="text-[11px] text-[#8A7A5C]">{INFLOW_SUBTYPE_LABEL[r.inflow_subtype]}</p>}
-        {r.mapped_client_name && <p className="text-[11px] text-green-800">Cliente asociado: {r.mapped_client_name}</p>}
-      </td>
-      <td className="px-3 py-2">{r.description ?? <span className="text-[#8A7A5C]">—</span>}</td>
-      <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">
-        {formatoPesos(r.remaining_amount)}
-        {r.allocated_amount > 0 && <p className="text-[11px] text-[#8A7A5C]">vinculado {formatoPesos(r.allocated_amount)}</p>}
-      </td>
-      <td className="px-3 py-2">
-        {accion === 'none' && (
-          <div className="flex flex-wrap gap-1">
-            <button type="button" onClick={() => setAccion('ignorada')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Ignorar</button>
-            {r.account_fund && !r.is_historical && r.allocated_amount === 0 && (
-              <button type="button" onClick={() => setAccion('propia')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Transferencia desde cuenta propia</button>
-            )}
-          </div>
-        )}
-        {accion === 'ignorada' && <p className="text-[11px] text-[#8A7A5C]">Queda sin vincular (es un estado válido).</p>}
-        {accion === 'propia' && <TransferenciaPropia r={r} onCerrar={() => setAccion('none')} />}
-      </td>
-    </tr>
+    <div className="space-y-1 text-sm" aria-label="Entrada sin vincular">
+      <p>
+        <span className="font-medium">{inflowTitle(r)}</span>
+        {r.payer_display_name && <span className="text-[#8A7A5C]"> · {INFLOW_SUBTYPE_LABEL[r.inflow_subtype]}</span>}
+        <span className="text-[#8A7A5C]"> · Nº Mercado Pago {r.source_id}{r.is_historical ? ' · histórica' : ''}</span>
+      </p>
+      {r.description && <p className="text-xs text-[#6B5D45]">{r.description}</p>}
+      {r.mapped_client_name && <p className="text-xs text-green-800">Cliente asociado: {r.mapped_client_name}</p>}
+      <p className="text-xs text-[#6B5D45]">Sin vincular {formatoPesos(r.remaining_amount)}{r.allocated_amount > 0 ? ` · vinculado ${formatoPesos(r.allocated_amount)}` : ''}. Opcional: no bloquea el cierre.</p>
+      {accion === 'none' && (
+        <div className="flex flex-wrap gap-1">
+          <button type="button" onClick={() => setAccion('ignorada')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Ignorar</button>
+          {r.account_fund && !r.is_historical && r.allocated_amount === 0 && (
+            <button type="button" onClick={() => setAccion('propia')} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50">Transferencia desde cuenta propia</button>
+          )}
+        </div>
+      )}
+      {accion === 'ignorada' && <p className="text-[11px] text-[#8A7A5C]">Queda sin vincular (es un estado válido).</p>}
+      {accion === 'propia' && <TransferenciaPropia r={r} onCerrar={() => setAccion('none')} />}
+    </div>
   );
 }
 
@@ -124,5 +65,32 @@ function TransferenciaPropia({ r, onCerrar }: { r: UnlinkedInflowRow; onCerrar: 
       </div>
       {ownTransfer.error && <p className="text-red-700">{errorMessage(ownTransfer.error)}</p>}
     </div>
+  );
+}
+
+/**
+ * 0089 / 0116 — Mercado Pago inflows from an account_fund + DEBIN left unapplied (CLASSIFY_INFLOW): not money in the ERP yet, so
+ * they are not a movement row. Shown under Entradas sin vincular with their classification (own account or client receipt without a
+ * client, ADR-027); classifying applies them through the existing routes.
+ */
+export function IngresosSinAplicar() {
+  const cuentas = useFinancialAccounts();
+  const mpId = (cuentas.data ?? []).find((a) => isMercadoPagoAccount(a))?.id ?? '';
+  const actividad = useMpActivity(mpId);
+  const filas = (actividad.data ?? []).filter((r) => r.coverage_status === 'CLASSIFY_INFLOW' && r.source_id);
+  if (actividad.isLoading || filas.length === 0) return null;
+  return (
+    <section className="bg-white border border-amber-200 rounded-lg p-3 space-y-1" aria-label="Ingresos de Mercado Pago sin aplicar">
+      <p className="text-sm font-medium text-[#3D3424]">Ingresos de Mercado Pago sin aplicar ({filas.length})</p>
+      <p className="text-xs text-[#8A7A5C]">Todavía no están en el saldo: al clasificarlos (cuenta propia o cobro de cliente) se registran una sola vez.</p>
+      <ul className="space-y-1">
+        {filas.map((r) => (
+          <li key={`${r.run_id}:${r.row_number}`} className="text-sm flex flex-wrap items-center gap-2">
+            <span>{formatearFechaLocal(r.business_date)} · Nº {r.source_id} · {formatoPesos(r.gross_amount ?? r.net_amount ?? 0)}</span>
+            <ClasificarIngreso paymentId={r.source_id as string} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

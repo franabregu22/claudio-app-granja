@@ -153,7 +153,7 @@ describe('Lote 5 — no double discount', () => {
   });
 
   it('classifying an inflow names no client, and the hook cannot send one', () => {
-    const s = SRC('features/caja/CuentaDetalle.tsx');
+    const s = SRC('features/caja/AccionesMp.tsx');
     const ingreso = s.slice(s.indexOf('function ClasificarIngreso'));
     expect(ingreso).toMatch(/collection\.mutate\(\{ paymentId \}\)/);
     expect(ingreso).not.toMatch(/useClients|aria-label="Cliente"/);

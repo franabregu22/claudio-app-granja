@@ -43,7 +43,7 @@ describe('ADR-024 — category → subcategory', () => {
     expect(sel).toMatch(/aria-label="Naturaleza"/);
     expect(sel).not.toMatch(/pnl_cost_class|'DIRECT'|'INDIRECT'|createMaster|updateMaster/);
     expect(SRC('features/caja/Compras.tsx')).toMatch(/<SelectorCategoria subcategoriaId=\{categoriaId\} onSubcategoria=\{setCategoriaId\} naturaleza=\{naturaleza\} onNaturaleza=\{setNaturaleza\}/);
-    expect(SRC('features/caja/CuentaDetalle.tsx')).toMatch(/<SelectorCategoria compacto campo=\{SELECT_CLS\} subcategoriaId=\{categoria\} onSubcategoria=\{setCategoria\} naturaleza=\{naturaleza\} onNaturaleza=\{setNaturaleza\} \/>/);
+    expect(SRC('features/caja/AccionesMp.tsx')).toMatch(/<SelectorCategoria compacto campo=\{SELECT_CLS\} subcategoriaId=\{categoria\} onSubcategoria=\{setCategoria\} naturaleza=\{naturaleza\} onNaturaleza=\{setNaturaleza\} \/>/);
   });
   it('M: the socios of a Retiro de socios; the withdrawal form sends the optional socio', () => {
     expect(socios(GROUPS, SUBS).map((s) => s.nombre)).toEqual(['Fran', 'Santi']);

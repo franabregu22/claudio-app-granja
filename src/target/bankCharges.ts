@@ -8,10 +8,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc } from './db';
 
 export type ChargeKind = 'BANK_TAX_DEBCRED' | 'BANK_FEE' | 'BANK_IVA';
-export type ChargeStatus = 'PROPOSED' | 'NO_RULE' | 'AMBIGUOUS' | 'CREDIT' | 'CATEGORY_MISSING';
+/** 0116: RECORDED — the tax is already recorded (e.g. with its transfer): it is matched to that posting, never booked again. */
+export type ChargeStatus = 'PROPOSED' | 'NO_RULE' | 'AMBIGUOUS' | 'CREDIT' | 'CATEGORY_MISSING' | 'RECORDED';
 export interface ChargeProposal {
   statement_line_id: number; value_date: string; description_raw: string; bank_reference: string | null; signed_amount: number; running_balance: number | null;
   status: ChargeStatus; kind: ChargeKind | null; rule_id: number | null; label: string | null; expense_category_id: string | null; category_name: string | null;
+  /** RECORDED only: the recorded posting to match (the closest), and how many qualify (more than one: matched by hand). */
+  recorded_posting_id?: number | null; recorded_count?: number | null;
 }
 
 export const CHARGE_KINDS: ChargeKind[] = ['BANK_TAX_DEBCRED', 'BANK_FEE', 'BANK_IVA'];
@@ -26,13 +29,15 @@ export const CHARGE_KIND_EFFECT: Record<ChargeKind, string> = {
 };
 export const REVIEW_LABEL: Record<Exclude<ChargeStatus, 'PROPOSED'>, string> = {
   NO_RULE: 'Sin regla: revisar', AMBIGUOUS: 'Concepto ambiguo', CREDIT: 'Crédito: no es un cargo', CATEGORY_MISSING: 'Falta la categoría de gasto',
+  RECORDED: 'Ya registrado: conciliar',
 };
 
 const num = (v: unknown) => Number(v);
 
 export async function listChargeProposals(client: SupabaseClient, accountId: string): Promise<ChargeProposal[]> {
   const rows = await callRpc<ChargeProposal[]>(client, 'fin_statement_charge_proposals', { p_account_id: accountId });
-  return (rows ?? []).map((r) => ({ ...r, signed_amount: num(r.signed_amount), running_balance: r.running_balance === null ? null : num(r.running_balance) }));
+  return (rows ?? []).map((r) => ({ ...r, signed_amount: num(r.signed_amount), running_balance: r.running_balance === null ? null : num(r.running_balance),
+    recorded_posting_id: r.recorded_posting_id == null ? null : num(r.recorded_posting_id), recorded_count: r.recorded_count == null ? null : num(r.recorded_count) }));
 }
 
 export interface BookResult { replayed: boolean; booked: number; total: number; by_kind?: Partial<Record<ChargeKind, number>> }

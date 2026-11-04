@@ -7,6 +7,7 @@ const SRC = (f: string) => readFileSync(resolve(__dirname, '../../src', f), 'utf
 const app = SRC('features/caja/CajaApp.tsx');
 const mov = SRC('features/caja/Movimientos.tsx');
 const pr = SRC('features/caja/PorResolver.tsx');
+const lista = SRC('features/caja/MovimientosHistoricos.tsx');
 const pagar = SRC('features/caja/SolapaPagar.tsx');
 const trf = SRC('features/caja/Transferencias.tsx');
 
@@ -17,20 +18,21 @@ describe('Caja — the five tabs', () => {
     expect(app).toMatch(/useState<Vista>\('movimientos'\)/);
   });
   it('the ADMIN guard comes before any tab and Retiro de socios stays in Más acciones', () => {
-    expect(app.indexOf("if (rol !== 'ADMIN')")).toBeLessThan(app.indexOf('<Movimientos />'));
+    expect(app.indexOf("if (rol !== 'ADMIN')")).toBeLessThan(app.indexOf('<Movimientos '));
     expect(app).toMatch(/<EventoGestionModal tipo="RETIRO"/);
   });
-  it('every old screen has one door: the five tabs, Por resolver or Cuentas corrientes', () => {
+  it('every old screen has one door: the five tabs, a Por resolver filter of the movement list, or Cuentas corrientes', () => {
     for (const [src, tag] of [
-      [app, '<Movimientos />'], [app, '<Transferencias />'], [app, '<SolapaPagar '], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
-      [pr, '<PendientesClasificar />'], [pr, '<GastosSinClasificar '], [pr, '<EntradasSinVincular />'],
+      [app, '<Movimientos '], [app, '<Transferencias />'], [app, '<SolapaPagar '], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
+      [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "id: 'ENTRADA_SIN_VINCULAR'"],
+      [lista, '<AvisosPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionPendienteMp '], [lista, '<AccionEntrada '],
       [pagar, '<CuentasAPagar />'], [pagar, '<GastosAPagar '], [pagar, '<Compras />'], [pagar, '<PagosFacturas />'], [pagar, '<Cheques />'],
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
     ] as const) expect(src.split(tag).length - 1, tag).toBe(1);
   });
-  it('the calendar still reaches the allocation screen and Gastos sin clasificar still reaches the Mercado Pago list', () => {
+  it('the calendar still reaches the allocation screen; the three Por resolver indicators sit together and each one toggles its filter', () => {
     expect(app).toMatch(/setSubPagar\('pagosfactura'\); setVista\('pagar'\)/);
-    expect(pr).toMatch(/onVerPendientesMp=\{\(\) => onPanel\('pendientes'\)\}/);
+    expect(pr).toMatch(/onClick=\{\(\) => onFiltro\(elegida \? null : t\.id\)\}/);
   });
   it('the tab badge counts what needs action: unclassified expenses and current Mercado Pago outflows, never optional inflows', () => {
     expect(app).toMatch(/sinClasificar \+ \(mp\.data\?\.PENDING_CURRENT\.count \?\? 0\)/);
@@ -44,7 +46,7 @@ describe('Caja — no money rule moved with the screens', () => {
     for (const s of [mov, pr, pagar, app]) expect(s).not.toMatch(/\.rpc\(|callRpc|\.insert\(|\.update\(|\.delete\(|\.mutate\(|reduce\(/);
   });
   it('declared collections and unpaid obligations have no place in Movimientos', () => {
-    for (const s of [mov, SRC('features/caja/HistorialFinanciero.tsx'), SRC('target/movementHistory.ts')]) expect(s).not.toMatch(/customerCollections|CobrosClientes|usePayables|GastosAPagar|listCustomerCollections|\.from\(/);
+    for (const s of [mov, SRC('features/caja/MovimientosHistoricos.tsx'), SRC('target/movementHistory.ts')]) expect(s).not.toMatch(/customerCollections|CobrosClientes|usePayables|GastosAPagar|listCustomerCollections|\.from\(/);
   });
   it('Transferencias keeps its idempotency keys, the Mercado Pago routes and the tax retry', () => {
     expect(trf).toMatch(/`TRF-\$\{crypto\.randomUUID\(\)\}`/);

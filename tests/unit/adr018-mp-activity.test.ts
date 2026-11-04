@@ -63,25 +63,16 @@ describe('ADR-018 MP activity — labels', () => {
   });
 });
 
-describe('ADR-018 MP activity — screen', () => {
-  const detalle = SRC('features/caja/CuentaDetalle.tsx');
-  it('Caja → Saldos → Mercado Pago: "Actividad Mercado Pago" tab, separate from "Movimientos ERP", MP account only', () => {
-    expect(detalle).toMatch(/const esMp = isMercadoPagoAccount\(cuenta\)/);
-    expect(detalle).toMatch(/\.\.\.\(esMp \? \[\['mp', 'Actividad Mercado Pago'\]\] : \[\]\)/);
-    expect(detalle).toMatch(/\['erp', 'Movimientos ERP'\]/);
-    expect(detalle).toMatch(/aria-label="Actividad Mercado Pago"/);
+describe('ADR-018 MP activity — screen (0116: evidence in the movement, actions in their row)', () => {
+  const lista = SRC('features/caja/MovimientosHistoricos.tsx');
+  const acciones = SRC('features/caja/AccionesMp.tsx');
+  it('no separate "Actividad Mercado Pago" tab: the report movement reconciled to an operation is shown in its detail', () => {
+    expect(lista).toMatch(/Evidencia Mercado Pago \(reporte\)/);
+    expect(lista).toMatch(/Nº Mercado Pago \{m\.source_id \?\? '—'\}/);
+    expect(lista + SRC('features/caja/Movimientos.tsx')).not.toMatch(/Actividad Mercado Pago|ActividadMercadoPago/);
   });
-  it('shows date, type, reference, amount and coverage status; internal rows omitted; states that it does not change the ERP balance', () => {
-    const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'));
-    for (const th of ['Fecha', 'Tipo', 'Referencia', 'Importe', 'Estado']) expect(fn).toContain(`>${th}</th>`);
-    expect(fn).toMatch(/todas\.filter\(isVisibleActivity\)/);
-    expect(fn).toMatch(/ya se incluyen en el saldo al procesar el reporte/);   // ADR-021: real outflows are in the balance at once
-    expect(fn).toMatch(/clasificar no vuelve a mover el saldo/);
-    expect(fn).toMatch(/mpStatusLabel\(r\)/);
-  });
-  it('the list itself writes nothing; the only RPCs are the payout match proposal (0084) and the payout confirmation (0087)', () => {
-    const fn = detalle.slice(detalle.indexOf('function ActividadMercadoPago'), detalle.indexOf('const DESTINO_ESTILO'));
-    expect(fn).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.upsert\(|\.delete\(|useMutation|onClick/);
+  it('the actions write only through the payout confirmation (0087) and the classification routes; the library calls only its two RPCs', () => {
+    expect(acciones).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.upsert\(|\.delete\(/);
     const lib = SRC('target/mpActivity.ts');
     expect(lib).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.delete\(/);
     expect((lib.match(/callRpc<[^;]*/g) ?? []).map((c) => c.match(/'(fin_mp_payout_matches|mp_confirm_payout_transfer)'/)?.[1]))
@@ -163,8 +154,8 @@ describe('ADR-018 MP activity — payout own-account match (0084, read-only)', (
     expect(payoutMatchLabel({ description: 'payout', source_id: null }, map)).toBeNull();
   });
   it('the screen shows the proposal under the Retiro status; the only button is the guarded confirmation; no identifier value', () => {
-    const s = SRC('features/caja/CuentaDetalle.tsx');
-    expect(s).toMatch(/<DestinoRetiro r=\{r\} matches=\{matches\} \/>/);
+    const s = SRC('features/caja/AccionesMp.tsx');
+    expect(SRC('features/caja/PendientesClasificar.tsx')).toMatch(/<DestinoRetiro r=\{actividad\} matches=\{matches\} \/>/);
     const comp = s.slice(s.indexOf('function DestinoRetiro'), s.indexOf('const SELECT_CLS'));
     expect(comp.match(/<button/g) ?? []).toHaveLength(1);
     expect(comp).toMatch(/\{m\.canConfirm && r\.source_id && \(/);
@@ -292,9 +283,11 @@ describe('MP activity — classification (0088)', () => {
     expect(TARGET_RPCS).toEqual(expect.arrayContaining(['mp_classify_payout_outflow', 'mp_classify_inflow_as_collection', 'mp_reclassify_inbound_own_transfer']));
   });
   it('the screen: "Clasificar salida" only under a classifiable payout ("Compra / gasto" or "Retiro de socios" only; no own transfer, no "Otra salida"); "Clasificar ingreso" only on CLASSIFY_INFLOW rows (own account / client receipt without a client, ADR-027; no "Otro ingreso")', () => {
-    const s = SRC('features/caja/CuentaDetalle.tsx');
+    const s = SRC('features/caja/AccionesMp.tsx');
     expect(s).toMatch(/\{m\.canClassify && r\.source_id && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
-    expect(s).toMatch(/\{r\.coverage_status === 'CLASSIFY_INFLOW' && r\.source_id && <ClasificarIngreso paymentId=\{r\.source_id\} \/>\}/);
+    const entradas = SRC('features/caja/EntradasSinVincular.tsx');
+    expect(entradas).toMatch(/r\.coverage_status === 'CLASSIFY_INFLOW' && r\.source_id/);
+    expect(entradas).toMatch(/<ClasificarIngreso paymentId=\{r\.source_id as string\} \/>/);
     expect(Object.values(MP_OUTFLOW_CHOICE_LABEL)).toEqual(['Compra / gasto', 'Retiro de socios']);
     expect(Object.values(MP_OUTFLOW_LABEL)).toEqual(['Compra / gasto', 'Compra / gasto', 'Compra / gasto', 'Retiro de socios']);
     const salida = s.slice(s.indexOf('function ClasificarSalida'), s.indexOf('type TipoIngreso'));

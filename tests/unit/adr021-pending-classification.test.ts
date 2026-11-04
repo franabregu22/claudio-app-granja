@@ -101,7 +101,11 @@ describe('ADR-021 — pending classification data', () => {
     expect(postingOperationLabel({ operation_type: 'ADJUSTMENT', external_ref: 'MP-PENDING:184280177388' })).toBe('Pendiente de clasificar');
     expect(postingOperationLabel({ operation_type: 'ADJUSTMENT', external_ref: 'MP-PENDING-RELEASE:184280177388' })).toBe('Clasificación de salida');
     expect(postingOperationLabel({ operation_type: 'ADJUSTMENT', external_ref: 'MP-OUTFLOW-TAX:1' })).toBe('ADJUSTMENT');
-    expect(SRC('features/caja/CuentaDetalle.tsx')).toMatch(/\{postingOperationLabel\(p\)\}/);
+    // 0116: the movement list shows the server's name (fin_movement_class), which keeps these two names
+    expect(SRC('features/caja/MovimientosHistoricos.tsx')).toMatch(/\{r\.label\}/);
+    const cls = readFileSync(resolve(__dirname, '../../supabase/target-migrations/0113_fin_movement_history.sql'), 'utf8');
+    expect(cls).toMatch(/WHEN p_ref LIKE 'MP-PENDING-RELEASE:%' THEN 'Clasificación de salida'/);
+    expect(cls).toMatch(/WHEN p_ref LIKE 'MP-PENDING:%' THEN 'Pendiente de clasificar'/);
   });
   it('period close and guard errors read clearly', () => {
     expect(errorMessage({ message: 'PENDING_CLASSIFICATION: 3 movimiento(s) pendiente(s) …' })).toBe('Hay movimientos pendientes de clasificar en este período. Clasificalos antes de cerrarlo.');
@@ -133,23 +137,22 @@ describe('ADR-021 — activity and classification routes', () => {
     expect(mpOutflowCandidates(ACT, MATCH).map((c) => [c.sourceId, c.amount])).toEqual([['183240248717', 130889.55], ['184280177388', 67637.45]]);
     expect(mpOwnPayoutCandidates(ACT, MATCH, 'bna').map((c) => c.sourceId)).toEqual(['900']);
   });
-  it('Caja: Pendientes (mandatory, current / historical apart, paginated, with their server totals), Entradas sin vincular (optional), both under Por resolver', () => {
+  it('Caja: Pendientes (mandatory) and Entradas sin vincular (optional) are Por resolver filters of the one movement list; current / historical apart, with their server totals', () => {
     const app = SRC('features/caja/CajaApp.tsx');
     const pr = SRC('features/caja/PorResolver.tsx');
-    expect(pr).toMatch(/id: 'pendientes', titulo: 'Pendientes de clasificar'/);
-    expect(pr).toMatch(/id: 'entradas', titulo: 'Entradas sin vincular'.*aviso: false/);
-    expect(pr).toMatch(/<PendientesClasificar \/>/);
-    expect(pr).toMatch(/<EntradasSinVincular \/>/);
-    expect(app).toMatch(/\{vista === 'movimientos' && <Movimientos \/>\}/);
+    const lista = SRC('features/caja/MovimientosHistoricos.tsx');
+    expect(pr).toMatch(/id: 'MP_CLASIFICAR', titulo: 'Pendientes de clasificar'/);
+    expect(pr).toMatch(/id: 'ENTRADA_SIN_VINCULAR', titulo: 'Entradas sin vincular'.*aviso: false, requerido: false/);
+    expect(pr).toMatch(/Actuales: \$\{mp\.current\} · Históricos: \$\{mp\.historical\}/);
+    expect(pr).not.toMatch(/<PendientesClasificar|<EntradasSinVincular|<GastosSinClasificar/);   // no list of its own
+    expect(app).toMatch(/\{vista === 'movimientos' && <Movimientos onIrAExtractos=\{\(\) => setVista\('extractos'\)\} \/>\}/);
+    // the filter counts what the indicator counts: Pendientes current + historical, Entradas the current ones; both switchable
+    expect(lista).toMatch(/const ALCANCE_INICIAL: Record<PendingFilter, PendingScopeFilter \| ''> = \{ MP_CLASIFICAR: '', GASTO_SIN_CLASIFICAR: '', ENTRADA_SIN_VINCULAR: 'CURRENT' \};/);
+    expect(lista).toMatch(/\{ id: 'CURRENT', label: 'Actuales' \}, \{ id: 'HISTORICAL', label: 'Históricos' \}/);
     const v = SRC('features/caja/PendientesClasificar.tsx');
-    expect(v).toMatch(/total=\{resumen\.data\?\.PENDING_CURRENT\}/);
-    expect(v).toMatch(/total=\{resumen\.data\?\.PENDING_HISTORICAL\}/);
-    expect(v).toMatch(/Todo clasificado/);
-    expect(v).toMatch(/<ListaPendientes scope="current"/);
-    expect(v).toMatch(/<ListaPendientes scope="historical"/);
-    expect(v).toMatch(/\{r\.is_historical \? <span className="text-xs text-\[#8A7A5C\]">\{HISTORICAL_ACTION\}<\/span> : \(/);   // no unsupported action on history
+    expect(v).toMatch(/\{r\.is_historical \? <p className="text-xs text-\[#8A7A5C\]">\{HISTORICAL_ACTION\}<\/p> : \(/);   // no unsupported action on history
     // ADR-025 stage 3: the same route, with the WhatsApp concept (when there is one) pre-filled
-    expect(v).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\}( conceptoInicial=\{nota\?\.concept\})?( gastosMpPendientes=\{posibles\})? \/>\}/);
+    expect(v).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\} conceptoInicial=\{nota\?\.concept\} gastosMpPendientes=\{posibles\} \/>\}/);
     expect(v).toMatch(/\{r\.kind === 'PAYOUT' && <DestinoRetiro r=\{actividad\} matches=\{matches\} \/>\}/);
     expect(v).not.toMatch(/CLASSIFY_INFLOW|ClasificarIngreso|summarizePending/);   // inflows are never a mandatory classification (ADR-023)
     expect(v).toMatch(/aria-label="Revisión técnica"/);

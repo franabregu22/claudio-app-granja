@@ -65,7 +65,7 @@ describe('Lote 4 — screens', () => {
     expect(v).toMatch(/gastosMpPendientes=\{posibles\}/);
   });
   it('classifying an outflow as a NEW purchase while a recorded MP purchase has that amount needs an explicit confirmation (warn, never block)', () => {
-    const c = SRC('src/features/caja/CuentaDetalle.tsx');
+    const c = SRC('src/features/caja/AccionesMp.tsx');
     expect(c).toMatch(/Posible duplicado/);
     expect(c).toMatch(/&& \(!posibleDuplicado \|\| esOtroGasto\)/);
     expect(c).toMatch(/Confirmo que es un gasto distinto/);

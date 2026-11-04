@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
-  accountStatementFormat, countMatchedLines, getMatchDetail, listBankHistory, type LineFilters, listAnchorCandidates, listCutovers, listPostingCandidates, listStatementLines,
+  accountStatementFormat, countMatchedLines, getMatchDetail, type LineFilters, listAnchorCandidates, listCutovers, listPostingCandidates, listStatementLines,
   matchStatementLine, resolveStatementCutover, reverseStatementMatch, type StatementLine,
 } from '../../target/bankReconciliation';
 import { bookCharges, listChargeProposals } from '../../target/bankCharges';
@@ -10,9 +10,6 @@ const ROOT = ['bank-reconciliation'];
 
 export function useStatementLines(f: LineFilters) {
   return useQuery({ queryKey: [...ROOT, 'lines', f], queryFn: () => listStatementLines(supabase, f), enabled: f.accountId !== '' });
-}
-export function useBankHistory(accountId: string) {
-  return useQuery({ queryKey: [...ROOT, 'history', accountId], queryFn: () => listBankHistory(supabase, accountId), enabled: accountId !== '' });
 }
 export function useCutovers(accountId: string) {
   return useQuery({ queryKey: [...ROOT, 'cutovers', accountId], queryFn: () => listCutovers(supabase, accountId), enabled: accountId !== '' });
@@ -42,7 +39,9 @@ export function useReconciliationMutations() {
   const qc = useQueryClient();
   const onSuccess = () => qc.invalidateQueries({ queryKey: ROOT });
   return {
-    match: useMutation({ mutationFn: (p: Parameters<typeof matchStatementLine>[1]) => matchStatementLine(supabase, p), onSuccess }),
+    // a match changes the state of the operation in Caja → Movimientos (and leaves the lines to resolve): the treasury is re-read too
+    match: useMutation({ mutationFn: (p: Parameters<typeof matchStatementLine>[1]) => matchStatementLine(supabase, p),
+      onSuccess: () => Promise.all([ROOT, ['treasury']].map((queryKey) => qc.invalidateQueries({ queryKey }))) }),
     reverse: useMutation({ mutationFn: (p: Parameters<typeof reverseStatementMatch>[1]) => reverseStatementMatch(supabase, p), onSuccess }),
     resolveCutover: useMutation({ mutationFn: (p: Parameters<typeof resolveStatementCutover>[1]) => resolveStatementCutover(supabase, p), onSuccess }),
     // a booked charge moves the account balance and the history: the treasury and the P&L are re-read too

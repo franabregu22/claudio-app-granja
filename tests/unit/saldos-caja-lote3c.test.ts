@@ -1,4 +1,4 @@
-/** Lote 3C — Caja → Movimientos: balances as cards (frontend only: same balance source, same account detail); the transfer is its own tab. */
+/** Lote 3C / 0116 — Caja → Movimientos: balances as cards (same balance source); a card filters the movement list; the transfer is its own tab. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,7 +9,7 @@ const TRF = SRC('features/caja/Transferencias.tsx');
 
 describe('Lote 3C — Saldos de Caja', () => {
   it('accounts are cards in a responsive grid (2 columns on mobile, 4 on desktop) with name, type and the ERP balance', () => {
-    expect(S).toMatch(/<div className="grid grid-cols-2 lg:grid-cols-4 gap-3" aria-label="Cuentas">/);
+    expect(S).toMatch(/<div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="group" aria-label="Cuentas">/);
     expect(S).toMatch(/\{x\.nombre\}<\/p>/);
     expect(S).toMatch(/\{TIPO\[x\.account_type\] \?\? x\.account_type\}/);
     expect(S).toMatch(/formatoPesos\(s\.balance\)/);
@@ -19,9 +19,10 @@ describe('Lote 3C — Saldos de Caja', () => {
     expect(S).toMatch(/useLedgerBalances\('ACCOUNT'\)/);
     expect(S).not.toMatch(/reduce\(|\.rpc\(|callRpc/);
   });
-  it('a selected card opens its existing movements below the grid; the transfer, its history and the bank tax live in Transferencias', () => {
-    expect(S).toMatch(/onClick=\{\(\) => \{ setAbierta\(activa \? null : x\.id\); setPanel\(null\); \}\} aria-expanded=\{activa\}/);
-    expect(S.indexOf('aria-label="Cuentas"')).toBeLessThan(S.indexOf('<CuentaDetalle key={c.id}'));
+  it('a selected card filters the movement list below the grid (again, or "Todas las cuentas", removes it); the transfer, its history and the bank tax live in Transferencias', () => {
+    expect(S).toMatch(/onClick=\{\(\) => setCuentaId\(activa \? '' : x\.id\)\} aria-pressed=\{activa\}/);
+    expect(S).toMatch(/← Todas las cuentas/);
+    expect(S.indexOf('aria-label="Cuentas"')).toBeLessThan(S.indexOf('<MovimientosHistoricos'));
     expect(TRF).toMatch(/Transferir entre cuentas/);
     expect(TRF).toMatch(/<TransferenciaModal onClose=/);
     expect(TRF).toMatch(/<HistorialTransferencias \/>/);
@@ -29,7 +30,7 @@ describe('Lote 3C — Saldos de Caja', () => {
   });
   it('no pending-classification banner over the balances; the lists stay reachable under Por resolver', () => {
     expect(S).not.toMatch(/TarjetaPendientes|usePendingSummary|from '\.\/PendientesClasificar'/);
-    expect(S).toMatch(/<TarjetasPorResolver panel=\{panel\}/);
+    expect(S).toMatch(/<TarjetasPorResolver activo=\{pendiente\} onFiltro=\{setPendiente\} \/>/);
     expect(SRC('features/caja/PendientesClasificar.tsx')).not.toMatch(/export function TarjetaPendientes/);
   });
 });

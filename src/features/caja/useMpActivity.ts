@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { type FinancialAccountRow, listMaster } from '../../target/masters';
 import {
@@ -7,7 +7,7 @@ import {
 } from '../../target/mpActivity';
 import { listPurchaseMpLinks, settlePurchaseMp } from '../../target/purchaseMpLink';
 import {
-  listMpWhatsappNotes, listPendingPage, listTechnicalReview, listUnlinkedPage, type PendingScope, postPendingOutflow, readPendingSummary, type UnlinkedFilter,
+  getPendingBySource, getUnlinkedByMovement, listMpWhatsappNotes, listTechnicalReview, postPendingOutflow, readPendingSummary,
 } from '../../target/pendingClassification';
 
 export function useMpActivity(accountId: string) {
@@ -49,24 +49,24 @@ export function useOwnBankAccounts() {
     select: (rows) => rows.filter((a) => a.activo && a.account_type === 'BANK_ACCOUNT') });
 }
 
-/** ADR-021 / ADR-023: one page of the mandatory pending outflows of a scope (current / historical), with the server count. */
-export function usePendingPage(scope: PendingScope, page: number) {
-  return useQuery({ queryKey: ['mp-pending', 'page', scope, page], queryFn: () => listPendingPage(supabase, scope, page), placeholderData: keepPreviousData });
-}
 
 /** ADR-023: server-side counts / totals (mandatory current / historical, unlinked current / historical). */
 /** ADR-025 stage 3: the WhatsApp notes of the listed pending outflows (read-only). */
 export function useMpWhatsappNotes(sourceIds: readonly string[]) {
   return useQuery({ queryKey: ['mp-pending', 'wa-notes', [...sourceIds].sort()], queryFn: () => listMpWhatsappNotes(supabase, sourceIds), enabled: sourceIds.length > 0 });
 }
+/** 0116: one pending outflow by SOURCE_ID (the action in a Caja → Movimientos row). */
+export function usePendingBySource(sourceId: string | null) {
+  return useQuery({ queryKey: ['mp-pending', 'by-source', sourceId], queryFn: () => getPendingBySource(supabase, sourceId as string), enabled: !!sourceId });
+}
+/** 0116: one unlinked inflow by movement (the action in a Caja → Movimientos row). */
+export function useUnlinkedByMovement(movementId: number | null) {
+  return useQuery({ queryKey: ['mp-pending', 'unlinked-one', movementId], queryFn: () => getUnlinkedByMovement(supabase, movementId as number), enabled: movementId !== null });
+}
 export function usePendingSummary() {
   return useQuery({ queryKey: ['mp-pending', 'summary'], queryFn: () => readPendingSummary(supabase) });
 }
 
-/** ADR-023: one page of "Entradas sin vincular" (optional; never an alert). */
-export function useUnlinkedInflows(filter: UnlinkedFilter, page: number) {
-  return useQuery({ queryKey: ['mp-pending', 'unlinked', filter, page], queryFn: () => listUnlinkedPage(supabase, filter, page), placeholderData: keepPreviousData });
-}
 
 /** ADR-021 (0093): technical exceptions (unposted outflows, report rows in error), never mixed with the pendings. */
 export function useTechnicalReview() {

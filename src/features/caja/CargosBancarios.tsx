@@ -17,7 +17,8 @@ export function CargosBancarios({ accountId }: { accountId: string }) {
   const q = useChargeProposals(accountId);
   const filas = q.data ?? [];
   const propuestas = filas.filter((r) => r.status === 'PROPOSED');
-  const revisar = filas.filter((r) => r.status !== 'PROPOSED');
+  const registrados = filas.filter((r) => r.status === 'RECORDED');   // 0116: already recorded (e.g. with its transfer): matched, never booked again
+  const revisar = filas.filter((r) => r.status !== 'PROPOSED' && r.status !== 'RECORDED');
   const [excluidas, setExcluidas] = useState<Set<number>>(new Set());
   const [confirmando, setConfirmando] = useState(false);
   const [hecho, setHecho] = useState<string | null>(null);
@@ -65,6 +66,7 @@ export function CargosBancarios({ accountId }: { accountId: string }) {
           </ul>
         </>
       )}
+      {registrados.length > 0 && <YaRegistrados filas={registrados} />}
       {revisar.length > 0 && (
         <details className="text-sm">
           <summary className="cursor-pointer text-[#A8552E]">Para revisar, sin propuesta ({revisar.length} · {importe(revisar.reduce((t, r) => t + r.signed_amount, 0), true)})</summary>
@@ -84,6 +86,37 @@ export function CargosBancarios({ accountId }: { accountId: string }) {
       {confirmando && <ConfirmarModal accountId={accountId} lineas={elegidas} onClose={() => setConfirmando(false)} onRechazo={() => q.refetch()}
         onHecho={(t) => { setConfirmando(false); setExcluidas(new Set()); setHecho(t); }} />}
     </section>
+  );
+}
+
+/**
+ * 0116 — a tax line whose charge is already recorded (by hand with its transfer, before the statement): it is matched to that posting
+ * (one click when exactly one recorded charge qualifies), never booked again. More than one candidate: matched by hand below.
+ */
+function YaRegistrados({ filas }: { filas: ChargeProposal[] }) {
+  const { match } = useReconciliationMutations();
+  return (
+    <div className="space-y-1" aria-label="Cargos ya registrados">
+      <p className="text-sm font-medium text-[#3D3424]">Ya registrados antes del extracto ({filas.length})</p>
+      <p className="text-xs text-[#8A7A5C]">El impuesto ya figura en el ERP (por ejemplo, cargado con su transferencia): se concilia con ese registro y no se descuenta otra vez.</p>
+      <ul className="space-y-1">
+        {filas.map((r) => (
+          <li key={r.statement_line_id} className="flex flex-wrap items-center gap-2 border border-sky-200 bg-sky-50/40 rounded px-2 py-1 text-sm">
+            <span className="text-xs text-[#8A7A5C] w-20">{formatearFechaLocal(r.value_date)}</span>
+            <span className="flex-1 min-w-0 truncate" title={r.description_raw}>{r.description_raw}</span>
+            <span className="font-medium whitespace-nowrap">{importe(r.signed_amount, true)}</span>
+            {r.recorded_count === 1 && r.recorded_posting_id ? (
+              <button type="button" disabled={match.isPending}
+                onClick={() => match.mutate({ statementLineId: r.statement_line_id, postingId: r.recorded_posting_id as number, reason: 'Impuesto ya registrado' })}
+                className="text-xs px-2 py-0.5 rounded border border-sky-300 bg-white text-sky-900 hover:bg-sky-50 disabled:opacity-50">
+                {match.isPending ? 'Conciliando...' : 'Conciliar con el registrado'}
+              </button>
+            ) : <span className="text-xs text-[#8A7A5C]">{r.recorded_count} registros posibles: conciliá a mano abajo</span>}
+          </li>
+        ))}
+      </ul>
+      {match.error ? <p className="text-xs text-red-700">{reconciliationErrorMessage(match.error)}</p> : null}
+    </div>
   );
 }
 

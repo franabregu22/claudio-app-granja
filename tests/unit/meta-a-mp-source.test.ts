@@ -48,8 +48,8 @@ describe('Meta A — outbound payments (ADR-020)', () => {
     expect(isClassifiableOutbound(ACT[2])).toBe(false);
     expect(isClassifiableOutbound(ACT[7])).toBe(false);
   });
-  it('Actividad Mercado Pago offers "Clasificar salida" on outbound rows', () => {
-    expect(SRC('features/caja/CuentaDetalle.tsx')).toMatch(/\{isClassifiableOutbound\(r\) && r\.source_id && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
+  it('a pending outbound outflow offers "Clasificar salida" in its Caja → Movimientos row (0116; the activity tab is retired)', () => {
+    expect(SRC('features/caja/PendientesClasificar.tsx')).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\}/);
   });
 });
 

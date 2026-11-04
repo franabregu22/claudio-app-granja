@@ -51,6 +51,14 @@ export async function listPendingExpensesPage(client: SupabaseClient, f: Pending
            total: r.total, page, pageSize };
 }
 
+/** 0116: one pending expense by its id or by its payment operation (the row action of Caja → Movimientos). */
+export async function getPendingExpense(client: SupabaseClient, k: { pendingId?: number; paymentOperationId?: number }): Promise<PendingExpenseRow | null> {
+  const r = await readViewPage<PendingExpenseRow>(client, 'fin_expense_pending_classification',
+    (q) => (k.pendingId !== undefined ? q.eq('pending_id', k.pendingId) : q.eq('payment_operation_id', k.paymentOperationId)).order('pending_id'), PENDING_EXPENSE_COLUMNS, 0, 1);
+  const x = r.rows[0];
+  return x ? { ...x, pending_id: Number(x.pending_id), amount: Number(x.amount), payment_operation_id: Number(x.payment_operation_id) } : null;
+}
+
 /** The indicator: how many expenses are still unclassified (server count; no row is downloaded). */
 export async function countUnclassified(client: SupabaseClient): Promise<number> {
   const r = await readViewPage<{ pending_id: number }>(client, 'fin_expense_pending_classification', (q) => q.eq('status', 'SIN_CLASIFICAR').order('pending_id'),

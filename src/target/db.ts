@@ -49,6 +49,7 @@ export const TARGET_READ_TABLES = [
   'expense_category_group',   // ADR-024 (0096): the parent expense category (ADMIN policy)
   'supplier_ledger',   // Lote 3A: supplier current-account movements, read-only (ADMIN policy, 0017)
   'purchase_payment_date',   // Lote 3B (0110): due / estimated payment date history, append-only (ADMIN policy)
+  'fin_transfer_intent',   // 0116: transfers between Mercado Pago and a bank registered before the movement (ADMIN policy, read-only)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -113,6 +114,9 @@ export const TARGET_RPCS = [
   'assign_payable_to_supplier', 'set_payment_date',   // Lote 3B (0110, ADMIN): pending expense → supplier; due / estimated payment date
   'settle_purchase_mp',   // Lote 4 (0111, ADMIN, ADR-021 §2.3(c)): a purchase paid with Mercado Pago, linked to its real outflow
   'fin_instrument_precut_candidates', 'fin_mark_instrument_debited_precut',   // 0115 (ADMIN): an own cheque debited before the bank cut, no money moves
+  'fin_movement_list',   // 0116 (ADMIN, read): Caja → Movimientos — operations, state, evidence, bank lines to resolve, Por resolver filters
+  'fin_register_transfer_intent', 'fin_link_transfer_intent', 'fin_cancel_transfer_intent',   // 0116 (ADMIN): anticipated transfer, linked to its one transfer
+  'fin_relate_bank_tax',   // 0116 (ADMIN): a recorded debits/credits tax associated to its transfer (never recorded twice)
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

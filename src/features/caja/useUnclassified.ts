@@ -1,17 +1,17 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { listProfiles } from '../../target/masters';
 import {
-  classifyPendingExpense, countUnclassified, type ClassifyPendingInput, listPendingExpensesPage, type PendingExpenseFilter,
+  classifyPendingExpense, countUnclassified, type ClassifyPendingInput, getPendingExpense,
 } from '../../target/unclassifiedExpenses';
 
 const KEY = ['unclassified-expenses'];
 
-/** ADR-025 (0101): one page of Caja → Gastos sin clasificar (server filters and count). */
-export function usePendingExpenses(filter: PendingExpenseFilter, page: number) {
-  return useQuery({ queryKey: [...KEY, 'page', filter, page], queryFn: () => listPendingExpensesPage(supabase, filter, page), placeholderData: keepPreviousData });
-}
 /** The indicator: unclassified expenses (server count). */
+/** 0116: one pending expense by id or by its payment operation (the action in a Caja → Movimientos row). */
+export function usePendingExpenseOne(k: { pendingId?: number; paymentOperationId?: number } | null) {
+  return useQuery({ queryKey: [...KEY, 'one', k], queryFn: () => getPendingExpense(supabase, k ?? {}), enabled: k !== null });
+}
 export function useUnclassifiedCount() {
   return useQuery({ queryKey: [...KEY, 'count'], queryFn: () => countUnclassified(supabase) });
 }

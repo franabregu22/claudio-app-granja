@@ -3,11 +3,12 @@ import { supabase } from '../../lib/supabase';
 import { createPurchaseWithAttachments } from '../../target/attachments';
 import { listMaster, type ClientRow, type ExpenseCategoryGroupRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
 import {
-  assignFreightToPurchase, cancelSupplierInstrument, listAccountPostings, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
+  assignFreightToPurchase, cancelSupplierInstrument, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
   listInstruments, listLedgerBalances, listPnlMonths, listPrecutCandidates, listSupplierLedger, listPurchases, markInstrumentDebitedPrecut, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
-  registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listTransfers, listBankTaxPeriods, transferWithBankTax,
+  registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listBankTaxPeriods, transferWithBankTax,
 } from '../../target/treasury';
-import { listMovementHistory, type MovementFilter } from '../../target/movementHistory';
+import { listMovements, type MovementFilter } from '../../target/movementHistory';
+import { cancelTransferIntent, linkTransferIntent, listTransferIntents, listUnrelatedTaxes, registerTransferIntent, relateBankTax } from '../../target/transferIntents';
 
 const TREASURY = ['treasury'];
 const BALANCES = ['treasury', 'balances'];
@@ -20,9 +21,29 @@ function useRefresh() {
   return () => Promise.all([TREASURY, ['commercial', 'balances'], ['fiscal'], ['pnl']].map((queryKey) => qc.invalidateQueries({ queryKey })));
 }
 
-/** 0113: one page of the unified history (server filters, page and total); refreshed with every treasury operation. */
-export function useMovementHistory(filter: MovementFilter, page: number) {
-  return useQuery({ queryKey: ['treasury', 'movements', filter, page], queryFn: () => listMovementHistory(supabase, filter, page), placeholderData: keepPreviousData });
+/** 0116: one page of Caja → Movimientos (operations with state and evidence, bank lines to resolve, Por resolver filters). */
+export function useMovementList(filter: MovementFilter, page: number) {
+  return useQuery({ queryKey: ['treasury', 'movement-list', filter, page], queryFn: () => listMovements(supabase, filter, page), placeholderData: keepPreviousData });
+}
+/** 0116: anticipated transfers (Mercado Pago ↔ bank) and their state. */
+export function useTransferIntents() {
+  return useQuery({ queryKey: ['treasury', 'transfer-intents'], queryFn: () => listTransferIntents(supabase) });
+}
+/** 0116: the debits/credits taxes of an account not related to any transfer (to associate instead of recording again). */
+export function useUnrelatedTaxes(accountId: string) {
+  return useQuery({ queryKey: ['treasury', 'unrelated-taxes', accountId], queryFn: () => listUnrelatedTaxes(supabase, accountId), enabled: accountId !== '' });
+}
+/** 0116: register / link / cancel an anticipated transfer and associate a recorded tax. Linking creates the transfer through a Mercado Pago route: MP lists refresh too. */
+export function useTransferIntentMutations() {
+  const qc = useQueryClient();
+  const refresh = () => Promise.all([TREASURY, ['mp-activity'], ['mp-payout-matches'], ['mp-pending'], ['bank-reconciliation'], ['pnl'], ['commercial', 'balances']]
+    .map((queryKey) => qc.invalidateQueries({ queryKey })));
+  return {
+    register: useMutation({ mutationFn: (p: Parameters<typeof registerTransferIntent>[1]) => registerTransferIntent(supabase, p), onSuccess: refresh }),
+    link: useMutation({ mutationFn: (p: Parameters<typeof linkTransferIntent>[1]) => linkTransferIntent(supabase, p), onSettled: refresh }),
+    cancel: useMutation({ mutationFn: (p: Parameters<typeof cancelTransferIntent>[1]) => cancelTransferIntent(supabase, p), onSuccess: refresh }),
+    relateTax: useMutation({ mutationFn: (p: Parameters<typeof relateBankTax>[1]) => relateBankTax(supabase, p), onSuccess: refresh }),
+  };
 }
 export function useLedgerBalances(ledger: 'ACCOUNT' | 'SUPPLIER') {
   return useQuery({ queryKey: [...BALANCES, ledger], queryFn: () => listLedgerBalances(supabase, ledger) });
@@ -30,9 +51,6 @@ export function useLedgerBalances(ledger: 'ACCOUNT' | 'SUPPLIER') {
 /** Lote 3A: the supplier-ledger movements of one supplier (supplier ficha). */
 export function useSupplierLedger(supplierId: string) {
   return useQuery({ queryKey: [...BALANCES, 'supplier-ledger', supplierId], queryFn: () => listSupplierLedger(supabase, supplierId), enabled: supplierId !== '' });
-}
-export function useAccountPostings(accountId: string) {
-  return useQuery({ queryKey: [...TREASURY, 'postings', accountId], queryFn: () => listAccountPostings(supabase, accountId), enabled: accountId !== '' });
 }
 export function useInstruments() {
   return useQuery({ queryKey: INSTRUMENTS, queryFn: () => listInstruments(supabase) });
@@ -46,9 +64,6 @@ export function usePurchases() {
 }
 export function useFreight() {
   return useQuery({ queryKey: FREIGHT, queryFn: () => listFreight(supabase) });
-}
-export function useTransfers() {
-  return useQuery({ queryKey: ['treasury', 'transfers'], queryFn: () => listTransfers(supabase) });
 }
 export function useBankTaxPeriods() {
   return useQuery({ queryKey: ['treasury', 'bank-tax'], queryFn: () => listBankTaxPeriods(supabase) });

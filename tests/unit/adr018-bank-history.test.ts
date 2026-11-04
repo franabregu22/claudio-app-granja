@@ -79,19 +79,20 @@ describe('ADR-018 bank history in Caja — data', () => {
   });
 });
 
-describe('ADR-018 bank history in Caja — screen', () => {
-  const detalle = SRC('features/caja/CuentaDetalle.tsx');
-  it('Caja → Movimientos opens an account; its detail has ERP and bank tabs (bank tab only for bank accounts)', () => {
+describe('ADR-018 bank history in Caja — screen (0116: one list)', () => {
+  const lista = SRC('features/caja/MovimientosHistoricos.tsx');
+  it('Caja → Movimientos: an account card filters the one list; the ERP balance source is unchanged; no per-account tabs', () => {
     const saldos = SRC('features/caja/Movimientos.tsx');
-    expect(saldos).toMatch(/<CuentaDetalle key=\{c\.id\} cuenta=\{c\} saldo=\{porCuenta\.get\(c\.id\)\?\.balance \?\? null\}/);
-    expect(saldos).toMatch(/useLedgerBalances\('ACCOUNT'\)/);   // the ERP balance source is unchanged
-    expect(detalle).toMatch(/\['erp', 'Movimientos ERP'\], \.\.\.\(esBanco \? \[\['banco', 'Movimientos bancarios'\]\] : \[\]\),/);
-    expect(detalle).toMatch(/const esBanco = cuenta\.account_type === 'BANK_ACCOUNT'/);
+    expect(saldos).toMatch(/onClick=\{\(\) => setCuentaId\(activa \? '' : x\.id\)\}/);
+    expect(saldos).toMatch(/<MovimientosHistoricos cuentas=\{lista\} cuentaId=\{cuentaId\}/);
+    expect(saldos).toMatch(/useLedgerBalances\('ACCOUNT'\)/);
+    expect(saldos + lista).not.toMatch(/Movimientos ERP|'Movimientos bancarios'|CuentaDetalle/);
   });
-  it('the bank history is read-only: no write, no RPC, no reconciliation or cut action', () => {
-    expect(detalle).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.upsert\(|\.delete\(|useReconciliationMutations|useTreasuryMutations|matchStatementLine|resolveStatementCutover/);
-    expect(detalle).not.toMatch(/>Conciliar<|Definir corte|Revertir conciliación/);
-    expect(detalle).toMatch(/needsCutoverNotice\(lineas\) && .*CUTOVER_NOTICE/);
-    expect(detalle).toMatch(/no modifican el saldo ERP/);
+  it('bank lines are evidence: shown in their operation or as a line to resolve, never written from the list (no match, cut or reversal here)', () => {
+    expect(lista).not.toMatch(/\.rpc\(|\.insert\(|\.update\(|\.upsert\(|\.delete\(|useReconciliationMutations|useTreasuryMutations|matchStatementLine|resolveStatementCutover/);
+    expect(lista).not.toMatch(/>Conciliar<|Definir corte|Revertir conciliación/);
+    expect(lista).toMatch(/Evidencia bancaria \(extracto\)/);
+    expect(lista).toMatch(/no cambia el saldo ERP/);
+    expect(lista).toMatch(/Resolver en Extractos/);
   });
 });

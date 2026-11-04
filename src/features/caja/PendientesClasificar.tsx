@@ -2,19 +2,17 @@ import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import { isMercadoPagoAccount, type MpActivityRow, type MpPayoutMatch } from '../../target/mpActivity';
 import {
-  DESTINATION_STATUS_LABEL, HISTORICAL_ACTION, type MpWhatsappNote, whatsappNoteText, HISTORICAL_PENDING_NOTE, maskedAccount, PAGE_SIZE, PENDING_BALANCE_NOTE, PENDING_KIND_LABEL,
-  type PendingRow, type PendingScope, TECHNICAL_ISSUE_LABEL, type TechnicalRow,
+  DESTINATION_STATUS_LABEL, HISTORICAL_ACTION, whatsappNoteText, maskedAccount, PENDING_KIND_LABEL, TECHNICAL_ISSUE_LABEL, type TechnicalRow,
 } from '../../target/pendingClassification';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
-import { ClasificarSalida, DestinoRetiro } from './CuentaDetalle';
+import { ClasificarSalida, DestinoRetiro } from './AccionesMp';
 import {
-  useMpPayoutMatches, useMpWhatsappNotes, usePendingPage, usePendingSummary, usePurchaseMpLinks, useRetryProvisional, useSettlePurchaseMp, useTechnicalReview,
+  useMpPayoutMatches, useMpWhatsappNotes, usePendingBySource, usePurchaseMpLinks, useRetryProvisional, useSettlePurchaseMp, useTechnicalReview,
 } from './useMpActivity';
 import { Comprobantes } from './Comprobantes';
 import { useDocumentLinks } from './useInvoicePayments';
-import type { DocumentLinkRow } from '../../target/documents';
 import { type PurchaseMpLinkRow, samePendingAmount } from '../../target/purchaseMpLink';
 
 const hora = (ts: string | null) => (ts ? new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' }) : '');
@@ -26,24 +24,15 @@ function useMpAccountId(): string {
 }
 
 /**
- * Caja → Pendientes de clasificar (ADR-021 / ADR-023): mandatory outflows only, current and historical listed apart and
- * paginated (the historical volume can never hide a current pending). A current row is classified through the existing
- * server-side routes from its SOURCE_ID; a historical row shows its destination status and no action yet. Technical exceptions
- * are listed apart.
+ * Caja → Movimientos → Por resolver → Pendientes de clasificar (0116): the pending outflows are rows of the movement list (their
+ * action is AccionPendienteMp); what is not a movement row stays here as a notice: purchases already recorded as paid with Mercado
+ * Pago whose movement is still to link (Lote 4) and the technical exceptions.
  */
-export function PendientesClasificar() {
-  const resumen = usePendingSummary();
+export function AvisosPendientesMp() {
   const tecnicos = useTechnicalReview();
-  const mpId = useMpAccountId();
-  const coincidencias = useMpPayoutMatches(mpId);
-  const matches: ReadonlyMap<string, MpPayoutMatch> = coincidencias.data ?? new Map();
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <GastosMpPendientes />
-      <ListaPendientes scope="current" titulo="Pendientes actuales" nota={PENDING_BALANCE_NOTE} matches={matches}
-        total={resumen.data?.PENDING_CURRENT} />
-      <ListaPendientes scope="historical" titulo="Pendientes históricos (antes del corte)" nota={HISTORICAL_PENDING_NOTE} matches={matches}
-        total={resumen.data?.PENDING_HISTORICAL} />
       <RevisionTecnica filas={tecnicos.data ?? []} cargando={tecnicos.isLoading} error={tecnicos.error} />
     </div>
   );
@@ -109,43 +98,6 @@ function FilaGastoMp({ f }: { f: PurchaseMpLinkRow }) {
   );
 }
 
-function ListaPendientes({ scope, titulo, nota, matches, total }: {
-  scope: PendingScope; titulo: string; nota: string; matches: ReadonlyMap<string, MpPayoutMatch>; total?: { count: number; amount: number };
-}) {
-  const [pagina, setPagina] = useState(0);
-  const q = usePendingPage(scope, pagina);
-  const filas = q.data?.rows ?? [];
-  const notas = useMpWhatsappNotes(scope === 'current' ? filas.map((r) => r.source_id) : []);
-  const docs = useDocumentLinks('MP_PENDING_OUTFLOW', scope === 'current' ? filas.map((r) => r.source_id) : []);   // ADR-025 stage 4
-  const cantidad = q.data?.total ?? 0;
-  const paginas = Math.max(1, Math.ceil(cantidad / PAGE_SIZE));
-  return (
-    <section className="space-y-2" aria-label={titulo}>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-semibold text-[#3D3424]">{titulo}{total ? `: ${total.count} · ${formatoPesos(Math.abs(total.amount))}` : ''}</p>
-        <p className="text-xs text-[#6B5D45]">{nota}</p>
-      </div>
-      {q.isLoading ? <p className="text-sm text-gray-500">Cargando pendientes...</p>
-        : q.error ? <p className="text-sm text-red-700">{errorMessage(q.error)}</p>
-          : cantidad === 0 ? <p className="text-sm text-green-800">Todo clasificado.</p> : (
-            <>
-              <div className="overflow-x-auto bg-white rounded-lg border border-[#E4DCC8]">
-                <table className="w-full text-sm" aria-label={titulo}>
-                  <thead><tr className="text-left text-xs text-[#8A7A5C] border-b border-[#E4DCC8]">
-                    <th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Cuenta</th><th className="px-3 py-2 text-right">Importe</th>
-                    <th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Nº Mercado Pago</th><th className="px-3 py-2">Destino</th>
-                    <th className="px-3 py-2">Estado</th><th className="px-3 py-2">Acción requerida</th>
-                  </tr></thead>
-                  <tbody>{filas.map((r) => <FilaPendiente key={r.pending_key} r={r} matches={matches} nota={notas.data?.get(r.source_id)} docs={docs.data?.get(r.source_id)} />)}</tbody>
-                </table>
-              </div>
-              <Paginador pagina={pagina} paginas={paginas} total={cantidad} onCambiar={setPagina} />
-            </>
-          )}
-    </section>
-  );
-}
-
 export function Paginador({ pagina, paginas, total, onCambiar }: { pagina: number; paginas: number; total: number; onCambiar: (p: number) => void }) {
   if (paginas <= 1) return <p className="text-xs text-[#8A7A5C]">{total} en total</p>;
   return (
@@ -157,45 +109,47 @@ export function Paginador({ pagina, paginas, total, onCambiar }: { pagina: numbe
   );
 }
 
-function FilaPendiente({ r, matches, nota, docs }: { r: PendingRow; matches: ReadonlyMap<string, MpPayoutMatch>; nota?: MpWhatsappNote; docs?: DocumentLinkRow[] }) {
-  const actividad = { description: r.description, source_id: r.source_id, coverage_status: 'PENDING_CLASSIFICATION' } as MpActivityRow;
+/**
+ * 0116 — the action of a pending outflow inside its Caja → Movimientos row, read by SOURCE_ID: a current outflow is classified through
+ * the existing routes (outbound: Clasificar salida; payout: its destination and Confirmar transferencia); a historical one shows its
+ * destination status and no action yet. Nothing here moves money: the outflow is already in the balance.
+ */
+export function AccionPendienteMp({ sourceId }: { sourceId: string }) {
+  const q = usePendingBySource(sourceId);
+  const r = q.data;
+  const actual = r && !r.is_historical ? [r.source_id] : [];
+  const notas = useMpWhatsappNotes(actual);
+  const docs = useDocumentLinks('MP_PENDING_OUTFLOW', actual);   // ADR-025 stage 4
+  const mpId = useMpAccountId();
+  const coincidencias = useMpPayoutMatches(r?.kind === 'PAYOUT' ? mpId : '');
+  const matches: ReadonlyMap<string, MpPayoutMatch> = coincidencias.data ?? new Map();
   const gastosMp = usePurchaseMpLinks();
+  if (q.isLoading) return <p className="text-xs text-gray-500">Buscando el pendiente...</p>;
+  if (q.error) return <p className="text-xs text-red-700">{errorMessage(q.error)}</p>;
+  if (!r) return <p className="text-xs text-green-800">Ya clasificado.</p>;
+  const nota = notas.data?.get(r.source_id);
+  const doc = docs.data?.get(r.source_id);
+  const actividad = { description: r.description, source_id: r.source_id, coverage_status: 'PENDING_CLASSIFICATION' } as MpActivityRow;
   const posibles = r.is_historical ? [] : samePendingAmount(gastosMp.data ?? [], r.economic_amount);
   const destino = r.destination_status ? DESTINATION_STATUS_LABEL[r.destination_status] : null;
   const cuenta = r.matched_account_name ?? maskedAccount(r.destination_last4);
   return (
-    <tr className="border-b border-stone-100 last:border-0 align-top">
-      <td className="px-3 py-2 whitespace-nowrap">{formatearFechaLocal(r.business_date)} <span className="text-[#8A7A5C]">{hora(r.occurred_at)}</span></td>
-      <td className="px-3 py-2 whitespace-nowrap">{r.account_name}</td>
-      <td className="px-3 py-2 text-right whitespace-nowrap font-medium text-red-700">
-        {formatoPesos(r.amount)}
-        {r.charges_amount !== 0 && (
-          <p className="text-[11px] text-[#8A7A5C] font-normal">{formatoPesos(r.economic_amount)} + impuesto {formatoPesos(Math.abs(r.charges_amount))}</p>
-        )}
-      </td>
-      <td className="px-3 py-2 whitespace-nowrap">{PENDING_KIND_LABEL[r.kind]}{r.is_historical && <span className="text-[11px] text-[#8A7A5C]"> · histórico</span>}
-        {nota && (
-          <p className="text-[11px] text-[#2C5E3A] whitespace-normal mt-0.5" title={`Confirmado por WhatsApp el ${formatearFechaLocal(nota.confirmed_at.slice(0, 10))}; no generó otro movimiento`}>
-            {whatsappNoteText(nota)}
-          </p>
-        )}
-        {docs && <div className="mt-0.5"><Comprobantes docs={docs} /></div>}
-      </td>
-      <td className="px-3 py-2 whitespace-nowrap text-[#8A7A5C]">{r.source_id}</td>
-      <td className="px-3 py-2">{destino ? <>{destino}{cuenta && <span className="text-[#8A7A5C]"> · {cuenta}</span>}</> : <span className="text-[#8A7A5C]">—</span>}</td>
-      <td className="px-3 py-2">
-        <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-900">Pendiente de clasificar</span>
-        <p className="text-[11px] text-[#8A7A5C] mt-0.5">Ya incluido en el saldo</p>
-      </td>
-      <td className="px-3 py-2">
-        {r.is_historical ? <span className="text-xs text-[#8A7A5C]">{HISTORICAL_ACTION}</span> : (
-          <>
-            {r.kind === 'OUTBOUND' && <ClasificarSalida sourceId={r.source_id} conceptoInicial={nota?.concept} gastosMpPendientes={posibles} />}
-            {r.kind === 'PAYOUT' && <DestinoRetiro r={actividad} matches={matches} />}
-          </>
-        )}
-      </td>
-    </tr>
+    <div className="space-y-1 text-sm" aria-label="Clasificación pendiente">
+      <p>
+        {PENDING_KIND_LABEL[r.kind]} · Nº Mercado Pago {r.source_id} · {formatearFechaLocal(r.business_date)} {hora(r.occurred_at)}
+        {r.is_historical && <span className="text-[#8A7A5C]"> · histórico</span>}
+        {r.charges_amount !== 0 && <span className="text-[#8A7A5C]"> · {formatoPesos(r.economic_amount)} + impuesto {formatoPesos(Math.abs(r.charges_amount))}</span>}
+        {destino && <span className="text-[#8A7A5C]"> · Destino: {destino}{cuenta ? ` · ${cuenta}` : ''}</span>}
+      </p>
+      {nota && <p className="text-xs text-[#2C5E3A]" title={`Confirmado por WhatsApp el ${formatearFechaLocal(nota.confirmed_at.slice(0, 10))}; no generó otro movimiento`}>{whatsappNoteText(nota)}</p>}
+      {doc && <Comprobantes docs={doc} />}
+      {r.is_historical ? <p className="text-xs text-[#8A7A5C]">{HISTORICAL_ACTION}</p> : (
+        <div>
+          {r.kind === 'OUTBOUND' && <ClasificarSalida sourceId={r.source_id} conceptoInicial={nota?.concept} gastosMpPendientes={posibles} />}
+          {r.kind === 'PAYOUT' && <DestinoRetiro r={actividad} matches={matches} />}
+        </div>
+      )}
+    </div>
   );
 }
 

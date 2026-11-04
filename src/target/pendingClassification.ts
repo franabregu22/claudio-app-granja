@@ -45,6 +45,12 @@ export async function listPendingPage(client: SupabaseClient, scope: PendingScop
   return { rows: r.rows.map(toPending), total: r.total, page, pageSize };
 }
 
+/** 0116: one pending outflow by its SOURCE_ID (the row action of Caja → Movimientos), or null when it is no longer pending. */
+export async function getPendingBySource(client: SupabaseClient, sourceId: string): Promise<PendingRow | null> {
+  const r = await readViewPage<PendingRow>(client, 'fin_mp_pending_classification', (q) => q.eq('source_id', sourceId).order('pending_key'), PENDING_COLUMNS, 0, 1);
+  return r.rows[0] ? toPending(r.rows[0]) : null;
+}
+
 export type SummaryBucket = 'PENDING_CURRENT' | 'PENDING_HISTORICAL' | 'UNLINKED_CURRENT' | 'UNLINKED_HISTORICAL';
 export type PendingSummary = Record<SummaryBucket, { count: number; amount: number }>;
 /** Server-side counts / totals (never computed by downloading rows). */
@@ -81,6 +87,13 @@ export function searchClause(search: string | undefined): string | null {
   if (/^[0-9]{1,20}$/.test(s)) return `source_id.like.*${s}*`;
   const safe = s.replace(/[^\p{L}\p{N} ._-]/gu, '').trim();
   return safe === '' ? null : `description.ilike.*${safe}*`;
+}
+
+/** 0116: one unlinked inflow by its movement (the row action of Caja → Movimientos), or null when it is linked by now. */
+export async function getUnlinkedByMovement(client: SupabaseClient, movementId: number): Promise<UnlinkedInflowRow | null> {
+  const r = await readViewPage<UnlinkedInflowRow>(client, 'fin_mp_unlinked_inflows', (q) => q.eq('movement_id', movementId).order('movement_id'), UNLINKED_COLUMNS, 0, 1);
+  const x = r.rows[0];
+  return x ? { ...x, movement_id: Number(x.movement_id), amount: num(x.amount), net_amount: num(x.net_amount), allocated_amount: num(x.allocated_amount), remaining_amount: num(x.remaining_amount) } : null;
 }
 
 /** One page of the unlinked inflows, newest first (deterministic: date, then movement). */

@@ -114,7 +114,8 @@ describe('ADR-025 stage 3 — authorization surface and no double financial impa
     expect(modulesFor('OPERATOR')).not.toContain('caja');
     expect(modulesFor(null)).toEqual([]);
     expect(SRC('features/caja/CajaApp.tsx')).toMatch(/rol !== 'ADMIN'/);
-    expect(SRC('features/caja/PorResolver.tsx')).toMatch(/<GastosSinClasificar onVerPendientesMp=/);
+    expect(SRC('features/caja/PorResolver.tsx')).toMatch(/id: 'GASTO_SIN_CLASIFICAR', titulo: 'Gastos sin clasificar'/);
+    expect(SRC('features/caja/MovimientosHistoricos.tsx')).toMatch(/<AccionGastoSinClasificar pendingId=\{r\.pending\.pending_id\} \/>/);
   });
 
   it('P&L: GASTOS_SIN_CLASIFICAR is shown as a component of the operating result, read from the server, never re-added', async () => {
@@ -147,10 +148,11 @@ describe('ADR-025 stage 3 — WhatsApp notes on the Mercado Pago pending outflow
 
   it('the pending screen only reads the notes (no write, no MP classification RPC added) and pre-fills the existing route with the concept', () => {
     const code = SRC('features/caja/PendientesClasificar.tsx');
-    expect(code).toMatch(/useMpWhatsappNotes\(scope === 'current'/);
+    expect(code).toMatch(/const actual = r && !r\.is_historical \? \[r\.source_id\] : \[\];/);
+    expect(code).toMatch(/useMpWhatsappNotes\(actual\)/);
     expect(code).toMatch(/<ClasificarSalida sourceId=\{r\.source_id\} conceptoInicial=\{nota\?\.concept\}( gastosMpPendientes=\{posibles\})? \/>/);
     expect(SRC('target/pendingClassification.ts')).not.toMatch(/\.(insert|update|upsert|delete)\(/);
     // applied when the form opens (the note arrives after the row is mounted — found in the browser walkthrough)
-    expect(SRC('features/caja/CuentaDetalle.tsx')).toMatch(/if \(concepto === '' && conceptoInicial\) setConcepto\(conceptoInicial\); setAbierto\(true\);/);
+    expect(SRC('features/caja/AccionesMp.tsx')).toMatch(/if \(concepto === '' && conceptoInicial\) setConcepto\(conceptoInicial\); setAbierto\(true\);/);
   });
 });
