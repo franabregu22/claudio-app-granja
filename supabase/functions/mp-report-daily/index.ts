@@ -34,6 +34,19 @@ const deps: DailyDeps = {
     return rows.length === 1 ? rows[0] : null;
   },
   recordSchedule: async (r) => Number(await rpc('fin_record_mp_report_schedule', r)),
+  // the same "processed" rule as findProcessedRun (NORMAL, PARSED, one single day), for the catch-up of missed days
+  processedDays: async (accountId, from, to) => {
+    const rows = await select<{ coverage_from: string; coverage_to: string }>('fin_import_run',
+      `select=coverage_from,coverage_to&source_kind=eq.MP_RELEASE_REPORT&mode=eq.NORMAL&status=eq.PARSED&financial_account_id=eq.${encodeURIComponent(accountId)}` +
+        `&coverage_from=gte.${from}&coverage_from=lte.${to}&order=coverage_from.asc&limit=1000`);
+    return rows.filter((r) => r.coverage_from === r.coverage_to).map((r) => r.coverage_from);
+  },
+  firstProcessedDay: async (accountId) => {
+    const rows = await select<{ coverage_from: string; coverage_to: string }>('fin_import_run',
+      `select=coverage_from,coverage_to&source_kind=eq.MP_RELEASE_REPORT&mode=eq.NORMAL&status=eq.PARSED&financial_account_id=eq.${encodeURIComponent(accountId)}` +
+        `&order=coverage_from.asc&limit=50`);
+    return rows.find((r) => r.coverage_from === r.coverage_to)?.coverage_from ?? null;
+  },
 };
 
 Deno.serve((req) => {

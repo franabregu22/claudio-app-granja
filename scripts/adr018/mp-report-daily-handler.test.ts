@@ -95,6 +95,11 @@ function harness(o: Opts = {}) {
       return Promise.resolve(r ? { outcome: r.p_outcome, task_id: r.p_task_id, error_code: r.p_error_code } : null);
     },
     recordSchedule: (r) => { if (o.recordFails) return Promise.reject(new Error('db down')); records.push(r); return Promise.resolve(records.length); },
+    // catch-up of missed days (mp-report-daily-backfill.test.ts): here the history is only what these tests ingest
+    processedDays: (acc, from, to) => Promise.resolve([...runs.values()].filter((r) => r.financial_account_id === acc && r.status === 'PARSED'
+      && r.coverage_from !== null && r.coverage_from >= from && r.coverage_from <= to).map((r) => r.coverage_from as string)),
+    firstProcessedDay: (acc) => Promise.resolve([...runs.values()].filter((r) => r.financial_account_id === acc && r.status === 'PARSED')
+      .map((r) => r.coverage_from as string).sort()[0] ?? null),
   };
   return { deps, calls, bodies, storage, runs, ingests, records, logs, setAnswers: (a: string[]) => { answers.splice(0, answers.length, ...a); polls = 0; } };
 }

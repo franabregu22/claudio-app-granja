@@ -45,6 +45,10 @@ export interface DailyDeps extends ReportDeps {
   lastTaskSchedule(date: string): Promise<ScheduleEntry | null>;
   /** fin_record_mp_report_schedule; returns the log id. */
   recordSchedule(r: ScheduleRecord): Promise<number>;
+  /** The days in [from, to] that hold an effective NORMAL run (status PARSED) of the MP account. */
+  processedDays(accountId: string, from: string, to: string): Promise<string[]>;
+  /** The first day the integration processed for the MP account (its earliest PARSED NORMAL single-day run), or null. */
+  firstProcessedDay(accountId: string): Promise<string | null>;
 }
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -65,6 +69,52 @@ function counters(summary: ReportSummary | null, effects: unknown): Record<strin
 /** The code of a file-level reject reason ("HEADER_MISMATCH: …" → REPORT_REJECTED:HEADER_MISMATCH); no report content. */
 const rejectCode = (reason: unknown) => `REPORT_REJECTED:${(/^([A-Z][A-Z_]+)/.exec(String(reason ?? '')) ?? [])[1] ?? 'UNKNOWN'}`;
 
+/**
+ * Catch-up of missed days (2026-11 incident: the 29/10 task stayed MP_TASK_PREPARING through every slot of 30/10 and the next day
+ * the scheduler moved on to 30/10 — the 29/10 report was never requested again). After the previous day, each execution looks back
+ * BACKFILL_LOOKBACK_DAYS days (never before the first day this integration processed) for days with no effective NORMAL run and
+ * processes at most MAX_BACKFILL_PER_EXECUTION of them, oldest first, through the same per-day path (its live task is resumed,
+ * never replaced; ALREADY_PROCESSED protects a concurrent execution). The rest wait for the next execution. A day is complete only
+ * with a PARSED NORMAL run (an empty day included: its run holds the CONTROL rows). Nothing is compensated: each report brings the
+ * real rows of its own day.
+ */
+export const BACKFILL_LOOKBACK_DAYS = 14;
+export const MAX_BACKFILL_PER_EXECUTION = 2;
+
+/** YYYY-MM-DD ± n calendar days (no time zone involved: the date is already the Buenos Aires business day). */
+export function shiftDay(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/** The earlier days to recover: inside the window, not before the integration's first processed day, not processed; oldest first. */
+export function missingDays(previous: string, firstProcessed: string | null, processed: ReadonlySet<string>, lookback = BACKFILL_LOOKBACK_DAYS): string[] {
+  if (firstProcessed === null) return [];   // the integration never processed a day: nothing to catch up
+  const from = [shiftDay(previous, -lookback), firstProcessed].sort()[1];
+  const out: string[] = [];
+  for (let d = from; d < previous; d = shiftDay(d, 1)) if (!processed.has(d)) out.push(d);
+  return out;
+}
+
+interface DayResult { schedule_id: number | null; target_date: string; outcome: Outcome; run_id: string | null; task_id: string | null; error_code: string | null; summary: Record<string, number> }
+
+/** One day: execute, then record it in the scheduler log (its own row: the next execution resumes that day's task from it). */
+async function runDay(deps: DailyDeps, date: string, t0: number): Promise<DayResult & { recordFailed: boolean }> {
+  let rec: ScheduleRecord;
+  try {
+    rec = await execute(deps, date, t0);
+  } catch {
+    rec = { p_target_date: date, p_outcome: 'FAILED', p_run_id: null, p_task_id: null, p_error_code: 'INTERNAL', p_summary: {} };
+  }
+  const out = { target_date: date, outcome: rec.p_outcome, run_id: rec.p_run_id, task_id: rec.p_task_id, error_code: rec.p_error_code, summary: rec.p_summary };
+  try {
+    return { ...out, schedule_id: await deps.recordSchedule(rec), recordFailed: false };
+  } catch {
+    deps.log({ event: 'daily', status: 500, date, outcome: rec.p_outcome, code: 'SCHEDULE_RECORD_FAILED', run_id: rec.p_run_id ?? undefined });
+    return { ...out, schedule_id: null, recordFailed: true };
+  }
+}
+
 export async function handleDaily(req: Request, deps: DailyDeps): Promise<Response> {
   const t0 = deps.now();
   if (req.method !== 'POST') { await req.body?.cancel(); return json(405, { error: 'METHOD_NOT_ALLOWED' }); }
@@ -73,28 +123,38 @@ export async function handleDaily(req: Request, deps: DailyDeps): Promise<Respon
     deps.log({ event: 'refused', status: 401, code: 'UNAUTHORIZED' });
     return json(401, { error: 'UNAUTHORIZED' });
   }
-  await req.body?.cancel();   // the body is never read: the target day is not a caller choice
+  await req.body?.cancel();   // the body is never read: the target days are not a caller choice
   const date = previousBusinessDay(t0);
 
-  let rec: ScheduleRecord;
+  // 1. the previous day, exactly as before
+  const main = await runDay(deps, date, t0);
+  if (main.recordFailed) return json(500, { error: 'SCHEDULE_RECORD_FAILED', target_date: date, outcome: main.outcome, run_id: main.run_id });
+  const status = main.outcome === 'FAILED' ? 502 : main.outcome === 'PENDING' ? 202 : 200;
+  deps.log({ event: 'daily', status, date, outcome: main.outcome, code: main.error_code ?? undefined, run_id: main.run_id ?? undefined,
+    task: main.task_id ?? undefined, ms: Math.round(deps.now() - t0) });
+
+  // 2. earlier days still missing (bounded; a failure stops the catch-up of this execution, the next one continues)
+  const backfill: DayResult[] = [];
   try {
-    rec = await execute(deps, date, t0);
+    const account = await deps.loadMpAccount();
+    if (account && main.outcome !== 'FAILED') {
+      const from = shiftDay(date, -BACKFILL_LOOKBACK_DAYS);
+      const days = missingDays(date, await deps.firstProcessedDay(account), new Set(await deps.processedDays(account, from, shiftDay(date, -1))));
+      for (const d of days.slice(0, MAX_BACKFILL_PER_EXECUTION)) {
+        const { recordFailed, ...r } = await runDay(deps, d, t0);
+        backfill.push(r);
+        deps.log({ event: 'daily_backfill', status: r.outcome === 'FAILED' ? 502 : r.outcome === 'PENDING' ? 202 : 200, date: d, outcome: r.outcome,
+          code: r.error_code ?? undefined, run_id: r.run_id ?? undefined, task: r.task_id ?? undefined });
+        if (recordFailed || r.outcome === 'FAILED') break;
+      }
+    }
   } catch {
-    rec = { p_target_date: date, p_outcome: 'FAILED', p_run_id: null, p_task_id: null, p_error_code: 'INTERNAL', p_summary: {} };
+    deps.log({ event: 'daily_backfill', status: 500, date, code: 'BACKFILL_LOOKUP_FAILED' });   // the previous day is already done and recorded
   }
-  let scheduleId: number;
-  try {
-    scheduleId = await deps.recordSchedule(rec);
-  } catch {
-    deps.log({ event: 'daily', status: 500, date, outcome: rec.p_outcome, code: 'SCHEDULE_RECORD_FAILED', run_id: rec.p_run_id ?? undefined });
-    return json(500, { error: 'SCHEDULE_RECORD_FAILED', target_date: date, outcome: rec.p_outcome, run_id: rec.p_run_id });
-  }
-  const status = rec.p_outcome === 'FAILED' ? 502 : rec.p_outcome === 'PENDING' ? 202 : 200;
-  deps.log({ event: 'daily', status, date, outcome: rec.p_outcome, code: rec.p_error_code ?? undefined, run_id: rec.p_run_id ?? undefined,
-    task: rec.p_task_id ?? undefined, ms: Math.round(deps.now() - t0) });
+
   return json(status, {
-    schedule_id: scheduleId, target_date: date, outcome: rec.p_outcome, run_id: rec.p_run_id, task_id: rec.p_task_id,
-    error_code: rec.p_error_code, summary: rec.p_summary,
+    schedule_id: main.schedule_id, target_date: date, outcome: main.outcome, run_id: main.run_id, task_id: main.task_id,
+    error_code: main.error_code, summary: main.summary, backfill,
   });
 }
 
