@@ -66,8 +66,21 @@ type PurchaseInput = Omit<Parameters<typeof registerPurchase>[1], 'attachments'>
 export async function createPurchaseWithAttachments(client: SupabaseClient, p: PurchaseInput & {
   userId: string; files: (AttachmentFile & Blob)[]; onCleanupFailure?: (paths: string[]) => void; fiscal?: PurchaseFiscalInput | null;
 }) {
-  validateAttachments(p.files);
   const { userId, files, onCleanupFailure, fiscal, ...purchase } = p;
+  // ADR-015: with fiscal data the purchase and its document are one backend transaction (RPC 50)
+  return withUploadedAttachments(client, userId, files, (attachments) => (fiscal
+    ? registerPurchaseWithFiscal(client, { ...purchase, attachments, fiscal })
+    : registerPurchase(client, { ...purchase, attachments })), onCleanupFailure);
+}
+
+/**
+ * Upload → ONE registering RPC, with compensation (the same sequence for every expense route: register_purchase, the casual and
+ * pending-expense RPCs, register_paid_supplier_purchase). On failure the objects this attempt uploaded are removed and the ORIGINAL
+ * error is thrown.
+ */
+export async function withUploadedAttachments<T>(client: SupabaseClient, userId: string, files: (AttachmentFile & Blob)[],
+  register: (attachments: AttachmentMeta[]) => Promise<T>, onCleanupFailure?: (paths: string[]) => void): Promise<T> {
+  validateAttachments(files);
   const uploaded: AttachmentMeta[] = [];
   const compensate = async () => {
     const paths = uploaded.map((a) => a.storage_path);
@@ -85,10 +98,7 @@ export async function createPurchaseWithAttachments(client: SupabaseClient, p: P
   }
 
   try {
-    // ADR-015: with fiscal data the purchase and its document are one backend transaction (RPC 50)
-    return fiscal
-      ? await registerPurchaseWithFiscal(client, { ...purchase, attachments: uploaded, fiscal })
-      : await registerPurchase(client, { ...purchase, attachments: uploaded });
+    return await register(uploaded);
   } catch (err) {
     await compensate();
     throw err;

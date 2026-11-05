@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { NATURE_LABEL } from '../../target/expenseCategories';
+import { NATURALEZA_GASTO_LABEL, type VinculosGasto } from '../../target/expenses';
 import {
   armarGastos, buscar, coincide, contar, GASTO_ESTADO_LABEL, GASTO_FILTROS, ordenar, totalFiltro, type GastoEstado, type GastoFiltro, type GastoItem,
 } from '../../target/expenseHub';
@@ -12,6 +12,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { AsignarFleteModal, Fletes, RectificarCompraModal } from './Compras';
 import { Comprobantes } from './Comprobantes';
+import { EditarGastoModal, HistorialGasto } from './EditarGasto';
 import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { PagarGastoModal, PagosDelGasto, usePayables, VincularProveedorModal } from './GastosAPagar';
 import { AccionGastoSinClasificar } from './GastosSinClasificar';
@@ -33,6 +34,7 @@ type Accion =
   | { tipo: 'vincular'; g: PayableRow }
   | { tipo: 'fechas'; purchaseId: string; rootId: string; titulo: string; due: string | null; planned: string | null }
   | { tipo: 'rectificar'; compra: PurchaseRow }
+  | { tipo: 'editar'; compra: PurchaseRow; vinculos: VinculosGasto }
   | { tipo: 'flete'; purchaseId: string };
 
 /**
@@ -137,6 +139,7 @@ export function Gastos() {
       {accion?.tipo === 'pagar' && <PagarGastoModal gasto={accion.g} onClose={() => setAccion(null)} />}
       {accion?.tipo === 'vincular' && <VincularProveedorModal gasto={accion.g} onClose={() => setAccion(null)} />}
       {accion?.tipo === 'fechas' && <FechasPagoModal purchaseId={accion.purchaseId} rootId={accion.rootId} titulo={accion.titulo} due={accion.due} planned={accion.planned} onClose={() => setAccion(null)} />}
+      {accion?.tipo === 'editar' && <EditarGastoModal compra={accion.compra} vinculos={accion.vinculos} onClose={() => setAccion(null)} />}
       {accion?.tipo === 'rectificar' && <RectificarCompraModal compra={accion.compra} onClose={() => setAccion(null)} />}
       {accion?.tipo === 'flete' && <AsignarFleteModal purchaseId={accion.purchaseId} fletes={fletes.data ?? []} onClose={() => setAccion(null)} />}
     </div>
@@ -160,6 +163,7 @@ const boton = 'text-xs px-2 py-1 rounded border border-[#E4DCC8] bg-white hover:
 function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Parameters<typeof Comprobantes>[0]['docs']; onAccion: (a: Accion) => void }) {
   const compra = usePurchase(it.kind === 'SIN_CLASIFICAR' ? null : it.purchaseId);
   const c = compra.data;
+  const [historial, setHistorial] = useState(false);
   return (
     <div className="border-t border-[#E4DCC8] bg-[#FAF6EE]">
       {it.kind === 'FACTURA' && (
@@ -201,17 +205,44 @@ function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Parameters<
         <div className="px-4 pb-3 pt-1 text-xs text-gray-700 space-y-1">
           {compra.isLoading ? <p className="text-gray-500">Cargando detalle...</p> : compra.error ? <p className="text-red-700">{errorMessage(compra.error)}</p> : c ? (
             <>
-              <p>{c.categoria_nombre} · {NATURE_LABEL[c.nature] ?? c.nature}{c.amount_net !== c.amount_total ? ` · Neto ${formatoPesos(c.amount_net)}` : ''}
-                {c.version_seq > 0 ? ' · Rectificada' : ''}</p>
+              <p>{c.subcategory ? <b>{c.subcategory} · </b> : null}{c.categoria_nombre} · {NATURALEZA_GASTO_LABEL[c.nature] ?? c.nature}
+                {c.amount_net !== c.amount_total ? ` · Neto ${formatoPesos(c.amount_net)}` : ''}{c.version_seq > 0 ? ' · Rectificada' : ''}</p>
               {c.lineas.map((l) => <p key={l.id}>{l.cantidad} {l.unit_type} · {l.descripcion} · {formatoPesos(l.precio_unitario)} c/u</p>)}
               <span className="flex flex-wrap gap-2 pt-1">
-                <button type="button" className={boton} onClick={() => onAccion({ tipo: 'rectificar', compra: c })}>Rectificar</button>
+                <button type="button" className="text-xs px-3 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8B4423]" onClick={() => onAccion({ tipo: 'editar', compra: c, vinculos: vinculosDe(it, c) })}>Editar / Rectificar</button>
+                {c.supplier_id && c.lineas.length > 0 && !c.fiscal_document_id && <button type="button" className={boton} onClick={() => onAccion({ tipo: 'rectificar', compra: c })}>Rectificar ítems</button>}
                 <button type="button" className={boton} onClick={() => onAccion({ tipo: 'flete', purchaseId: c.id })}>Asignar flete</button>
+                <button type="button" className={boton} aria-expanded={historial} onClick={() => setHistorial((h) => !h)}>{historial ? 'Ocultar historial' : 'Historial'}</button>
               </span>
+              {historial && <HistorialGasto purchaseId={c.id} rootId={raizDe(it)} />}
             </>
           ) : null}
         </div>
       )}
     </div>
   );
+}
+
+const raizDe = (it: GastoItem) => (it.kind === 'FACTURA' ? it.factura.purchase_root_id : it.kind === 'A_PAGAR' ? it.gasto.purchase_root_id
+  : it.kind === 'MP_PENDIENTE' ? it.mp.purchase_root_id : null);
+
+/** What the row says about the expense's links and how its payment is handled (the edit form explains it; the backend enforces it). */
+function vinculosDe(it: GastoItem, c: PurchaseRow): VinculosGasto {
+  const estadoPago = GASTO_ESTADO_LABEL[it.estado];
+  const noSeDeshace = 'Un pago registrado no se deshace desde aquí (requiere revertir su movimiento).';
+  if (it.kind === 'FACTURA') {
+    const f = it.factura;
+    return { pendienteSinProveedor: false, mpVinculado: false, asignado: f.scheduled + f.debited + f.other_payments, estadoPago,
+      comoPagar: f.pending > 0.005 ? `Para pagarla: «Emitir cheques / eCheqs», o pagar desde Proveedores y luego «Imputar pago registrado». ${noSeDeshace}`
+        : `Los cheques se debitan, anulan o rechazan desde su fila. ${noSeDeshace}` };
+  }
+  if (it.kind === 'A_PAGAR') {
+    return { pendienteSinProveedor: true, mpVinculado: false, asignado: 0, estadoPago,
+      comoPagar: it.gasto.pending > 0.005 ? `Para marcarlo pagado usá «Registrar pago»; para un cheque o eCheq, primero «Vincular a proveedor». ${noSeDeshace}` : noSeDeshace };
+  }
+  if (it.kind === 'MP_PENDIENTE') {
+    return { pendienteSinProveedor: false, mpVinculado: false, asignado: 0, estadoPago: 'Pagado con Mercado Pago (falta vincular el movimiento)',
+      comoPagar: 'Se vincula a su movimiento desde Caja → Movimientos → Por resolver.' };
+  }
+  return { pendienteSinProveedor: false, mpVinculado: !c.supplier_id && !c.paid_operation_id, asignado: 0, estadoPago, comoPagar: noSeDeshace };
 }

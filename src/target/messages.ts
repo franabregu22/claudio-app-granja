@@ -162,7 +162,7 @@ const MESSAGES: Record<string, string> = {
   DUPLICATE_FISCAL_DOCUMENT: 'Ese comprobante ya está registrado para ese proveedor o emisor.',
   // ADR-019 casual purchases / Mercado Pago outflow classification
   CONCEPT_REQUIRED: 'Falta el concepto de la compra / gasto.',
-  INVALID_PAYMENT_METHOD: 'Una compra sin proveedor registrado se paga en efectivo, transferencia o Mercado Pago (no con cheque).',
+  INVALID_PAYMENT_METHOD: 'Medio de pago no válido: un gasto sin proveedor se paga en efectivo, transferencia o Mercado Pago; a un proveedor se le paga en efectivo o transferencia (Mercado Pago se clasifica desde su movimiento y los cheques se emiten desde la factura).',
   INVALID_COUNTERPARTY_NAME: 'El nombre del comercio no puede superar 120 caracteres.',
   INVALID_ISSUER: 'El CUIT del emisor del comprobante debe tener 11 dígitos.',
   INVALID_FISCAL_DOCUMENT: 'El comprobante de una compra sin proveedor necesita el CUIT del emisor.',
@@ -250,7 +250,7 @@ const MESSAGES: Record<string, string> = {
   PART_OF_CORRECTION: 'Ese cobro forma parte de una corrección de Mercado Pago y no se puede modificar.',
   COLLECTION_POSTING_NOT_FOUND: 'No se encontró el movimiento financiero del cobro.',
   BANK_MATCHED: 'Ese cobro está conciliado con el extracto bancario. Deshacé la conciliación antes de anularlo o rectificarlo.',
-  NOTHING_TO_RECTIFY: 'La rectificación es igual al cobro original: no hay nada que corregir.',
+  NOTHING_TO_RECTIFY: 'No hay cambios: lo corregido es igual a lo registrado.',
   NAME_TOO_LONG: 'El nombre o el apellido supera los 80 caracteres.',
   INVALID_NAME: 'El nombre o el apellido tiene caracteres no válidos.',
   PROFILE_NOT_FOUND: 'No se encontró el usuario.',
@@ -298,6 +298,16 @@ const MESSAGES: Record<string, string> = {
   NOT_AN_OBLIGATION: 'Solo una factura de proveedor o un gasto a pagar tiene fechas de pago.',
   INVALID_PAYMENT_DATE: 'La fecha no puede ser anterior a la del gasto, y el vencimiento no se puede borrar.',
   INVALID_REASON: 'El motivo admite hasta 500 caracteres.',
+  // 0117: Nuevo gasto pagado a un proveedor; rectificación auditada de un gasto
+  INVALID_PAYMENT_ACCOUNT: 'El efectivo se paga desde una caja y la transferencia desde una cuenta bancaria.',
+  PAYMENT_DATE_REQUIRED: 'Indicá la fecha real del pago.',
+  SUPPLIER_CHANGE_NOT_ALLOWED: 'A un gasto sin proveedor se le asigna uno desde "Vincular a proveedor" (solo si está pendiente de pago); uno ya pagado queda sin proveedor.',
+  INVOICE_NUMBER_NOT_ALLOWED: 'En un gasto sin proveedor el número de factura es el de su comprobante fiscal.',
+  PAID_EXPENSE_DATE_LOCKED: 'Un gasto ya pagado conserva la fecha de su pago.',
+  PENDING_EXPENSE_AMOUNT_LOCKED: 'El importe de un gasto pendiente sin proveedor es el de su obligación: vinculalo a un proveedor para corregirlo.',
+  MP_LINKED_AMOUNT_LOCKED: 'El gasto ya está vinculado a su movimiento de Mercado Pago y conserva su importe.',
+  PURCHASE_HAS_PAYMENTS: 'La factura tiene pagos o cheques asignados: no se puede cambiar el proveedor.',
+  FISCAL_DOCUMENT_LOCKED: 'Proveedor, importes y número de una factura con comprobante fiscal no se cambian aquí: se corrigen con una nota de crédito o débito en Fiscal.',
 };
 
 export function errorMessage(err: unknown): string {

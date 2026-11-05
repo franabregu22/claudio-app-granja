@@ -42,7 +42,9 @@ describe('ADR-024 — category → subcategory', () => {
     expect(sel).toMatch(/onNaturaleza\(defaultNatureOf\(s, id\)\)/);
     expect(sel).toMatch(/aria-label="Naturaleza"/);
     expect(sel).not.toMatch(/pnl_cost_class|'DIRECT'|'INDIRECT'|createMaster|updateMaster/);
-    expect(SRC('features/caja/Compras.tsx')).toMatch(/<SelectorCategoria subcategoriaId=\{categoriaId\} onSubcategoria=\{setCategoriaId\} naturaleza=\{naturaleza\} onNaturaleza=\{setNaturaleza\}/);
+    // Nuevo gasto (0117): category, then its own Naturaleza selector pre-filled from the subcategory default, editable for this operation
+    expect(SRC('features/caja/Compras.tsx')).toMatch(/<SelectorCategoria subcategoriaId=\{categoriaId\} onSubcategoria=\{elegirSub\}/);
+    expect(SRC('features/caja/Compras.tsx')).toMatch(/if \(id\) setNaturaleza\(defaultNatureOf\(categorias\.data \?\? \[\], id\)\)/);
     expect(SRC('features/caja/AccionesMp.tsx')).toMatch(/<SelectorCategoria compacto campo=\{SELECT_CLS\} subcategoriaId=\{categoria\} onSubcategoria=\{setCategoria\} naturaleza=\{naturaleza\} onNaturaleza=\{setNaturaleza\} \/>/);
   });
   it('M: the socios of a Retiro de socios; the withdrawal form sends the optional socio', () => {

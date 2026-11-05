@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import { ATTACHMENT_TYPES, validateAttachments } from '../../target/attachments';
-import { UNIT_TYPES, type UnitType } from '../../target/masters';
-import { FISCAL_VACIO, fiscalInput, TAX_KINDS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
+import { defaultNatureOf } from '../../target/expenseCategories';
+import { COMPROBANTE_VACIO, cuentaAdmitida, MEDIO_PAGO_LABEL, NATURALEZA_GASTO, rutaGasto, type ComprobanteForm, type EstadoPago, type MedioPago } from '../../target/expenses';
+import { cuitOrNull, fiscalInput, TAX_KINDS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
 import { type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
@@ -11,6 +12,8 @@ import { campo, etiqueta, Modal } from './Modal';
 import { SelectorCategoria } from './SelectorCategoria';
 import { useExpenseCategories, useFreight, useSuppliers, useTreasuryMutations } from './useTreasury';
 import { useInvoicePaymentStatus } from './useInvoicePayments';
+import { useRegisterExpense } from './useExpenses';
+import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { facturaRepetida, posibleDuplicado } from '../../target/expenseHub';
 
 /**
@@ -48,110 +51,179 @@ export function Fletes() {
 const LINEA_VACIA: PurchaseLineInput = { producto_id: null, feed_ingredient_id: null, descripcion: '', cantidad: 1, unit_type: 'UNIT', precio_unitario: 0 };
 
 /**
- * Nuevo gasto (Caja's floating button): a supplier expense with or without its invoice. The invoice number and the fiscal data are
- * optional; with fiscal data the purchase and its document are one transaction (Fiscal reads it). The same RPCs as the WhatsApp
- * bot, so the same duplicate controls: an invoice number already recorded for the supplier is refused by the backend and warned here.
+ * Nuevo gasto (Caja's floating button), in the owner's order: concept, supplier (or "Sin proveedor"), amount and date, category,
+ * nature, payment state, receipt / invoice (optional). Each combination goes to the existing RPC of src/target/expenses.ts — the
+ * same the WhatsApp bot uses, so the same duplicate controls (invoice number per supplier, fiscal document per issuer). "Pendiente de
+ * pago" moves no money; "Pagado" records ONE payment on its account and real date, and a Mercado Pago payment waits for its movement
+ * (never a second one). One idempotency key per opened form.
  */
 export function NuevaCompraModal({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
   const facturas = useInvoicePaymentStatus(false, 500);   // the same list as Cuentas a pagar → Gastos (shared cache)
-  const { createPurchase } = useTreasuryMutations();
+  const registrar = useRegisterExpense();
   const proveedores = useSuppliers();
   const categorias = useExpenseCategories();
-  const [proveedorId, setProveedorId] = useState('');
+  const cuentas = useFinancialAccounts();
+  const [concepto, setConcepto] = useState('');
+  const [proveedorId, setProveedorId] = useState('');   // '' = Sin proveedor
+  const [total, setTotal] = useState('');
   const [fecha, setFecha] = useState(getTodayDate());
   const [categoriaId, setCategoriaId] = useState('');
   const [naturaleza, setNaturaleza] = useState<PurchaseNature>('OPERATING');
-  const [factura, setFactura] = useState('');
-  const [neto, setNeto] = useState('');   // empty = same as total (D-WALK-3); React never derives total − IVA
-  const [total, setTotal] = useState('');
-  const [lineas, setLineas] = useState<PurchaseLineInput[]>([]);
-  const [archivos, setArchivos] = useState<File[]>([]);
-  const [errorArchivo, setErrorArchivo] = useState<unknown>(null);
-  const [notas, setNotas] = useState('');
-  const [clave] = useState(() => `CMP-${crypto.randomUUID()}`);   // idempotency: one per opened form
-  const [fiscal, setFiscal] = useState<FiscalForm>(FISCAL_VACIO);
-  const fiscalDatos = fiscalInput(fiscal, fecha);
-  const setLinea = (i: number, patch: Partial<PurchaseLineInput>) => setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
-  const lineasOk = lineas.every((l) => l.descripcion.trim() !== '' && l.cantidad > 0 && l.precio_unitario >= 0);
-  const repetida = facturaRepetida(facturas.data ?? [], proveedorId, factura);
+  const [estado, setEstado] = useState<EstadoPago>('PENDIENTE');
+  const [medio, setMedio] = useState<MedioPago>('TRANSFER');
+  const [cuentaId, setCuentaId] = useState('');
+  const [fechaPago, setFechaPago] = useState(getTodayDate());
+  const [comprobante, setComprobante] = useState<ComprobanteForm>(COMPROBANTE_VACIO);
+  const [clave] = useState(() => `GASTO-${crypto.randomUUID()}`);   // idempotency: one per opened form
+  const conProveedor = proveedorId !== '';
+  const fiscalDatos = fiscalInput(comprobante.fiscal, fecha);
+  const cuitEmisor = cuitOrNull(comprobante.cuitEmisor);
+  const cuentasMedio = (cuentas.data ?? []).filter((a) => cuentaAdmitida(medio, a.account_type));
+  const cuentaElegida = estado === 'PAGADO' ? (medio === 'MERCADOPAGO' ? cuentasMedio[0]?.id ?? '' : cuentaId) : '';
+  const ruta = rutaGasto({ supplierId: proveedorId || null, estado, medio: estado === 'PAGADO' ? medio : null, fecha, fechaPago });
+  const repetida = conProveedor && facturaRepetida(facturas.data ?? [], proveedorId, comprobante.numero);
   const parecido = !repetida && posibleDuplicado(facturas.data ?? [], proveedorId, fecha, Number(total));
-  const puede = !!user && proveedorId !== '' && categoriaId !== '' && fecha !== '' && Number(total) > 0 && !errorArchivo && lineasOk
-    && (fiscal.tipo === '' || fiscalDatos !== null) && !repetida;
-
-  function elegirArchivos(lista: FileList | null) {
-    const files = Array.from(lista ?? []);
-    setArchivos(files);
-    try { validateAttachments(files); setErrorArchivo(null); } catch (e) { setErrorArchivo(files.length ? e : null); }
-  }
+  const fiscalOk = comprobante.fiscal.tipo === '' || (fiscalDatos !== null && (conProveedor || cuitEmisor !== null));
+  const pagoOk = estado === 'PENDIENTE'
+    || (ruta !== 'PROVEEDOR_MP_NO_PERMITIDO' && cuentaElegida !== '' && (medio === 'MERCADOPAGO' || (fechaPago !== '' && fechaPago >= fecha)));
+  const puede = !!user && concepto.trim() !== '' && concepto.trim().length <= 100 && Number(total) > 0 && fecha !== '' && categoriaId !== ''
+    && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida;
+  const elegirSub = (id: string) => { setCategoriaId(id); if (id) setNaturaleza(defaultNatureOf(categorias.data ?? [], id)); };
 
   return (
-    <Modal titulo="Nuevo gasto" onClose={onClose} puedeGuardar={puede} guardando={createPurchase.isPending}
-      error={errorArchivo ?? createPurchase.error ?? proveedores.error ?? categorias.error} textoGuardar="Registrar gasto"
-      onSubmit={() => createPurchase.mutate({
-        userId: user!.id, files: archivos, supplierId: proveedorId, economicDate: fecha, amountNet: neto === '' ? Number(total) : Number(neto),
-        amountTotal: Number(total), categoryId: categoriaId, subcategory: null, nature: naturaleza, lines: lineas.map((l) => ({ ...l, descripcion: l.descripcion.trim() })),
-        idempotencyKey: clave, invoiceNumber: factura.trim() || null, reason: notas, fiscal: fiscalDatos,
+    <Modal titulo="Nuevo gasto" onClose={onClose} puedeGuardar={puede} guardando={registrar.isPending}
+      error={comprobante.errorArchivo ?? registrar.error ?? proveedores.error ?? categorias.error ?? cuentas.error} textoGuardar="Registrar gasto"
+      onSubmit={() => registrar.mutate({
+        userId: user!.id, files: comprobante.archivos, concept: concepto, supplierId: proveedorId || null, amountTotal: Number(total), fecha,
+        categoryId: categoriaId, nature: naturaleza, estado, medio: estado === 'PAGADO' ? medio : null, accountId: cuentaElegida || null,
+        fechaPago: medio === 'MERCADOPAGO' ? fecha : fechaPago, invoiceNumber: comprobante.numero.trim() || null, fiscal: fiscalDatos,
+        cuitEmisor: conProveedor ? null : cuitEmisor, nombreEmisor: conProveedor ? null : comprobante.nombreEmisor, idempotencyKey: clave,
       }, { onSuccess: onClose })}>
+      <label className={etiqueta}>Concepto del gasto
+        <input type="text" value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={100} placeholder="Ej.: maíz, gasoil, reparación de la bomba"
+          className={`${campo} text-base`} autoFocus />
+      </label>
       <label className={etiqueta}>Proveedor
         <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className={campo}>
-          <option value="">Elegir proveedor…</option>
+          <option value="">Sin proveedor</option>
           {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
       </label>
-      {(proveedores.data ?? []).length === 0 && !proveedores.isLoading && !proveedores.error && <p className="text-xs text-[#8A7A5C]">No hay proveedores activos: cargalo primero en Admin → Proveedores.</p>}
+      {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo después con cheque o eCheq habrá que vincularlo a un proveedor.</p>}
       <div className="grid grid-cols-2 gap-2">
+        <label className={etiqueta}>Importe total
+          <input type="number" min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
+        </label>
         <label className={etiqueta}>Fecha
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
         </label>
-        <label className={etiqueta}>Nº de factura (opcional)
-          <input type="text" value={factura} onChange={(e) => setFactura(e.target.value)} className={campo} />
-        </label>
       </div>
-      {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Cuentas a pagar → Gastos en lugar de cargarla de nuevo.</p>}
-      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={setCategoriaId} naturaleza={naturaleza} onNaturaleza={setNaturaleza}
-        campo={campo} etiqueta={etiqueta} />
-      <label className={etiqueta}>Total
-        <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
-      </label>
       {parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
-      <label className={etiqueta}>Notas (opcional)
-        <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
-      </label>
-      <label className={etiqueta}>Comprobante (opcional)
-        <input type="file" multiple accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => elegirArchivos(e.target.files)} className={campo} />
-        <span className="block text-xs text-gray-500">PDF, JPG, PNG o WebP; hasta 10 MB.</span>
-      </label>
-      <details className="border border-[#E4DCC8] rounded-lg p-2">
-        <summary className="text-sm text-[#8A6A2E] cursor-pointer">Detalle de ítems (opcional)</summary>
-        <div className="flex justify-end">
-          <button type="button" onClick={() => setLineas((ls) => [...ls, LINEA_VACIA])} className="text-xs text-[#A8552E] hover:underline">+ Agregar ítem</button>
+      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta} />
+      <SelectorNaturaleza value={naturaleza} onChange={setNaturaleza} />
+      <fieldset className="space-y-2">
+        <legend className={etiqueta}>Estado del pago</legend>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Estado del pago">
+          {(['PENDIENTE', 'PAGADO'] as const).map((e) => (
+            <button key={e} type="button" role="radio" aria-checked={estado === e} onClick={() => setEstado(e)}
+              className={`py-2 rounded-lg text-sm font-medium border ${estado === e ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-gray-700 border-gray-300'}`}>
+              {e === 'PENDIENTE' ? 'Pendiente de pago' : 'Pagado'}
+            </button>
+          ))}
         </div>
-        {lineas.map((l, i) => (
-          <div key={i} className="border border-[#E4DCC8] rounded-lg p-2 mt-2 space-y-1">
-            <input type="text" placeholder="Descripción" value={l.descripcion} onChange={(e) => setLinea(i, { descripcion: e.target.value })} className={campo} />
-            <div className="grid grid-cols-3 gap-2">
-              <input type="number" min="0" step="0.0001" value={l.cantidad} onChange={(e) => setLinea(i, { cantidad: Number(e.target.value) })} className={campo} />
-              <select value={l.unit_type} onChange={(e) => setLinea(i, { unit_type: e.target.value as UnitType })} className={campo}>
-                {UNIT_TYPES.map((u) => <option key={u} value={u}>{u}</option>)}
-              </select>
-              <input type="number" min="0" step="0.01" value={l.precio_unitario} onChange={(e) => setLinea(i, { precio_unitario: Number(e.target.value) })} className={campo} />
+        {estado === 'PENDIENTE' ? (
+          <p className="text-xs text-[#6B5D45]">No mueve dinero. Queda en Cuentas a pagar → Gastos → Pendientes de pago.</p>
+        ) : (
+          <div className="space-y-2 border border-[#E4DCC8] rounded-lg p-2">
+            <div className="grid grid-cols-3 gap-1" role="radiogroup" aria-label="Medio de pago">
+              {(['CASH', 'TRANSFER', 'MERCADOPAGO'] as const).map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={medio === m} onClick={() => { setMedio(m); setCuentaId(''); }}
+                  className={`py-1.5 rounded text-xs font-medium ${medio === m ? 'bg-amber-600 text-white' : 'bg-stone-100 text-gray-700'}`}>{MEDIO_PAGO_LABEL[m]}</button>
+              ))}
             </div>
-            <button type="button" onClick={() => setLineas((ls) => ls.filter((_, j) => j !== i))} className="text-xs text-red-700 hover:underline">Quitar</button>
+            {ruta === 'PROVEEDOR_MP_NO_PERMITIDO' ? (
+              <p className="text-xs text-red-700" role="alert">Un pago a proveedor con Mercado Pago se registra al clasificar su movimiento (Movimientos → Por resolver), para no duplicarlo. Elegí «Pendiente de pago».</p>
+            ) : medio === 'MERCADOPAGO' ? (
+              <p className="text-xs text-[#6B5D45]">Queda registrado como pagado con Mercado Pago y se vincula a su movimiento cuando llegue: no se crea otro movimiento.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <label className={etiqueta}>Cuenta
+                  <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={campo}>
+                    <option value="">Elegir…</option>
+                    {cuentasMedio.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select>
+                </label>
+                <label className={etiqueta}>Fecha real del pago
+                  <input type="date" value={fechaPago} min={fecha} onChange={(e) => setFechaPago(e.target.value)} className={campo} />
+                </label>
+              </div>
+            )}
+            {medio !== 'MERCADOPAGO' && fechaPago !== '' && fechaPago < fecha && <p className="text-xs text-red-700">El pago no puede ser anterior a la fecha del gasto.</p>}
           </div>
-        ))}
-      </details>
-      <DatosFiscales value={fiscal} onChange={setFiscal} />
-      <details className="border border-[#E4DCC8] rounded-lg p-2">
-        <summary className="text-sm text-[#8A6A2E] cursor-pointer">Más datos</summary>
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          <label className={etiqueta}>Neto (si es distinto del total)
-            <input type="number" min="0" step="0.01" value={neto} placeholder={total} onChange={(e) => setNeto(e.target.value)} className={campo} />
-          </label>
-        </div>
-      </details>
-      <p className="text-xs text-gray-500">Queda como deuda con el proveedor en Cuentas a pagar → Gastos (Pendientes de pago): desde ahí se registra el pago o se emiten los eCheqs.</p>
+        )}
+      </fieldset>
+      <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos />
+      {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Cuentas a pagar → Gastos en lugar de cargarla de nuevo.</p>}
     </Modal>
+  );
+}
+
+/** The three natures, on the existing internal values. */
+export function SelectorNaturaleza({ value, onChange }: { value: PurchaseNature; onChange: (n: PurchaseNature) => void }) {
+  return (
+    <label className={etiqueta}>Naturaleza
+      <select value={value} onChange={(e) => onChange(e.target.value as PurchaseNature)} className={campo}>
+        {NATURALEZA_GASTO.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
+
+
+/**
+ * Factura o comprobante (optional, folded): the file, the invoice number and — only when a document type is chosen — the fiscal
+ * data as printed (nothing derived). Without supplier the invoice identifies its issuer by CUIT (the backend's rule).
+ */
+export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, conNumero = true }: {
+  value: ComprobanteForm; onChange: (v: ComprobanteForm) => void; conProveedor: boolean; conArchivos: boolean; conNumero?: boolean;
+}) {
+  const set = (p: Partial<ComprobanteForm>) => onChange({ ...value, ...p });
+  function elegirArchivos(lista: FileList | null) {
+    const files = Array.from(lista ?? []);
+    let error: unknown = null;
+    try { validateAttachments(files); } catch (e) { error = files.length ? e : null; }
+    set({ archivos: files, errorArchivo: error });
+  }
+  return (
+    <details className="border border-[#E4DCC8] rounded-lg p-2" open={value.fiscal.tipo !== '' || value.numero !== '' || value.archivos.length > 0}>
+      <summary className="text-sm text-[#8A6A2E] cursor-pointer">Factura o comprobante (opcional)</summary>
+      <div className="space-y-2 mt-2">
+        {conArchivos && (
+          <label className={etiqueta}>Foto o PDF
+            <input type="file" multiple accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => elegirArchivos(e.target.files)} className={campo} />
+            <span className="block text-xs text-gray-500">PDF, JPG, PNG o WebP; hasta 10 MB.</span>
+          </label>
+        )}
+        {conNumero && (
+          <label className={etiqueta}>Nº de factura
+            <input type="text" value={value.numero} onChange={(e) => set({ numero: e.target.value })} maxLength={100} placeholder="0001-00001234" className={campo} />
+          </label>
+        )}
+        <DatosFiscales value={value.fiscal} onChange={(fiscal) => set({ fiscal })} />
+        {!conProveedor && value.fiscal.tipo !== '' && (
+          <div className="grid grid-cols-2 gap-2">
+            <label className={etiqueta}>CUIT del emisor
+              <input type="text" inputMode="numeric" value={value.cuitEmisor} onChange={(e) => set({ cuitEmisor: e.target.value })} placeholder="30-12345678-9" className={campo} />
+            </label>
+            <label className={etiqueta}>Razón social (opcional)
+              <input type="text" value={value.nombreEmisor} onChange={(e) => set({ nombreEmisor: e.target.value })} maxLength={120} className={campo} />
+            </label>
+            {value.cuitEmisor !== '' && cuitOrNull(value.cuitEmisor) === null && <p className="col-span-2 text-xs text-red-700">El CUIT tiene 11 dígitos.</p>}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 

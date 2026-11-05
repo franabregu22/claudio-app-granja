@@ -28,6 +28,7 @@ export const TARGET_VIEWS = [
   'fin_expense_payables', 'fin_expense_payable_payments',   // ADR-026 (0106): pending expenses and their payments
   'fin_supplier_unallocated_payments',   // Lote 3B (0110): supplier payments still free to allocate (advances), shown apart
   'fin_payment_calendar',   // Lote 3B (0110): every future commitment once (invoices, pending expenses, own cheques / eCheqs)
+  'fin_purchase_audit',   // 0117 (ADMIN): the history of one expense across its versions (creation, rectifications)
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -117,6 +118,9 @@ export const TARGET_RPCS = [
   'fin_movement_list',   // 0116 (ADMIN, read): Caja → Movimientos — operations, state, evidence, bank lines to resolve, Por resolver filters
   'fin_register_transfer_intent', 'fin_link_transfer_intent', 'fin_cancel_transfer_intent',   // 0116 (ADMIN): anticipated transfer, linked to its one transfer
   'fin_relate_bank_tax',   // 0116 (ADMIN): a recorded debits/credits tax associated to its transfer (never recorded twice)
+  'register_casual_purchase', 'register_casual_purchase_mp_pending',   // 0088 / 0111 (ADMIN): Nuevo gasto without supplier, paid / paid by Mercado Pago (linked later)
+  'register_paid_supplier_purchase', 'rectify_purchase_details',   // 0117 (ADMIN): Nuevo gasto paid to a supplier; audited rectification of an expense
+  'purchase_chain_root',   // 0104 (authenticated, read): the first version of a purchase — the key of its history
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

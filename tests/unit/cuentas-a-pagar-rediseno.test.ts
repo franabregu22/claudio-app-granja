@@ -105,8 +105,8 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
     expect(app).toMatch(/\{nuevoGasto && <NuevaCompraModal onClose=\{\(\) => setNuevoGasto\(false\)\} \/>\}/);
     expect(app.indexOf("if (rol !== 'ADMIN')")).toBeLessThan(app.indexOf('<NuevaCompraModal'));
     expect(compras).toMatch(/<Modal titulo="Nuevo gasto"/);
-    expect(compras).toMatch(/<DatosFiscales value=\{fiscal\} onChange=\{setFiscal\} \/>/);   // with or without invoice, fiscal validation kept
-    expect(compras).toMatch(/useState\(\(\) => `CMP-\$\{crypto\.randomUUID\(\)\}`\)/);
+    expect(compras).toMatch(/<DatosFiscales value=\{value\.fiscal\} onChange=\{\(fiscal\) => set\(\{ fiscal \}\)\} \/>/);   // with or without invoice, fiscal validation kept
+    expect(compras).toMatch(/useState\(\(\) => `GASTO-\$\{crypto\.randomUUID\(\)\}`\)/);
     expect(compras).toMatch(/&& !repetida;/);
   });
   it('Gastos reuses the existing forms: eCheqs, allocation, payment, supplier link, dates, classification, rectification, freight', () => {
