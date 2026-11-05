@@ -4,7 +4,7 @@ import { createPurchaseWithAttachments } from '../../target/attachments';
 import { listMaster, type ClientRow, type ExpenseCategoryGroupRow, type ExpenseCategoryRow, type SupplierRow } from '../../target/masters';
 import {
   assignFreightToPurchase, cancelSupplierInstrument, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
-  listInstruments, listLedgerBalances, listPnlMonths, listPrecutCandidates, listSupplierLedger, listPurchases, markInstrumentDebitedPrecut, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
+  getPurchase, listInstruments, listLedgerBalances, listPnlMonths, listPrecutCandidates, listSupplierLedger, listPurchases, markInstrumentDebitedPrecut, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
   registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listBankTaxPeriods, transferWithBankTax,
 } from '../../target/treasury';
 import { listMovements, type MovementFilter } from '../../target/movementHistory';
@@ -59,8 +59,12 @@ export function useInstruments() {
 export function usePrecutCandidates(instrumentId: string) {
   return useQuery({ queryKey: [...INSTRUMENTS, 'precut', instrumentId], queryFn: () => listPrecutCandidates(supabase, instrumentId), enabled: instrumentId !== '' });
 }
-export function usePurchases() {
-  return useQuery({ queryKey: PURCHASES, queryFn: () => listPurchases(supabase) });
+export function usePurchases(limit = 200) {
+  return useQuery({ queryKey: [...PURCHASES, limit], queryFn: () => listPurchases(supabase, limit) });
+}
+/** One purchase version with its lines (opened on demand from Cuentas a pagar → Gastos). */
+export function usePurchase(id: string | null) {
+  return useQuery({ queryKey: [...PURCHASES, 'one', id], queryFn: () => getPurchase(supabase, id!), enabled: !!id });
 }
 export function useFreight() {
   return useQuery({ queryKey: FREIGHT, queryFn: () => listFreight(supabase) });

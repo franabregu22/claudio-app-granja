@@ -44,9 +44,9 @@ export interface SupplierPaymentRow { id: number; effective_date: string; reason
 
 const num = (v: unknown) => Number(v ?? 0);
 
-export async function listInvoicePaymentStatus(client: SupabaseClient, onlyPending: boolean): Promise<PurchasePaymentStatusRow[]> {
+export async function listInvoicePaymentStatus(client: SupabaseClient, onlyPending: boolean, limit = 300): Promise<PurchasePaymentStatusRow[]> {
   const rows = await readView<PurchasePaymentStatusRow>(client, 'fin_purchase_payment_status',
-    (q) => (onlyPending ? q.gt('pending', 0) : q).order('economic_date', { ascending: false }).limit(300));
+    (q) => (onlyPending ? q.gt('pending', 0) : q).order('economic_date', { ascending: false }).limit(limit));
   return rows.map((r) => ({ ...r, amount_total: num(r.amount_total), scheduled: num(r.scheduled), debited: num(r.debited),
     other_payments: num(r.other_payments), pending: num(r.pending), voided_instruments: num(r.voided_instruments) }));
 }

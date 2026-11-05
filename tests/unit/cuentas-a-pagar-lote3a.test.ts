@@ -64,7 +64,7 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
     for (const s of ['Proveedores con deuda', 'Proveedores al día', 'Saldos a favor / anticipos']) expect(t).toContain(`titulo: '${s}'`);
     expect(t).toMatch(/useState<Tarjeta>\('DEUDA'\)/);
     expect(t).not.toMatch(/GastosAPagar titulo/);
-    expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/<GastosAPagar titulo="Gastos pendientes" \/>/);
+    expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/\{sub === 'gastos' && <Gastos \/>\}/);
   });
   it('each supplier opens its ficha; paying more than the debt is an advance (credit), never an expense', () => {
     expect(t).toMatch(/\{open && <FichaProveedor cuenta=\{c\} \/>\}/);
@@ -82,8 +82,8 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
     expect(f).toMatch(/useDocumentLinks\('FINANCIAL_INSTRUMENT'/);
     expect(f).toMatch(/Pendiente de débito/);
   });
-  it('Facturas is a section of Cuentas a pagar; Vencimientos became the Calendario (Lote 3B)', () => {
-    expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/\{ id: 'pagosfactura', label: 'Facturas' \}/);
+  it('invoices live in Cuentas a pagar → Gastos; Vencimientos became the Calendario (Lote 3B)', () => {
+    expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/\{ id: 'gastos', label: 'Gastos' \}/);
     expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{ id: 'calendario', label: 'Calendario' \}/);
   });
 });

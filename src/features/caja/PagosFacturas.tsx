@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { ATTACHMENT_TYPES } from '../../target/attachments';
 import type { PurchasePaymentDetailRow, PurchasePaymentStatusRow } from '../../target/invoicePayments';
@@ -14,74 +13,19 @@ import { campo, etiqueta, Modal } from './Modal';
 import type { InstrumentAction } from './useTreasury';
 import { useUnallocatedPayments } from './usePaymentCalendar';
 import {
-  useAllocatePurchasePayment, useAttachInstrumentDocument, useDocumentLinks, useInvoicePaymentDetail, useInvoicePaymentStatus,
-  useIssuePurchaseInstruments, usePurchaseAttachments,
+  useAllocatePurchasePayment, useAttachInstrumentDocument, useDocumentLinks, useInvoicePaymentDetail, useIssuePurchaseInstruments,
 } from './useInvoicePayments';
 
 const ACEPTA = Object.keys(ATTACHMENT_TYPES).join(',');
 
 /**
- * Pagos de facturas (ADR-025 stage 4, 0104). One supplier invoice (registered once, with its IVA, from Compras or WhatsApp)
+ * Pagos de facturas (ADR-025 stage 4, 0104). One supplier invoice (registered once, with its IVA, from the Nuevo gasto form or WhatsApp)
  * paid with one or several own cheques / eCheqs and / or payments already registered. A cheque is a SCHEDULED payment (no
  * bank movement until "Marcar debitado" on the effective date: then it is REAL). Every figure is the backend's
  * (fin_purchase_payment_status / _detail); rejected / cancelled cheques stay in the history and can be replaced.
+ * The list itself is Cuentas a pagar → Gastos (Gastos.tsx); these are the invoice detail and its forms.
  */
-export function PagosFacturas() {
-  const [soloPendientes, setSoloPendientes] = useState(true);
-  const facturas = useInvoicePaymentStatus(soloPendientes);
-  const [abierta, setAbierta] = useState<string | null>(null);
-  const [emitir, setEmitir] = useState<{ f: PurchasePaymentStatusRow; reemplaza?: PurchasePaymentDetailRow } | null>(null);
-  const [imputar, setImputar] = useState<PurchasePaymentStatusRow | null>(null);
-  const filas = facturas.data ?? [];
-  const adjuntos = usePurchaseAttachments(filas.map((f) => f.purchase_id));
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Facturas de proveedores y sus pagos</p>
-        <label className="text-sm text-[#6B5D45] flex items-center gap-2">
-          <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} /> Solo con saldo pendiente
-        </label>
-      </div>
-      <p className="text-xs text-[#8A7A5C]">
-        La factura y su IVA se registran una sola vez (Compras o WhatsApp). Un cheque emitido es un pago <b>programado</b>: no mueve el banco hasta
-        que se marca debitado (pago <b>real</b>, en la fecha efectiva).
-      </p>
-      {facturas.isLoading ? <p className="text-sm text-gray-500">Cargando facturas...</p>
-        : facturas.error ? <p className="text-sm text-red-700">{errorMessage(facturas.error)}</p>
-          : filas.length === 0 ? <p className="text-sm text-green-800">No hay facturas {soloPendientes ? 'con saldo pendiente' : 'de proveedores'}.</p> : (
-            <div className="space-y-2">
-              {filas.map((f) => (
-                <div key={f.purchase_id} className="bg-white rounded-lg border border-[#E4DCC8]">
-                  <button type="button" onClick={() => setAbierta(abierta === f.purchase_root_id ? null : f.purchase_root_id)}
-                    className="w-full grid grid-cols-2 md:grid-cols-6 gap-2 p-3 text-left text-sm items-center">
-                    <span className="flex items-center gap-2 md:col-span-2">
-                      <ChevronDown className={`w-4 h-4 shrink-0 transition ${abierta === f.purchase_root_id ? 'rotate-180' : ''}`} />
-                      <span>
-                        <span className="font-semibold text-amber-900">{f.supplier_name}</span>
-                        <span className="block text-xs text-[#8A7A5C]">{formatearFechaLocal(f.economic_date)}{f.supplier_invoice_number ? ` · Factura ${f.supplier_invoice_number}` : ''}</span>
-                      </span>
-                    </span>
-                    <span className="text-right"><span className="block text-[11px] text-[#8A7A5C]">Total</span>{formatoPesos(f.amount_total)}</span>
-                    <span className="text-right"><span className="block text-[11px] text-[#8A7A5C]">Programado</span>{formatoPesos(f.scheduled)}</span>
-                    <span className="text-right"><span className="block text-[11px] text-[#8A7A5C]">Pagado</span>{formatoPesos(f.debited + f.other_payments)}</span>
-                    <span className="text-right font-bold"><span className="block text-[11px] font-normal text-[#8A7A5C]">Pendiente</span>
-                      <span className={f.pending > 0 ? 'text-red-700' : 'text-green-800'}>{formatoPesos(f.pending)}</span></span>
-                  </button>
-                  {abierta === f.purchase_root_id && (
-                    <DetalleFactura f={f} docs={adjuntos.data?.get(f.purchase_id)} onEmitir={(reemplaza) => setEmitir({ f, reemplaza })} onImputar={() => setImputar(f)} />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-      {emitir && <EmitirChequesModal f={emitir.f} reemplaza={emitir.reemplaza} onClose={() => setEmitir(null)} />}
-      {imputar && <ImputarPagoModal f={imputar} onClose={() => setImputar(null)} />}
-    </div>
-  );
-}
-
-function DetalleFactura({ f, docs, onEmitir, onImputar }: {
+export function DetalleFactura({ f, docs, onEmitir, onImputar }: {
   f: PurchasePaymentStatusRow; docs: Parameters<typeof Comprobantes>[0]['docs']; onEmitir: (reemplaza?: PurchasePaymentDetailRow) => void; onImputar: () => void;
 }) {
   const { user } = useAuth();
@@ -157,7 +101,7 @@ function DetalleFactura({ f, docs, onEmitir, onImputar }: {
 interface FilaCheque { tipo: InstrumentType; numero: string; monto: string; emision: string; vencimiento: string; cuenta: string; archivo: File | null }
 const filaVacia = (monto = '', cuenta = ''): FilaCheque => ({ tipo: 'ECHEQ', numero: '', monto, emision: getTodayDate(), vencimiento: getTodayDate(), cuenta, archivo: null });
 
-function EmitirChequesModal({ f, reemplaza, onClose }: { f: PurchasePaymentStatusRow; reemplaza?: PurchasePaymentDetailRow; onClose: () => void }) {
+export function EmitirChequesModal({ f, reemplaza, onClose }: { f: PurchasePaymentStatusRow; reemplaza?: PurchasePaymentDetailRow; onClose: () => void }) {
   const { user } = useAuth();
   const cuentas = useFinancialAccounts();
   const bancos = (cuentas.data ?? []).filter((a) => a.account_type === 'BANK_ACCOUNT');
@@ -218,7 +162,7 @@ function EmitirChequesModal({ f, reemplaza, onClose }: { f: PurchasePaymentStatu
   );
 }
 
-function ImputarPagoModal({ f, onClose }: { f: PurchasePaymentStatusRow; onClose: () => void }) {
+export function ImputarPagoModal({ f, onClose }: { f: PurchasePaymentStatusRow; onClose: () => void }) {
   // only payments with an amount still free to allocate (fin_supplier_unallocated_payments, 0110), with that amount
   const libres = useUnallocatedPayments();
   const pagos = { ...libres, data: (libres.data ?? []).filter((p) => p.supplier_id === f.supplier_id) };
@@ -232,7 +176,7 @@ function ImputarPagoModal({ f, onClose }: { f: PurchasePaymentStatusRow; onClose
   return (
     <Modal titulo={`Imputar pago — ${f.supplier_name}`} onClose={onClose} puedeGuardar={puede} guardando={imputar.isPending} error={imputar.error ?? pagos.error}
       textoGuardar="Imputar" onSubmit={() => imputar.mutate({ purchaseId: f.purchase_id, operationId: Number(opId), amount: Number(monto), idempotencyKey: clave }, { onSuccess: onClose })}>
-      <p className="text-xs text-[#6B5D45]">Un pago ya registrado al proveedor (Cuentas a pagar → Pagar) se asigna a esta factura. No se crea otro movimiento.</p>
+      <p className="text-xs text-[#6B5D45]">Un pago ya registrado al proveedor (Cuentas a pagar → Proveedores → Pagar) se asigna a esta factura. No se crea otro movimiento.</p>
       <label className={etiqueta}>Pago
         <select value={opId} onChange={(e) => setOpId(e.target.value)} className={campo}>
           <option value="">{pagos.isLoading ? 'Cargando…' : pagos.data.length === 0 ? 'No hay pagos disponibles para imputar a este proveedor' : 'Elegir pago…'}</option>

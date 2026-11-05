@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { ATTACHMENT_TYPES, validateAttachments } from '../../target/attachments';
 import { UNIT_TYPES, type UnitType } from '../../target/masters';
@@ -10,95 +9,52 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { campo, etiqueta, Modal } from './Modal';
 import { SelectorCategoria } from './SelectorCategoria';
-import { useExpenseCategories, useFreight, usePurchases, useSuppliers, useTreasuryMutations } from './useTreasury';
-import { Comprobantes } from './Comprobantes';
-import { usePurchaseAttachments } from './useInvoicePayments';
-
-const NATURALEZA: Record<string, string> = { OPERATING: 'Operativa', REINVESTMENT: 'Reinversión', INVESTMENT: 'Inversión' };
+import { useExpenseCategories, useFreight, useSuppliers, useTreasuryMutations } from './useTreasury';
+import { useInvoicePaymentStatus } from './useInvoicePayments';
+import { facturaRepetida, posibleDuplicado } from '../../target/expenseHub';
 
 /**
- * Compras y fletes (F27-D; Phase 27 acceptance fixes D-WALK-3/4/5/6). Current purchase versions are read from
- * `purchases`. A new purchase optionally uploads its receipt to the private bucket and then calls register_purchase
- * (ADR-008 / ADR-010: no file → direct call; compensation on failure); rectification
- * is rectify_purchase; freight is register_freight / assign_freight_to_purchase. The supplier debt they create is
- * booked by the backend.
+ * Compras y fletes (F27-D; Phase 27 acceptance fixes D-WALK-3/4/5/6). The forms of a purchase and of freight; the list of purchases is
+ * Cuentas a pagar → Gastos (Gastos.tsx). A new purchase (the "Nuevo gasto" form, opened from the floating button of Caja) optionally
+ * uploads its receipt to the private bucket and then calls register_purchase (ADR-008 / ADR-010: no file → direct call; compensation on
+ * failure); rectification is rectify_purchase; freight is register_freight / assign_freight_to_purchase. The supplier debt they create
+ * is booked by the backend.
  */
-export function Compras() {
-  const compras = usePurchases();
+export function Fletes() {
   const fletes = useFreight();
-  const [abierta, setAbierta] = useState<string | null>(null);
-  const [rectificando, setRectificando] = useState<PurchaseRow | null>(null);
   const [nuevoFlete, setNuevoFlete] = useState(false);
-  const [asignando, setAsignando] = useState<string | null>(null);
-  const [nuevaCompra, setNuevaCompra] = useState(false);
-  const adjuntos = usePurchaseAttachments(abierta ? [abierta] : []);   // the original receipt(s) of the open purchase (ERP or WhatsApp)
-
-  if (compras.isLoading || fletes.isLoading) return <p className="text-sm text-gray-500">Cargando compras...</p>;
-  const error = compras.error ?? fletes.error;
-  if (error) return <p className="text-sm text-red-700">{errorMessage(error)}</p>;
-
   return (
-    <div className="space-y-6">
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Compras vigentes</p>
-          <span className="flex items-center gap-2">
-            <button onClick={() => setNuevoFlete(true)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Registrar flete</button>
-            <button onClick={() => setNuevaCompra(true)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Nueva compra</button>
-          </span>
+    <details className="bg-white rounded-lg border border-[#E4DCC8] p-3">
+      <summary className="cursor-pointer text-sm font-semibold text-[#8A6A2E]">Fletes registrados{fletes.data ? ` (${fletes.data.length})` : ''}</summary>
+      <div className="mt-2 space-y-2">
+        <div className="flex justify-end">
+          <button type="button" onClick={() => setNuevoFlete(true)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Registrar flete</button>
         </div>
-        {(compras.data ?? []).length === 0 && <p className="text-sm text-[#8A7A5C]">No hay compras registradas.</p>}
-        <div className="space-y-2">
-          {(compras.data ?? []).map((c) => (
-            <div key={c.id} className="bg-white rounded-lg border border-[#E4DCC8]">
-              <button onClick={() => setAbierta(abierta === c.id ? null : c.id)} className="w-full flex items-center justify-between gap-2 p-3 text-left">
-                <span className="flex items-center gap-2 text-sm">
-                  <ChevronDown className={`w-4 h-4 transition ${abierta === c.id ? 'rotate-180' : ''}`} />
-                  <span className="font-semibold text-amber-900">{c.supplier_nombre}</span>
-                  <span className="text-[#8A7A5C]">· {formatearFechaLocal(c.economic_date)} · {c.categoria_nombre}</span>
-                  {c.version_seq > 0 && <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Rectificada</span>}
-                </span>
-                <span className="font-bold text-[#2C2419]">{formatoPesos(c.amount_total)}</span>
-              </button>
-              {abierta === c.id && (
-                <div className="px-4 pb-3 border-t border-[#E4DCC8] bg-[#FAF6EE] text-xs text-gray-700 space-y-1">
-                  <p className="pt-2">{NATURALEZA[c.nature] ?? c.nature}{c.amount_net !== c.amount_total ? ` · Neto ${formatoPesos(c.amount_net)}` : ''}{c.supplier_invoice_number ? ` · Comprobante ${c.supplier_invoice_number}` : ''}</p>
-                  {c.lineas.map((l) => <p key={l.id}>{l.cantidad} {l.unit_type} · {l.descripcion} · {formatoPesos(l.precio_unitario)} c/u</p>)}
-                  {(adjuntos.data?.get(c.id) ?? []).length > 0 && <p className="flex items-center gap-2">Comprobante: <Comprobantes docs={adjuntos.data?.get(c.id)} /></p>}
-                  <span className="flex gap-2 mt-2">
-                    <button onClick={() => setRectificando(c)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Rectificar</button>
-                    <button onClick={() => setAsignando(c.id)} className="text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200">Asignar flete</button>
-                  </span>
+        {fletes.isLoading ? <p className="text-sm text-gray-500">Cargando fletes...</p>
+          : fletes.error ? <p className="text-sm text-red-700">{errorMessage(fletes.error)}</p>
+            : (fletes.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay fletes registrados.</p>
+              : (fletes.data ?? []).map((f) => (
+                <div key={f.id} className="rounded border border-[#E4DCC8] p-2 flex items-center justify-between gap-2 text-sm">
+                  <span>{formatearFechaLocal(f.economic_date)} · {f.supplier_nombre ?? 'Sin proveedor'}{f.document_ref ? ` · ${f.document_ref}` : ''}</span>
+                  <span className="font-bold">{formatoPesos(f.amount)}</span>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Fletes registrados</p>
-        {(fletes.data ?? []).length === 0 && <p className="text-sm text-[#8A7A5C]">No hay fletes registrados.</p>}
-        {(fletes.data ?? []).map((f) => (
-          <div key={f.id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 mb-2 flex items-center justify-between gap-2 text-sm">
-            <span>{formatearFechaLocal(f.economic_date)} · {f.supplier_nombre ?? 'Sin proveedor'}{f.document_ref ? ` · ${f.document_ref}` : ''}</span>
-            <span className="font-bold">{formatoPesos(f.amount)}</span>
-          </div>
-        ))}
-      </section>
-
-      {nuevaCompra && <NuevaCompraModal onClose={() => setNuevaCompra(false)} />}
-      {rectificando && <RectificarCompraModal compra={rectificando} onClose={() => setRectificando(null)} />}
+              ))}
+      </div>
       {nuevoFlete && <FleteModal onClose={() => setNuevoFlete(false)} />}
-      {asignando && <AsignarFleteModal purchaseId={asignando} fletes={fletes.data ?? []} onClose={() => setAsignando(null)} />}
-    </div>
+    </details>
   );
 }
 
 const LINEA_VACIA: PurchaseLineInput = { producto_id: null, feed_ingredient_id: null, descripcion: '', cantidad: 1, unit_type: 'UNIT', precio_unitario: 0 };
 
-function NuevaCompraModal({ onClose }: { onClose: () => void }) {
+/**
+ * Nuevo gasto (Caja's floating button): a supplier expense with or without its invoice. The invoice number and the fiscal data are
+ * optional; with fiscal data the purchase and its document are one transaction (Fiscal reads it). The same RPCs as the WhatsApp
+ * bot, so the same duplicate controls: an invoice number already recorded for the supplier is refused by the backend and warned here.
+ */
+export function NuevaCompraModal({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
+  const facturas = useInvoicePaymentStatus(false, 500);   // the same list as Cuentas a pagar → Gastos (shared cache)
   const { createPurchase } = useTreasuryMutations();
   const proveedores = useSuppliers();
   const categorias = useExpenseCategories();
@@ -118,8 +74,10 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
   const fiscalDatos = fiscalInput(fiscal, fecha);
   const setLinea = (i: number, patch: Partial<PurchaseLineInput>) => setLineas((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const lineasOk = lineas.every((l) => l.descripcion.trim() !== '' && l.cantidad > 0 && l.precio_unitario >= 0);
+  const repetida = facturaRepetida(facturas.data ?? [], proveedorId, factura);
+  const parecido = !repetida && posibleDuplicado(facturas.data ?? [], proveedorId, fecha, Number(total));
   const puede = !!user && proveedorId !== '' && categoriaId !== '' && fecha !== '' && Number(total) > 0 && !errorArchivo && lineasOk
-    && (fiscal.tipo === '' || fiscalDatos !== null);
+    && (fiscal.tipo === '' || fiscalDatos !== null) && !repetida;
 
   function elegirArchivos(lista: FileList | null) {
     const files = Array.from(lista ?? []);
@@ -128,8 +86,8 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal titulo="Nueva compra" onClose={onClose} puedeGuardar={puede} guardando={createPurchase.isPending}
-      error={errorArchivo ?? createPurchase.error ?? proveedores.error ?? categorias.error} textoGuardar="Registrar compra"
+    <Modal titulo="Nuevo gasto" onClose={onClose} puedeGuardar={puede} guardando={createPurchase.isPending}
+      error={errorArchivo ?? createPurchase.error ?? proveedores.error ?? categorias.error} textoGuardar="Registrar gasto"
       onSubmit={() => createPurchase.mutate({
         userId: user!.id, files: archivos, supplierId: proveedorId, economicDate: fecha, amountNet: neto === '' ? Number(total) : Number(neto),
         amountTotal: Number(total), categoryId: categoriaId, subcategory: null, nature: naturaleza, lines: lineas.map((l) => ({ ...l, descripcion: l.descripcion.trim() })),
@@ -141,19 +99,22 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
           {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
       </label>
+      {(proveedores.data ?? []).length === 0 && !proveedores.isLoading && !proveedores.error && <p className="text-xs text-[#8A7A5C]">No hay proveedores activos: cargalo primero en Admin → Proveedores.</p>}
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Fecha
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
         </label>
-        <label className={etiqueta}>Nº comprobante (opcional)
+        <label className={etiqueta}>Nº de factura (opcional)
           <input type="text" value={factura} onChange={(e) => setFactura(e.target.value)} className={campo} />
         </label>
       </div>
+      {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Cuentas a pagar → Gastos en lugar de cargarla de nuevo.</p>}
       <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={setCategoriaId} naturaleza={naturaleza} onNaturaleza={setNaturaleza}
         campo={campo} etiqueta={etiqueta} />
       <label className={etiqueta}>Total
         <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
       </label>
+      {parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
       <label className={etiqueta}>Notas (opcional)
         <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
       </label>
@@ -189,11 +150,12 @@ function NuevaCompraModal({ onClose }: { onClose: () => void }) {
           </label>
         </div>
       </details>
+      <p className="text-xs text-gray-500">Queda como deuda con el proveedor en Cuentas a pagar → Gastos (Pendientes de pago): desde ahí se registra el pago o se emiten los eCheqs.</p>
     </Modal>
   );
 }
 
-function RectificarCompraModal({ compra, onClose }: { compra: PurchaseRow; onClose: () => void }) {
+export function RectificarCompraModal({ compra, onClose }: { compra: PurchaseRow; onClose: () => void }) {
   const { rectifyPurchase } = useTreasuryMutations();
   const [neto, setNeto] = useState(compra.amount_net === compra.amount_total ? '' : String(compra.amount_net));   // empty = same as total
   const [total, setTotal] = useState(String(compra.amount_total));
@@ -245,7 +207,7 @@ function RectificarCompraModal({ compra, onClose }: { compra: PurchaseRow; onClo
   );
 }
 
-function FleteModal({ onClose }: { onClose: () => void }) {
+export function FleteModal({ onClose }: { onClose: () => void }) {
   const { registerFreight } = useTreasuryMutations();
   const proveedores = useSuppliers();
   const categorias = useExpenseCategories();
@@ -282,7 +244,7 @@ function FleteModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function AsignarFleteModal({ purchaseId, fletes, onClose }: { purchaseId: string; fletes: FreightRow[]; onClose: () => void }) {
+export function AsignarFleteModal({ purchaseId, fletes, onClose }: { purchaseId: string; fletes: FreightRow[]; onClose: () => void }) {
   const { assignFreight } = useTreasuryMutations();
   const [fleteId, setFleteId] = useState('');
   const [monto, setMonto] = useState('');

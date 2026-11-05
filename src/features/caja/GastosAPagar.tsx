@@ -2,14 +2,11 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { errorMessage } from '../../target/messages';
-import { listPayablePayments, listPayables, PAYABLE_STATUS_LABEL, payPendingExpense, type PayableRow } from '../../target/payables';
+import { listPayablePayments, listPayables, payPendingExpense, type PayableRow } from '../../target/payables';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
-import { Comprobantes } from './Comprobantes';
-import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { campo, etiqueta, Modal } from './Modal';
-import { usePurchaseAttachments } from './useInvoicePayments';
 import { useAssignPayableToSupplier } from './usePaymentCalendar';
 import { useSuppliers } from './useTreasury';
 
@@ -17,67 +14,8 @@ export function usePayables(onlyOpen: boolean) {
   return useQuery({ queryKey: ['treasury', 'payables', onlyOpen], queryFn: () => listPayables(supabase, onlyOpen) });
 }
 
-/**
- * Gastos a pagar (ADR-026, 0106): expenses registered without paying them (WhatsApp "a pagar" or the ERP). They are already in the
- * P&L by their date and category; here only the obligation is paid, totally or partially — each payment is ONE real movement on a
- * cash / bank account (Mercado Pago outflows are classified from Pendientes MP).
- * Lote 3B (0110): each one has its due date and, apart, its estimated payment date (Fechas); and it can be linked to an existing
- * supplier (Vincular a proveedor): it then leaves this list and is paid from the supplier account, its earlier payments kept.
- */
-export function GastosAPagar({ titulo = 'Gastos a pagar' }: { titulo?: string } = {}) {
-  const gastos = usePayables(true);
-  const [pagando, setPagando] = useState<PayableRow | null>(null);
-  const [fechas, setFechas] = useState<PayableRow | null>(null);
-  const [vinculando, setVinculando] = useState<PayableRow | null>(null);
-  const [abierto, setAbierto] = useState<string | null>(null);
-  const filas = gastos.data ?? [];
-  const adjuntos = usePurchaseAttachments(filas.map((g) => g.purchase_id));
-  const hoy = getTodayDate();
-
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">{titulo}</p>
-        {filas.length > 0 && <span className="text-sm">Total pendiente: <b className="text-red-600">{formatoPesos(filas.reduce((s, g) => s + g.pending, 0))}</b></span>}
-      </div>
-      <p className="text-xs text-[#8A7A5C]">Ya figuran en resultados desde su registro; pagarlos solo mueve Caja / Bancos.</p>
-      {gastos.isLoading ? <p className="text-sm text-gray-500">Cargando gastos a pagar...</p>
-        : gastos.error ? <p className="text-sm text-red-700">{errorMessage(gastos.error)}</p>
-          : filas.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay gastos a pagar.</p> : (
-            <div className="space-y-2">
-              {filas.map((g) => (
-                <div key={g.payable_id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-amber-900">{g.concept ?? g.category_name}</span>
-                    <span className="text-[#8A7A5C]">{g.category_name} · {formatearFechaLocal(g.economic_date)}{g.counterparty_name ? ` · ${g.counterparty_name}` : ''}</span>
-                    <EtiquetasFechas due={g.due_date} planned={g.planned_date} hoy={hoy} />
-                    <Comprobantes docs={adjuntos.data?.get(g.purchase_id)} compacto />
-                    <span className="flex-1" />
-                    <span className="text-xs px-2 py-0.5 rounded bg-stone-100">{PAYABLE_STATUS_LABEL[g.status]}</span>
-                    <span className="font-bold text-red-600">{formatoPesos(g.pending)}</span>
-                    <button type="button" onClick={() => setFechas(g)} className="text-xs px-2 py-1 rounded border border-[#E4DCC8] hover:bg-stone-50">Fechas</button>
-                    <button type="button" onClick={() => setVinculando(g)} className="text-xs px-2 py-1 rounded border border-[#E4DCC8] hover:bg-stone-50">Vincular a proveedor</button>
-                    <button type="button" onClick={() => setPagando(g)} className="text-sm px-3 py-1 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Pagar</button>
-                  </div>
-                  {g.paid > 0 && (
-                    <button type="button" onClick={() => setAbierto(abierto === g.payable_id ? null : g.payable_id)} className="text-xs text-[#A8552E] hover:underline mt-1">
-                      Pagado {formatoPesos(g.paid)} de {formatoPesos(g.amount)} {abierto === g.payable_id ? '▲' : '▼'}
-                    </button>
-                  )}
-                  {abierto === g.payable_id && <PagosDelGasto payableId={g.payable_id} />}
-                </div>
-              ))}
-            </div>
-          )}
-      {pagando && <PagarGastoModal gasto={pagando} onClose={() => setPagando(null)} />}
-      {fechas && <FechasPagoModal purchaseId={fechas.purchase_id} rootId={fechas.purchase_root_id} titulo={fechas.concept ?? fechas.category_name}
-        due={fechas.due_date} planned={fechas.planned_date} onClose={() => setFechas(null)} />}
-      {vinculando && <VincularProveedorModal gasto={vinculando} onClose={() => setVinculando(null)} />}
-    </section>
-  );
-}
-
-function PagosDelGasto({ payableId }: { payableId: string }) {
+/** The payments of one pending expense (each one a real movement on a cash / bank account). */
+export function PagosDelGasto({ payableId }: { payableId: string }) {
   const pagos = useQuery({ queryKey: ['treasury', 'payables', 'payments', payableId], queryFn: () => listPayablePayments(supabase, payableId) });
   if (pagos.isLoading) return <p className="text-xs text-gray-500">Cargando pagos...</p>;
   if (pagos.error) return <p className="text-xs text-red-700">{errorMessage(pagos.error)}</p>;
@@ -88,7 +26,11 @@ function PagosDelGasto({ payableId }: { payableId: string }) {
   );
 }
 
-function PagarGastoModal({ gasto, onClose }: { gasto: PayableRow; onClose: () => void }) {
+/**
+ * Pay a pending expense (ADR-026, 0106): totally or partially, ONE real movement on a cash / bank account per payment; the expense is
+ * already in the P&L by its date and category. Mercado Pago outflows are classified from Pendientes MP.
+ */
+export function PagarGastoModal({ gasto, onClose }: { gasto: PayableRow; onClose: () => void }) {
   const qc = useQueryClient();
   const cuentas = useFinancialAccounts();
   const habilitadas = (cuentas.data ?? []).filter((a) => a.account_type === 'CASH' || a.account_type === 'BANK_ACCOUNT');
@@ -126,7 +68,7 @@ function PagarGastoModal({ gasto, onClose }: { gasto: PayableRow; onClose: () =>
  * category, amounts and invoice (P&L and IVA unchanged); the payments already made stay as they were and are carried to the
  * supplier account; the pending balance becomes supplier debt. No money moves.
  */
-function VincularProveedorModal({ gasto, onClose }: { gasto: PayableRow; onClose: () => void }) {
+export function VincularProveedorModal({ gasto, onClose }: { gasto: PayableRow; onClose: () => void }) {
   const proveedores = useSuppliers();
   const vincular = useAssignPayableToSupplier();
   const [proveedorId, setProveedorId] = useState('');

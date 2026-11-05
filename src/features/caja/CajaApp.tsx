@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Plus } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { Movimientos } from './Movimientos';
 import { Transferencias } from './Transferencias';
@@ -8,12 +9,13 @@ import { CalendarioPagos } from './CalendarioPagos';
 import { usePendingSummary } from './useMpActivity';
 import { useBadgeSinClasificar } from './useUnclassified';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
+import { NuevaCompraModal } from './Compras';
 
 type Vista = 'movimientos' | 'transferencias' | 'pagar' | 'calendario' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'movimientos', label: 'Movimientos' },   // balances, Por resolver (classification lists) and the account movements
   { id: 'transferencias', label: 'Transferencias' },
-  { id: 'pagar', label: 'Cuentas a pagar' },   // suppliers, pending expenses, purchases and freight, invoices, cheques
+  { id: 'pagar', label: 'Cuentas a pagar' },   // Gastos (invoices, pending expenses, purchases, freight), Proveedores, Cheques
   { id: 'calendario', label: 'Calendario' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
   { id: 'extractos', label: 'Extractos' },
 ];
@@ -26,8 +28,9 @@ const VISTAS: { id: Vista; label: string }[] = [
 export function CajaApp() {
   const { rol } = useAuth();
   const [vista, setVista] = useState<Vista>('movimientos');
-  const [subPagar, setSubPagar] = useState<SubPagar>('proveedores');
+  const [subPagar, setSubPagar] = useState<SubPagar>('gastos');
   const [retiro, setRetiro] = useState(false);
+  const [nuevoGasto, setNuevoGasto] = useState(false);
   const sinClasificar = useBadgeSinClasificar();
   const mp = usePendingSummary();
   const porResolver = sinClasificar + (mp.data?.PENDING_CURRENT.count ?? 0);   // historical Mercado Pago rows and optional inflows are not an alert
@@ -72,10 +75,16 @@ export function CajaApp() {
           {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} />}
           {vista === 'transferencias' && <Transferencias />}
           {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
-          {vista === 'calendario' && <CalendarioPagos onImputar={() => { setSubPagar('pagosfactura'); setVista('pagar'); }} />}
+          {vista === 'calendario' && <CalendarioPagos onImputar={() => { setSubPagar('gastos'); setVista('pagar'); }} />}
           {vista === 'extractos' && <ExtractosBancarios />}
         </div>
         {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}
+        {/* Nuevo gasto: on every Caja tab, the existing purchase form (with or without invoice) */}
+        <button type="button" onClick={() => setNuevoGasto(true)} title="Registrar un gasto"
+          className="fixed bottom-6 right-4 md:right-8 z-40 flex items-center gap-1.5 bg-[#A8552E] text-white font-semibold pl-3 pr-4 py-3 rounded-full shadow-lg hover:bg-[#8B4423]">
+          <Plus className="w-5 h-5" /> Nuevo gasto
+        </button>
+        {nuevoGasto && <NuevaCompraModal onClose={() => setNuevoGasto(false)} />}
       </div>
     </div>
   );

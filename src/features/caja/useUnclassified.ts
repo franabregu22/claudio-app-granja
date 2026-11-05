@@ -2,10 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { listProfiles } from '../../target/masters';
 import {
-  classifyPendingExpense, countUnclassified, type ClassifyPendingInput, getPendingExpense,
+  classifyPendingExpense, countUnclassified, type ClassifyPendingInput, getPendingExpense, listPendingExpensesPage,
 } from '../../target/unclassifiedExpenses';
 
 const KEY = ['unclassified-expenses'];
+
+/** Cuentas a pagar → Gastos → Por revisar: the expenses still unclassified (oldest first; at most 200 at a time). */
+export function useUnclassifiedOpen() {
+  return useQuery({ queryKey: [...KEY, 'open-list'], queryFn: async () => (await listPendingExpensesPage(supabase, { status: 'SIN_CLASIFICAR' }, 0, 200)).rows });
+}
 
 /** The indicator: unclassified expenses (server count). */
 /** 0116: one pending expense by id or by its payment operation (the action in a Caja → Movimientos row). */

@@ -26,8 +26,8 @@ export function usePurchaseAttachments(purchaseIds: string[]) {
   });
 }
 
-export function useInvoicePaymentStatus(onlyPending: boolean) {
-  return useQuery({ queryKey: ['treasury', 'invoice-payments', onlyPending], queryFn: () => listInvoicePaymentStatus(supabase, onlyPending) });
+export function useInvoicePaymentStatus(onlyPending: boolean, limit = 300) {
+  return useQuery({ queryKey: ['treasury', 'invoice-payments', onlyPending, limit], queryFn: () => listInvoicePaymentStatus(supabase, onlyPending, limit) });
 }
 export function useInvoicePaymentDetail(rootId: string | null) {
   return useQuery({ queryKey: ['treasury', 'invoice-payments', 'detail', rootId], queryFn: () => listInvoicePaymentDetail(supabase, rootId!), enabled: !!rootId });

@@ -166,7 +166,7 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
                           <td className="px-2 py-1 text-right font-bold text-amber-900">{formatoPesos(p.necesidadNeta)}</td>
                           <td className="px-2 py-1 text-right">
                             {(p.pagosDisponibles > 0 || p.chequesSinImputar > 0) && onImputar
-                              && <button type="button" onClick={onImputar} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50 whitespace-nowrap">Imputar en Facturas</button>}
+                              && <button type="button" onClick={onImputar} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50 whitespace-nowrap">Imputar en Gastos</button>}
                           </td>
                         </tr>
                       ))}

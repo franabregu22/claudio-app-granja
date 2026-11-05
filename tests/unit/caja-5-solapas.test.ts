@@ -26,12 +26,12 @@ describe('Caja — the five tabs', () => {
       [app, '<Movimientos '], [app, '<Transferencias />'], [app, '<SolapaPagar '], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
       [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "id: 'ENTRADA_SIN_VINCULAR'"],
       [lista, '<AvisosPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionPendienteMp '], [lista, '<AccionEntrada '],
-      [pagar, '<CuentasAPagar />'], [pagar, '<GastosAPagar '], [pagar, '<Compras />'], [pagar, '<PagosFacturas />'], [pagar, '<Cheques />'],
+      [pagar, '<Gastos />'], [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
     ] as const) expect(src.split(tag).length - 1, tag).toBe(1);
   });
   it('the calendar still reaches the allocation screen; the three Por resolver indicators sit together and each one toggles its filter', () => {
-    expect(app).toMatch(/setSubPagar\('pagosfactura'\); setVista\('pagar'\)/);
+    expect(app).toMatch(/setSubPagar\('gastos'\); setVista\('pagar'\)/);
     expect(pr).toMatch(/onClick=\{\(\) => onFiltro\(elegida \? null : t\.id\)\}/);
   });
   it('the tab badge counts what needs action: unclassified expenses and current Mercado Pago outflows, never optional inflows', () => {

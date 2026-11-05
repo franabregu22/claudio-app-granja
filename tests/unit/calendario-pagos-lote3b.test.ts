@@ -147,8 +147,11 @@ describe('Lote 3B — screens', () => {
     expect(g).toMatch(/Vincular a proveedor/);
     expect(g).toMatch(/useSuppliers\(\)/);
     expect(g).toMatch(/useState\(\(\) => `PAYABLE-LINK-\$\{crypto\.randomUUID\(\)\}`\)/);
-    expect(g).toMatch(/<EtiquetasFechas due=\{g\.due_date\} planned=\{g\.planned_date\}/);
     expect(g).toMatch(/payPendingExpense\(/);   // partial payments kept
+    // the list is Cuentas a pagar → Gastos: due / estimated dates on every pending row and the dates form per obligation
+    const h = SRC('features/caja/Gastos.tsx');
+    expect(h).toMatch(/<EtiquetasFechas due=\{it\.vence\} planned=\{it\.estimada\}/);
+    expect(h).toMatch(/<FechasPagoModal /);
   });
   it('the supplier ficha shows and edits the dates of each pending invoice', () => {
     const f = SRC('features/caja/FichaProveedor.tsx');
@@ -164,9 +167,9 @@ describe('Lote 3B — screens', () => {
     expect(c).toMatch(/Obligaciones sin fecha/);
     expect(c).toMatch(/Necesidad neta de fondos/);
     expect(c).toMatch(/Anticipos y diferencias por imputar/);
-    expect(c).toMatch(/Imputar en Facturas/);
+    expect(c).toMatch(/Imputar en Gastos/);
     expect(c).not.toMatch(/supplierCoverage/);
-    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'calendario' && <CalendarioPagos onImputar=\{\(\) => \{ setSubPagar\('pagosfactura'\); setVista\('pagar'\); \}\} \/>\}/);
+    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'calendario' && <CalendarioPagos onImputar=\{\(\) => \{ setSubPagar\('gastos'\); setVista\('pagar'\); \}\} \/>\}/);
   });
   it('Pagos de facturas offers only payments with an amount free to allocate (and never above it); the ficha shows the total', () => {
     const pf = SRC('features/caja/PagosFacturas.tsx');

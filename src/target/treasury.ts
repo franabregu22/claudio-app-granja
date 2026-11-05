@@ -179,11 +179,21 @@ export async function listPurchases(client: SupabaseClient, limit = 200): Promis
   const rows = await readTable<RawPurchase>(client, 'purchases',
     (q) => q.eq('is_current', true).order('economic_date', { ascending: false }).limit(limit),
     '*, suppliers(nombre), expense_category(nombre), purchase_line(*)');
-  return rows.map(({ suppliers, expense_category, purchase_line, ...p }) => ({
+  return rows.map(mapPurchase);
+}
+
+/** One purchase version with its lines (the detail of a row of Cuentas a pagar → Gastos); null when it does not exist. */
+export async function getPurchase(client: SupabaseClient, id: string): Promise<PurchaseRow | null> {
+  const rows = await readTable<RawPurchase>(client, 'purchases', (q) => q.eq('id', id).limit(1), '*, suppliers(nombre), expense_category(nombre), purchase_line(*)');
+  return rows[0] ? mapPurchase(rows[0]) : null;
+}
+
+function mapPurchase({ suppliers, expense_category, purchase_line, ...p }: RawPurchase): PurchaseRow {
+  return {
     ...p, amount_net: num(p.amount_net), amount_total: num(p.amount_total),
     supplier_nombre: suppliers?.nombre ?? p.counterparty_name ?? 'Sin proveedor registrado', categoria_nombre: expense_category?.nombre ?? '—',
     lineas: (purchase_line ?? []).map((l) => ({ ...l, cantidad: num(l.cantidad), precio_unitario: num(l.precio_unitario), subtotal: num(l.subtotal) })),
-  }));
+  };
 }
 
 export async function listFreight(client: SupabaseClient, limit = 100): Promise<FreightRow[]> {
