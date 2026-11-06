@@ -145,7 +145,7 @@ describe('ADR-021 — activity and classification routes', () => {
     expect(pr).toMatch(/id: 'ENTRADA_SIN_VINCULAR', titulo: 'Entradas sin vincular'.*aviso: false, requerido: false/);
     expect(pr).toMatch(/Actuales: \$\{mp\.current\} · Históricos: \$\{mp\.historical\}/);
     expect(pr).not.toMatch(/<PendientesClasificar|<EntradasSinVincular|<GastosSinClasificar/);   // no list of its own
-    expect(app).toMatch(/\{vista === 'movimientos' && <Movimientos onIrAExtractos=\{\(\) => setVista\('extractos'\)\} \/>\}/);
+    expect(app).toMatch(/\{vista === 'movimientos' && <Movimientos onIrAExtractos=\{\(\) => setVista\('extractos'\)\} focus=\{foco\} onFocus=\{setFoco\} \/>\}/);
     // the filter counts what the indicator counts: Pendientes current + historical, Entradas the current ones; both switchable
     expect(lista).toMatch(/const ALCANCE_INICIAL: Record<PendingFilter, PendingScopeFilter \| ''> = \{ MP_CLASIFICAR: '', GASTO_SIN_CLASIFICAR: '', ENTRADA_SIN_VINCULAR: 'CURRENT' \};/);
     expect(lista).toMatch(/\{ id: 'CURRENT', label: 'Actuales' \}, \{ id: 'HISTORICAL', label: 'Históricos' \}/);

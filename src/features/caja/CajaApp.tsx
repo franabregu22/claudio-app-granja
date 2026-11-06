@@ -31,6 +31,9 @@ export function CajaApp() {
   const [subPagar, setSubPagar] = useState<SubPagar>('gastos');
   const [retiro, setRetiro] = useState(false);
   const [nuevoGasto, setNuevoGasto] = useState(false);
+  const [foco, setFoco] = useState<string | null>(null);   // 0119: the row of a just-recorded operation in Todas las operaciones
+  const [registrado, setRegistrado] = useState<{ texto: string; clave: string | null } | null>(null);
+  const verOperacion = (clave: string | null) => { setFoco(clave ?? 'RECIENTES'); setRegistrado(null); setVista('movimientos'); };
   const sinClasificar = useBadgeSinClasificar();
   const mp = usePendingSummary();
   const porResolver = sinClasificar + (mp.data?.PENDING_CURRENT.count ?? 0);   // historical Mercado Pago rows and optional inflows are not an alert
@@ -72,7 +75,16 @@ export function CajaApp() {
           </nav>
         </header>
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">
-          {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} />}
+          {registrado && (
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900 flex flex-wrap items-center gap-2" role="status">
+              <span>{registrado.texto}</span>
+              <button type="button" className="underline font-semibold" onClick={() => verOperacion(registrado.clave)}>
+                {registrado.clave ? 'Ver en Todas las operaciones' : 'Ver cargadas recientemente'}
+              </button>
+              <button type="button" className="ml-auto text-xs text-green-800 hover:underline" onClick={() => setRegistrado(null)}>Cerrar</button>
+            </div>
+          )}
+          {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} focus={foco} onFocus={setFoco} />}
           {vista === 'transferencias' && <Transferencias />}
           {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
           {vista === 'calendario' && <CalendarioPagos onImputar={() => { setSubPagar('gastos'); setVista('pagar'); }} />}
@@ -84,7 +96,8 @@ export function CajaApp() {
           className="fixed bottom-6 right-4 md:right-8 z-40 flex items-center gap-1.5 bg-[#A8552E] text-white font-semibold pl-3 pr-4 py-3 rounded-full shadow-lg hover:bg-[#8B4423]">
           <Plus className="w-5 h-5" /> Nuevo gasto
         </button>
-        {nuevoGasto && <NuevaCompraModal onClose={() => setNuevoGasto(false)} />}
+        {nuevoGasto && <NuevaCompraModal onClose={() => setNuevoGasto(false)}
+          onRegistrado={(clave, texto) => { setNuevoGasto(false); setRegistrado({ texto, clave }); }} />}
       </div>
     </div>
   );

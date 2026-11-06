@@ -4,6 +4,7 @@ import type { PendingFilter } from '../../target/movementHistory';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { MovimientosHistoricos } from './MovimientosHistoricos';
+import { TodasLasOperaciones } from './TodasLasOperaciones';
 import { TarjetasPorResolver } from './PorResolver';
 import { useLedgerBalances } from './useTreasury';
 
@@ -16,7 +17,9 @@ const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', 
  * is each Por resolver indicator: one list (MovimientosHistoricos), no secondary list. Only posted money is a movement: a declared
  * Mercado Pago collection and an unpaid obligation stay out of it (ADR-027 / ADR-026) and a transfer counts as one operation.
  */
-export function Movimientos({ onIrAExtractos }: { onIrAExtractos?: () => void }) {
+export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }: {
+  onIrAExtractos?: () => void; focus?: string | null; onFocus?: (key: string | null) => void;
+}) {
   const cuentas = useFinancialAccounts();
   const saldos = useLedgerBalances('ACCOUNT');
   const [cuentaId, setCuentaId] = useState('');
@@ -52,9 +55,16 @@ export function Movimientos({ onIrAExtractos }: { onIrAExtractos?: () => void })
         </div>
       )}
       <TarjetasPorResolver activo={pendiente} onFiltro={setPendiente} />
-      <section aria-label="Movimientos históricos">
-        <MovimientosHistoricos cuentas={lista} cuentaId={cuentaId} onCuenta={setCuentaId} pendiente={pendiente} onPendiente={setPendiente} onIrAExtractos={onIrAExtractos} />
-      </section>
+      {/* 0119: Todas las operaciones is the list; a Por resolver card opens its resolution list (classification / linking actions) */}
+      {pendiente ? (
+        <section aria-label="Por resolver">
+          <MovimientosHistoricos cuentas={lista} cuentaId={cuentaId} onCuenta={setCuentaId} pendiente={pendiente} onPendiente={setPendiente} onIrAExtractos={onIrAExtractos} />
+        </section>
+      ) : (
+        <section aria-label="Todas las operaciones">
+          <TodasLasOperaciones cuentas={lista} cuentaId={cuentaId} onCuenta={setCuentaId} focus={focus} onFocus={onFocus} />
+        </section>
+      )}
     </div>
   );
 }

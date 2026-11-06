@@ -3,6 +3,7 @@ import { useAuth } from '../../auth/useAuth';
 import { ATTACHMENT_TYPES, validateAttachments } from '../../target/attachments';
 import { defaultNatureOf } from '../../target/expenseCategories';
 import { COMPROBANTE_VACIO, cuentaAdmitida, MEDIO_PAGO_LABEL, NATURALEZA_GASTO, rutaGasto, type ComprobanteForm, type EstadoPago, type MedioPago } from '../../target/expenses';
+import { claveDeRegistro } from '../../target/operations';
 import { cuitOrNull, fiscalInput, TAX_KINDS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
 import { type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
@@ -57,7 +58,7 @@ const LINEA_VACIA: PurchaseLineInput = { producto_id: null, feed_ingredient_id: 
  * pago" moves no money; "Pagado" records ONE payment on its account and real date, and a Mercado Pago payment waits for its movement
  * (never a second one). One idempotency key per opened form.
  */
-export function NuevaCompraModal({ onClose }: { onClose: () => void }) {
+export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => void; onRegistrado?: (clave: string | null, texto: string) => void }) {
   const { user } = useAuth();
   const facturas = useInvoicePaymentStatus(false, 500);   // the same list as Cuentas a pagar → Gastos (shared cache)
   const registrar = useRegisterExpense();
@@ -99,7 +100,11 @@ export function NuevaCompraModal({ onClose }: { onClose: () => void }) {
         categoryId: categoriaId, nature: naturaleza, estado, medio: estado === 'PAGADO' ? medio : null, accountId: cuentaElegida || null,
         fechaPago: medio === 'MERCADOPAGO' ? fecha : fechaPago, invoiceNumber: comprobante.numero.trim() || null, fiscal: fiscalDatos,
         cuitEmisor: conProveedor ? null : cuitEmisor, nombreEmisor: conProveedor ? null : comprobante.nombreEmisor, idempotencyKey: clave,
-      }, { onSuccess: onClose })}>
+      }, { onSuccess: (r) => {
+        if (!onRegistrado) { onClose(); return; }
+        const fechaTxt = estado === 'PAGADO' && medio !== 'MERCADOPAGO' ? fechaPago : fecha;
+        onRegistrado(claveDeRegistro(ruta, r), `Gasto «${concepto.trim()}» registrado${estado === 'PENDIENTE' ? ' como pendiente de pago' : ' y pagado'} (fecha ${formatearFechaLocal(fechaTxt)}).`);
+      } })}>
       <label className={etiqueta}>Concepto del gasto
         <input type="text" value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={100} placeholder="Ej.: maíz, gasoil, reparación de la bomba"
           className={`${campo} text-base`} autoFocus />

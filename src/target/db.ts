@@ -123,6 +123,8 @@ export const TARGET_RPCS = [
   'register_paid_supplier_purchase', 'rectify_purchase_details',   // 0117 (ADMIN): Nuevo gasto paid to a supplier; audited rectification of an expense
   'purchase_chain_root',   // 0104 (authenticated, read): the first version of a purchase — the key of its history
   'reschedule_issued_instrument',   // 0118 (ADMIN): audited payment-date correction of an own cheque / eCheq before its debit
+  'fin_operation_list', 'fin_operation_timeline',   // 0119 (ADMIN, read): Caja → Todas las operaciones and the audited history of one row
+  'pay_purchase_invoice',   // 0119 (ADMIN): a supplier invoice paid from its row (cash / transfer), one movement + its allocation
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

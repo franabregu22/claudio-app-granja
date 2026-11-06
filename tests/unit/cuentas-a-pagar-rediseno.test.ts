@@ -102,7 +102,7 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
   });
   it('the floating "Nuevo gasto" button lives at Caja level (every tab) and opens the existing purchase form', () => {
     expect(app).toMatch(/className="fixed bottom-6 right-4/);
-    expect(app).toMatch(/\{nuevoGasto && <NuevaCompraModal onClose=\{\(\) => setNuevoGasto\(false\)\} \/>\}/);
+    expect(app).toMatch(/\{nuevoGasto && <NuevaCompraModal onClose=\{\(\) => setNuevoGasto\(false\)\}\s+onRegistrado=/);   // 0119: confirmation with a link to its row
     expect(app.indexOf("if (rol !== 'ADMIN')")).toBeLessThan(app.indexOf('<NuevaCompraModal'));
     expect(compras).toMatch(/<Modal titulo="Nuevo gasto"/);
     expect(compras).toMatch(/<DatosFiscales value=\{value\.fiscal\} onChange=\{\(fiscal\) => set\(\{ fiscal \}\)\} \/>/);   // with or without invoice, fiscal validation kept

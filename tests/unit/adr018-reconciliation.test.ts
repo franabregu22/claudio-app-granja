@@ -58,7 +58,8 @@ describe('ADR-018 reconciliation access: ADMIN only', () => {
   it('allowlist: exactly the 3 ADR-018 reconciliation RPCs + the read-only MP payout match (0084), unified history (0113), bank charges (0114), cheques debited before the cut (0115) and Caja 0116 (list, anticipated transfers, tax relation); view and the two tables registered', () => {
     expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover', 'fin_mp_payout_matches', 'fin_movement_history', 'fin_statement_charge_proposals', 'fin_book_statement_charges', 'fin_instrument_precut_candidates', 'fin_mark_instrument_debited_precut']));
     expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_movement_list', 'fin_register_transfer_intent', 'fin_link_transfer_intent', 'fin_cancel_transfer_intent', 'fin_relate_bank_tax']));
-    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toHaveLength(14);
+    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_operation_list', 'fin_operation_timeline']));   // 0119: Todas las operaciones
+    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toHaveLength(16);
     expect(TARGET_RPCS).not.toContain('fin_import_bank_statement');
     expect(TARGET_VIEWS).toContain('fin_statement_line_status');
     expect(TARGET_READ_TABLES).toEqual(expect.arrayContaining(['fin_statement_match', 'fin_statement_cutover']));
