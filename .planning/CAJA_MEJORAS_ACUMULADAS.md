@@ -1,7 +1,7 @@
 # Caja y Tesorería — mejoras acumuladas
 
 Rama local `caja-mejoras-acumuladas`, desde `origin/main` e6c03eb (producción 117/0117). Sin push, deploy ni migraciones productivas.
-Lo que necesite base se prueba en Docker local (migración local siguiente: **0118**). Scripts de release: solo cuando el owner cierre la lista.
+Lo que necesite base se prueba en Docker local (0118 aplicada solo en local; siguiente: **0119**). Scripts de release: solo cuando el owner cierre la lista.
 
 Estados: PENDIENTE → IMPLEMENTADA → PROBADA (local).
 
