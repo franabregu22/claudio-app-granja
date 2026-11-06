@@ -3,6 +3,11 @@
 Rama local `caja-mejoras-acumuladas`, desde `origin/main` e6c03eb (producción 117/0117). Sin push, deploy ni migraciones productivas.
 Lo que necesite base se prueba en Docker local (0118 aplicada solo en local; siguiente: **0119**). Scripts de release: solo cuando el owner cierre la lista.
 
+Modalidades de prueba (se indica antes de cada prueba; la conexión nunca se cambia sin avisar):
+- **A — localhost → Supabase PRODUCCIÓN (0117):** solo cambios visuales compatibles con 0117. Lo que el owner cargue **queda en producción**. Nunca pruebas automatizadas.
+- **B — localhost → Docker LOCAL (0118 + copia real):** migraciones, RPC nuevas o pruebas que escriben. Lo que el owner cargue **queda solo en local**.
+- Con el código de esta rama en modalidad A, lo que depende de 0118 ("Cambiar fecha de pago") responde error y no escribe nada.
+
 Estados: PENDIENTE → IMPLEMENTADA → PROBADA (local).
 
 | # | Mejora (aprobada por el owner) | Estado | Notas |
