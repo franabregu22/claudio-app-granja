@@ -6,10 +6,10 @@ import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta, Modal } from './Modal';
 import { BloqueoMp, useEsCuentaMp } from './MovimientoMp';
-import { useClients, useInstrumentAction, useInstruments, usePrecutCandidates, useSuppliers, useTreasuryMutations, type InstrumentAction } from './useTreasury';
+import { useAllInstrumentDateChanges, useClients, useInstrumentAction, useInstruments, usePrecutCandidates, useSuppliers, useTreasuryMutations, type InstrumentAction } from './useTreasury';
 import { Comprobantes } from './Comprobantes';
 import { useDocumentLinks } from './useInvoicePayments';
-import { FechaPagoChequeModal, type ChequeFecha } from './FechaPagoCheque';
+import { DetalleCorreccionesFecha, EtiquetaFechaCorregida, FechaPagoChequeModal, type ChequeFecha } from './FechaPagoCheque';
 
 export const ESTADO: Record<InstrumentEstado, { texto: string; clase: string }> = {
   RECEIVED: { texto: 'En cartera', clase: 'bg-amber-100 text-amber-900' },
@@ -39,6 +39,7 @@ export function Cheques() {
   const [accion, setAccion] = useState<{ action: InstrumentAction; inst: InstrumentRow } | null>(null);
   const [anteriorCorte, setAnteriorCorte] = useState<InstrumentRow | null>(null);
   const [fechaPago, setFechaPago] = useState<ChequeFecha | null>(null);
+  const correcciones = useAllInstrumentDateChanges();   // 0118: corrected payment dates, visible on the row
   const docs = useDocumentLinks('FINANCIAL_INSTRUMENT', (instrumentos.data ?? []).filter((i) => i.direction === 'ISSUED').map((i) => i.id));   // ADR-025 stage 4: cheque PDFs
 
   if (instrumentos.isLoading) return <p className="text-sm text-gray-500">Cargando cheques...</p>;
@@ -62,10 +63,12 @@ export function Cheques() {
           {docs.data?.get(i.id) && <span className="ml-2"><Comprobantes docs={docs.data.get(i.id)} compacto /></span>}
         </span>
         <span className="flex items-center gap-2">
+          <EtiquetaFechaCorregida cambios={correcciones.data?.get(i.id)} />
           <span className="font-bold">{formatoPesos(i.amount)}</span>
           <span className={`text-xs px-2 py-0.5 rounded ${ESTADO[i.estado].clase}`}>{ESTADO[i.estado].texto}</span>
         </span>
       </div>
+      <DetalleCorreccionesFecha cambios={correcciones.data?.get(i.id)} />
       {acciones(i).length > 0 && (
         <div className="flex flex-wrap items-center gap-2 mt-2">
           {acciones(i).filter((a) => a !== 'reject').map((a) => (

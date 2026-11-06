@@ -466,13 +466,18 @@ export function rescheduleIssuedInstrument(client: SupabaseClient, p: { instrume
 }
 
 export interface InstrumentDateChange {
-  id: number; performed_at: string; performed_by: string | null; reason: string | null;
+  id: number; entity_id: string; performed_at: string; performed_by: string | null; reason: string | null;
   before_values: { maturity_date?: string | null } | null; after_values: { maturity_date?: string | null } | null;
 }
 /** 0118: the audited payment-date corrections of one instrument, oldest first. */
 export function listInstrumentDateChanges(client: SupabaseClient, instrumentId: string) {
   return readTable<InstrumentDateChange>(client, 'audit_events', (q) => q.eq('entity_type', 'financial_instrument').eq('entity_id', instrumentId)
-    .eq('action', 'RESCHEDULE_PAYMENT_DATE').order('performed_at', { ascending: true }), 'id, performed_at, performed_by, reason, before_values, after_values');
+    .eq('action', 'RESCHEDULE_PAYMENT_DATE').order('performed_at', { ascending: true }), 'id, entity_id, performed_at, performed_by, reason, before_values, after_values');
+}
+/** 0118: every payment-date correction of every cheque / eCheq, oldest first (few rows: one per correction). */
+export function listAllInstrumentDateChanges(client: SupabaseClient) {
+  return readTable<InstrumentDateChange>(client, 'audit_events', (q) => q.eq('entity_type', 'financial_instrument').eq('action', 'RESCHEDULE_PAYMENT_DATE')
+    .order('performed_at', { ascending: true }), 'id, entity_id, performed_at, performed_by, reason, before_values, after_values');
 }
 
 export function rejectSupplierInstrument(client: SupabaseClient, instrumentId: string, date: string, reason: string) {

@@ -8,10 +8,10 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { AccionModal, ACCION, ESTADO, MasAcciones, TIPO } from './Cheques';
-import { FechaPagoChequeModal, type ChequeFecha } from './FechaPagoCheque';
+import { EtiquetaFechaCorregida, FechaPagoChequeModal, type ChequeFecha } from './FechaPagoCheque';
 import { Comprobantes } from './Comprobantes';
 import { campo, etiqueta, Modal } from './Modal';
-import type { InstrumentAction } from './useTreasury';
+import { useAllInstrumentDateChanges, type InstrumentAction } from './useTreasury';
 import { useUnallocatedPayments } from './usePaymentCalendar';
 import {
   useAllocatePurchasePayment, useAttachInstrumentDocument, useDocumentLinks, useInvoicePaymentDetail, useIssuePurchaseInstruments,
@@ -36,6 +36,7 @@ export function DetalleFactura({ f, docs, onEmitir, onImputar }: {
   const adjuntar = useAttachInstrumentDocument();
   const [accion, setAccion] = useState<{ action: InstrumentAction; r: PurchasePaymentDetailRow } | null>(null);
   const [fechaPago, setFechaPago] = useState<ChequeFecha | null>(null);
+  const correcciones = useAllInstrumentDateChanges();   // 0118: corrected payment dates
   const reemplazados = new Set(filas.map((r) => r.replaces_instrument_id).filter(Boolean));
 
   return (
@@ -64,6 +65,7 @@ export function DetalleFactura({ f, docs, onEmitir, onImputar }: {
                       <span className="text-[#8A7A5C]">{r.bank_account_name} · emitido {formatearFechaLocal(r.issued_date!)} · fecha de pago {formatearFechaLocal(r.maturity_date!)}
                         {r.debited_date ? ` · debitado ${formatearFechaLocal(r.debited_date)}` : ''}{r.rejected_date ? ` · ${formatearFechaLocal(r.rejected_date)}` : ''}</span>
                       {r.replaces_instrument_id && <span className="text-[#8A7A5C]">(reemplazo)</span>}
+                      <EtiquetaFechaCorregida cambios={correcciones.data?.get(r.financial_instrument_id)} />
                       <span className={`px-2 py-0.5 rounded ${ESTADO[r.estado!].clase}`}>{r.estado === 'ISSUED' ? 'Programado' : ESTADO[r.estado!].texto}</span>
                       <Comprobantes docs={docsCheques.data?.get(r.financial_instrument_id)} compacto />
                     </>

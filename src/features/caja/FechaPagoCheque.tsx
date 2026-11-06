@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { campo, etiqueta, Modal } from './Modal';
-import { useInstrumentDateChanges, useTreasuryMutations } from './useTreasury';
+import { useAllInstrumentDateChanges, useInstrumentDateChanges, useTreasuryMutations } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
 
 /** The cheque / eCheq fields this correction needs (InstrumentRow, a payment-calendar row and an invoice payment row all carry them). */
@@ -55,5 +55,36 @@ export function FechaPagoChequeModal({ cheque, onClose }: { cheque: ChequeFecha;
           )}
       </div>
     </Modal>
+  );
+}
+
+type Correccion = NonNullable<ReturnType<typeof useAllInstrumentDateChanges>['data']> extends Map<string, infer V> ? V : never;
+
+/** 0118: a visible mark on a cheque whose payment date was corrected (the original date and the last reason as a tooltip). */
+export function EtiquetaFechaCorregida({ cambios }: { cambios: Correccion | undefined }) {
+  if (!cambios || cambios.length === 0) return null;
+  const primera = cambios[0];
+  const ultima = cambios[cambios.length - 1];
+  return (
+    <span className="text-xs px-2 py-0.5 rounded bg-sky-100 text-sky-900" title={ultima.reason ? `Motivo: ${ultima.reason}` : undefined}>
+      Fecha de pago corregida{cambios.length > 1 ? ` (${cambios.length} veces)` : ''} · antes {formatearFechaLocal(primera.before_values?.maturity_date ?? '')}
+    </span>
+  );
+}
+
+/** 0118: every correction of one cheque, one line each — what changed, when, who and why. */
+export function DetalleCorreccionesFecha({ cambios }: { cambios: Correccion | undefined }) {
+  const emails = useProfileEmails();
+  if (!cambios || cambios.length === 0) return null;
+  return (
+    <ul className="mt-2 space-y-1">
+      {cambios.map((h) => (
+        <li key={h.id} className="text-xs bg-sky-50 border border-sky-100 rounded px-2 py-1 text-sky-950">
+          Fecha de pago corregida: {formatearFechaLocal(h.before_values?.maturity_date ?? '')} → <b>{formatearFechaLocal(h.after_values?.maturity_date ?? '')}</b>
+          <span className="text-sky-800"> · {new Date(h.performed_at).toLocaleString('es-AR')} · {h.performed_by ? emails.data?.get(h.performed_by) ?? 'usuario' : 'sistema'}</span>
+          {h.reason && <span className="block">Motivo: {h.reason}</span>}
+        </li>
+      ))}
+    </ul>
   );
 }

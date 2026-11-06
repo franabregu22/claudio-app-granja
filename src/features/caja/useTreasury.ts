@@ -6,7 +6,7 @@ import {
   assignFreightToPurchase, cancelSupplierInstrument, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
   getPurchase, listInstruments, listLedgerBalances, listPnlMonths, listPrecutCandidates, listSupplierLedger, listPurchases, markInstrumentDebitedPrecut, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
   registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listBankTaxPeriods, transferWithBankTax,
-  listInstrumentDateChanges, rescheduleIssuedInstrument,
+  listAllInstrumentDateChanges, listInstrumentDateChanges, rescheduleIssuedInstrument,
 } from '../../target/treasury';
 import { listMovements, type MovementFilter } from '../../target/movementHistory';
 import { cancelTransferIntent, linkTransferIntent, listTransferIntents, listUnrelatedTaxes, registerTransferIntent, relateBankTax } from '../../target/transferIntents';
@@ -149,4 +149,12 @@ export function useInstrumentAction() {
 /** 0118: the audited payment-date corrections of one cheque / eCheq (refreshed with every treasury change). */
 export function useInstrumentDateChanges(instrumentId: string | null) {
   return useQuery({ queryKey: ['treasury', 'instrument-date-changes', instrumentId], queryFn: () => listInstrumentDateChanges(supabase, instrumentId!), enabled: !!instrumentId });
+}
+/** 0118: the payment-date corrections of every cheque / eCheq, by instrument id (marks the corrected ones in every list). */
+export function useAllInstrumentDateChanges() {
+  return useQuery({ queryKey: ['treasury', 'instrument-date-changes', 'all'], queryFn: async () => {
+    const map = new Map<string, Awaited<ReturnType<typeof listAllInstrumentDateChanges>>>();
+    for (const c of await listAllInstrumentDateChanges(supabase)) map.set(c.entity_id, [...(map.get(c.entity_id) ?? []), c]);
+    return map;
+  } });
 }

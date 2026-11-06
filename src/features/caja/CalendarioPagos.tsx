@@ -4,12 +4,12 @@ import { calendarDate, isOverdue, monthCommitments, netFundsNeed, supplierPositi
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { AccionModal } from './Cheques';
-import { FechaPagoChequeModal } from './FechaPagoCheque';
+import { EtiquetaFechaCorregida, FechaPagoChequeModal } from './FechaPagoCheque';
 import { Comprobantes } from './Comprobantes';
 import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { useDebitedInstruments, useDocumentLinks } from './useInvoicePayments';
 import { usePaymentCalendar, useUnallocatedPayments } from './usePaymentCalendar';
-import { useLedgerBalances } from './useTreasury';
+import { useAllInstrumentDateChanges, useLedgerBalances } from './useTreasury';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const TIPO_ITEM: Record<CalendarItemKind, { label: string; tono: string }> = {
@@ -46,6 +46,7 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
   const neto = netFundsNeed(filas, saldos.data ?? [], libres.data ?? []);
   const [debitar, setDebitar] = useState<CalendarRow | null>(null);
   const [fechaPago, setFechaPago] = useState<CalendarRow | null>(null);
+  const correcciones = useAllInstrumentDateChanges();   // 0118: corrected payment dates
   const [fechas, setFechas] = useState<CalendarRow | null>(null);
 
   const [y, mm] = mes.split('-').map(Number);
@@ -73,6 +74,7 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
           : <span className="text-xs px-2 py-0.5 rounded bg-stone-100 text-stone-700">Sin imputar: factura no determinada</span>)
         : <EtiquetasFechas due={r.due_date} planned={r.planned_date} hoy={hoy} />}
       {esInstrumento(r) && r.due_date && r.due_date < hoy && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">Fecha de pago pasada, sin debitar</span>}
+      {esInstrumento(r) && <EtiquetaFechaCorregida cambios={correcciones.data?.get(r.item_id)} />}
       {esInstrumento(r) && <Comprobantes docs={docs.data?.get(r.item_id)} compacto />}
       <span className="flex-1" />
       <span className="font-bold">{formatoPesos(r.amount)}</span>
