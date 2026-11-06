@@ -51,6 +51,7 @@ export const TARGET_READ_TABLES = [
   'supplier_ledger',   // Lote 3A: supplier current-account movements, read-only (ADMIN policy, 0017)
   'purchase_payment_date',   // Lote 3B (0110): due / estimated payment date history, append-only (ADMIN policy)
   'fin_transfer_intent',   // 0116: transfers between Mercado Pago and a bank registered before the movement (ADMIN policy, read-only)
+  'audit_events',   // 0118: the payment-date corrections of a cheque (ADMIN policy, read-only)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -121,6 +122,7 @@ export const TARGET_RPCS = [
   'register_casual_purchase', 'register_casual_purchase_mp_pending',   // 0088 / 0111 (ADMIN): Nuevo gasto without supplier, paid / paid by Mercado Pago (linked later)
   'register_paid_supplier_purchase', 'rectify_purchase_details',   // 0117 (ADMIN): Nuevo gasto paid to a supplier; audited rectification of an expense
   'purchase_chain_root',   // 0104 (authenticated, read): the first version of a purchase — the key of its history
+  'reschedule_issued_instrument',   // 0118 (ADMIN): audited payment-date correction of an own cheque / eCheq before its debit
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

@@ -4,6 +4,7 @@ import { calendarDate, isOverdue, monthCommitments, netFundsNeed, supplierPositi
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { AccionModal } from './Cheques';
+import { FechaPagoChequeModal } from './FechaPagoCheque';
 import { Comprobantes } from './Comprobantes';
 import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { useDebitedInstruments, useDocumentLinks } from './useInvoicePayments';
@@ -44,6 +45,7 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
   const posiciones = supplierPositions(filas, saldos.data ?? [], libres.data ?? []);
   const neto = netFundsNeed(filas, saldos.data ?? [], libres.data ?? []);
   const [debitar, setDebitar] = useState<CalendarRow | null>(null);
+  const [fechaPago, setFechaPago] = useState<CalendarRow | null>(null);
   const [fechas, setFechas] = useState<CalendarRow | null>(null);
 
   const [y, mm] = mes.split('-').map(Number);
@@ -70,12 +72,15 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
           ? <span className="text-xs px-2 py-0.5 rounded bg-green-50 text-green-800">Imputado a factura {r.linked_invoice_number ?? ''}</span>
           : <span className="text-xs px-2 py-0.5 rounded bg-stone-100 text-stone-700">Sin imputar: factura no determinada</span>)
         : <EtiquetasFechas due={r.due_date} planned={r.planned_date} hoy={hoy} />}
-      {esInstrumento(r) && r.due_date && r.due_date < hoy && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">Vencido sin debitar</span>}
+      {esInstrumento(r) && r.due_date && r.due_date < hoy && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">Fecha de pago pasada, sin debitar</span>}
       {esInstrumento(r) && <Comprobantes docs={docs.data?.get(r.item_id)} compacto />}
       <span className="flex-1" />
       <span className="font-bold">{formatoPesos(r.amount)}</span>
       {esInstrumento(r)
-        ? <button type="button" onClick={() => setDebitar(r)} className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200">Marcar debitado</button>
+        ? <>
+          <button type="button" onClick={() => setFechaPago(r)} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50">Fecha de pago</button>
+          <button type="button" onClick={() => setDebitar(r)} className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200">Marcar debitado</button>
+        </>
         : <button type="button" onClick={() => setFechas(r)} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50">Fechas</button>}
     </li>
   );
@@ -198,6 +203,10 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
       {debitar && (
         <AccionModal action="debit" onClose={() => setDebitar(null)}
           inst={{ id: debitar.item_id, direction: 'ISSUED', instrument_type: debitar.item_kind === 'ECHEQ' ? 'ECHEQ' : 'CHEQUE', cheque_number: debitar.document_number, amount: debitar.amount }} />
+      )}
+      {fechaPago && (
+        <FechaPagoChequeModal onClose={() => setFechaPago(null)} cheque={{ id: fechaPago.item_id, tipo: fechaPago.item_kind === 'ECHEQ' ? 'eCheq' : 'Cheque',
+          numero: fechaPago.document_number, amount: fechaPago.amount, maturity_date: fechaPago.due_date, destinatario: fechaPago.supplier_name }} />
       )}
       {fechas && fechas.purchase_id && fechas.purchase_root_id && (
         <FechasPagoModal purchaseId={fechas.purchase_id} rootId={fechas.purchase_root_id}

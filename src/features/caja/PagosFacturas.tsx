@@ -7,7 +7,8 @@ import { INSTRUMENT_TYPES, type InstrumentType } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
-import { AccionModal, ACCION, ESTADO, TIPO } from './Cheques';
+import { AccionModal, ACCION, ESTADO, MasAcciones, TIPO } from './Cheques';
+import { FechaPagoChequeModal, type ChequeFecha } from './FechaPagoCheque';
 import { Comprobantes } from './Comprobantes';
 import { campo, etiqueta, Modal } from './Modal';
 import type { InstrumentAction } from './useTreasury';
@@ -34,6 +35,7 @@ export function DetalleFactura({ f, docs, onEmitir, onImputar }: {
   const docsCheques = useDocumentLinks('FINANCIAL_INSTRUMENT', filas.flatMap((r) => (r.financial_instrument_id ? [r.financial_instrument_id] : [])));
   const adjuntar = useAttachInstrumentDocument();
   const [accion, setAccion] = useState<{ action: InstrumentAction; r: PurchasePaymentDetailRow } | null>(null);
+  const [fechaPago, setFechaPago] = useState<ChequeFecha | null>(null);
   const reemplazados = new Set(filas.map((r) => r.replaces_instrument_id).filter(Boolean));
 
   return (
@@ -59,7 +61,7 @@ export function DetalleFactura({ f, docs, onEmitir, onImputar }: {
                   {r.financial_instrument_id ? (
                     <>
                       <span className="font-semibold">{TIPO[r.instrument_type!]} {r.cheque_number}</span>
-                      <span className="text-[#8A7A5C]">{r.bank_account_name} · emitido {formatearFechaLocal(r.issued_date!)} · vence {formatearFechaLocal(r.maturity_date!)}
+                      <span className="text-[#8A7A5C]">{r.bank_account_name} · emitido {formatearFechaLocal(r.issued_date!)} · fecha de pago {formatearFechaLocal(r.maturity_date!)}
                         {r.debited_date ? ` · debitado ${formatearFechaLocal(r.debited_date)}` : ''}{r.rejected_date ? ` · ${formatearFechaLocal(r.rejected_date)}` : ''}</span>
                       {r.replaces_instrument_id && <span className="text-[#8A7A5C]">(reemplazo)</span>}
                       <span className={`px-2 py-0.5 rounded ${ESTADO[r.estado!].clase}`}>{r.estado === 'ISSUED' ? 'Programado' : ESTADO[r.estado!].texto}</span>
@@ -70,10 +72,16 @@ export function DetalleFactura({ f, docs, onEmitir, onImputar }: {
                   )}
                   <span className="flex-1" />
                   <span className={`font-semibold ${r.estado === 'REJECTED' || r.estado === 'CANCELLED' ? 'line-through text-[#8A7A5C]' : ''}`}>{formatoPesos(r.amount)}</span>
-                  {r.estado === 'ISSUED' && (['debit', 'cancel', 'reject'] as InstrumentAction[]).map((a) => (
+                  {r.estado === 'ISSUED' && (['debit', 'cancel'] as InstrumentAction[]).map((a) => (
                     <button key={a} type="button" onClick={() => setAccion({ action: a, r })}
                       className={`px-2 py-0.5 rounded ${a === 'debit' ? 'bg-amber-100 text-amber-900 hover:bg-amber-200' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}>{ACCION[a]}</button>
                   ))}
+                  {r.estado === 'ISSUED' && (
+                    <button type="button" className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200"
+                      onClick={() => setFechaPago({ id: r.financial_instrument_id!, tipo: TIPO[r.instrument_type!], numero: r.cheque_number, amount: r.amount,
+                        maturity_date: r.maturity_date, issued_date: r.issued_date, destinatario: null })}>Cambiar fecha de pago</button>
+                  )}
+                  {r.estado === 'ISSUED' && <MasAcciones onRechazar={() => setAccion({ action: 'reject', r })} />}
                   {(r.estado === 'REJECTED' || r.estado === 'CANCELLED') && !reemplazados.has(r.financial_instrument_id) && f.pending > 0 && (
                     <button type="button" onClick={() => onEmitir(r)} className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200">Reemplazar</button>
                   )}
@@ -94,6 +102,7 @@ export function DetalleFactura({ f, docs, onEmitir, onImputar }: {
         <AccionModal action={accion.action} onClose={() => setAccion(null)}
           inst={{ id: accion.r.financial_instrument_id!, direction: 'ISSUED', instrument_type: accion.r.instrument_type!, cheque_number: accion.r.cheque_number, amount: accion.r.amount }} />
       )}
+      {fechaPago && <FechaPagoChequeModal cheque={fechaPago} onClose={() => setFechaPago(null)} />}
     </div>
   );
 }
@@ -138,7 +147,7 @@ export function EmitirChequesModal({ f, reemplaza, onClose }: { f: PurchasePayme
             <label className={etiqueta}>Número<input type="text" value={r.numero} onChange={(e) => set(i, { numero: e.target.value })} className={campo} /></label>
             <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={r.monto} onChange={(e) => set(i, { monto: e.target.value })} className={campo} /></label>
             <label className={etiqueta}>Emisión<input type="date" value={r.emision} onChange={(e) => set(i, { emision: e.target.value })} className={campo} /></label>
-            <label className={etiqueta}>Vencimiento<input type="date" value={r.vencimiento} onChange={(e) => set(i, { vencimiento: e.target.value })} className={campo} /></label>
+            <label className={etiqueta}>Fecha de pago<input type="date" value={r.vencimiento} onChange={(e) => set(i, { vencimiento: e.target.value })} className={campo} /></label>
           </div>
           <label className={etiqueta}>Cuenta bancaria
             <select value={r.cuenta} onChange={(e) => set(i, { cuenta: e.target.value })} className={campo}>

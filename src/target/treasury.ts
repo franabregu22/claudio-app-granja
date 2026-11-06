@@ -458,6 +458,23 @@ export function cancelSupplierInstrument(client: SupabaseClient, instrumentId: s
   return callRpc(client, 'cancel_supplier_instrument', { p_instrument_id: instrumentId, p_cancelled_date: date, p_reason: reason });
 }
 
+/** 0118: corrects the payment date of an own cheque / eCheq still ISSUED; only that date changes (no amount, supplier, balance or movement). */
+export function rescheduleIssuedInstrument(client: SupabaseClient, p: { instrumentId: string; maturityDate: string; reason: string }) {
+  return callRpc<{ instrument_id: string; previous_maturity_date: string | null; maturity_date: string }>(client, 'reschedule_issued_instrument', {
+    p_instrument_id: p.instrumentId, p_new_maturity_date: p.maturityDate, p_reason: p.reason,
+  });
+}
+
+export interface InstrumentDateChange {
+  id: number; performed_at: string; performed_by: string | null; reason: string | null;
+  before_values: { maturity_date?: string | null } | null; after_values: { maturity_date?: string | null } | null;
+}
+/** 0118: the audited payment-date corrections of one instrument, oldest first. */
+export function listInstrumentDateChanges(client: SupabaseClient, instrumentId: string) {
+  return readTable<InstrumentDateChange>(client, 'audit_events', (q) => q.eq('entity_type', 'financial_instrument').eq('entity_id', instrumentId)
+    .eq('action', 'RESCHEDULE_PAYMENT_DATE').order('performed_at', { ascending: true }), 'id, performed_at, performed_by, reason, before_values, after_values');
+}
+
 export function rejectSupplierInstrument(client: SupabaseClient, instrumentId: string, date: string, reason: string) {
   return callRpc(client, 'reject_supplier_instrument', { p_instrument_id: instrumentId, p_rejected_date: date, p_reason: reason });
 }

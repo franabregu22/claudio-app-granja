@@ -205,7 +205,7 @@ function PagoProveedorModal({ proveedor, onClose }: { proveedor: SupplierAccount
           <label className={etiqueta}>Número de {METODO[metodo]}
             <input type="text" value={numero} onChange={(e) => setNumero(e.target.value)} className={campo} />
           </label>
-          <label className={etiqueta}>Vencimiento
+          <label className={etiqueta}>Fecha de pago
             <input type="date" value={vencimiento} onChange={(e) => setVencimiento(e.target.value)} className={campo} />
           </label>
         </>

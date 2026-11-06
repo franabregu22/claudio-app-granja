@@ -6,6 +6,7 @@ import {
   assignFreightToPurchase, cancelSupplierInstrument, clearCheque, depositCheque, endorseCheque, issueSupplierInstrument, listFreight,
   getPurchase, listInstruments, listLedgerBalances, listPnlMonths, listPrecutCandidates, listSupplierLedger, listPurchases, markInstrumentDebitedPrecut, markSupplierInstrumentDebited, paySupplier, receiveCheque, rectifyPurchase,
   registerBankTax, registerFreight, rejectCheque, rejectSupplierInstrument, transferBetweenAccounts, listBankTaxPeriods, transferWithBankTax,
+  listInstrumentDateChanges, rescheduleIssuedInstrument,
 } from '../../target/treasury';
 import { listMovements, type MovementFilter } from '../../target/movementHistory';
 import { cancelTransferIntent, linkTransferIntent, listTransferIntents, listUnrelatedTaxes, registerTransferIntent, relateBankTax } from '../../target/transferIntents';
@@ -107,6 +108,7 @@ export function useTreasuryMutations() {
     assignFreight: useMutation({ mutationFn: (p: Args<typeof assignFreightToPurchase>[0]) => assignFreightToPurchase(supabase, p), onSuccess }),
     receiveCheque: useMutation({ mutationFn: (p: Args<typeof receiveCheque>[0]) => receiveCheque(supabase, p), onSuccess }),
     markPrecut: useMutation({ mutationFn: (p: Args<typeof markInstrumentDebitedPrecut>[0]) => markInstrumentDebitedPrecut(supabase, p), onSuccess }),
+    reschedule: useMutation({ mutationFn: (p: Args<typeof rescheduleIssuedInstrument>[0]) => rescheduleIssuedInstrument(supabase, p), onSuccess }),
     createPurchase: useMutation({
       mutationFn: (p: Omit<Args<typeof createPurchaseWithAttachments>[0], 'onCleanupFailure'>) => createPurchaseWithAttachments(supabase, {
         ...p,
@@ -142,4 +144,9 @@ export function useInstrumentAction() {
     },
     onSuccess,
   });
+}
+
+/** 0118: the audited payment-date corrections of one cheque / eCheq (refreshed with every treasury change). */
+export function useInstrumentDateChanges(instrumentId: string | null) {
+  return useQuery({ queryKey: ['treasury', 'instrument-date-changes', instrumentId], queryFn: () => listInstrumentDateChanges(supabase, instrumentId!), enabled: !!instrumentId });
 }

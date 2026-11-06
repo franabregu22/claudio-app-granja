@@ -138,7 +138,7 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
             <table className="text-xs">
               <thead><tr className="text-[#8A7A5C] border-b border-[#E4DCC8]">
                 <th className={TH}>Tipo</th><th className={TH}>Número</th><th className={`${TH} text-right`}>Importe</th><th className={TH}>Emisión</th>
-                <th className={TH}>Vencimiento</th><th className={TH}>Estado</th><th className={TH}>PDF</th>
+                <th className={TH}>Fecha de pago</th><th className={TH}>Estado</th><th className={TH}>PDF</th>
               </tr></thead>
               <tbody>
                 {cheques.map((c) => (

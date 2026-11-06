@@ -9,6 +9,7 @@ import { BloqueoMp, useEsCuentaMp } from './MovimientoMp';
 import { useClients, useInstrumentAction, useInstruments, usePrecutCandidates, useSuppliers, useTreasuryMutations, type InstrumentAction } from './useTreasury';
 import { Comprobantes } from './Comprobantes';
 import { useDocumentLinks } from './useInvoicePayments';
+import { FechaPagoChequeModal, type ChequeFecha } from './FechaPagoCheque';
 
 export const ESTADO: Record<InstrumentEstado, { texto: string; clase: string }> = {
   RECEIVED: { texto: 'En cartera', clase: 'bg-amber-100 text-amber-900' },
@@ -37,6 +38,7 @@ export function Cheques() {
   const [recibiendo, setRecibiendo] = useState(false);
   const [accion, setAccion] = useState<{ action: InstrumentAction; inst: InstrumentRow } | null>(null);
   const [anteriorCorte, setAnteriorCorte] = useState<InstrumentRow | null>(null);
+  const [fechaPago, setFechaPago] = useState<ChequeFecha | null>(null);
   const docs = useDocumentLinks('FINANCIAL_INSTRUMENT', (instrumentos.data ?? []).filter((i) => i.direction === 'ISSUED').map((i) => i.id));   // ADR-025 stage 4: cheque PDFs
 
   if (instrumentos.isLoading) return <p className="text-sm text-gray-500">Cargando cheques...</p>;
@@ -53,7 +55,7 @@ export function Cheques() {
           <span className="font-semibold text-amber-900">{TIPO[i.instrument_type]} {i.cheque_number ?? ''}</span>
           <span className="text-[#8A7A5C]"> · {i.direction === 'RECEIVED' ? i.cliente_nombre : i.supplier_nombre}</span>
           {i.endosado_nombre && <span className="text-[#8A7A5C]"> → {i.endosado_nombre}</span>}
-          {i.maturity_date && <span className="text-[#8A7A5C]"> · vence {formatearFechaLocal(i.maturity_date)}</span>}
+          {i.maturity_date && <span className="text-[#8A7A5C]"> · fecha de pago {formatearFechaLocal(i.maturity_date)}</span>}
           {i.precut_line_id !== null && i.debited_date && (
             <span className="text-[#8A7A5C]"> · debitado {formatearFechaLocal(i.debited_date)}, antes del corte (línea {i.precut_line_id})</span>
           )}
@@ -65,18 +67,24 @@ export function Cheques() {
         </span>
       </div>
       {acciones(i).length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-2">
-          {acciones(i).map((a) => (
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          {acciones(i).filter((a) => a !== 'reject').map((a) => (
             <button key={a} onClick={() => setAccion({ action: a, inst: i })}
-              className={`text-xs px-2 py-1 rounded ${a === 'reject' || a === 'cancel' ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-amber-100 text-amber-900 hover:bg-amber-200'}`}>
+              className={`text-xs px-2 py-1 rounded ${a === 'cancel' ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-amber-100 text-amber-900 hover:bg-amber-200'}`}>
               {ACCION[a]}
             </button>
           ))}
+          {i.direction === 'ISSUED' && i.estado === 'ISSUED' && (
+            <button onClick={() => setFechaPago(chequeFecha(i))} className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-900 hover:bg-amber-200">
+              Cambiar fecha de pago
+            </button>
+          )}
           {i.direction === 'ISSUED' && i.estado === 'ISSUED' && (
             <button onClick={() => setAnteriorCorte(i)} className="text-xs px-2 py-1 rounded bg-stone-100 text-stone-800 hover:bg-stone-200">
               Debitado antes del corte
             </button>
           )}
+          {acciones(i).includes('reject') && <MasAcciones onRechazar={() => setAccion({ action: 'reject', inst: i })} />}
         </div>
       )}
     </div>
@@ -99,7 +107,26 @@ export function Cheques() {
       {recibiendo && <RecibirChequeModal onClose={() => setRecibiendo(false)} />}
       {accion && <AccionModal action={accion.action} inst={accion.inst} onClose={() => setAccion(null)} />}
       {anteriorCorte && <DebitoAnteriorCorteModal inst={anteriorCorte} onClose={() => setAnteriorCorte(null)} />}
+      {fechaPago && <FechaPagoChequeModal cheque={fechaPago} onClose={() => setFechaPago(null)} />}
     </div>
+  );
+}
+
+/** 0118: an own cheque / eCheq as the payment-date correction needs it. */
+export const chequeFecha = (i: InstrumentRow): ChequeFecha => ({
+  id: i.id, tipo: TIPO[i.instrument_type], numero: i.cheque_number, amount: i.amount, maturity_date: i.maturity_date, issued_date: i.issued_date,
+  destinatario: i.supplier_nombre,
+});
+
+/** Secondary cheque actions: "Rechazar" (still the same contract RPC) out of the main row. */
+export function MasAcciones({ onRechazar }: { onRechazar: () => void }) {
+  return (
+    <details className="relative text-xs">
+      <summary className="cursor-pointer list-none px-2 py-1 rounded text-[#A8552E] hover:bg-amber-50">Más acciones</summary>
+      <div className="absolute left-0 z-10 mt-1 bg-white border border-[#E4DCC8] rounded-lg shadow p-1 w-40">
+        <button type="button" onClick={onRechazar} className="w-full text-left px-2 py-1 rounded text-red-700 hover:bg-red-50">{ACCION.reject}</button>
+      </div>
+    </details>
   );
 }
 
@@ -194,7 +221,7 @@ function RecibirChequeModal({ onClose }: { onClose: () => void }) {
       <label className={etiqueta}>Monto
         <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
-      <label className={etiqueta}>Vencimiento
+      <label className={etiqueta}>Fecha de pago
         <input type="date" value={vencimiento} onChange={(e) => setVencimiento(e.target.value)} className={campo} />
       </label>
       <label className={etiqueta}>Nº de recibo (opcional)
