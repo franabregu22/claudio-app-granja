@@ -97,6 +97,7 @@ const PROFILES = {
   ADR025_POST_0115: './verify-profiles/adr025-post-0115.mjs',
   ADR025_POST_0116: './verify-profiles/adr025-post-0116.mjs',
   ADR025_POST_0117: './verify-profiles/adr025-post-0117.mjs',
+  ADR025_POST_0118: './verify-profiles/adr025-post-0118.mjs',
 };
 const t0 = Date.now();
 
