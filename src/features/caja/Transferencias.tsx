@@ -94,7 +94,7 @@ function HistorialTransferencias() {
 }
 
 /** ADR-011: the amount paid per period as report_bank_tax_period returns it (no computability figure). */
-function ImpuestoPorPeriodo() {
+export function ImpuestoPorPeriodo() {
   const periodos = useBankTaxPeriods();
   if (periodos.isLoading || periodos.error || (periodos.data ?? []).length === 0) return null;
   return (
@@ -132,7 +132,7 @@ function ImpuestosRegistrados({ cercanos, transferenciaId, onAsociado }: { cerca
 }
 
 /** The tax actually charged for an existing transfer (also the recovery path after a partial success). */
-function ImpuestoModal({ transferencia, onClose }: { transferencia: MovementRow; onClose: () => void }) {
+export function ImpuestoModal({ transferencia, onClose }: { transferencia: MovementRow; onClose: () => void }) {
   const { bankTax } = useTreasuryMutations();
   const { origen, destino } = lados(transferencia);
   const [cuenta, setCuenta] = useState(origen?.account_id ?? '');
@@ -177,7 +177,7 @@ function CuentaImpuesto({ transferencia, value, onChange }: { transferencia: { o
 }
 
 /** 0116 — the anticipated transfers still waiting for their Mercado Pago movement, and the ones already linked or cancelled. */
-function TransferenciasAnticipadas() {
+export function TransferenciasAnticipadas() {
   const q = useTransferIntents();
   const filas = q.data ?? [];
   if (q.isLoading || (!q.error && filas.length === 0)) return null;
@@ -211,7 +211,7 @@ function FilaAnticipada({ f }: { f: TransferIntentRow }) {
 }
 
 /** Link with the Mercado Pago movement of exactly that amount (the server creates the transfer) or with a transfer already confirmed. */
-function VincularAnticipada({ f, onCerrar }: { f: TransferIntentRow; onCerrar: () => void }) {
+export function VincularAnticipada({ f, onCerrar }: { f: TransferIntentRow; onCerrar: () => void }) {
   const cuentas = useFinancialAccounts();
   const lista = cuentas.data ?? [];
   const desde = lista.find((a) => a.id === f.from_account_id);
@@ -258,7 +258,7 @@ function VincularAnticipada({ f, onCerrar }: { f: TransferIntentRow; onCerrar: (
  * own account → Mercado Pago: the inflow from an own account (mp_reclassify_inbound_own_transfer). 0116: when the movement is not
  * there yet, the transfer is registered ahead (no money) and linked when it arrives.
  */
-function TransferenciaModal({ onClose }: { onClose: () => void }) {
+export function TransferenciaModal({ onClose }: { onClose: () => void }) {
   const cuentas = useFinancialAccounts();
   const { transferWithTax } = useTreasuryMutations();
   const { register } = useTransferIntentMutations();

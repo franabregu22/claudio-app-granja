@@ -95,9 +95,9 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
   const pagar = SRC('features/caja/SolapaPagar.tsx');
   const gastos = SRC('features/caja/Gastos.tsx');
   const compras = SRC('features/caja/Compras.tsx');
-  it('three sections, Gastos first and by default', () => {
-    expect([...pagar.matchAll(/\{ id: '\w+', label: '([^']+)' \}/g)].map((m) => m[1])).toEqual(['Gastos', 'Proveedores', 'Cheques']);
-    expect(app).toMatch(/useState<SubPagar>\('gastos'\)/);
+  it('two sections (0120), Proveedores first and by default; Gastos lives in Todas las operaciones', () => {
+    expect([...pagar.matchAll(/\{ id: '\w+', label: '([^']+)' \}/g)].map((m) => m[1])).toEqual(['Proveedores', 'Cheques']);
+    expect(app).toMatch(/useState<SubPagar>\('proveedores'\)/);
     for (const old of ['GastosAPagar', 'PagosFacturas', "'pagosfactura'", '<Compras />']) expect(pagar + app).not.toContain(old);
   });
   it('the floating "Nuevo gasto" button lives at Caja level (every tab) and opens the existing purchase form', () => {

@@ -27,7 +27,7 @@ const ESTADO_CLASE: Record<GastoEstado, string> = {
   POR_REVISAR: 'bg-amber-100 text-amber-900', PENDIENTE: 'bg-red-50 text-red-800', CHEQUES: 'bg-sky-50 text-sky-900', PAGADO: 'bg-green-50 text-green-800',
 };
 
-type Accion =
+export type Accion =
   | { tipo: 'emitir'; f: PurchasePaymentStatusRow; reemplaza?: PurchasePaymentDetailRow }
   | { tipo: 'imputar'; f: PurchasePaymentStatusRow }
   | { tipo: 'pagar'; g: PayableRow }
@@ -44,27 +44,47 @@ type Accion =
  * dates (FechasPago), rectification and freight (Compras). Nothing is computed or written here: the figures are the backend's and
  * every action is the existing RPC, with its idempotency key per opened form.
  */
-export function Gastos() {
+/** The expenses of every source in ONE list (invoices, pending expenses, unclassified, Mercado Pago to link, purchases): shared with Todas las operaciones. */
+export function useGastoItems() {
   const facturasPendientes = useInvoicePaymentStatus(true, 500);   // every invoice still owed, however old
   const facturas = useInvoicePaymentStatus(false, 500);            // and the latest ones, paid or not
   const aPagar = usePayables(false);
   const sinClasificar = useUnclassifiedOpen();
   const mp = usePurchaseMpLinks();
   const compras = usePurchases(500);
+  const fuentes = [facturasPendientes, facturas, aPagar, sinClasificar, mp, compras];
+  const todos = useMemo(() => armarGastos({
+    facturas: [...(facturasPendientes.data ?? []), ...(facturas.data ?? [])], aPagar: aPagar.data ?? [], sinClasificar: sinClasificar.data ?? [],
+    mp: mp.data ?? [], compras: compras.data ?? [],
+  }), [facturasPendientes.data, facturas.data, aPagar.data, sinClasificar.data, mp.data, compras.data]);
+  return { todos, cargando: fuentes.some((q) => q.isLoading), error: fuentes.find((q) => q.error)?.error };
+}
+
+/** The forms of the expense actions (each one its existing RPC), shared by Gastos and Todas las operaciones. */
+export function ModalesGasto({ accion, onClose }: { accion: Accion | null; onClose: () => void }) {
   const fletes = useFreight();
+  return (
+    <>
+      {accion?.tipo === 'emitir' && <EmitirChequesModal f={accion.f} reemplaza={accion.reemplaza} onClose={onClose} />}
+      {accion?.tipo === 'imputar' && <ImputarPagoModal f={accion.f} onClose={onClose} />}
+      {accion?.tipo === 'pagar' && <PagarGastoModal gasto={accion.g} onClose={onClose} />}
+      {accion?.tipo === 'vincular' && <VincularProveedorModal gasto={accion.g} onClose={onClose} />}
+      {accion?.tipo === 'fechas' && <FechasPagoModal purchaseId={accion.purchaseId} rootId={accion.rootId} titulo={accion.titulo} due={accion.due} planned={accion.planned} onClose={onClose} />}
+      {accion?.tipo === 'editar' && <EditarGastoModal compra={accion.compra} vinculos={accion.vinculos} onClose={onClose} />}
+      {accion?.tipo === 'rectificar' && <RectificarCompraModal compra={accion.compra} onClose={onClose} />}
+      {accion?.tipo === 'flete' && <AsignarFleteModal purchaseId={accion.purchaseId} fletes={fletes.data ?? []} onClose={onClose} />}
+    </>
+  );
+}
+
+export function Gastos() {
   const [filtro, setFiltro] = useState<GastoFiltro>('PENDIENTE');
   const [texto, setTexto] = useState('');
   const [mostrar, setMostrar] = useState(PAGINA);
   const [abierto, setAbierto] = useState<string | null>(null);
   const [accion, setAccion] = useState<Accion | null>(null);
 
-  const fuentes = [facturasPendientes, facturas, aPagar, sinClasificar, mp, compras];
-  const cargando = fuentes.some((q) => q.isLoading);
-  const error = fuentes.find((q) => q.error)?.error;
-  const todos = useMemo(() => armarGastos({
-    facturas: [...(facturasPendientes.data ?? []), ...(facturas.data ?? [])], aPagar: aPagar.data ?? [], sinClasificar: sinClasificar.data ?? [],
-    mp: mp.data ?? [], compras: compras.data ?? [],
-  }), [facturasPendientes.data, facturas.data, aPagar.data, sinClasificar.data, mp.data, compras.data]);
+  const { todos, cargando, error } = useGastoItems();
   const cuentas = contar(todos);
   const filtrados = ordenar(todos.filter((it) => coincide(it, filtro) && buscar(it, texto)), filtro);
   const visibles = filtrados.slice(0, mostrar);
@@ -134,14 +154,7 @@ export function Gastos() {
 
       <Fletes />
 
-      {accion?.tipo === 'emitir' && <EmitirChequesModal f={accion.f} reemplaza={accion.reemplaza} onClose={() => setAccion(null)} />}
-      {accion?.tipo === 'imputar' && <ImputarPagoModal f={accion.f} onClose={() => setAccion(null)} />}
-      {accion?.tipo === 'pagar' && <PagarGastoModal gasto={accion.g} onClose={() => setAccion(null)} />}
-      {accion?.tipo === 'vincular' && <VincularProveedorModal gasto={accion.g} onClose={() => setAccion(null)} />}
-      {accion?.tipo === 'fechas' && <FechasPagoModal purchaseId={accion.purchaseId} rootId={accion.rootId} titulo={accion.titulo} due={accion.due} planned={accion.planned} onClose={() => setAccion(null)} />}
-      {accion?.tipo === 'editar' && <EditarGastoModal compra={accion.compra} vinculos={accion.vinculos} onClose={() => setAccion(null)} />}
-      {accion?.tipo === 'rectificar' && <RectificarCompraModal compra={accion.compra} onClose={() => setAccion(null)} />}
-      {accion?.tipo === 'flete' && <AsignarFleteModal purchaseId={accion.purchaseId} fletes={fletes.data ?? []} onClose={() => setAccion(null)} />}
+      <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
     </div>
   );
 }
@@ -160,7 +173,7 @@ const VACIO: Record<GastoFiltro, string> = {
 const boton = 'text-xs px-2 py-1 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50';
 
 /** The detail of one row: the existing detail of its source, the purchase lines and the actions its state allows. */
-function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Parameters<typeof Comprobantes>[0]['docs']; onAccion: (a: Accion) => void }) {
+export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Parameters<typeof Comprobantes>[0]['docs']; onAccion: (a: Accion) => void }) {
   const compra = usePurchase(it.kind === 'SIN_CLASIFICAR' ? null : it.purchaseId);
   const c = compra.data;
   const [historial, setHistorial] = useState(false);

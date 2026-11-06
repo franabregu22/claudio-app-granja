@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { Movimientos } from './Movimientos';
-import { Transferencias } from './Transferencias';
 import { SolapaPagar, type SubPagar } from './SolapaPagar';
 import { ExtractosBancarios } from './ExtractosBancarios';
 import { CalendarioPagos } from './CalendarioPagos';
@@ -11,11 +10,10 @@ import { useBadgeSinClasificar } from './useUnclassified';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 import { NuevaCompraModal } from './Compras';
 
-type Vista = 'movimientos' | 'transferencias' | 'pagar' | 'calendario' | 'extractos';
+type Vista = 'movimientos' | 'pagar' | 'calendario' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
-  { id: 'movimientos', label: 'Movimientos' },   // balances, Por resolver (classification lists) and the account movements
-  { id: 'transferencias', label: 'Transferencias' },
-  { id: 'pagar', label: 'Cuentas a pagar' },   // Gastos (invoices, pending expenses, purchases, freight), Proveedores, Cheques
+  { id: 'movimientos', label: 'Movimientos' },   // balances, Por resolver and Todas las operaciones (expenses, invoices, transfers and their actions)
+  { id: 'pagar', label: 'Cuentas a pagar' },   // Proveedores (debt per supplier, freight) and Cheques
   { id: 'calendario', label: 'Calendario' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
   { id: 'extractos', label: 'Extractos' },
 ];
@@ -28,7 +26,7 @@ const VISTAS: { id: Vista; label: string }[] = [
 export function CajaApp() {
   const { rol } = useAuth();
   const [vista, setVista] = useState<Vista>('movimientos');
-  const [subPagar, setSubPagar] = useState<SubPagar>('gastos');
+  const [subPagar, setSubPagar] = useState<SubPagar>('proveedores');
   const [retiro, setRetiro] = useState(false);
   const [nuevoGasto, setNuevoGasto] = useState(false);
   const [foco, setFoco] = useState<string | null>(null);   // 0119: the row of a just-recorded operation in Todas las operaciones
@@ -85,9 +83,8 @@ export function CajaApp() {
             </div>
           )}
           {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} focus={foco} onFocus={setFoco} />}
-          {vista === 'transferencias' && <Transferencias />}
           {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
-          {vista === 'calendario' && <CalendarioPagos onImputar={() => { setSubPagar('gastos'); setVista('pagar'); }} />}
+          {vista === 'calendario' && <CalendarioPagos onImputar={() => setVista('movimientos')} />}
           {vista === 'extractos' && <ExtractosBancarios />}
         </div>
         {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}

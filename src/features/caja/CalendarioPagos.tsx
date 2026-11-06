@@ -153,7 +153,7 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
             {posiciones.length > 0 && (
               <section>
                 <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-1">Anticipos y diferencias por imputar</p>
-                <p className="text-xs text-[#8A7A5C] mb-1">El pendiente de cada factura no se descuenta solo: los pagos disponibles y los cheques sin imputar se imputan a mano en Cuentas a pagar → Facturas.</p>
+                <p className="text-xs text-[#8A7A5C] mb-1">El pendiente de cada factura no se descuenta solo: los pagos disponibles y los cheques sin imputar se imputan a mano en Movimientos → Todas las operaciones (detalle de la factura).</p>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm bg-white border border-[#E4DCC8] rounded">
                     <thead><tr className="text-xs text-[#8A7A5C] text-left">
@@ -173,7 +173,7 @@ export function CalendarioPagos({ onImputar }: { onImputar?: () => void }) {
                           <td className="px-2 py-1 text-right font-bold text-amber-900">{formatoPesos(p.necesidadNeta)}</td>
                           <td className="px-2 py-1 text-right">
                             {(p.pagosDisponibles > 0 || p.chequesSinImputar > 0) && onImputar
-                              && <button type="button" onClick={onImputar} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50 whitespace-nowrap">Imputar en Gastos</button>}
+                              && <button type="button" onClick={onImputar} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50 whitespace-nowrap">Imputar en Todas las operaciones</button>}
                           </td>
                         </tr>
                       ))}

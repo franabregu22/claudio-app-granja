@@ -11,13 +11,14 @@ import { parseAmountSearch } from './movementHistory';
 export const OPERATION_PAGE = 50;
 export type OperationTipo = 'INGRESO' | 'EGRESO' | 'TRANSFERENCIA';
 export type OperationEstado = 'PENDIENTE' | 'COMPLETADA';
-export type OperationRowKind = 'OP' | 'GASTO' | 'FACTURA' | 'CHEQUE' | 'CHEQUE_RECIBIDO' | 'TRANSFERENCIA';
+export type OperationNature = 'OPERATING' | 'REINVESTMENT' | 'INVESTMENT';
+export type OperationRowKind = 'OP' | 'GASTO' | 'FACTURA' | 'CHEQUE' | 'CHEQUE_RECIBIDO' | 'TRANSFERENCIA' | 'MP_PENDIENTE';
 export type Conciliacion = 'CONCILIADA' | 'SIN_CONCILIAR' | 'MERCADO_PAGO' | null;
-export type Clasificacion = 'MP_SIN_CLASIFICAR' | 'GASTO_SIN_CLASIFICAR' | null;
+export type Clasificacion = 'MP_SIN_CLASIFICAR' | 'GASTO_SIN_CLASIFICAR' | 'MP_SIN_VINCULAR' | null;
 
 export interface OperationFilter {
-  from?: string; to?: string; tipo?: OperationTipo; accountId?: string; sinCuenta?: boolean; estado?: OperationEstado; search?: string;
-  order?: 'FECHA' | 'CARGA';
+  from?: string; to?: string; tipo?: OperationTipo; accountId?: string; sinCuenta?: boolean; estado?: OperationEstado | 'POR_REVISAR'; search?: string;
+  order?: 'FECHA' | 'CARGA'; groupId?: string; categoryId?: string; nature?: OperationNature; supplierId?: string;
 }
 export interface OperationAccount { account_id: string; account_name: string; signed_amount: number | null }
 export interface PendienteGasto { total: number; pagado: number; pendiente: number; vence: string | null; estimada: string | null }
@@ -30,8 +31,15 @@ export interface OperationRow {
   accounts: OperationAccount[];
   conciliacion: Conciliacion; clasificacion: Clasificacion;
   pendiente: PendienteGasto | PendienteFactura | null;
+  /** 0120: the expense / invoice the row belongs to (current version + chain root) and what it says; null = "—". */
+  purchase_id: string | null; purchase_root_id: string | null; supplier_id: string | null; supplier: string | null;
+  group_id: string | null; category: string | null; category_id: string | null; subcategory: string | null; nature: OperationNature | null;
+  /** 0101: the unclassified-expense key of an operation (its classification action). */
+  pending_class_id: number | null;
+  /** 0120: a Mercado Pago expense whose movement is not linked yet: its money is the provisional outflow already listed. */
+  informativo: boolean;
 }
-export interface OperationPage { rows: OperationRow[]; total: number }
+export interface OperationPage { rows: OperationRow[]; total: number; importe: number }
 
 export const TIPO_LABEL: Record<OperationTipo, string> = { INGRESO: 'Ingreso', EGRESO: 'Egreso', TRANSFERENCIA: 'Transferencia' };
 /** The state in the owner's words: Pendiente / Pagado (egreso) / Cobrado (ingreso) / Realizada (transferencia). */
@@ -42,7 +50,10 @@ export function estadoLabel(r: Pick<OperationRow, 'tipo' | 'estado'>): string {
 export const CONCILIACION_LABEL: Record<Exclude<Conciliacion, null>, string> = {
   CONCILIADA: 'Conciliada con el banco', SIN_CONCILIAR: 'Sin conciliar', MERCADO_PAGO: 'Movimiento de Mercado Pago',
 };
-export const CLASIFICACION_LABEL: Record<Exclude<Clasificacion, null>, string> = { MP_SIN_CLASIFICAR: 'Mercado Pago sin clasificar', GASTO_SIN_CLASIFICAR: 'Gasto sin clasificar' };
+export const CLASIFICACION_LABEL: Record<Exclude<Clasificacion, null>, string> = {
+  MP_SIN_CLASIFICAR: 'Mercado Pago sin clasificar', GASTO_SIN_CLASIFICAR: 'Gasto sin clasificar', MP_SIN_VINCULAR: 'Falta vincular el movimiento de Mercado Pago',
+};
+export const NATURALEZA_LABEL: Record<OperationNature, string> = { OPERATING: 'Operativo', REINVESTMENT: 'Reinversión operativa', INVESTMENT: 'Inversión' };
 
 /** "Caja chica → BNA" (money leaves first), the account for one, "Sin asignar" for none. */
 export function cuentasLabel(r: Pick<OperationRow, 'accounts' | 'row_kind'>): string {
@@ -69,16 +80,17 @@ export function claveDeRegistro(ruta: string, r: unknown): string | null {
 
 export async function listOperations(client: SupabaseClient, f: OperationFilter, page = 0, focus: string | null = null, pageSize = OPERATION_PAGE): Promise<OperationPage> {
   const search = f.search?.trim() || null;
-  const r = await callRpc<{ total: number; rows: OperationRow[] }>(client, 'fin_operation_list', {
+  const r = await callRpc<{ total: number; importe: number; rows: OperationRow[] }>(client, 'fin_operation_list', {
     p_from: f.from || null, p_to: f.to || null, p_tipo: f.tipo || null, p_account_id: f.accountId || null, p_sin_cuenta: !!f.sinCuenta,
-    p_estado: f.estado || null, p_search: search, p_amount: search ? parseAmountSearch(search) : null, p_order: f.order ?? 'FECHA',
+    p_estado: f.estado || null, p_group_id: f.groupId || null, p_category_id: f.categoryId || null, p_nature: f.nature || null, p_supplier_id: f.supplierId || null,
+    p_search: search, p_amount: search ? parseAmountSearch(search) : null, p_order: f.order ?? 'FECHA',
     p_focus: focus, p_limit: pageSize, p_offset: page * pageSize,
   });
   const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
-    total: Number(r.total),
+    total: Number(r.total), importe: Number(r.importe ?? 0),
     rows: r.rows.map((x) => ({
-      ...x, amount: Number(x.amount), ref_id: n(x.ref_id), operation_id: n(x.operation_id),
+      ...x, amount: Number(x.amount), ref_id: n(x.ref_id), operation_id: n(x.operation_id), pending_class_id: n(x.pending_class_id),
       accounts: x.accounts.map((a) => ({ ...a, signed_amount: n(a.signed_amount) })),
       pendiente: x.pendiente ? Object.fromEntries(Object.entries(x.pendiente).map(([k, v]) => [k, typeof v === 'string' && !['vence', 'estimada', 'purchase_id'].includes(k) ? Number(v) : v])) as never : null,
     })),

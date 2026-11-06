@@ -138,7 +138,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
           ))}
         </div>
         {estado === 'PENDIENTE' ? (
-          <p className="text-xs text-[#6B5D45]">No mueve dinero. Queda en Cuentas a pagar → Gastos → Pendientes de pago.</p>
+          <p className="text-xs text-[#6B5D45]">No mueve dinero. Queda en Movimientos → Todas las operaciones como Pendiente.</p>
         ) : (
           <div className="space-y-2 border border-[#E4DCC8] rounded-lg p-2">
             <div className="grid grid-cols-3 gap-1" role="radiogroup" aria-label="Medio de pago">
@@ -169,7 +169,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         )}
       </fieldset>
       <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos />
-      {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Cuentas a pagar → Gastos en lugar de cargarla de nuevo.</p>}
+      {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Movimientos → Todas las operaciones en lugar de cargarla de nuevo.</p>}
     </Modal>
   );
 }

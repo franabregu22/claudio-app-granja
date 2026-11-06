@@ -167,9 +167,9 @@ describe('Lote 3B — screens', () => {
     expect(c).toMatch(/Obligaciones sin fecha/);
     expect(c).toMatch(/Necesidad neta de fondos/);
     expect(c).toMatch(/Anticipos y diferencias por imputar/);
-    expect(c).toMatch(/Imputar en Gastos/);
+    expect(c).toMatch(/Imputar en Todas las operaciones/);
     expect(c).not.toMatch(/supplierCoverage/);
-    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'calendario' && <CalendarioPagos onImputar=\{\(\) => \{ setSubPagar\('gastos'\); setVista\('pagar'\); \}\} \/>\}/);
+    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'calendario' && <CalendarioPagos onImputar=\{\(\) => setVista\('movimientos'\)\} \/>\}/);
   });
   it('Pagos de facturas offers only payments with an amount free to allocate (and never above it); the ficha shows the total', () => {
     const pf = SRC('features/caja/PagosFacturas.tsx');

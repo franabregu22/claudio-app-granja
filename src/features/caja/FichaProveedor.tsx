@@ -67,7 +67,7 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
         </p>
       )}
       {disponible > 0 && (
-        <p className="mt-1 text-[#6B5D45]">Pagos disponibles para imputar a facturas: <b className="text-green-700">{formatoPesos(disponible)}</b> — no se descuentan solos del pendiente de cada factura; imputalos desde Caja → Cuentas a pagar → Facturas.</p>
+        <p className="mt-1 text-[#6B5D45]">Pagos disponibles para imputar a facturas: <b className="text-green-700">{formatoPesos(disponible)}</b> — no se descuentan solos del pendiente de cada factura; imputalos desde Caja → Movimientos → Todas las operaciones (detalle de la factura).</p>
       )}
 
       <Seccion titulo="Facturas y compras">
@@ -103,7 +103,7 @@ export function FichaProveedor({ cuenta }: { cuenta: SupplierAccount }) {
         <p className="text-[11px] text-gray-500 mt-1">
           El pendiente de cada factura descuenta solo lo imputado a esa factura; un pago o cheque sin imputar baja la deuda total del
           proveedor, no una factura en particular. Los cheques programados ya bajan la deuda pero todavía no movieron el banco.
-          Para pagar o imputar una factura: Cuentas a pagar → Facturas. Vencimiento y pago estimado son planificación: no registran pagos.
+          Para pagar o imputar una factura: Movimientos → Todas las operaciones (detalle de la factura). Vencimiento y pago estimado son planificación: no registran pagos.
         </p>
       </Seccion>
 

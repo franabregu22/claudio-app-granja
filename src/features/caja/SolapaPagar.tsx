@@ -1,18 +1,18 @@
 import { Cheques } from './Cheques';
+import { Fletes } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
-import { Gastos } from './Gastos';
 
-export type SubPagar = 'gastos' | 'proveedores' | 'instrumentos';
+export type SubPagar = 'proveedores' | 'instrumentos';
 const SUBVISTAS: { id: SubPagar; label: string }[] = [
-  { id: 'gastos', label: 'Gastos' },
   { id: 'proveedores', label: 'Proveedores' },
   { id: 'instrumentos', label: 'Cheques' },
 ];
 
 /**
- * Caja → Cuentas a pagar in three sections: Gastos (invoices, pending expenses and purchases in one list, with their payments and
- * eCheqs — what were Gastos pendientes, Compras y fletes and Facturas), Proveedores (accounts, uncovered debt, advances, pending and
- * debited cheques) and Cheques (issue, debit, rejection, cancellation and reconciliation). Each section is the existing screen.
+ * Caja → Cuentas a pagar in two sections: Proveedores (accounts, uncovered debt, advances, pending and debited cheques, and the freight
+ * registered) and Cheques (issue, debit, rejection, cancellation, payment date and reconciliation). Each section is the existing screen.
+ * Gastos is no longer a section: every expense, invoice and pending payment is a row of Movimientos → Todas las operaciones, whose
+ * drop-down keeps Gastos' own detail and actions (receipts, Editar / Rectificar, payments, cheques, dates, freight, history).
  */
 export function SolapaPagar({ sub, onSub }: { sub: SubPagar; onSub: (s: SubPagar) => void }) {
   return (
@@ -25,9 +25,9 @@ export function SolapaPagar({ sub, onSub }: { sub: SubPagar; onSub: (s: SubPagar
           </button>
         ))}
       </div>
-      {sub === 'gastos' && <Gastos />}
-      {sub === 'proveedores' && <CuentasAPagar />}
+      {sub === 'proveedores' && <><CuentasAPagar /><Fletes /></>}
       {sub === 'instrumentos' && <Cheques />}
+      <p className="text-xs text-[#8A7A5C]">Los gastos y facturas (pendientes, pagados y por revisar) están en Movimientos → Todas las operaciones.</p>
     </div>
   );
 }

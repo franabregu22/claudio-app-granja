@@ -54,3 +54,32 @@ describe('Caja — Todas las operaciones (0119)', () => {
     expect(ops).toMatch(/payPurchaseInvoice\(supabase, p\)/);
   });
 });
+
+import { FILTROS_VACIOS, filtroServidor, hayFiltros } from '../../src/features/caja/TodasLasOperaciones';
+
+describe('Caja — Todas las operaciones 0120: filters and Limpiar filtros', () => {
+  it('every owner filter reaches the server; "Sin asignar" is its own flag; subcategory and category travel together', () => {
+    const f = { ...FILTROS_VACIOS, desde: '2026-10-01', hasta: '2026-10-31', tipo: 'EGRESO' as const, cuenta: 'SIN', estado: 'POR_REVISAR' as const,
+      grupo: 'g1', subcategoria: 's1', naturaleza: 'INVESTMENT' as const, proveedor: 'p1', buscar: 'maíz', orden: 'CARGA' as const };
+    expect(filtroServidor(f, false)).toEqual({ from: '2026-10-01', to: '2026-10-31', tipo: 'EGRESO', accountId: undefined, sinCuenta: true, estado: 'POR_REVISAR',
+      groupId: 'g1', categoryId: 's1', nature: 'INVESTMENT', supplierId: 'p1', search: 'maíz', order: 'CARGA' });
+    expect(filtroServidor({ ...FILTROS_VACIOS, cuenta: 'acc' }, false)).toMatchObject({ accountId: 'acc', sinCuenta: false });
+    expect(filtroServidor(FILTROS_VACIOS, true).order).toBe('CARGA');
+  });
+  it('Limpiar filtros: everything back, dates, search and order included', () => {
+    expect(hayFiltros(FILTROS_VACIOS)).toBe(false);
+    for (const k of Object.keys(FILTROS_VACIOS) as (keyof typeof FILTROS_VACIOS)[]) {
+      expect(hayFiltros({ ...FILTROS_VACIOS, [k]: k === 'orden' ? 'CARGA' : 'x' })).toBe(true);
+    }
+    expect(filtroServidor(FILTROS_VACIOS, false)).toEqual({ from: undefined, to: undefined, tipo: undefined, accountId: undefined, sinCuenta: false, estado: undefined,
+      groupId: undefined, categoryId: undefined, nature: undefined, supplierId: undefined, search: undefined, order: 'FECHA' });
+  });
+  it('one line per row with the nine columns, a drop-down with Gastos and Transferencias actions, and the subcategory list of the chosen category', () => {
+    const t = readFileSync('src/features/caja/TodasLasOperaciones.tsx', 'utf8');
+    expect([...t.matchAll(/<th className="px-2 py-2[^"]*">([^<]+)<\/th>/g)].map((m) => m[1]))
+      .toEqual(['Fecha', 'Tipo', 'Concepto', 'Categoría', 'Subcategoría', 'Cuenta', 'Importe', 'Estado', 'Acciones']);
+    expect(t).toMatch(/colSpan=\{9\}/);
+    expect(t).toMatch(/\.filter\(\(s\) => !filtros\.grupo \|\| s\.group_id === filtros\.grupo\)/);
+    expect(t).toMatch(/'grupo' in cambio \? \{ subcategoria: '' \}/);
+  });
+});

@@ -12,26 +12,29 @@ const pagar = SRC('features/caja/SolapaPagar.tsx');
 const trf = SRC('features/caja/Transferencias.tsx');
 
 describe('Caja — the five tabs', () => {
-  it('exactly five main tabs, Movimientos first and by default', () => {
+  it('exactly four main tabs (0120: Transferencias inside Todas las operaciones), Movimientos first and by default', () => {
     const labels = [...app.matchAll(/\{ id: '\w+', label: '([^']+)' \}/g)].map((m) => m[1]);
-    expect(labels).toEqual(['Movimientos', 'Transferencias', 'Cuentas a pagar', 'Calendario', 'Extractos']);
+    expect(labels).toEqual(['Movimientos', 'Cuentas a pagar', 'Calendario', 'Extractos']);
     expect(app).toMatch(/useState<Vista>\('movimientos'\)/);
   });
   it('the ADMIN guard comes before any tab and Retiro de socios stays in Más acciones', () => {
     expect(app.indexOf("if (rol !== 'ADMIN')")).toBeLessThan(app.indexOf('<Movimientos '));
     expect(app).toMatch(/<EventoGestionModal tipo="RETIRO"/);
   });
-  it('every old screen has one door: the five tabs, a Por resolver filter of the movement list, or Cuentas corrientes', () => {
+  it('every old screen has one door: the tabs, Todas las operaciones (transfers and expenses), a Por resolver filter, or Cuentas corrientes', () => {
+    const tlo = SRC('features/caja/TodasLasOperaciones.tsx');
     for (const [src, tag] of [
-      [app, '<Movimientos '], [app, '<Transferencias />'], [app, '<SolapaPagar '], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
+      [app, '<Movimientos '], [app, '<SolapaPagar '], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
+      [tlo, '<TransferenciaModal '], [tlo, '<ImpuestoModal '], [tlo, '<VincularAnticipada '], [tlo, '<TransferenciasAnticipadas />'], [tlo, '<ImpuestoPorPeriodo />'],
+      [tlo, '<DetalleGasto '], [tlo, '<ModalesGasto '],
       [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "id: 'ENTRADA_SIN_VINCULAR'"],
       [lista, '<AvisosPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionPendienteMp '], [lista, '<AccionEntrada '],
-      [pagar, '<Gastos />'], [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],
+      [pagar, '<Fletes />'], [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
     ] as const) expect(src.split(tag).length - 1, tag).toBe(1);
   });
   it('the calendar still reaches the allocation screen; the three Por resolver indicators sit together and each one toggles its filter', () => {
-    expect(app).toMatch(/setSubPagar\('gastos'\); setVista\('pagar'\)/);
+    expect(app).toMatch(/<CalendarioPagos onImputar=\{\(\) => setVista\('movimientos'\)\} \/>/);
     expect(pr).toMatch(/onClick=\{\(\) => onFiltro\(elegida \? null : t\.id\)\}/);
   });
   it('the tab badge counts what needs action: unclassified expenses and current Mercado Pago outflows, never optional inflows', () => {
