@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Pencil } from 'lucide-react';
 import { NATURALEZA_GASTO_LABEL, type VinculosGasto } from '../../target/expenses';
 import {
   armarGastos, buscar, coincide, contar, GASTO_ESTADO_LABEL, GASTO_FILTROS, ordenar, totalFiltro, type GastoEstado, type GastoFiltro, type GastoItem,
@@ -12,7 +12,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { AsignarFleteModal, Fletes, RectificarCompraModal } from './Compras';
 import { Comprobantes } from './Comprobantes';
-import { EditarGastoModal, HistorialGasto } from './EditarGasto';
+import { AnularGastoModal, EditarGastoModal, HistorialGasto } from './EditarGasto';
 import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { PagarGastoModal, PagosDelGasto, usePayables, VincularProveedorModal } from './GastosAPagar';
 import { AccionGastoSinClasificar } from './GastosSinClasificar';
@@ -35,7 +35,8 @@ export type Accion =
   | { tipo: 'fechas'; purchaseId: string; rootId: string; titulo: string; due: string | null; planned: string | null }
   | { tipo: 'rectificar'; compra: PurchaseRow }
   | { tipo: 'editar'; compra: PurchaseRow; vinculos: VinculosGasto }
-  | { tipo: 'flete'; purchaseId: string };
+  | { tipo: 'flete'; purchaseId: string }
+  | { tipo: 'anular'; compra: PurchaseRow };
 
 /**
  * Cuentas a pagar → Gastos: invoices, pending expenses and purchases in ONE list (src/target/expenseHub.ts), filtered by what is left to
@@ -72,6 +73,7 @@ export function ModalesGasto({ accion, onClose }: { accion: Accion | null; onClo
       {accion?.tipo === 'fechas' && <FechasPagoModal purchaseId={accion.purchaseId} rootId={accion.rootId} titulo={accion.titulo} due={accion.due} planned={accion.planned} onClose={onClose} />}
       {accion?.tipo === 'editar' && <EditarGastoModal compra={accion.compra} vinculos={accion.vinculos} onClose={onClose} />}
       {accion?.tipo === 'rectificar' && <RectificarCompraModal compra={accion.compra} onClose={onClose} />}
+      {accion?.tipo === 'anular' && <AnularGastoModal compra={accion.compra} onClose={onClose} />}
       {accion?.tipo === 'flete' && <AsignarFleteModal purchaseId={accion.purchaseId} fletes={fletes.data ?? []} onClose={onClose} />}
     </>
   );
@@ -182,24 +184,12 @@ export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Para
       {it.kind === 'FACTURA' && (
         <>
           <DetalleFactura f={it.factura} docs={docs} onEmitir={(reemplaza) => onAccion({ tipo: 'emitir', f: it.factura, reemplaza })} onImputar={() => onAccion({ tipo: 'imputar', f: it.factura })} />
-          {it.factura.pending > 0.005 && (
-            <div className="px-4 pb-2 flex flex-wrap gap-2">
-              <button type="button" className={boton} onClick={() => onAccion({ tipo: 'fechas', purchaseId: it.factura.purchase_id, rootId: it.factura.purchase_root_id, titulo: it.titulo, due: it.vence, planned: it.estimada })}>Fechas</button>
-            </div>
-          )}
         </>
       )}
       {it.kind === 'A_PAGAR' && (
         <div className="px-4 py-2 text-sm space-y-2">
           {docs && docs.length > 0 && <p className="flex items-center gap-2 text-xs">Comprobante: <Comprobantes docs={docs} /></p>}
-          {it.gasto.pending > 0.005 ? (
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => onAccion({ tipo: 'pagar', g: it.gasto })} className="text-xs px-3 py-1 bg-amber-600 text-white rounded hover:bg-amber-700">Registrar pago</button>
-              <button type="button" className={boton} onClick={() => onAccion({ tipo: 'fechas', purchaseId: it.gasto.purchase_id, rootId: it.gasto.purchase_root_id, titulo: it.titulo, due: it.vence, planned: it.estimada })}>Fechas</button>
-              <button type="button" className={boton} onClick={() => onAccion({ tipo: 'vincular', g: it.gasto })}>Vincular a proveedor</button>
-            </div>
-          ) : null}
-          {it.gasto.pending > 0.005 && <p className="text-xs text-[#8A7A5C]">Sin proveedor registrado: para pagarlo con cheque o eCheq, primero vinculalo a un proveedor; queda como factura de ese proveedor.</p>}
+          {it.gasto.pending > 0.005 && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo con cheque o eCheq, elegí el proveedor con el lápiz (queda como factura de ese proveedor).</p>}
           {it.gasto.paid > 0 && <><p className="text-xs text-[#6B5D45]">Pagado {formatoPesos(it.gasto.paid)} de {formatoPesos(it.gasto.amount)}</p><PagosDelGasto payableId={it.gasto.payable_id} /></>}
         </div>
       )}
@@ -222,7 +212,8 @@ export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Para
                 {c.amount_net !== c.amount_total ? ` · Neto ${formatoPesos(c.amount_net)}` : ''}{c.version_seq > 0 ? ' · Rectificada' : ''}</p>
               {c.lineas.map((l) => <p key={l.id}>{l.cantidad} {l.unit_type} · {l.descripcion} · {formatoPesos(l.precio_unitario)} c/u</p>)}
               <span className="flex flex-wrap gap-2 pt-1">
-                <button type="button" className="text-xs px-3 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8B4423]" onClick={() => onAccion({ tipo: 'editar', compra: c, vinculos: vinculosDe(it, c) })}>Editar / Rectificar</button>
+                <button type="button" className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8B4423]" onClick={() => onAccion({ tipo: 'editar', compra: c, vinculos: vinculosDe(it, c) })}><Pencil className="w-3 h-3" aria-hidden />Editar</button>
+                {anulable(it) && <button type="button" className="text-xs px-3 py-1 rounded border border-red-200 text-red-700 bg-white hover:bg-red-50" onClick={() => onAccion({ tipo: 'anular', compra: c })}>Anular</button>}
                 {c.supplier_id && c.lineas.length > 0 && !c.fiscal_document_id && <button type="button" className={boton} onClick={() => onAccion({ tipo: 'rectificar', compra: c })}>Rectificar ítems</button>}
                 <button type="button" className={boton} onClick={() => onAccion({ tipo: 'flete', purchaseId: c.id })}>Asignar flete</button>
                 <button type="button" className={boton} aria-expanded={historial} onClick={() => setHistorial((h) => !h)}>{historial ? 'Ocultar historial' : 'Historial'}</button>
@@ -236,6 +227,10 @@ export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Para
   );
 }
 
+/** 0124: only an expense with nothing paid, allocated, issued or linked can be annulled (the backend checks the same). */
+const anulable = (it: GastoItem) => (it.kind === 'A_PAGAR' ? it.gasto.paid === 0
+  : it.kind === 'FACTURA' ? it.factura.scheduled + it.factura.debited + it.factura.other_payments === 0 : false);
+
 const raizDe = (it: GastoItem) => (it.kind === 'FACTURA' ? it.factura.purchase_root_id : it.kind === 'A_PAGAR' ? it.gasto.purchase_root_id
   : it.kind === 'MP_PENDIENTE' ? it.mp.purchase_root_id : null);
 
@@ -246,12 +241,12 @@ function vinculosDe(it: GastoItem, c: PurchaseRow): VinculosGasto {
   if (it.kind === 'FACTURA') {
     const f = it.factura;
     return { pendienteSinProveedor: false, mpVinculado: false, asignado: f.scheduled + f.debited + f.other_payments, estadoPago,
-      comoPagar: f.pending > 0.005 ? `Para pagarla: «Emitir cheques / eCheqs», o pagar desde Proveedores y luego «Imputar pago registrado». ${noSeDeshace}`
+      comoPagar: f.pending > 0.005 ? `Se paga con «Pagar» en Cuentas a pagar (efectivo, transferencia, cheques o eCheqs por cuota). ${noSeDeshace}`
         : `Los cheques se debitan, anulan o rechazan desde su fila. ${noSeDeshace}` };
   }
   if (it.kind === 'A_PAGAR') {
-    return { pendienteSinProveedor: true, mpVinculado: false, asignado: 0, estadoPago,
-      comoPagar: it.gasto.pending > 0.005 ? `Para marcarlo pagado usá «Registrar pago»; para un cheque o eCheq, primero «Vincular a proveedor». ${noSeDeshace}` : noSeDeshace };
+    return { pendienteSinProveedor: true, mpVinculado: false, asignado: 0, estadoPago, pagadoPendiente: it.gasto.paid, payableId: it.gasto.payable_id,
+      comoPagar: it.gasto.pending > 0.005 ? `Se paga con «Pagar» en Cuentas a pagar; para un cheque o eCheq, elegí acá el proveedor. ${noSeDeshace}` : noSeDeshace };
   }
   if (it.kind === 'MP_PENDIENTE') {
     return { pendienteSinProveedor: false, mpVinculado: false, asignado: 0, estadoPago: 'Pagado con Mercado Pago (falta vincular el movimiento)',

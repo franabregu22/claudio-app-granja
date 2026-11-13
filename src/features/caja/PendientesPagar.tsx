@@ -15,6 +15,7 @@ import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos
 import { campo, etiqueta, Modal } from './Modal';
 import { usePayablesDue, usePaymentPlanMutations } from './usePaymentPlan';
 import { useLedgerBalances } from './useTreasury';
+import { useAnnulments } from './useExpenses';
 import { usePlanPago } from './EditorPlanPago';
 
 const TARJETAS: { id: Tarjeta; label: string }[] = [
@@ -172,6 +173,8 @@ export function PendientesPagar() {
         );
       })}
 
+      <Anulados />
+
       {pagando && <PagarModal r={pagando} g={gastoDe(gastos.todos, pagando.purchase_root_id)} onClose={() => setPagando(null)} />}
       {plan && <PlanModal r={plan} abierto={todas.filter((x) => x.purchase_root_id === plan.purchase_root_id && !esChequeFila(x)).reduce((s, x) => s + x.amount, 0)}
         conPlan={todas.some((x) => x.purchase_root_id === plan.purchase_root_id && (x.item_id !== null || x.row_kind === 'DIFERENCIA'))} onClose={() => setPlan(null)} />}
@@ -283,5 +286,26 @@ function PlanModal({ r, abierto, conPlan, onClose }: { r: PayableDueRow; abierto
       {conPlan && <label className={etiqueta}>Motivo del cambio<input value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} placeholder="Ej.: el proveedor aceptó otro plan" /></label>}
       <p className="text-xs text-[#8A7A5C]">Para pagar con cheques o eCheqs usá «Pagar» en cada vencimiento.</p>
     </Modal>
+  );
+}
+
+/** 0124: the annulled expenses, struck through, with who, when and why (nothing is deleted). */
+function Anulados() {
+  const q = useAnnulments();
+  const xs = q.data ?? [];
+  if (xs.length === 0) return null;
+  return (
+    <details className="pt-2">
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[#8A7A5C]">Anulados · {xs.length}</summary>
+      <ul className="mt-1 bg-white rounded-lg border border-[#E4DCC8] divide-y divide-[#F0EADC]">
+        {xs.map((a) => (
+          <li key={a.annulment_id} className="px-3 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <s className="flex-1 min-w-0 text-[#8A7A5C] truncate">{a.concept ?? 'Gasto'}{a.counterparty ? ` · ${a.counterparty}` : ''} · {fecha(a.economic_date)}</s>
+            <s className="tabular-nums text-[#8A7A5C]">{formatoPesos(a.amount_total)}</s>
+            <span className="w-full text-xs text-[#6B5D45]">Anulado el {formatearFechaLocal(a.annulled_date)} por {a.created_by_name ?? 'usuario'} — «{a.reason}»</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

@@ -30,6 +30,7 @@ export const TARGET_VIEWS = [
   'fin_payment_calendar',   // Lote 3B (0110): every future commitment once (invoices, pending expenses, own cheques / eCheqs)
   'fin_purchase_audit',   // 0117 (ADMIN): the history of one expense across its versions (creation, rectifications)
   'fin_payables_due',   // 0121 (ADMIN): every open due item once — plan instalments, obligations without plan, own cheques to be debited
+  'fin_expense_annulments',   // 0124 (ADMIN): the annulled expenses (who, when, why), shown struck through
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -129,6 +130,7 @@ export const TARGET_RPCS = [
   'pay_purchase_invoice',   // 0119 (ADMIN): a supplier invoice paid from its row (cash / transfer), one movement + its allocation
   'fin_cash_flow',   // 0122 (ADMIN, read): Caja → Flujo de caja, money by month / week (income, outflows by category, other movements, net)
   'endorse_cheque_to_payable',   // 0123 (ADMIN): a client cheque endorsed against ONE invoice / plan item (excess stays as supplier credit)
+  'annul_expense',   // 0124 (ADMIN): annul an expense with nothing paid (P&L / IVA / supplier debt reversed; audited)
   'set_payment_plan', 'pay_plan_item', 'issue_plan_item_instruments',   // 0121 (ADMIN): instalments of an obligation; pay / issue cheques for ONE item
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];

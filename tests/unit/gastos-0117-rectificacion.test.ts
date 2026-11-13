@@ -109,7 +109,9 @@ describe('Editar / Rectificar — what each link allows', () => {
   });
   it('paid without supplier: date and amount are its payment\'s; pending without supplier: amount is the obligation\'s', () => {
     expect(reglasEdicion({ ...g, conProveedor: false, pagadoAlRegistrar: true })).toMatchObject({ proveedor: false, fecha: false, importe: false });
-    expect(reglasEdicion({ ...g, conProveedor: false, pendienteSinProveedor: true })).toMatchObject({ proveedor: false, fecha: true, importe: false });
+    // 0124 (owner decision 2026-11-13): a pending expense without supplier changes its amount while unpaid; locked once paid
+    expect(reglasEdicion({ ...g, conProveedor: false, pendienteSinProveedor: true })).toMatchObject({ proveedor: false, fecha: true, importe: true });
+    expect(reglasEdicion({ ...g, conProveedor: false, pendienteSinProveedor: true, pagadoPendiente: 10 })).toMatchObject({ importe: false });
     expect(reglasEdicion({ ...g, conProveedor: false, mpVinculado: true })).toMatchObject({ importe: false });
   });
   it('the history lists only what changed, labelled', () => {
@@ -120,7 +122,8 @@ describe('Editar / Rectificar — what each link allows', () => {
   });
   it('the action is in every expense detail, with its history; the reason is required; one audited RPC', () => {
     const gastos = SRC('features/caja/Gastos.tsx');
-    expect(gastos).toMatch(/>Editar \/ Rectificar<\/button>/);
+    expect(gastos).toMatch(/aria-hidden \/>Editar<\/button>/);   // caja-mejoras-v2 (0124): one pencil «Editar» + «Anular»
+    expect(gastos).toContain("onAccion({ tipo: 'anular', compra: c })");
     expect(gastos).toMatch(/<HistorialGasto purchaseId=\{c\.id\} rootId=\{raizDe\(it\)\} \/>/);
     const ed = SRC('features/caja/EditarGasto.tsx');
     expect(ed).toMatch(/motivo\.trim\(\) !== ''/);

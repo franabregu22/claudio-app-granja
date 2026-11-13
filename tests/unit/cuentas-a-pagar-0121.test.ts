@@ -46,7 +46,9 @@ describe('Cuentas a pagar → Pendientes (0121)', () => {
     expect([fiscal.proveedor, fiscal.importe, fiscal.numero]).toEqual([false, false, false]);
     expect(fiscal.porque.importe).toMatch(/nota de crédito/);
     const sinProv = reglasEdicion({ ...base, conProveedor: false, pendienteSinProveedor: true });
-    expect([sinProv.importe, sinProv.porque.importe]).toEqual([false, expect.stringMatching(/vinculalo a un proveedor/)]);
+    expect(sinProv.importe).toBe(true);   // 0124: free while nothing is paid
+    const pagado = reglasEdicion({ ...base, conProveedor: false, pendienteSinProveedor: true, pagadoPendiente: 5 });
+    expect([pagado.importe, pagado.porque.importe]).toEqual([false, expect.stringMatching(/pagos registrados/)]);
     expect(reglasEdicion({ ...base, asignado: 100 }).porque.proveedor).toMatch(/pagos o cheques/);
     const ui = SRC('features/caja/EditarGasto.tsx');
     for (const k of ['proveedor', 'importe', 'fecha', 'numero']) expect(ui, k).toContain(`'${k}')}`);

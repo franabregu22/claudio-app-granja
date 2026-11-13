@@ -130,20 +130,24 @@ export interface ReglasEdicion {
 }
 export function reglasEdicion(g: {
   conProveedor: boolean; pagadoAlRegistrar: boolean; pendienteSinProveedor: boolean; mpVinculado: boolean; asignado: number; conFactura: boolean;
+  /** 0124: what a pending expense without supplier has already paid (its amount is free while it is 0). */
+  pagadoPendiente?: number;
 }): ReglasEdicion {
   const motivos: string[] = [];
   const porque: Partial<Record<CampoBloqueable, string>> = {};
   let proveedor = g.conProveedor; let fecha = true; let importe = true; let numero = g.conProveedor;
   if (!g.conProveedor) {
-    motivos.push(g.pendienteSinProveedor ? 'Para asignarle un proveedor usá «Vincular a proveedor».' : 'Un gasto sin proveedor ya pagado queda sin proveedor.');
-    porque.proveedor = g.pendienteSinProveedor ? 'Se asigna con «Vincular a proveedor».' : 'Un gasto sin proveedor ya pagado queda sin proveedor.';
+    if (!g.pendienteSinProveedor) {   // a pending one gets its supplier right in the edit form (assign_payable_to_supplier, 0110)
+      motivos.push('Un gasto sin proveedor ya pagado queda sin proveedor.');
+      porque.proveedor = 'Un gasto sin proveedor ya pagado queda sin proveedor.';
+    }
     if (g.pagadoAlRegistrar) {
       fecha = false; importe = false; motivos.push('Ya está pagado: conserva la fecha y el importe de su pago.');
       porque.fecha = 'Ya está pagado: es la fecha de su pago.'; porque.importe = 'Ya está pagado: es el importe de su pago.';
     }
-    if (g.pendienteSinProveedor) {
-      importe = false; motivos.push('El importe de un gasto pendiente sin proveedor es el de su obligación: vinculalo a un proveedor para corregirlo.');
-      porque.importe = 'Es el de la obligación: vinculalo a un proveedor para corregirlo.';
+    if (g.pendienteSinProveedor && (g.pagadoPendiente ?? 0) > 0) {   // 0124: free while nothing is paid
+      importe = false; motivos.push('Ya tiene pagos registrados: su importe queda como está.');
+      porque.importe = 'Ya tiene pagos registrados.';
     }
     if (g.mpVinculado) { importe = false; motivos.push('Ya está vinculado a su movimiento de Mercado Pago: conserva su importe.'); porque.importe = 'Es el de su movimiento de Mercado Pago.'; }
   } else if (g.asignado > 0) {
@@ -159,11 +163,24 @@ export function reglasEdicion(g: {
 }
 
 /** The expense's links as its row in Cuentas a pagar → Gastos shows them, and how its payment is handled. */
-export interface VinculosGasto { pendienteSinProveedor: boolean; mpVinculado: boolean; asignado: number; estadoPago: string; comoPagar: string }
+export interface VinculosGasto { pendienteSinProveedor: boolean; mpVinculado: boolean; asignado: number; estadoPago: string; comoPagar: string; pagadoPendiente?: number; payableId?: string }
 export const reglasDeCompra = (c: PurchaseRow, v: VinculosGasto): ReglasEdicion => reglasEdicion({
   conProveedor: !!c.supplier_id, pagadoAlRegistrar: !!c.paid_operation_id, pendienteSinProveedor: v.pendienteSinProveedor,
-  mpVinculado: v.mpVinculado, asignado: v.asignado, conFactura: !!c.fiscal_document_id,
+  mpVinculado: v.mpVinculado, asignado: v.asignado, conFactura: !!c.fiscal_document_id, pagadoPendiente: v.pagadoPendiente,
 });
+
+// ── 0124: annul an expense without payments (struck through, audited) ──────
+export interface AnulacionRow {
+  annulment_id: number; purchase_root_id: string; purchase_id: string; concept: string | null; counterparty: string | null; supplier_id: string | null;
+  amount_total: number; economic_date: string; annulled_date: string; reason: string; created_at: string; created_by: string | null; created_by_name: string | null;
+}
+export function anularGasto(client: SupabaseClient, p: { purchaseId: string; reason: string; idempotencyKey: string }) {
+  return callRpc<{ replayed: boolean; purchase_root_id: string }>(client, 'annul_expense', { p_purchase_id: p.purchaseId, p_reason: p.reason.trim(), p_idempotency_key: p.idempotencyKey });
+}
+export async function listAnulaciones(client: SupabaseClient): Promise<AnulacionRow[]> {
+  const rows = await readView<AnulacionRow>(client, 'fin_expense_annulments', (q) => q.order('created_at', { ascending: false }).limit(200));
+  return rows.map((r) => ({ ...r, amount_total: Number(r.amount_total) }));
+}
 
 /** The optional receipt / invoice block of the form (file, number, fiscal data, issuer CUIT without supplier). */
 export interface ComprobanteForm { numero: string; archivos: File[]; errorArchivo: unknown; fiscal: FiscalForm; cuitEmisor: string; nombreEmisor: string }
@@ -181,7 +198,7 @@ export const raizDeCompra = (client: SupabaseClient, purchaseId: string) => call
 
 export const ACCION_AUDITORIA: Record<string, string> = {
   CREATE: 'Registro', RECTIFY: 'Rectificación de importes', RECTIFY_DETAILS: 'Rectificación', RECLASSIFY: 'Reclasificación', LINK_SUPPLIER: 'Vinculado a proveedor',
-  SET_PAYMENT_PLAN: 'Plan de pagos',
+  SET_PAYMENT_PLAN: 'Plan de pagos', ANNUL_EXPENSE: 'Anulado',
 };
 const CAMPO: Record<string, string> = {
   concept: 'Concepto', expense_category_id: 'Categoría', nature: 'Naturaleza', economic_date: 'Fecha', supplier_id: 'Proveedor',
