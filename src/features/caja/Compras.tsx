@@ -81,7 +81,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const [clave] = useState(() => `GASTO-${crypto.randomUUID()}`);   // idempotency: one per opened form
   const conProveedor = proveedorId !== '';
   // caja-mejoras-v2 (0121): a pending expense can be split into instalments or paid with own cheques right here (cheques: supplier only)
-  const plan = usePlanPago(Number(total), { conCheques: conProveedor });
+  const plan = usePlanPago(Number(total), { cheques: conProveedor ? 'SI' : 'REQUIERE_PROVEEDOR' });
   const planes = usePaymentPlanMutations();
   const fiscalDatos = fiscalInput(comprobante.fiscal, fecha);
   const cuitEmisor = cuitOrNull(comprobante.cuitEmisor);

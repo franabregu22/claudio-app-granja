@@ -53,7 +53,7 @@ describe('Cuentas a pagar → Pendientes (0121)', () => {
   });
   it('Nuevo gasto: a pending expense takes its plan (instalments) or own cheques in the same submit', () => {
     const c = SRC('features/caja/Compras.tsx');
-    expect(c).toContain('usePlanPago(Number(total), { conCheques: conProveedor })');
+    expect(c).toContain("usePlanPago(Number(total), { cheques: conProveedor ? 'SI' : 'REQUIERE_PROVEEDOR' })");
     expect(c).toContain('planes.plan.mutateAsync({ purchaseId, items: plan.items, idempotencyKey: `${clave}:PLAN` })');
     expect(c).toContain('planes.chequesObligation.mutateAsync({ purchaseId, instruments: plan.cheques, idempotencyKey: `${clave}:CH` })');
   });

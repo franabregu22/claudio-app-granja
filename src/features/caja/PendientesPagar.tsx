@@ -272,7 +272,7 @@ function PlanModal({ r, abierto, conPlan, onClose }: { r: PayableDueRow; abierto
   const [clave] = useState(() => nueva('PLAN'));
   const [motivo, setMotivo] = useState('');
   const total = Math.round(abierto * 100) / 100;
-  const plan = usePlanPago(total, { conCheques: false });   // cheques: «Pagar» on each due item
+  const plan = usePlanPago(total, { cheques: 'NO' });   // cheques: «Pagar» on each due item
   const items = plan.forma === 'UNICO' && plan.items.length === 0 ? [{ due_date: null, amount: total }] : plan.items;
   const puede = plan.valido && items.length > 0 && (!conPlan || motivo.trim() !== '');
   return (

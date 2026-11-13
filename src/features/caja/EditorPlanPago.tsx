@@ -23,7 +23,9 @@ export interface PlanPago {
  * editable) or own cheques / eCheqs (only with a supplier). Shared by Nuevo gasto and Cuentas a pagar → Cambiar forma de pago.
  * It only builds the input; the backend checks again that the items add up to what is open.
  */
-export function usePlanPago(total: number, { conCheques }: { conCheques: boolean }): PlanPago {
+/** Cheques: offered and usable ('SI'), offered but a supplier is still missing ('REQUIERE_PROVEEDOR'), or not offered here ('NO'). */
+export type ChequesPlan = 'SI' | 'REQUIERE_PROVEEDOR' | 'NO';
+export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: ChequesPlan }): PlanPago {
   const hoy = getTodayDate();
   const cuentas = useFinancialAccounts();
   const bancos = (cuentas.data ?? []).filter((c) => c.activo && c.account_type === 'BANK_ACCOUNT');
@@ -35,7 +37,7 @@ export function usePlanPago(total: number, { conCheques }: { conCheques: boolean
   const [editadas, setEditadas] = useState<{ due_date: string; amount: string }[] | null>(null);
   const [cheques, setCheques] = useState<ChequeForm[]>([{ tipo: 'ECHEQ', numero: '', fecha: '', importe: '', cuenta: '' }]);
   const tot = Math.round((total || 0) * 100) / 100;
-  const formaEf: FormaPago = forma === 'CHEQUES' && !conCheques ? 'UNICO' : forma;
+  const formaEf: FormaPago = forma === 'CHEQUES' && modoCheques === 'NO' ? 'UNICO' : forma;
   const generadas = editadas ?? (tot > 0 && Number(nCuotas) >= 2 ? repartirCuotas(tot, Number(nCuotas), primera, frecuencia).map((c) => ({ due_date: c.due_date, amount: String(c.amount) })) : []);
   const items = formaEf === 'UNICO' ? (fechaUnica ? [{ due_date: fechaUnica, amount: tot }] : [])
     : formaEf === 'CUOTAS' ? generadas.map((c) => ({ due_date: c.due_date || null, amount: Number(c.amount) })) : [];
@@ -45,15 +47,15 @@ export function usePlanPago(total: number, { conCheques }: { conCheques: boolean
   const cuadra = Math.abs(suma - tot) < 0.005;
   const valido = formaEf === 'UNICO' ? true
     : formaEf === 'CUOTAS' ? items.length >= 2 && items.every((x) => x.amount > 0) && cuadra
-      : chequesIn.length > 0 && chequesIn.every((c) => c.cheque_number && c.maturity_date && c.amount > 0 && c.bank_account_id) && cuadra;
+      : modoCheques === 'SI' && chequesIn.length > 0 && chequesIn.every((c) => c.cheque_number && c.maturity_date && c.amount > 0 && c.bank_account_id) && cuadra;
   const reset = () => setEditadas(null);
   const setCheque = (i: number, k: keyof ChequeForm, v: string) => setCheques(cheques.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
-  const opciones: [FormaPago, string][] = conCheques ? [['UNICO', 'Un pago'], ['CUOTAS', 'En cuotas'], ['CHEQUES', 'Cheques']] : [['UNICO', 'Un pago'], ['CUOTAS', 'En cuotas']];
+  const opciones: [FormaPago, string][] = modoCheques !== 'NO' ? [['UNICO', 'Un pago'], ['CUOTAS', 'En cuotas'], ['CHEQUES', 'Cheques / eCheqs']] : [['UNICO', 'Un pago'], ['CUOTAS', 'En cuotas']];
 
   const editor = (
     <fieldset className="space-y-2">
       <legend className={etiqueta}>¿Cómo lo vas a pagar?</legend>
-      <div className={`grid ${conCheques ? 'grid-cols-3' : 'grid-cols-2'} gap-1 text-sm`} role="radiogroup" aria-label="Forma de pago">
+      <div className={`grid ${modoCheques !== 'NO' ? 'grid-cols-3' : 'grid-cols-2'} gap-1 text-sm`} role="radiogroup" aria-label="Forma de pago">
         {opciones.map(([f, l]) => (
           <button key={f} type="button" role="radio" aria-checked={formaEf === f} onClick={() => setForma(f)}
             className={`py-1.5 rounded-lg border ${formaEf === f ? 'bg-amber-100 border-amber-400 text-amber-900 font-medium' : 'bg-white border-gray-300 text-gray-700'}`}>{l}</button>
@@ -73,8 +75,9 @@ export function usePlanPago(total: number, { conCheques }: { conCheques: boolean
           <select value={frecuencia} onChange={(e) => { setFrecuencia(e.target.value as typeof frecuencia); reset(); }} className={campo} aria-label="Frecuencia">
             <option value="MENSUAL">Mensual</option><option value="QUINCENAL">Cada 15 días</option><option value="SEMANAL">Semanal</option>
           </select>
-          {tot > 0 && (
+          {tot <= 0 ? <p className="text-xs text-amber-800">Cargá el importe total para repartir las cuotas; después podés cambiar la fecha y el importe de cada una.</p> : (
             <ul className="space-y-1">
+              <li className="flex items-center gap-2 text-[11px] text-gray-500"><span className="w-6" /><span className="flex-1">Fecha de pago</span><span className="w-32 text-right">Importe</span></li>
               {generadas.map((c, i) => (
                 <li key={i} className="flex items-center gap-2 text-sm">
                   <span className="w-6 text-gray-500">{i + 1}.</span>
@@ -88,12 +91,14 @@ export function usePlanPago(total: number, { conCheques }: { conCheques: boolean
       )}
       {formaEf === 'CHEQUES' && (
         <div className="space-y-2">
+          {modoCheques === 'REQUIERE_PROVEEDOR' && <p className="text-xs text-red-700">Para pagar con cheques o eCheqs elegí el proveedor arriba.</p>}
+          <p className="text-[11px] text-gray-500">Una fila por cheque: tipo, número, cuenta, fecha de débito e importe.</p>
           {cheques.map((c, i) => (
             <div key={i} className="grid grid-cols-6 gap-1 text-sm items-center">
               <select value={c.tipo} onChange={(e) => setCheque(i, 'tipo', e.target.value)} className="col-span-2 border border-gray-300 rounded px-1 py-1" aria-label="Tipo"><option value="ECHEQ">eCheq</option><option value="CHEQUE">Cheque</option></select>
               <input value={c.numero} onChange={(e) => setCheque(i, 'numero', e.target.value)} placeholder="Número" className="col-span-2 border border-gray-300 rounded px-2 py-1" />
               <select value={c.cuenta || bancos[0]?.id || ''} onChange={(e) => setCheque(i, 'cuenta', e.target.value)} className="col-span-2 border border-gray-300 rounded px-1 py-1" aria-label="Cuenta">{bancos.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}</select>
-              <input type="date" value={c.fecha} onChange={(e) => setCheque(i, 'fecha', e.target.value)} className="col-span-3 border border-gray-300 rounded px-2 py-1" aria-label="Fecha de pago" />
+              <input type="date" value={c.fecha} onChange={(e) => setCheque(i, 'fecha', e.target.value)} className="col-span-3 border border-gray-300 rounded px-2 py-1" aria-label="Fecha de débito" title="Fecha de débito" />
               <input type="number" step="0.01" value={c.importe} onChange={(e) => setCheque(i, 'importe', e.target.value)} placeholder="Importe" className="col-span-2 border border-gray-300 rounded px-2 py-1 text-right" />
               <button type="button" onClick={() => setCheques(cheques.filter((_, j) => j !== i))} disabled={cheques.length === 1} className="text-gray-400 hover:text-red-600 disabled:opacity-30 justify-self-center" aria-label="Quitar cheque"><Trash2 className="w-4 h-4" /></button>
             </div>
