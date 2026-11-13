@@ -1,6 +1,9 @@
 import { Fragment, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
-import { construirFlujo, DEMO_DESDE, inicioPeriodo, moverPeriodo, type Fila, type Grano } from './flujoDemo';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '../../lib/supabase';
+import { construirFlujo, getCashFlow, inicioPeriodo, moverPeriodo, periodos, type Fila, type Grano } from '../../target/cashFlow';
+import { errorMessage } from '../../target/messages';
 
 /** Columns shown per view; the last one is the current period (no future period is shown). */
 const VENTANA: Record<Grano, number> = { MES: 6, SEMANA: 8 };
@@ -9,9 +12,9 @@ const importe = (v: number) => (v === 0 ? '—' : pesos.format(v));
 const hoyLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /**
- * Caja → Flujo de caja (caja-mejoras-v2): FRONTEND PROTOTYPE over fictitious data (flujoDemo) — no query, no write, nothing reaches
- * Supabase. Periods in columns (months, or Monday–Sunday weeks) up to the current one, concepts in rows: opening balance, collected
- * income, paid outflows by category (each opens into its subcategories), net flow and the cash at the end of each period.
+ * Caja → Flujo de caja (0122, caja-mejoras-v2; design approved on the prototype): read only, from fin_cash_flow. Periods in columns (months, or Monday–Sunday weeks) up to the current one, concepts in rows: opening balance, collected
+ * income, paid outflows by category (each opens into its subcategories), other movements (opening balances, corrections, partner
+ * withdrawals) apart, net flow and the cash at the end of each period — the same source as the balance cards.
  */
 export function FlujoCaja() {
   const hoy = hoyLocal();
@@ -20,9 +23,14 @@ export function FlujoCaja() {
   const [primero, setPrimero] = useState(() => inicial('MES'));
   const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set(['egresos']));
   const n = VENTANA[grano];
-  const minimo = inicioPeriodo(grano, DEMO_DESDE);
+  const minimo = moverPeriodo(grano, inicial(grano), grano === 'MES' ? -24 : -104);   // up to two years back
   const maximo = inicial(grano);
-  const flujo = construirFlujo(grano, primero, n, hoy);
+  const cols = periodos(grano, primero, n, hoy);
+  const datos = useQuery({
+    queryKey: ['treasury', 'cash-flow', grano, cols[0].inicio, cols[n - 1].fin],
+    queryFn: () => getCashFlow(supabase, cols[0].inicio, cols[n - 1].fin, grano),
+  });
+  const flujo = construirFlujo(cols, datos.data ?? { opening: 0, net: [], rows: [] });
 
   const cambiarGrano = (g: Grano) => { setGrano(g); setPrimero(inicial(g)); };
   const alternar = (id: string) => setAbiertas((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
@@ -62,7 +70,6 @@ export function FlujoCaja() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="font-semibold text-[#2C2419]">Flujo de caja</h2>
-          <p className="text-xs text-amber-700">Vista de demostración · Datos ficticios</p>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <div className="inline-flex rounded-lg border border-[#E4DCC8] overflow-hidden" role="group" aria-label="Período">
@@ -80,6 +87,7 @@ export function FlujoCaja() {
             aria-label="Período siguiente" className="p-1 rounded hover:bg-stone-100 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
         </div>
       </div>
+      {datos.error ? <p className="text-sm text-red-700">{errorMessage(datos.error)}</p> : datos.isLoading ? <p className="text-sm text-gray-500">Cargando flujo de caja...</p> : (
       <div className="overflow-x-auto -mx-3 sm:mx-0">
         <table className="w-full text-xs sm:text-sm border-collapse">
           <thead>
@@ -96,6 +104,7 @@ export function FlujoCaja() {
           <tbody>{flujo.filas.map((f) => renglon(f, 0))}</tbody>
         </table>
       </div>
+      )}
       <p className="text-xs text-[#8A7A5C]">
         Dinero cobrado y pagado, sin transferencias entre cuentas propias. Saldo final: caja al cierre de cada período (el período en curso, hasta hoy).
       </p>
