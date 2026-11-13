@@ -166,6 +166,7 @@ export const raizDeCompra = (client: SupabaseClient, purchaseId: string) => call
 
 export const ACCION_AUDITORIA: Record<string, string> = {
   CREATE: 'Registro', RECTIFY: 'Rectificación de importes', RECTIFY_DETAILS: 'Rectificación', RECLASSIFY: 'Reclasificación', LINK_SUPPLIER: 'Vinculado a proveedor',
+  SET_PAYMENT_PLAN: 'Plan de pagos',
 };
 const CAMPO: Record<string, string> = {
   concept: 'Concepto', expense_category_id: 'Categoría', nature: 'Naturaleza', economic_date: 'Fecha', supplier_id: 'Proveedor',

@@ -30,7 +30,7 @@ export function CajaApp() {
   const { rol, user } = useAuth();
   const ahora = new Date();
   const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`;
-  // caja-mejoras-v2: ONE in-memory fictitious state shared by Cuentas a pagar and Cartera de cheques (prototype; nothing is saved)
+  // caja-mejoras-v2: in-memory fictitious state of the Cartera de cheques prototype (nothing is saved)
   const [demoPagar, setDemoPagar] = useState<DemoPagar>(() => semillaDemo(hoy));
   const demo = { s: demoPagar, setS: setDemoPagar, hoy, autor: () => ({ cuando: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }), quien: user?.email ?? 'usuario' }) };
   const [vista, setVista] = useState<Vista>('movimientos');
@@ -91,7 +91,7 @@ export function CajaApp() {
             </div>
           )}
           {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} focus={foco} onFocus={setFoco} />}
-          {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} demo={demo} />}
+          {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
           {vista === 'cartera' && <CarteraChequesDemo {...demo} />}
           {vista === 'calendario' && <CalendarioPagos />}
           {vista === 'extractos' && <ExtractosBancarios />}

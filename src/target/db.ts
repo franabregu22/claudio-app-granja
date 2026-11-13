@@ -29,6 +29,7 @@ export const TARGET_VIEWS = [
   'fin_supplier_unallocated_payments',   // Lote 3B (0110): supplier payments still free to allocate (advances), shown apart
   'fin_payment_calendar',   // Lote 3B (0110): every future commitment once (invoices, pending expenses, own cheques / eCheqs)
   'fin_purchase_audit',   // 0117 (ADMIN): the history of one expense across its versions (creation, rectifications)
+  'fin_payables_due',   // 0121 (ADMIN): every open due item once — plan instalments, obligations without plan, own cheques to be debited
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -52,6 +53,7 @@ export const TARGET_READ_TABLES = [
   'purchase_payment_date',   // Lote 3B (0110): due / estimated payment date history, append-only (ADMIN policy)
   'fin_transfer_intent',   // 0116: transfers between Mercado Pago and a bank registered before the movement (ADMIN policy, read-only)
   'audit_events',   // 0118: the payment-date corrections of a cheque (ADMIN policy, read-only)
+  'payment_plan_item',   // 0121: the payment plans (instalments) of an obligation, versioned, append-only (ADMIN policy)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -125,6 +127,7 @@ export const TARGET_RPCS = [
   'reschedule_issued_instrument',   // 0118 (ADMIN): audited payment-date correction of an own cheque / eCheq before its debit
   'fin_operation_list', 'fin_operation_timeline',   // 0119 (ADMIN, read): Caja → Todas las operaciones and the audited history of one row
   'pay_purchase_invoice',   // 0119 (ADMIN): a supplier invoice paid from its row (cash / transfer), one movement + its allocation
+  'set_payment_plan', 'pay_plan_item', 'issue_plan_item_instruments',   // 0121 (ADMIN): instalments of an obligation; pay / issue cheques for ONE item
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

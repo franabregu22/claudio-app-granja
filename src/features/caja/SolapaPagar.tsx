@@ -1,7 +1,7 @@
 import { Cheques } from './Cheques';
 import { Fletes } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
-import { PendientesDemo, type DemoProps } from './CuentasAPagarDemo';
+import { PendientesPagar } from './PendientesPagar';
 
 export type SubPagar = 'pendientes' | 'proveedores' | 'instrumentos';
 /** The current screens, kept reachable while the prototype is reviewed (caja-mejoras-v2). */
@@ -11,12 +11,12 @@ const ACTUALES: { id: SubPagar; label: string }[] = [
 ];
 
 /**
- * Caja → Cuentas a pagar. caja-mejoras-v2 PROTOTYPE (fictitious data, nothing is saved): ONE list of every pending due item (single
- * payments, instalments, own cheques / eCheqs) filtered by supplier, type and the summary cards; each row opens its expense. The current
- * screens — Proveedores (accounts, debt, advances, cheques and freight) and Cheques — stay under "Vista actual" until the prototype is
- * approved and built over real data.
+ * Caja → Cuentas a pagar (caja-mejoras-v2, 0121): ONE list of every pending due item on real data (single payments, instalments, own
+ * cheques / eCheqs) filtered by supplier, type and the summary cards; each row opens its expense. The 0120
+ * screens — Proveedores (accounts, debt, advances, cheques and freight) and Cheques — stay under "Vista actual" while the new list is
+ * reviewed.
  */
-export function SolapaPagar({ sub, onSub, demo }: { sub: SubPagar; onSub: (s: SubPagar) => void; demo: DemoProps }) {
+export function SolapaPagar({ sub, onSub }: { sub: SubPagar; onSub: (s: SubPagar) => void }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-[#8A7A5C]" role="tablist" aria-label="Secciones de cuentas a pagar">
@@ -29,7 +29,7 @@ export function SolapaPagar({ sub, onSub, demo }: { sub: SubPagar; onSub: (s: Su
           </button>
         ))}
       </div>
-      {sub === 'pendientes' && <PendientesDemo {...demo} />}
+      {sub === 'pendientes' && <PendientesPagar />}
       {sub === 'proveedores' && <><CuentasAPagar /><Fletes /></>}
       {sub === 'instrumentos' && <Cheques />}
     </div>

@@ -97,7 +97,7 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
   const compras = SRC('features/caja/Compras.tsx');
   it('caja-mejoras-v2 prototype: Pendientes by default; the 0120 sections stay reachable as "Vista actual"', () => {
     expect([...pagar.matchAll(/\{ id: '[\w-]+', label: '([^']+)' \}/g)].map((m) => m[1])).toEqual(['Proveedores', 'Cheques']);
-    expect(pagar).toContain("{sub === 'pendientes' && <PendientesDemo {...demo} />}");
+    expect(pagar).toContain("{sub === 'pendientes' && <PendientesPagar />}");
     expect(app).toMatch(/useState<SubPagar>\('pendientes'\)/);
     for (const old of ['GastosAPagar', 'PagosFacturas', "'pagosfactura'", '<Compras />']) expect(pagar + app).not.toContain(old);
   });

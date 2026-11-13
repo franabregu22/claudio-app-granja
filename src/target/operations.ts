@@ -118,7 +118,7 @@ export const ACCION_HISTORIAL: Record<string, string> = {
   OPERACION_REGISTRADA: 'Operación registrada', CONCILIADA: 'Conciliada con el extracto', CONCILIACION_REVERTIDA: 'Conciliación revertida',
   IMPUTACION: 'Imputado a la factura', PAY: 'Pago registrado', PAY_INVOICE: 'Pago de la factura registrado', CREATE: 'Gasto registrado',
   CREATE_CASUAL: 'Gasto registrado (sin proveedor)', CREATE_PENDING_EXPENSE: 'Gasto pendiente registrado', RECTIFY: 'Rectificación de importes',
-  RECTIFY_DETAILS: 'Rectificación', RECLASSIFY: 'Reclasificación', LINK_SUPPLIER: 'Vinculado a proveedor', ISSUE_INSTRUMENTS: 'Cheques emitidos',
+  RECTIFY_DETAILS: 'Rectificación', RECLASSIFY: 'Reclasificación', LINK_SUPPLIER: 'Vinculado a proveedor', ISSUE_INSTRUMENTS: 'Cheques emitidos', SET_PAYMENT_PLAN: 'Plan de pagos (cuotas)',
   ISSUE: 'Cheque emitido', DEBIT: 'Cheque debitado', DEBIT_PRE_CUTOVER: 'Cheque debitado antes del corte', CANCEL_ISSUED: 'Cheque anulado',
   RESCHEDULE_PAYMENT_DATE: 'Fecha de pago corregida', FECHA_DUE: 'Vencimiento cargado', FECHA_PLANNED: 'Fecha estimada de pago cargada',
   TRANSFER: 'Transferencia registrada', BANK_TAX: 'Impuesto bancario registrado', REGISTER_BANK_TAX: 'Impuesto bancario registrado',
