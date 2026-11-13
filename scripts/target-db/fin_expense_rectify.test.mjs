@@ -176,7 +176,7 @@ expect('R-25 no money moved', delta('s4'), 'audit_events=1,purchases=1');
 // a pending expense without supplier
 add(`SELECT pg_temp.must('pending expense', ${A(`SELECT register_pending_expense('${Y}-10-07', 500, 500, ${CAT}, 'Gasoil', 'OPERATING', 'RPE-0117-1')::text`)});`);
 const RPE = (o) => rect('RPE-0117-1', { concept: 'Gasoil', date: `${Y}-10-07`, supplier: 'NULL', total: 500, net: 500, ...o });
-expect('R-26 pending without supplier: amount locked (the obligation)', A(RPE({ total: 600, net: 600 })), 'ERR:PENDING_EXPENSE_AMOUNT_LOCKED%');
+expect('R-26 pending without supplier and without payments: its amount changes (0124, owner decision 2026-11-13; with a payment it stays locked: fin_expense_annul A-5)', A(RPE({ total: 600, net: 600 })), 'OK:%');
 expect('R-27 pending without supplier: date and concept corrected', A(RPE({ concept: 'Gasoil tractor', date: `${Y}-10-08` })), 'OK:%');
 expect('R-27b still pending in full under its new data', A(`SELECT concept || '|' || pending || '|' || economic_date FROM fin_expense_payables WHERE purchase_root_id = ${ROOT('RPE-0117-1')}`), `OK:Gasoil tractor|500.00|${Y}-10-08`);
 
