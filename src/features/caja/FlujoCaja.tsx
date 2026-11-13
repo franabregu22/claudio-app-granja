@@ -33,7 +33,7 @@ export function FlujoCaja() {
   const flujo = construirFlujo(cols, datos.data ?? { opening: 0, net: [], rows: [] });
 
   const cambiarGrano = (g: Grano) => { setGrano(g); setPrimero(inicial(g)); };
-  const alternar = (id: string) => setAbiertas((s) => { const x = new Set(s); if (x.has(id)) x.delete(id); else x.add(id); return x; });
+  const alternar = (id: string) => setAbiertas((s) => new Set(s.has(id) ? [...s].filter((x) => x !== id) : [...s, id]));
 
   const renglon = (f: Fila, nivel: number): React.ReactNode => {
     const abierta = abiertas.has(f.id);

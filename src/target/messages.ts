@@ -42,7 +42,7 @@ const MESSAGES: Record<string, string> = {
   ACCOUNT_REQUIRED: 'Elegí la cuenta de dinero para esta operación.',
   CLIENT_NOT_FOUND_OR_INACTIVE: 'El cliente no existe o está inactivo.',
   DUPLICATE_RECEIPT: 'Ya existe un cobro o cheque con ese comprobante.',
-  USE_RECEIVE_CHEQUE: 'Los cheques se registran desde Caja → Cuentas a pagar → Cheques → Recibir cheque.',
+  USE_RECEIVE_CHEQUE: 'Los cheques de clientes se registran desde Cuentas corrientes → Registrar cobro → Cheque / eCheq.',
   // ADR-018 bank statement import (Edge fin-statement-import request errors)
   ADMIN_REQUIRED: 'Solo un administrador puede importar extractos.',
   FILE_REQUIRED: 'Elegí el archivo PDF del extracto.',

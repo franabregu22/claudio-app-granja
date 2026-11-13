@@ -59,7 +59,8 @@ describe('ADR-018 reconciliation access: ADMIN only', () => {
     expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_match_statement_line', 'fin_reverse_statement_match', 'fin_resolve_statement_cutover', 'fin_mp_payout_matches', 'fin_movement_history', 'fin_statement_charge_proposals', 'fin_book_statement_charges', 'fin_instrument_precut_candidates', 'fin_mark_instrument_debited_precut']));
     expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_movement_list', 'fin_register_transfer_intent', 'fin_link_transfer_intent', 'fin_cancel_transfer_intent', 'fin_relate_bank_tax']));
     expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_operation_list', 'fin_operation_timeline']));   // 0119: Todas las operaciones
-    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toHaveLength(16);
+    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toEqual(expect.arrayContaining(['fin_cash_flow']));   // 0122: Flujo de caja (read only)
+    expect(TARGET_RPCS.filter((r) => r.startsWith('fin_'))).toHaveLength(17);
     expect(TARGET_RPCS).not.toContain('fin_import_bank_statement');
     expect(TARGET_VIEWS).toContain('fin_statement_line_status');
     expect(TARGET_READ_TABLES).toEqual(expect.arrayContaining(['fin_statement_match', 'fin_statement_cutover']));

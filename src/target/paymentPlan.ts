@@ -114,3 +114,11 @@ export function repartirCuotas(total: number, k: number, primera: string, f: 'ME
     amount: i === k - 1 ? Math.round((total - base * (k - 1)) * 100) / 100 : base,
   }));
 }
+
+/** 0123: a client cheque in portfolio endorsed to the supplier of ONE invoice (or ONE of its plan items); the excess stays as credit. */
+export function endorseChequeToPayable(client: SupabaseClient, p: { instrumentId: string; purchaseId: string; itemId: number | null; date: string; idempotencyKey: string; reason?: string | null }) {
+  return callRpc<{ replayed: boolean; allocated: number; supplier_credit: number }>(client, 'endorse_cheque_to_payable', {
+    p_instrument_id: p.instrumentId, p_purchase_id: p.purchaseId, p_item_id: p.itemId, p_endorsed_date: p.date,
+    p_idempotency_key: p.idempotencyKey, p_reason: p.reason?.trim() || null,
+  });
+}

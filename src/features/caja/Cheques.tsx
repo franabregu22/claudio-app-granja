@@ -29,13 +29,13 @@ export const TIPO: Record<InstrumentType, string> = { CHEQUE: 'Cheque', ECHEQ: '
 const REQUIERE_MOTIVO: InstrumentAction[] = ['reject', 'cancel'];
 
 /**
- * Cheques y eCheqs (F27-D). State is read from financial_instrument; every transition is its contract RPC
- * (receive / deposit / clear / endorse / reject for received ones; issue / debit / cancel / reject for issued ones).
+ * Cheques y eCheqs emitidos (F27-D). State is read from financial_instrument; every transition is its contract RPC (issue / debit /
+ * cancel / reject). caja-mejoras-v2 (0123): client cheques live in Caja → Cartera de cheques and come in from Cuentas corrientes →
+ * Registrar cobro → Cheque, so this screen no longer receives them.
  * The buttons offered per state mirror the contract (UX only; the RPC re-checks and answers INVALID_STATE).
  */
 export function Cheques() {
   const instrumentos = useInstruments();
-  const [recibiendo, setRecibiendo] = useState(false);
   const [accion, setAccion] = useState<{ action: InstrumentAction; inst: InstrumentRow } | null>(null);
   const [anteriorCorte, setAnteriorCorte] = useState<InstrumentRow | null>(null);
   const [fechaPago, setFechaPago] = useState<ChequeFecha | null>(null);
@@ -44,7 +44,6 @@ export function Cheques() {
 
   if (instrumentos.isLoading) return <p className="text-sm text-gray-500">Cargando cheques...</p>;
   if (instrumentos.error) return <p className="text-sm text-red-700">{errorMessage(instrumentos.error)}</p>;
-  const recibidos = (instrumentos.data ?? []).filter((i) => i.direction === 'RECEIVED');
   const emitidos = (instrumentos.data ?? []).filter((i) => i.direction === 'ISSUED');
 
   // 0115: a cheque debited before the bank cut stays debited (its debit is in the opening balance; a rejection would credit it back)
@@ -95,19 +94,12 @@ export function Cheques() {
 
   return (
     <div className="space-y-6">
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Recibidos de clientes</p>
-          <button onClick={() => setRecibiendo(true)} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Recibir cheque</button>
-        </div>
-        {recibidos.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay cheques recibidos.</p> : <div className="space-y-2">{recibidos.map(fila)}</div>}
-      </section>
+      <p className="text-xs text-[#8A7A5C]">Los cheques de clientes están en Caja → Cartera de cheques.</p>
       <section>
         <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Emitidos a proveedores</p>
-        <p className="text-xs text-[#8A7A5C] mb-2">Para pagar una factura con uno o varios cheques: Movimientos → Todas las operaciones (detalle de la factura) → «Emitir cheques / eCheqs». Sin factura: Cuentas a pagar → Proveedores → Pagar → Cheque / eCheq.</p>
+        <p className="text-xs text-[#8A7A5C] mb-2">Para pagar un vencimiento con uno o varios cheques: Cuentas a pagar → Pendientes → «Pagar» → Emitir cheque / eCheq.</p>
         {emitidos.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay cheques emitidos.</p> : <div className="space-y-2">{emitidos.map(fila)}</div>}
       </section>
-      {recibiendo && <RecibirChequeModal onClose={() => setRecibiendo(false)} />}
       {accion && <AccionModal action={accion.action} inst={accion.inst} onClose={() => setAccion(null)} />}
       {anteriorCorte && <DebitoAnteriorCorteModal inst={anteriorCorte} onClose={() => setAnteriorCorte(null)} />}
       {fechaPago && <FechaPagoChequeModal cheque={fechaPago} onClose={() => setFechaPago(null)} />}
@@ -184,59 +176,6 @@ function DebitoAnteriorCorteModal({ inst, onClose }: { inst: InstrumentRow; onCl
   );
 }
 
-function RecibirChequeModal({ onClose }: { onClose: () => void }) {
-  const clientes = useClients();
-  const { receiveCheque } = useTreasuryMutations();
-  const [clienteId, setClienteId] = useState('');
-  const [tipo, setTipo] = useState<InstrumentType>('CHEQUE');
-  const [numero, setNumero] = useState('');
-  const [monto, setMonto] = useState('');
-  const [vencimiento, setVencimiento] = useState(getTodayDate());
-  const [comprobante, setComprobante] = useState('');
-  const [notas, setNotas] = useState('');
-  const [claveAuto] = useState(() => `CHQ-${crypto.randomUUID()}`);   // idempotency: one per opened form
-  const puede = clienteId !== '' && numero.trim() !== '' && Number(monto) > 0 && vencimiento !== '';
-
-  return (
-    <Modal titulo="Recibir cheque de cliente" onClose={onClose} puedeGuardar={puede} guardando={receiveCheque.isPending}
-      error={receiveCheque.error ?? clientes.error} textoGuardar="Registrar"
-      onSubmit={() => receiveCheque.mutate({
-        clienteId, type: tipo, chequeNumber: numero.trim(), amount: Number(monto), maturityDate: vencimiento, receivedAt: new Date().toISOString(),
-        receiptId: comprobante.trim() || claveAuto, reason: notas,
-      }, { onSuccess: onClose })}>
-      <label className={etiqueta}>Cliente
-        <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className={campo}>
-          <option value="">Elegir cliente…</option>
-          {(clientes.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-        </select>
-      </label>
-      <div className="grid grid-cols-2 gap-2">
-        {INSTRUMENT_TYPES.map((t) => (
-          <button key={t} type="button" onClick={() => setTipo(t)}
-            className={`px-3 py-2 rounded-lg text-sm font-medium ${tipo === t ? 'bg-amber-600 text-white' : 'bg-stone-100 text-gray-700 hover:bg-stone-200'}`}>
-            {TIPO[t]}
-          </button>
-        ))}
-      </div>
-      <label className={etiqueta}>Número
-        <input type="text" value={numero} onChange={(e) => setNumero(e.target.value)} className={campo} />
-      </label>
-      <label className={etiqueta}>Monto
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
-      </label>
-      <label className={etiqueta}>Fecha de pago
-        <input type="date" value={vencimiento} onChange={(e) => setVencimiento(e.target.value)} className={campo} />
-      </label>
-      <label className={etiqueta}>Nº de recibo (opcional)
-        <input type="text" value={comprobante} onChange={(e) => setComprobante(e.target.value)} className={campo} placeholder="Se genera uno si lo dejás vacío" />
-      </label>
-      <label className={etiqueta}>Notas (opcional)
-        <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} className={campo} />
-      </label>
-      <p className="text-xs text-gray-500">El cheque descuenta el saldo del cliente; el dinero entra a una cuenta cuando se acredita.</p>
-    </Modal>
-  );
-}
 
 export function AccionModal({ action, inst, onClose }: { action: InstrumentAction; inst: Pick<InstrumentRow, 'id' | 'direction' | 'instrument_type' | 'cheque_number' | 'amount'>; onClose: () => void }) {
   const mutacion = useInstrumentAction();

@@ -66,6 +66,6 @@ describe('Caja — no money rule moved with the screens', () => {
     const m = SRC('target/messages.ts');
     expect(m.split('Caja → Movimientos → Por resolver → Pendientes de clasificar').length - 1).toBe(3);
     expect(m).toContain('Caja → Movimientos → Por resolver → Gastos sin clasificar');
-    expect(m).toContain('Caja → Cuentas a pagar → Cheques → Recibir cheque');
+    expect(m).toContain('Cuentas corrientes → Registrar cobro → Cheque / eCheq');   // caja-mejoras-v2 (0123)
   });
 });

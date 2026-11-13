@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { payPendingExpense } from '../../target/payables';
 import { payPurchaseInvoice } from '../../target/operations';
 import {
-  issueObligationInstruments, issuePlanItemInstruments, listPayablesDue, listPlanItems, payPlanItem, setPaymentPlan,
+  endorseChequeToPayable, issueObligationInstruments, issuePlanItemInstruments, listPayablesDue, listPlanItems, payPlanItem, setPaymentPlan,
 } from '../../target/paymentPlan';
 
 /** 0121: every open due item once (Cuentas a pagar → Pendientes). */
@@ -27,6 +27,7 @@ export function usePaymentPlanMutations() {
     chequesItem: useMutation({ mutationFn: (p: Parameters<typeof issuePlanItemInstruments>[1]) => issuePlanItemInstruments(supabase, p), onSuccess }),
     chequesObligation: useMutation({ mutationFn: (p: Parameters<typeof issueObligationInstruments>[1]) => issueObligationInstruments(supabase, p), onSuccess }),
     payInvoice: useMutation({ mutationFn: (p: Parameters<typeof payPurchaseInvoice>[1]) => payPurchaseInvoice(supabase, p), onSuccess }),
+    endorse: useMutation({ mutationFn: (p: Parameters<typeof endorseChequeToPayable>[1]) => endorseChequeToPayable(supabase, p), onSuccess }),
     payPending: useMutation({ mutationFn: (p: Parameters<typeof payPendingExpense>[1]) => payPendingExpense(supabase, p), onSuccess }),
   };
 }

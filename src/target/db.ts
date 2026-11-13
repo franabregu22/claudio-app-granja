@@ -128,6 +128,7 @@ export const TARGET_RPCS = [
   'fin_operation_list', 'fin_operation_timeline',   // 0119 (ADMIN, read): Caja → Todas las operaciones and the audited history of one row
   'pay_purchase_invoice',   // 0119 (ADMIN): a supplier invoice paid from its row (cash / transfer), one movement + its allocation
   'fin_cash_flow',   // 0122 (ADMIN, read): Caja → Flujo de caja, money by month / week (income, outflows by category, other movements, net)
+  'endorse_cheque_to_payable',   // 0123 (ADMIN): a client cheque endorsed against ONE invoice / plan item (excess stays as supplier credit)
   'set_payment_plan', 'pay_plan_item', 'issue_plan_item_instruments',   // 0121 (ADMIN): instalments of an obligation; pay / issue cheques for ONE item
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];

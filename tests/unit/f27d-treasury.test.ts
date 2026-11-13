@@ -213,7 +213,8 @@ describe('F27-D migrated files carry no legacy or duplicated authority', () => {
     expect(text).not.toMatch(/(?<!Array)\.from\(/);
     expect(text).not.toMatch(/\.(insert|update|delete|upsert)\(/);
     expect(text).not.toMatch(/hooks\/use(Caja|Arqueos|Categorias|Pagos)\b|api\/(caja|arqueos|categorias|pagos)\b|agregarPagoAlaCaja|sincronizar/);
-    expect(text).not.toMatch(/ingresos\s*-\s*egresos|margen|flujo/i);
+    // 0122 (owner GO 2026-11-13): the cash flow is served by fin_cash_flow; Movimientos only mounts <FlujoCaja /> — nothing is computed here
+    expect(text.replace(/FlujoCaja/g, '')).not.toMatch(/ingresos\s*-\s*egresos|margen|flujo/i);
   });
 
   it('the legacy Caja authorities are gone; the only legacy remnant is the read-only P&L source for F27-G', () => {

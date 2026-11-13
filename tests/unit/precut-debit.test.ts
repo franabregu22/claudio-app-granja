@@ -49,7 +49,7 @@ describe('0115 — the requests', () => {
 
 describe('0115 — the screen (Caja → Cuentas a pagar → Cheques, no new tab)', () => {
   const c = SRC('features/caja/Cheques.tsx');
-  const modal = c.slice(c.indexOf('function DebitoAnteriorCorteModal'), c.indexOf('function RecibirChequeModal'));
+  const modal = c.slice(c.indexOf('function DebitoAnteriorCorteModal'), c.indexOf('export function AccionModal'));
   it('the action is offered only for an own cheque still issued', () => {
     expect(c).toMatch(/\{i\.direction === 'ISSUED' && i\.estado === 'ISSUED' && \(\n\s+<button onClick=\{\(\) => setAnteriorCorte\(i\)\}/);
   });
