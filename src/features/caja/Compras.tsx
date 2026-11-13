@@ -16,6 +16,8 @@ import { useInvoicePaymentStatus } from './useInvoicePayments';
 import { useRegisterExpense } from './useExpenses';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { facturaRepetida, posibleDuplicado } from '../../target/expenseHub';
+import { usePlanPago } from './EditorPlanPago';
+import { usePaymentPlanMutations } from './usePaymentPlan';
 
 /**
  * Compras y fletes (F27-D; Phase 27 acceptance fixes D-WALK-3/4/5/6). The forms of a purchase and of freight; the list of purchases is
@@ -78,6 +80,9 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const [comprobante, setComprobante] = useState<ComprobanteForm>(COMPROBANTE_VACIO);
   const [clave] = useState(() => `GASTO-${crypto.randomUUID()}`);   // idempotency: one per opened form
   const conProveedor = proveedorId !== '';
+  // caja-mejoras-v2 (0121): a pending expense can be split into instalments or paid with own cheques right here (cheques: supplier only)
+  const plan = usePlanPago(Number(total), { conCheques: conProveedor });
+  const planes = usePaymentPlanMutations();
   const fiscalDatos = fiscalInput(comprobante.fiscal, fecha);
   const cuitEmisor = cuitOrNull(comprobante.cuitEmisor);
   const cuentasMedio = (cuentas.data ?? []).filter((a) => cuentaAdmitida(medio, a.account_type));
@@ -89,22 +94,29 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const pagoOk = estado === 'PENDIENTE'
     || (ruta !== 'PROVEEDOR_MP_NO_PERMITIDO' && cuentaElegida !== '' && (medio === 'MERCADOPAGO' || (fechaPago !== '' && fechaPago >= fecha)));
   const puede = !!user && concepto.trim() !== '' && concepto.trim().length <= 100 && Number(total) > 0 && fecha !== '' && categoriaId !== ''
-    && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida;
+    && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida && (estado === 'PAGADO' || plan.valido);
+  const guardando = registrar.isPending || planes.plan.isPending || planes.chequesObligation.isPending;
   const elegirSub = (id: string) => { setCategoriaId(id); if (id) setNaturaleza(defaultNatureOf(categorias.data ?? [], id)); };
 
   return (
-    <Modal titulo="Nuevo gasto" onClose={onClose} puedeGuardar={puede} guardando={registrar.isPending}
-      error={comprobante.errorArchivo ?? registrar.error ?? proveedores.error ?? categorias.error ?? cuentas.error} textoGuardar="Registrar gasto"
-      onSubmit={() => registrar.mutate({
+    <Modal titulo="Nuevo gasto" onClose={onClose} puedeGuardar={puede} guardando={guardando}
+      error={comprobante.errorArchivo ?? registrar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
+      textoGuardar="Registrar gasto"
+      onSubmit={() => { registrar.mutateAsync({
         userId: user!.id, files: comprobante.archivos, concept: concepto, supplierId: proveedorId || null, amountTotal: Number(total), fecha,
         categoryId: categoriaId, nature: naturaleza, estado, medio: estado === 'PAGADO' ? medio : null, accountId: cuentaElegida || null,
         fechaPago: medio === 'MERCADOPAGO' ? fecha : fechaPago, invoiceNumber: comprobante.numero.trim() || null, fiscal: fiscalDatos,
         cuitEmisor: conProveedor ? null : cuitEmisor, nombreEmisor: conProveedor ? null : comprobante.nombreEmisor, idempotencyKey: clave,
-      }, { onSuccess: (r) => {
+      }).then(async (r) => {
+        // the plan / cheques of a pending expense: same keys on a retry (the expense replays by its key, the plan by its own)
+        const purchaseId = (r as { purchase_id?: string } | null)?.purchase_id;
+        if (estado === 'PENDIENTE' && purchaseId && plan.forma === 'CHEQUES') await planes.chequesObligation.mutateAsync({ purchaseId, instruments: plan.cheques, idempotencyKey: `${clave}:CH` });
+        else if (estado === 'PENDIENTE' && purchaseId && plan.items.length > 0) await planes.plan.mutateAsync({ purchaseId, items: plan.items, idempotencyKey: `${clave}:PLAN` });
         if (!onRegistrado) { onClose(); return; }
         const fechaTxt = estado === 'PAGADO' && medio !== 'MERCADOPAGO' ? fechaPago : fecha;
-        onRegistrado(claveDeRegistro(ruta, r), `Gasto «${concepto.trim()}» registrado${estado === 'PENDIENTE' ? ' como pendiente de pago' : ' y pagado'} (fecha ${formatearFechaLocal(fechaTxt)}).`);
-      } })}>
+        const forma = estado === 'PENDIENTE' && plan.forma === 'CUOTAS' ? ` en ${plan.items.length} cuotas` : estado === 'PENDIENTE' && plan.forma === 'CHEQUES' ? ` con ${plan.cheques.length} cheque(s)` : '';
+        onRegistrado(claveDeRegistro(ruta, r), `Gasto «${concepto.trim()}» registrado${estado === 'PENDIENTE' ? ` como pendiente de pago${forma}` : ' y pagado'} (fecha ${formatearFechaLocal(fechaTxt)}).`);
+      }).catch(() => {}); }}>
       <label className={etiqueta}>Concepto del gasto
         <input type="text" value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={100} placeholder="Ej.: maíz, gasoil, reparación de la bomba"
           className={`${campo} text-base`} autoFocus />
@@ -138,7 +150,10 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
           ))}
         </div>
         {estado === 'PENDIENTE' ? (
-          <p className="text-xs text-[#6B5D45]">No mueve dinero. Queda en Movimientos → Todas las operaciones como Pendiente.</p>
+          <div className="space-y-1 border border-[#E4DCC8] rounded-lg p-2">
+            {plan.editor}
+            <p className="text-xs text-[#6B5D45]">No mueve dinero ahora: queda en Cuentas a pagar{plan.forma === 'CHEQUES' ? '; los cheques salen del banco en su fecha' : ''}.</p>
+          </div>
         ) : (
           <div className="space-y-2 border border-[#E4DCC8] rounded-lg p-2">
             <div className="grid grid-cols-3 gap-1" role="radiogroup" aria-label="Medio de pago">

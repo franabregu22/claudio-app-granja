@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { enTarjeta, etiquetaFila, fechaFila, grupoFila, repartirCuotas, totales, vencida, type PayableDueRow } from '../../src/target/paymentPlan';
+import { reglasEdicion } from '../../src/target/expenses';
 
 const SRC = (f: string) => readFileSync(resolve(__dirname, '../../src', f), 'utf8');
 const HOY = '2026-11-13';   // a Friday
@@ -37,6 +38,24 @@ describe('Cuentas a pagar → Pendientes (0121)', () => {
     const c = repartirCuotas(100_000, 3, '2026-01-31', 'MENSUAL');
     expect(c.map((x) => x.due_date)).toEqual(['2026-01-31', '2026-02-28', '2026-03-31']);
     expect(c.reduce((t, x) => t + x.amount, 0)).toBeCloseTo(100_000, 2);
+  });
+  it('pencil: the 0117 locks are kept and each locked field shows its reason (owner decision 2026-11-13)', () => {
+    const base = { conProveedor: true, pagadoAlRegistrar: false, pendienteSinProveedor: false, mpVinculado: false, asignado: 0, conFactura: false };
+    expect(reglasEdicion(base).porque).toEqual({});
+    const fiscal = reglasEdicion({ ...base, conFactura: true });
+    expect([fiscal.proveedor, fiscal.importe, fiscal.numero]).toEqual([false, false, false]);
+    expect(fiscal.porque.importe).toMatch(/nota de crédito/);
+    const sinProv = reglasEdicion({ ...base, conProveedor: false, pendienteSinProveedor: true });
+    expect([sinProv.importe, sinProv.porque.importe]).toEqual([false, expect.stringMatching(/vinculalo a un proveedor/)]);
+    expect(reglasEdicion({ ...base, asignado: 100 }).porque.proveedor).toMatch(/pagos o cheques/);
+    const ui = SRC('features/caja/EditarGasto.tsx');
+    for (const k of ['proveedor', 'importe', 'fecha', 'numero']) expect(ui, k).toContain(`'${k}')}`);
+  });
+  it('Nuevo gasto: a pending expense takes its plan (instalments) or own cheques in the same submit', () => {
+    const c = SRC('features/caja/Compras.tsx');
+    expect(c).toContain('usePlanPago(Number(total), { conCheques: conProveedor })');
+    expect(c).toContain('planes.plan.mutateAsync({ purchaseId, items: plan.items, idempotencyKey: `${clave}:PLAN` })');
+    expect(c).toContain('planes.chequesObligation.mutateAsync({ purchaseId, instruments: plan.cheques, idempotencyKey: `${clave}:CH` })');
   });
   it('wiring: the real list in Cuentas a pagar, each action is its RPC (no direct writes)', () => {
     const ui = SRC('features/caja/PendientesPagar.tsx');

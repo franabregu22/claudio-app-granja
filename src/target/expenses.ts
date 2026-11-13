@@ -122,25 +122,40 @@ export function rectificarGasto(client: SupabaseClient, r: RectificacionInput) {
 }
 
 /** What can be corrected in an expense, from its links (the backend decides again; this only explains it before trying). */
-export interface ReglasEdicion { proveedor: boolean; fecha: boolean; importe: boolean; numero: boolean; agregarFactura: boolean; motivos: string[] }
+export type CampoBloqueable = 'proveedor' | 'fecha' | 'importe' | 'numero';
+export interface ReglasEdicion {
+  proveedor: boolean; fecha: boolean; importe: boolean; numero: boolean; agregarFactura: boolean; motivos: string[];
+  /** caja-mejoras-v2: the short reason shown with a lock next to each locked field (same rules, 0117). */
+  porque: Partial<Record<CampoBloqueable, string>>;
+}
 export function reglasEdicion(g: {
   conProveedor: boolean; pagadoAlRegistrar: boolean; pendienteSinProveedor: boolean; mpVinculado: boolean; asignado: number; conFactura: boolean;
 }): ReglasEdicion {
   const motivos: string[] = [];
+  const porque: Partial<Record<CampoBloqueable, string>> = {};
   let proveedor = g.conProveedor; let fecha = true; let importe = true; let numero = g.conProveedor;
   if (!g.conProveedor) {
     motivos.push(g.pendienteSinProveedor ? 'Para asignarle un proveedor usá «Vincular a proveedor».' : 'Un gasto sin proveedor ya pagado queda sin proveedor.');
-    if (g.pagadoAlRegistrar) { fecha = false; importe = false; motivos.push('Ya está pagado: conserva la fecha y el importe de su pago.'); }
-    if (g.pendienteSinProveedor) { importe = false; motivos.push('El importe de un gasto pendiente sin proveedor es el de su obligación: vinculalo a un proveedor para corregirlo.'); }
-    if (g.mpVinculado) { importe = false; motivos.push('Ya está vinculado a su movimiento de Mercado Pago: conserva su importe.'); }
+    porque.proveedor = g.pendienteSinProveedor ? 'Se asigna con «Vincular a proveedor».' : 'Un gasto sin proveedor ya pagado queda sin proveedor.';
+    if (g.pagadoAlRegistrar) {
+      fecha = false; importe = false; motivos.push('Ya está pagado: conserva la fecha y el importe de su pago.');
+      porque.fecha = 'Ya está pagado: es la fecha de su pago.'; porque.importe = 'Ya está pagado: es el importe de su pago.';
+    }
+    if (g.pendienteSinProveedor) {
+      importe = false; motivos.push('El importe de un gasto pendiente sin proveedor es el de su obligación: vinculalo a un proveedor para corregirlo.');
+      porque.importe = 'Es el de la obligación: vinculalo a un proveedor para corregirlo.';
+    }
+    if (g.mpVinculado) { importe = false; motivos.push('Ya está vinculado a su movimiento de Mercado Pago: conserva su importe.'); porque.importe = 'Es el de su movimiento de Mercado Pago.'; }
   } else if (g.asignado > 0) {
     proveedor = false; motivos.push('Tiene pagos o cheques asignados: el proveedor no cambia y el importe no puede bajar de lo asignado.');
+    porque.proveedor = 'Tiene pagos o cheques asignados.';
   }
   if (g.conFactura) {
     proveedor = false; importe = false; numero = false;
     motivos.push('Tiene comprobante fiscal: proveedor, importe y número se corrigen con una nota de crédito o débito en Fiscal.');
+    porque.proveedor = porque.importe = porque.numero = 'Tiene factura fiscal: se corrige con nota de crédito o débito (Fiscal).';
   }
-  return { proveedor, fecha, importe, numero, agregarFactura: !g.conFactura, motivos };
+  return { proveedor, fecha, importe, numero, agregarFactura: !g.conFactura, motivos, porque };
 }
 
 /** The expense's links as its row in Cuentas a pagar → Gastos shows them, and how its payment is handled. */

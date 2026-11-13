@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Trash2 } from 'lucide-react';
 import { errorMessage } from '../../target/messages';
 import {
-  enTarjeta, esChequeFila, etiquetaFila, fechaFila, GRUPOS, grupoFila, repartirCuotas, totales, vencida,
+  enTarjeta, esChequeFila, etiquetaFila, fechaFila, GRUPOS, grupoFila, totales, vencida,
   type ChequeInput, type PayableDueRow, type Tarjeta,
 } from '../../target/paymentPlan';
 import type { GastoItem } from '../../target/expenseHub';
@@ -15,6 +15,7 @@ import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos
 import { campo, etiqueta, Modal } from './Modal';
 import { usePayablesDue, usePaymentPlanMutations } from './usePaymentPlan';
 import { useLedgerBalances } from './useTreasury';
+import { usePlanPago } from './EditorPlanPago';
 
 const TARJETAS: { id: Tarjeta; label: string }[] = [
   { id: 'TOTAL', label: 'Total a pagar' }, { id: 'VENCIDO', label: 'Vencido' }, { id: 'PROX7', label: 'Próximos 7 días' },
@@ -268,53 +269,17 @@ function PagarModal({ r, g, onClose }: { r: PayableDueRow; g: GastoItem | null; 
 // ── change the payment form (plan) over what is open ────────────────────────
 function PlanModal({ r, abierto, conPlan, onClose }: { r: PayableDueRow; abierto: number; conPlan: boolean; onClose: () => void }) {
   const m = usePaymentPlanMutations();
-  const hoy = getTodayDate();
   const [clave] = useState(() => nueva('PLAN'));
-  const [forma, setForma] = useState<'UNICO' | 'CUOTAS'>('CUOTAS');
-  const [fechaUnica, setFechaUnica] = useState('');
-  const [nCuotas, setNCuotas] = useState('3');
-  const [primera, setPrimera] = useState(hoy);
-  const [frecuencia, setFrecuencia] = useState<'MENSUAL' | 'QUINCENAL' | 'SEMANAL'>('MENSUAL');
-  const [editadas, setEditadas] = useState<{ due_date: string; amount: string }[] | null>(null);
   const [motivo, setMotivo] = useState('');
   const total = Math.round(abierto * 100) / 100;
-  const generadas = editadas ?? (Number(nCuotas) >= 2 ? repartirCuotas(total, Number(nCuotas), primera, frecuencia).map((c) => ({ due_date: c.due_date, amount: String(c.amount) })) : []);
-  const items = forma === 'UNICO' ? [{ due_date: fechaUnica || null, amount: total }] : generadas.map((c) => ({ due_date: c.due_date || null, amount: Number(c.amount) }));
-  const suma = Math.round(items.reduce((s, x) => s + (x.amount || 0), 0) * 100) / 100;
-  const puede = items.length > 0 && items.every((x) => x.amount > 0) && Math.abs(suma - total) < 0.005 && (!conPlan || motivo.trim() !== '');
+  const plan = usePlanPago(total, { conCheques: false });   // cheques: «Pagar» on each due item
+  const items = plan.forma === 'UNICO' && plan.items.length === 0 ? [{ due_date: null, amount: total }] : plan.items;
+  const puede = plan.valido && items.length > 0 && (!conPlan || motivo.trim() !== '');
   return (
     <Modal titulo="Cambiar forma de pago" onClose={onClose} guardando={m.plan.isPending} error={m.plan.error} puedeGuardar={puede}
       onSubmit={() => { m.plan.mutateAsync({ purchaseId: r.purchase_id!, items, idempotencyKey: clave, reason: motivo }).then(onClose).catch(() => {}); }}>
       <p className="text-sm text-[#6B5D45]">{r.supplier_name ?? r.concept ?? 'Gasto'}: se organizan los <b>{formatoPesos(total)}</b> que quedan por pagar. Lo ya pagado y los cheques emitidos no cambian.</p>
-      <div className="grid grid-cols-2 gap-1 text-sm">
-        {([['UNICO', 'Un pago'], ['CUOTAS', 'En cuotas']] as const).map(([f, l]) => (
-          <button key={f} type="button" onClick={() => setForma(f)} aria-pressed={forma === f}
-            className={`py-1.5 rounded-lg border ${forma === f ? 'bg-amber-100 border-amber-400 text-amber-900 font-medium' : 'bg-white border-gray-300 text-gray-700'}`}>{l}</button>
-        ))}
-      </div>
-      {forma === 'UNICO' ? (
-        <label className={etiqueta}>Fecha de pago <span className="font-normal text-gray-500">(opcional)</span><input type="date" value={fechaUnica} onChange={(e) => setFechaUnica(e.target.value)} className={campo} /></label>
-      ) : (
-        <div className="space-y-2">
-          <div className="grid grid-cols-3 gap-2">
-            <label className={etiqueta}>Cuotas<input type="number" min="2" max="60" value={nCuotas} onChange={(e) => { setNCuotas(e.target.value); setEditadas(null); }} className={campo} /></label>
-            <label className={`${etiqueta} col-span-2`}>Primera cuota<input type="date" value={primera} onChange={(e) => { setPrimera(e.target.value); setEditadas(null); }} className={campo} /></label>
-          </div>
-          <select value={frecuencia} onChange={(e) => { setFrecuencia(e.target.value as typeof frecuencia); setEditadas(null); }} className={campo} aria-label="Frecuencia">
-            <option value="MENSUAL">Mensual</option><option value="QUINCENAL">Cada 15 días</option><option value="SEMANAL">Semanal</option>
-          </select>
-          <ul className="space-y-1">
-            {generadas.map((c, i) => (
-              <li key={i} className="flex items-center gap-2 text-sm">
-                <span className="w-6 text-gray-500">{i + 1}.</span>
-                <input type="date" value={c.due_date} onChange={(e) => setEditadas(generadas.map((x, j) => (j === i ? { ...x, due_date: e.target.value } : x)))} className="border border-gray-300 rounded px-2 py-1 flex-1" aria-label={`Fecha cuota ${i + 1}`} />
-                <input type="number" step="0.01" value={c.amount} onChange={(e) => setEditadas(generadas.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} className="border border-gray-300 rounded px-2 py-1 w-32 text-right" aria-label={`Importe cuota ${i + 1}`} />
-              </li>
-            ))}
-          </ul>
-          <p className={`text-xs ${Math.abs(suma - total) < 0.005 ? 'text-green-700' : 'text-red-700'}`}>Suma {formatoPesos(suma)} de {formatoPesos(total)}</p>
-        </div>
-      )}
+      {plan.editor}
       {conPlan && <label className={etiqueta}>Motivo del cambio<input value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} placeholder="Ej.: el proveedor aceptó otro plan" /></label>}
       <p className="text-xs text-[#8A7A5C]">Para pagar con cheques o eCheqs usá «Pagar» en cada vencimiento.</p>
     </Modal>

@@ -1,3 +1,4 @@
+import { Lock } from 'lucide-react';
 import { useState } from 'react';
 import {
   ACCION_AUDITORIA, cambiosAuditoria, COMPROBANTE_VACIO, fiscalJson, NATURALEZA_GASTO_LABEL, reglasDeCompra, type ComprobanteForm, type VinculosGasto,
@@ -46,6 +47,9 @@ export function EditarGastoModal({ compra, vinculos, onClose }: { compra: Purcha
   const puede = cambio && motivo.trim() !== '' && concepto.trim() !== '' && concepto.trim().length <= 100 && importe > 0 && fecha !== '' && categoriaId !== ''
     && fiscalOk && (!conProveedor || proveedorId !== '');
   const bloqueado = (activo: boolean) => (activo ? campo : `${campo} bg-stone-100 text-gray-500`);
+  // caja-mejoras-v2: a lock and its reason under each locked field (the backend enforces the same rules)
+  const candado = (activo: boolean, k: keyof typeof reglas.porque) => (!activo && reglas.porque[k]
+    ? <span className="mt-0.5 flex items-start gap-1 text-[11px] font-normal text-[#8A7A5C]"><Lock className="w-3 h-3 mt-0.5 shrink-0" aria-hidden />{reglas.porque[k]}</span> : null);
 
   return (
     <Modal titulo={`Editar / Rectificar — ${compra.subcategory ?? compra.supplier_nombre}`} onClose={onClose} puedeGuardar={puede} guardando={rectificar.isPending}
@@ -69,13 +73,16 @@ export function EditarGastoModal({ compra, vinculos, onClose }: { compra: Purcha
             {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
           </select>
         ) : <input value={`Sin proveedor${compra.counterparty_name ? ` (${compra.counterparty_name})` : ''}`} disabled className={bloqueado(false)} />}
+        {candado(conProveedor && reglas.proveedor, 'proveedor')}
       </label>
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Importe total
           <input type="number" min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} disabled={!reglas.importe} className={bloqueado(reglas.importe)} />
+          {candado(reglas.importe, 'importe')}
         </label>
         <label className={etiqueta}>Fecha
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} disabled={!reglas.fecha} className={bloqueado(reglas.fecha)} />
+          {candado(reglas.fecha, 'fecha')}
         </label>
       </div>
       {vinculos.asignado > 0 && <p className="text-xs text-[#8A7A5C]">Asignado en pagos y cheques: {formatoPesos(vinculos.asignado)} (el importe no puede quedar por debajo).</p>}
@@ -88,6 +95,7 @@ export function EditarGastoModal({ compra, vinculos, onClose }: { compra: Purcha
       {conProveedor && (
         <label className={etiqueta}>Nº de factura
           <input type="text" value={numero} onChange={(e) => setNumero(e.target.value)} maxLength={100} disabled={!reglas.numero} className={bloqueado(reglas.numero)} />
+          {candado(reglas.numero, 'numero')}
         </label>
       )}
       {reglas.agregarFactura
