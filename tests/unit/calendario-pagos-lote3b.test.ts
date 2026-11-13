@@ -158,18 +158,17 @@ describe('Lote 3B — screens', () => {
     expect(f).toMatch(/<th className=\{TH\}>Vencimiento<\/th><th className=\{TH\}>Pago estimado<\/th>/);
     expect(f).toMatch(/<FechasPagoModal /);
   });
-  it('the calendar: one source, cheques without allocation kept apart, real debits apart, debit action kept', () => {
+  it('the calendar (simplified in caja-mejoras-v2): one source, month total + calendar, a day opens its payments with their actions', () => {
     const c = SRC('features/caja/CalendarioPagos.tsx');
     expect(c).toMatch(/usePaymentCalendar\(\)/);
-    expect(c).toMatch(/Sin imputar: factura no determinada/);
-    expect(c).toMatch(/Debitados en el mes \(pagos reales\)/);
+    expect(c).toMatch(/A pagar en el mes:/);
+    expect(c).toMatch(/Sin imputar: factura no determinada/);   // a cheque's link status is still shown in the day's list
     expect(c).toMatch(/<AccionModal action="debit"/);
-    expect(c).toMatch(/Obligaciones sin fecha/);
-    expect(c).toMatch(/Necesidad neta de fondos/);
-    expect(c).toMatch(/Anticipos y diferencias por imputar/);
-    expect(c).toMatch(/Imputar en Todas las operaciones/);
-    expect(c).not.toMatch(/supplierCoverage/);
-    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'calendario' && <CalendarioPagos onImputar=\{\(\) => setVista\('movimientos'\)\} \/>\}/);
+    expect(c).toMatch(/<FechasPagoModal /);
+    expect(c).toMatch(/<FechaPagoChequeModal /);
+    for (const gone of ['Necesidad neta de fondos', 'Anticipos y diferencias por imputar', 'Debitados en el mes', 'Compromisos del mes', 'Obligaciones sin fecha'])
+      expect(c, gone).not.toContain(gone);
+    expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{vista === 'calendario' && <CalendarioPagos \/>\}/);
   });
   it('Pagos de facturas offers only payments with an amount free to allocate (and never above it); the ficha shows the total', () => {
     const pf = SRC('features/caja/PagosFacturas.tsx');

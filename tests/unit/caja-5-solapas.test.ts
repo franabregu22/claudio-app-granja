@@ -12,9 +12,9 @@ const pagar = SRC('features/caja/SolapaPagar.tsx');
 const trf = SRC('features/caja/Transferencias.tsx');
 
 describe('Caja — the five tabs', () => {
-  it('exactly four main tabs (0120: Transferencias inside Todas las operaciones), Movimientos first and by default', () => {
+  it('main tabs (0120: Transferencias inside Todas las operaciones; caja-mejoras-v2: Cartera de cheques), Movimientos first and by default', () => {
     const labels = [...app.matchAll(/\{ id: '\w+', label: '([^']+)' \}/g)].map((m) => m[1]);
-    expect(labels).toEqual(['Movimientos', 'Cuentas a pagar', 'Calendario', 'Extractos']);
+    expect(labels).toEqual(['Movimientos', 'Cuentas a pagar', 'Cartera de cheques', 'Calendario', 'Extractos']);
     expect(app).toMatch(/useState<Vista>\('movimientos'\)/);
   });
   it('the ADMIN guard comes before any tab and Retiro de socios stays in Más acciones', () => {
@@ -33,8 +33,8 @@ describe('Caja — the five tabs', () => {
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
     ] as const) expect(src.split(tag).length - 1, tag).toBe(1);
   });
-  it('the calendar still reaches the allocation screen; the three Por resolver indicators sit together and each one toggles its filter', () => {
-    expect(app).toMatch(/<CalendarioPagos onImputar=\{\(\) => setVista\('movimientos'\)\} \/>/);
+  it('the calendar is only the calendar (caja-mejoras-v2); the three Por resolver indicators sit together and each one toggles its filter', () => {
+    expect(app).toMatch(/\{vista === 'calendario' && <CalendarioPagos \/>\}/);
     expect(pr).toMatch(/onClick=\{\(\) => onFiltro\(elegida \? null : t\.id\)\}/);
   });
   it('the tab badge counts what needs action: unclassified expenses and current Mercado Pago outflows, never optional inflows', () => {

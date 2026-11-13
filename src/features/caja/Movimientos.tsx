@@ -6,6 +6,7 @@ import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { MovimientosHistoricos } from './MovimientosHistoricos';
 import { TodasLasOperaciones } from './TodasLasOperaciones';
 import { TarjetasPorResolver } from './PorResolver';
+import { FlujoCaja } from './FlujoCaja';
 import { useLedgerBalances } from './useTreasury';
 
 const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', EXTERNAL_SERVICE: 'Servicio externo' };
@@ -35,6 +36,7 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
     <div className="space-y-4">
       {lista.length === 0 ? <p className="text-sm text-[#8A7A5C]">No hay cuentas activas. Crealas en Administración.</p> : (
         <div className="space-y-2">
+          <h2 className="font-semibold text-[#2C2419]">Saldos por cuenta</h2>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="group" aria-label="Cuentas">
             {lista.map((x) => {
               const s = porCuenta.get(x.id);
@@ -54,6 +56,9 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
           {cuentaId && <button type="button" onClick={() => setCuentaId('')} className="text-xs text-[#A8552E] hover:underline">← Todas las cuentas</button>}
         </div>
       )}
+      {/* caja-mejoras-v2: balances, then the cash flow (prototype over fictitious data), then the movement history */}
+      <FlujoCaja />
+      <h2 className="font-semibold text-[#2C2419] pt-2">Historial de movimientos</h2>
       <TarjetasPorResolver activo={pendiente} onFiltro={setPendiente} />
       {/* 0119: Todas las operaciones is the list; a Por resolver card opens its resolution list (classification / linking actions) */}
       {pendiente ? (

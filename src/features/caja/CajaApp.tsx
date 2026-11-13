@@ -9,11 +9,14 @@ import { usePendingSummary } from './useMpActivity';
 import { useBadgeSinClasificar } from './useUnclassified';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 import { NuevaCompraModal } from './Compras';
+import { CarteraChequesDemo } from './CarteraChequesDemo';
+import { semillaDemo, type DemoPagar } from './pagarDemo';
 
-type Vista = 'movimientos' | 'pagar' | 'calendario' | 'extractos';
+type Vista = 'movimientos' | 'pagar' | 'cartera' | 'calendario' | 'extractos';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'movimientos', label: 'Movimientos' },   // balances, Por resolver and Todas las operaciones (expenses, invoices, transfers and their actions)
-  { id: 'pagar', label: 'Cuentas a pagar' },   // Proveedores (debt per supplier, freight) and Cheques
+  { id: 'pagar', label: 'Cuentas a pagar' },   // caja-mejoras-v2 prototype: every pending due item (the 0120 screens under "Vista actual")
+  { id: 'cartera', label: 'Cartera de cheques' },   // caja-mejoras-v2 prototype: client cheques held, deposit or endorse to a supplier
   { id: 'calendario', label: 'Calendario' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
   { id: 'extractos', label: 'Extractos' },
 ];
@@ -24,9 +27,14 @@ const VISTAS: { id: Vista; label: string }[] = [
  * and balances are read from report_balance_period. The monthly trend lives in Finanzas (F27-G). The general cash count (arqueo) is retired in V1 (P27-D1).
  */
 export function CajaApp() {
-  const { rol } = useAuth();
+  const { rol, user } = useAuth();
+  const ahora = new Date();
+  const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`;
+  // caja-mejoras-v2: ONE in-memory fictitious state shared by Cuentas a pagar and Cartera de cheques (prototype; nothing is saved)
+  const [demoPagar, setDemoPagar] = useState<DemoPagar>(() => semillaDemo(hoy));
+  const demo = { s: demoPagar, setS: setDemoPagar, hoy, autor: () => ({ cuando: new Date().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }), quien: user?.email ?? 'usuario' }) };
   const [vista, setVista] = useState<Vista>('movimientos');
-  const [subPagar, setSubPagar] = useState<SubPagar>('proveedores');
+  const [subPagar, setSubPagar] = useState<SubPagar>('pendientes');
   const [retiro, setRetiro] = useState(false);
   const [nuevoGasto, setNuevoGasto] = useState(false);
   const [foco, setFoco] = useState<string | null>(null);   // 0119: the row of a just-recorded operation in Todas las operaciones
@@ -83,8 +91,9 @@ export function CajaApp() {
             </div>
           )}
           {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} focus={foco} onFocus={setFoco} />}
-          {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
-          {vista === 'calendario' && <CalendarioPagos onImputar={() => setVista('movimientos')} />}
+          {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} demo={demo} />}
+          {vista === 'cartera' && <CarteraChequesDemo {...demo} />}
+          {vista === 'calendario' && <CalendarioPagos />}
           {vista === 'extractos' && <ExtractosBancarios />}
         </div>
         {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}
