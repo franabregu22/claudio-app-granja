@@ -24,7 +24,15 @@ describe('Alimento Balanceado — módulo real', () => {
   it('premix with 3 decimals; batch scaling keeps proportions', () => {
     expect(kgLinea(0.29, 'PREMIX')).toBe('0,290 kg');
     expect(kgLinea(119.21, 'MACRO')).toBe('119,21 kg');
-    expect(escalar([{ quantity_kg: 0.29 }, { quantity_kg: 199.71 }], 200, 300).map((l) => l.quantity_kg)).toEqual([0.435, 299.565]);
+    // the owner's Pre Inicio (batch 150) scaled to 200: premix to the gram, macro to 10 g, the rest on the heaviest macro (maize)
+    const pi = [['bio', 0.487, 'PREMIX'], ['ciro', 0.075, 'PREMIX'], ['nqn', 2.849, 'PREMIX'], ['soja', 53.99, 'MACRO'], ['carne', 6.75, 'MACRO'], ['maiz', 85.849, 'MACRO']]
+      .map(([ingredient_id, quantity_kg, section]) => ({ ingredient_id: ingredient_id as string, quantity_kg: quantity_kg as number, section: section as 'PREMIX' | 'MACRO' }));
+    const e200 = escalar(pi, 150, 200);
+    expect(e200.filter((l) => l.section === 'PREMIX').map((l) => l.quantity_kg)).toEqual([0.649, 0.1, 3.799]);
+    expect(e200.filter((l) => l.section === 'MACRO').every((l) => Math.abs(l.quantity_kg * 100 - Math.round(l.quantity_kg * 100)) < 1e-6)).toBe(true);
+    expect(e200.reduce((s, l) => s + l.quantity_kg, 0)).toBeCloseTo(200, 2);
+    expect(e200.find((l) => l.ingredient_id === 'soja')!.quantity_kg).toBe(71.99);   // only the heaviest macro absorbs the rounding
+    expect(escalar(pi, 150, 150)).toBe(pi);   // the recipe's own batch: shown as stored
   });
   it('freight split by kg adds up exactly (rounding on the last row)', () => {
     expect(splitByKg(1000, [{ id: 'a', kg: 1 }, { id: 'b', kg: 1 }, { id: 'c', kg: 1 }])).toEqual({ a: 333.33, b: 333.33, c: 333.34 });

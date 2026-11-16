@@ -39,6 +39,20 @@ export function periodoComparable(hoy: string) {
 }
 export const variacion = (actual: number, anterior: number) => (anterior === 0 ? null : ((actual - anterior) / anterior) * 100);
 
-/** Kg of each line for another batch size, keeping the proportions (3 decimals). */
-export const escalar = <L extends { quantity_kg: number }>(lineas: L[], base: number, batch: number): L[] =>
-  lineas.map((l) => ({ ...l, quantity_kg: Math.round(((l.quantity_kg * batch) / base) * 1000) / 1000 }));
+/**
+ * Kg of each line for another batch size, keeping the proportions, rounded for the scales (owner 2026-11-16): Premezcla to the gram
+ * (3 decimals), Macronutrientes to 10 g (2 decimals). What the rounding leaves goes to the heaviest Macronutriente (usually maize), so
+ * the lines still add up to the batch. At the recipe's own batch the stored quantities are shown as they are.
+ */
+export function escalar<L extends { quantity_kg: number; section: FormulaSection; ingredient_id: string }>(lineas: L[], base: number, batch: number): L[] {
+  if (!(base > 0) || batch === base) return lineas;
+  const red = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;
+  const out = lineas.map((l) => ({ ...l, quantity_kg: red((l.quantity_kg * batch) / base, l.section === 'PREMIX' ? 3 : 2) }));
+  const objetivo = red((lineas.reduce((s, l) => s + l.quantity_kg, 0) * batch) / base, 3);
+  const mayor = out.reduce<number>((m, l, i) => (l.section === 'MACRO' && (m < 0 || l.quantity_kg > out[m].quantity_kg) ? i : m), -1);
+  if (mayor >= 0) {
+    const resto = red(objetivo - out.reduce((s, l) => s + l.quantity_kg, 0), 3);
+    out[mayor] = { ...out[mayor], quantity_kg: red(out[mayor].quantity_kg + resto, 2) };
+  }
+  return out;
+}
