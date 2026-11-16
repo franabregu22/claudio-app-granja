@@ -5,6 +5,7 @@ import { errorMessage } from '../../target/messages';
 import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
 import { FabricacionesHistorial } from './FabricacionesHistorial';
+import { AlimentoPrototipo } from './prototipo/AlimentoPrototipo';
 import {
   useConsumptionIntervals, useFeedMutations, useFeedTypes, useFlockFeed, useFlockOptions, useFormulaVersions,
 } from './useProduction';
@@ -29,6 +30,7 @@ export function AlimentoApp() {
   const asignaciones = useFlockFeed();
   const lotes = useFlockOptions();
   const [accion, setAccion] = useState<Accion | null>(null);
+  const [prototipo, setPrototipo] = useState(false);
   const nombreTipo = (id: string) => (tipos.data ?? []).find((t) => t.id === id)?.nombre ?? '—';
   const nombreLote = (id: string) => (lotes.data ?? []).find((f) => f.id === id)?.shed_nombre ?? '—';
   const error = tipos.error ?? intervalos.error ?? asignaciones.error ?? lotes.error;
@@ -36,10 +38,17 @@ export function AlimentoApp() {
 
   return (
     <div className="min-h-screen bg-[#FAF6EE] px-4 md:px-6 pt-6 pb-20 space-y-6">
-      <div>
-        <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
-        <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Alimento</h1>
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div>
+          <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
+          <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Alimento</h1>
+        </div>
+        {/* PROTOTIPO etapa 1: vista paralela con datos ficticios; la vista actual queda intacta por defecto */}
+        <button onClick={() => setPrototipo((p) => !p)} className="mt-2 text-sm px-3 py-1.5 rounded-lg border border-purple-300 bg-purple-50 text-purple-900 hover:bg-purple-100">
+          {prototipo ? 'Volver a la vista actual' : 'Ver prototipo Alimento Balanceado'}
+        </button>
       </div>
+      {prototipo ? <AlimentoPrototipo /> : <>
       <div className="flex flex-wrap gap-2">
         <button onClick={() => setAccion('fabricacion')} className={`${boton} bg-amber-600 text-white hover:bg-amber-700`}>Registrar fabricación</button>
         <button onClick={() => setAccion('recuento')} className={`${boton} bg-amber-600 text-white hover:bg-amber-700`}>Registrar recuento de stock</button>
@@ -101,6 +110,7 @@ export function AlimentoApp() {
       {accion === 'recuento' && <RecuentoModal onClose={() => setAccion(null)} />}
       {accion === 'movimiento' && <MovimientoModal onClose={() => setAccion(null)} />}
       {accion === 'asignacion' && <AsignacionModal onClose={() => setAccion(null)} />}
+      </>}
     </div>
   );
 }
