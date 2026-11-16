@@ -40,19 +40,13 @@ export function periodoComparable(hoy: string) {
 export const variacion = (actual: number, anterior: number) => (anterior === 0 ? null : ((actual - anterior) / anterior) * 100);
 
 /**
- * Kg of each line for another batch size, keeping the proportions, rounded for the scales (owner 2026-11-16): Premezcla to the gram
- * (3 decimals), Macronutrientes to 10 g (2 decimals). What the rounding leaves goes to the heaviest Macronutriente (usually maize), so
- * the lines still add up to the batch. At the recipe's own batch the stored quantities are shown as they are.
+ * Kg of each line for another batch size, keeping the proportions, rounded UP for the scales (owner 2026-11-16): Premezcla to 10 g
+ * (0,486 → 0,490), Macronutrientes to 100 g (79,24 → 79,3). Never less than the formula asks; the total may end a few grams above the
+ * batch. At the recipe's own batch the stored quantities are shown as they are.
  */
 export function escalar<L extends { quantity_kg: number; section: FormulaSection; ingredient_id: string }>(lineas: L[], base: number, batch: number): L[] {
   if (!(base > 0) || batch === base) return lineas;
-  const red = (v: number, d: number) => Math.round(v * 10 ** d) / 10 ** d;
-  const out = lineas.map((l) => ({ ...l, quantity_kg: red((l.quantity_kg * batch) / base, l.section === 'PREMIX' ? 3 : 2) }));
-  const objetivo = red((lineas.reduce((s, l) => s + l.quantity_kg, 0) * batch) / base, 3);
-  const mayor = out.reduce<number>((m, l, i) => (l.section === 'MACRO' && (m < 0 || l.quantity_kg > out[m].quantity_kg) ? i : m), -1);
-  if (mayor >= 0) {
-    const resto = red(objetivo - out.reduce((s, l) => s + l.quantity_kg, 0), 3);
-    out[mayor] = { ...out[mayor], quantity_kg: red(out[mayor].quantity_kg + resto, 2) };
-  }
-  return out;
+  // the 1e-6 (of a step) keeps an exact value exact (1,49 must not become 1,50 through a binary-float residue)
+  const arriba = (v: number, paso: number) => Math.round(Math.ceil(v / paso - 1e-6) * paso * 1000) / 1000;
+  return lineas.map((l) => ({ ...l, quantity_kg: arriba((l.quantity_kg * batch) / base, l.section === 'PREMIX' ? 0.01 : 0.1) }));
 }
