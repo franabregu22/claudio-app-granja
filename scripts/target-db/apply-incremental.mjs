@@ -103,6 +103,7 @@ const PROFILES = {
   ADR025_POST_0123: './verify-profiles/adr025-post-0123.mjs',
   ADR025_POST_0124: './verify-profiles/adr025-post-0124.mjs',
   ADR025_POST_0127: './verify-profiles/adr025-post-0127.mjs',   // 0125–0127 (alimento-balanceado-v1)
+  ADR025_POST_0128: './verify-profiles/adr025-post-0128.mjs',   // 0128 (one ingredient per recipe section)
 };
 const t0 = Date.now();
 
