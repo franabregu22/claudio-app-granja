@@ -424,8 +424,8 @@ check('A6 indexes: manufacturing_date; (feed_type_id, movement_date); UNIQUE cur
 check('A7 RLS enabled on all six tables', owner(`SELECT count(*) FROM pg_class WHERE relname IN (${TABLES.map((t) => `'${t}'`).join(',')}) AND relrowsecurity;`) === '6');
 const viewCols = owner(`SELECT string_agg(column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name = 'feed_formula_line_safe';`);
 const viewMeta = owner(`SELECT pg_get_userbyid(relowner) || '|' || coalesce(array_to_string(reloptions, ','), '') FROM pg_class WHERE relname = 'feed_formula_line_safe' AND relkind = 'v';`);
-check('A8 safe view feed_formula_line_safe: exactly formula_version_id, ingredient_id, ingredient_name, quantity_kg; owner postgres; security_invoker=false',
-  viewCols === 'formula_version_id,ingredient_id,ingredient_name,quantity_kg' && viewMeta === 'postgres|security_invoker=false', `${viewCols} / ${viewMeta}`);
+check('A8 safe view feed_formula_line_safe: exactly formula_version_id, ingredient_id, ingredient_name, quantity_kg, section (0125); owner postgres; security_invoker=false',
+  viewCols === 'formula_version_id,ingredient_id,ingredient_name,quantity_kg,section' && viewMeta === 'postgres|security_invoker=false', `${viewCols} / ${viewMeta}`);
 
 // ═══════════════════════════════════════════════════════════════════════════
 section('B', 'Formula versions (physical constraints; owner fixtures — ADR-013)');
