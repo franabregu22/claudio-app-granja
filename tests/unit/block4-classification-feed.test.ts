@@ -71,7 +71,8 @@ describe('ADR-013 formula publication and selector', () => {
     const { client, calls } = rpcStub();
     await publishFormulaVersion(client, { feedTypeId: 't', effectiveFrom: '2026-10-02', lines: [{ ingredientId: 'maiz', quantityKg: 60 }, { ingredientId: 'soja', quantityKg: 40 }] });
     expect(calls).toEqual([{ fn: 'publish_feed_formula_version', args: {
-      p_feed_type_id: 't', p_effective_from: '2026-10-02', p_lines: [{ ingredient_id: 'maiz', quantity_kg: 60 }, { ingredient_id: 'soja', quantity_kg: 40 }], p_reason: null,
+      p_feed_type_id: 't', p_effective_from: '2026-10-02', p_reason: null, p_comment: null,   // 0125: section per line (MACRO by default) + comment
+      p_lines: [{ ingredient_id: 'maiz', quantity_kg: 60, section: 'MACRO' }, { ingredient_id: 'soja', quantity_kg: 40, section: 'MACRO' }],
     } }]);
   });
 
@@ -98,6 +99,7 @@ describe('ADR-014 manufacturing history and rectification', () => {
     await rectifyFeedManufacturing(client, { idempotencyKey: 'k', manufacturingId: 'm1', quantityKg: 50, reason: 'eran 50', batchNumber: 'L-1' });
     expect(calls).toEqual([{ fn: 'rectify_feed_manufacturing', args: {
       p_idempotency_key: 'k', p_manufacturing_id: 'm1', p_quantity_kg: 50, p_reason: 'eran 50', p_batch_number: 'L-1', p_formula_version_id: null,
+      p_notes: null,   // 0125: NULL keeps the comment
     } }]);
     expect(TARGET_RPCS).toContain('rectify_feed_manufacturing');
     expect(Object.keys(DIRECT_WRITES)).not.toContain('feed_manufacturing');

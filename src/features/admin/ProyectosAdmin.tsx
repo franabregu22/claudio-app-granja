@@ -8,10 +8,10 @@ export function ProyectosAdmin() {
   return (
     <MasterEditor
       table="projects"
-      title="Proyectos"
+      title="Etiquetas de gasto"
       activeKey={null}
       fields={[
-        { key: 'nombre', label: 'Nombre', required: true, placeholder: 'Nombre del proyecto' },
+        { key: 'nombre', label: 'Nombre', required: true, placeholder: 'Ej: Maíz 2027' },
         { key: 'descripcion', label: 'Descripción', placeholder: 'Descripción (opcional)' },
         { key: 'status', label: 'Estado', type: 'select', options: PROJECT_STATUSES.map((s) => ({ value: s, label: LABEL[s] })) },
       ]}

@@ -27,6 +27,7 @@ export type PurchaseNatureValue = 'OPERATING' | 'REINVESTMENT' | 'INVESTMENT';
 export interface ExpenseCategoryRow {
   id: string; nombre: string; description: string | null; activo: boolean; pnl_cost_class: 'DIRECT' | 'INDIRECT';
   group_id: string; default_nature: PurchaseNatureValue | null; fiscal_reserved: boolean;
+  feed_ingredient_id?: string | null; is_feed_freight?: boolean;   // 0126: feed ingredient / feed freight (set only through set_expense_category_feed)
 }
 /** ADR-024: the parent expense CATEGORY. */
 export interface ExpenseCategoryGroupRow {

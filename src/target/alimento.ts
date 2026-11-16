@@ -1,0 +1,113 @@
+/**
+ * Alimento Balanceado (0125 / 0126) over the target schema. Transport only: every amount, consumption and cost is
+ * computed by the backend views (report_feed_*); writes are the audited RPCs. Monthly stock close, recipe comments /
+ * standard batch / (de)activation, feed categories, purchase kg and freight split are ADMIN; the views are ADMIN-only
+ * except feed_stock_period (both roles read which months are closed).
+ */
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { callRpc, readTable, readView } from './db';
+
+const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+const trimOrNull = (s?: string | null) => (s && s.trim() !== '' ? s.trim() : null);
+
+// ── cierre mensual ──────────────────────────────────────────────────────────
+export interface FeedStockPeriod {
+  period: string; status: 'CLOSED' | 'REOPENED'; comment: string | null; closed_by: string | null; closed_at: string | null;
+  reopened_by: string | null; reopened_at: string | null; reopen_reason: string | null;
+}
+export const listFeedStockPeriods = (c: SupabaseClient) =>
+  readTable<FeedStockPeriod>(c, 'feed_stock_period', (q) => q.order('period'));
+
+export interface FeedMonthRow {
+  feed_type_id: string; feed_type_nombre: string; period: string; opening_kg: number | null; manufactured_kg: number;
+  external_sale_kg: number; loss_kg: number; adjustment_negative_kg: number; adjustment_positive_kg: number; closing_kg: number;
+  internal_consumption_kg: number | null;
+}
+export async function listFeedMonths(c: SupabaseClient): Promise<FeedMonthRow[]> {
+  const rows = await readView<FeedMonthRow>(c, 'report_feed_month', (q) => q.order('period'));
+  return rows.map((r) => ({
+    ...r, opening_kg: n(r.opening_kg), manufactured_kg: Number(r.manufactured_kg), external_sale_kg: Number(r.external_sale_kg), loss_kg: Number(r.loss_kg),
+    adjustment_negative_kg: Number(r.adjustment_negative_kg), adjustment_positive_kg: Number(r.adjustment_positive_kg), closing_kg: Number(r.closing_kg),
+    internal_consumption_kg: n(r.internal_consumption_kg),
+  }));
+}
+export const closeFeedMonth = (c: SupabaseClient, p: { period: string; counts: { feedTypeId: string; quantityKg: number }[]; comment?: string | null }) =>
+  callRpc<{ period: string; status: string }>(c, 'close_feed_month', {
+    p_period: p.period, p_counts: p.counts.map((x) => ({ feed_type_id: x.feedTypeId, quantity_kg: x.quantityKg })), p_comment: trimOrNull(p.comment),
+  });
+export const reopenFeedMonth = (c: SupabaseClient, p: { period: string; reason: string }) =>
+  callRpc<{ period: string; status: string }>(c, 'reopen_feed_month', { p_period: p.period, p_reason: p.reason });
+
+// ── recetas ─────────────────────────────────────────────────────────────────
+export interface RecipeChange {
+  id: number; performed_at: string; performed_by_name: string | null; feed_type_id: string | null; feed_type_nombre: string | null;
+  entity_type: 'feed_formula_version' | 'feed_type'; action: 'PUBLISH' | 'COMMENT' | 'STANDARD_BATCH' | 'ACTIVATE' | 'DEACTIVATE';
+  before_values: Record<string, unknown> | null; after_values: Record<string, unknown> | null; reason: string | null;
+}
+export const listRecipeChanges = (c: SupabaseClient) =>
+  readView<RecipeChange>(c, 'report_feed_recipe_change', (q) => q.order('performed_at', { ascending: false }).limit(200));
+export const setFormulaComment = (c: SupabaseClient, p: { formulaVersionId: string; comment: string }) =>
+  callRpc(c, 'set_feed_formula_comment', { p_formula_version_id: p.formulaVersionId, p_comment: p.comment });
+export const setStandardBatch = (c: SupabaseClient, p: { feedTypeId: string; kg: number }) =>
+  callRpc(c, 'set_feed_type_standard_batch', { p_feed_type_id: p.feedTypeId, p_standard_batch_kg: p.kg });
+export const setFeedTypeActive = (c: SupabaseClient, p: { feedTypeId: string; active: boolean }) =>
+  callRpc(c, 'set_feed_type_active', { p_feed_type_id: p.feedTypeId, p_active: p.active });
+
+// ── compras, flete, costos ──────────────────────────────────────────────────
+export type FreightStatus = 'ASIGNADO' | 'SIN_FLETE' | 'PENDIENTE';
+export interface FeedPurchase {
+  purchase_root_id: string; purchase_id: string; economic_date: string; period: string; feed_ingredient_id: string; ingredient_nombre: string;
+  supplier_name: string | null; amount_total: number; invoice_a: boolean; cost_amount: number; quantity_kg: number | null; no_freight: boolean;
+  freight_amount: number; freight_cost: number; freight_status: FreightStatus; price_per_kg: number | null; cost_per_kg: number | null;
+}
+export async function listFeedPurchases(c: SupabaseClient): Promise<FeedPurchase[]> {
+  const rows = await readView<FeedPurchase>(c, 'report_feed_purchase', (q) => q.order('economic_date', { ascending: false }));
+  return rows.map((r) => ({
+    ...r, amount_total: Number(r.amount_total), cost_amount: Number(r.cost_amount), quantity_kg: n(r.quantity_kg), freight_amount: Number(r.freight_amount),
+    freight_cost: Number(r.freight_cost), price_per_kg: n(r.price_per_kg), cost_per_kg: n(r.cost_per_kg),
+  }));
+}
+export interface FeedFreight {
+  freight_purchase_root_id: string; purchase_id: string; economic_date: string; supplier_name: string | null; supplier_invoice_number: string | null;
+  amount_total: number; allocated: number; remaining: number;
+}
+export async function listFeedFreights(c: SupabaseClient): Promise<FeedFreight[]> {
+  const rows = await readView<FeedFreight>(c, 'report_feed_freight', (q) => q.order('economic_date', { ascending: false }));
+  return rows.map((r) => ({ ...r, amount_total: Number(r.amount_total), allocated: Number(r.allocated), remaining: Number(r.remaining) }));
+}
+export interface RecipeCostMonth {
+  feed_type_id: string; feed_type_nombre: string; period: string; version: number; cost_per_kg: number | null; estimated: boolean; missing_ingredients: string[];
+}
+export async function listRecipeCosts(c: SupabaseClient): Promise<RecipeCostMonth[]> {
+  const rows = await readView<RecipeCostMonth>(c, 'report_feed_recipe_cost_month', (q) => q.order('period'));
+  return rows.map((r) => ({ ...r, cost_per_kg: n(r.cost_per_kg), missing_ingredients: r.missing_ingredients ?? [] }));
+}
+export interface ConsumptionCost {
+  feed_type_id: string; feed_type_nombre: string; period: string; internal_consumption_kg: number | null; cost_per_kg: number | null;
+  estimated: boolean | null; consumption_cost: number | null;
+}
+export async function listConsumptionCosts(c: SupabaseClient): Promise<ConsumptionCost[]> {
+  const rows = await readView<ConsumptionCost>(c, 'report_feed_consumption_cost', (q) => q.order('period'));
+  return rows.map((r) => ({ ...r, internal_consumption_kg: n(r.internal_consumption_kg), cost_per_kg: n(r.cost_per_kg), consumption_cost: n(r.consumption_cost) }));
+}
+
+export const setExpenseCategoryFeed = (c: SupabaseClient, p: { categoryId: string; ingredientId: string | null; isFreight: boolean }) =>
+  callRpc(c, 'set_expense_category_feed', { p_category_id: p.categoryId, p_feed_ingredient_id: p.ingredientId, p_is_feed_freight: p.isFreight });
+export const setFeedPurchaseQuantity = (c: SupabaseClient, p: { purchaseId: string; kg: number; noFreight?: boolean | null }) =>
+  callRpc(c, 'set_feed_purchase_quantity', { p_purchase_id: p.purchaseId, p_quantity_kg: p.kg, p_no_freight: p.noFreight ?? null });
+export const allocateFeedFreight = (c: SupabaseClient, p: { freightPurchaseId: string; allocations: { purchaseId: string; amount: number }[] }) =>
+  callRpc<{ allocated: number; remaining: number }>(c, 'allocate_feed_freight', {
+    p_freight_purchase_id: p.freightPurchaseId, p_allocations: p.allocations.map((a) => ({ purchase_id: a.purchaseId, amount: a.amount })),
+  });
+
+/** Split an amount by kg; rounding goes to the last row so the parts add up exactly (the backend refuses more than what is left). */
+export function splitByKg(total: number, rows: { id: string; kg: number }[]): Record<string, number> {
+  const kg = rows.reduce((t, r) => t + r.kg, 0);
+  const out: Record<string, number> = {};
+  let used = 0;
+  rows.forEach((r, i) => {
+    const part = i === rows.length - 1 ? Math.round((total - used) * 100) / 100 : Math.round(((total * r.kg) / kg) * 100) / 100;
+    out[r.id] = part; used = Math.round((used + part) * 100) / 100;
+  });
+  return out;
+}

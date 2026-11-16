@@ -12,6 +12,9 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { AsignarFleteModal, Fletes, RectificarCompraModal } from './Compras';
 import { Comprobantes } from './Comprobantes';
+import { ChipEtiqueta, EtiquetaDelGasto, TotalesEtiqueta } from './Etiquetas';
+import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
+import { SIN_ETIQUETA } from '../../target/etiquetas';
 import { AnularGastoModal, EditarGastoModal, HistorialGasto } from './EditarGasto';
 import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { PagarGastoModal, PagosDelGasto, usePayables, VincularProveedorModal } from './GastosAPagar';
@@ -87,10 +90,16 @@ export function Gastos() {
   const [accion, setAccion] = useState<Accion | null>(null);
 
   const { todos, cargando, error } = useGastoItems();
+  const tags = useEtiquetasDeGastos();   // 0127: purchase id → its tag
+  const catalogo = useEtiquetas();
+  const [etiquetaFiltro, setEtiquetaFiltro] = useState('');   // '' = todas, '__sin' = sin etiqueta, else a tag id
+  const tagDe = (it: GastoItem) => (it.purchaseId ? tags.data?.get(it.purchaseId) : undefined);
+  const porEtiqueta = (it: GastoItem) => etiquetaFiltro === '' || (etiquetaFiltro === '__sin' ? !tagDe(it) : tagDe(it)?.id === etiquetaFiltro);
   const cuentas = contar(todos);
-  const filtrados = ordenar(todos.filter((it) => coincide(it, filtro) && buscar(it, texto)), filtro);
+  const filtrados = ordenar(todos.filter((it) => coincide(it, filtro) && buscar(it, texto) && porEtiqueta(it)), filtro);
   const visibles = filtrados.slice(0, mostrar);
   const total = totalFiltro(filtrados, filtro);
+  const totalEtiqueta = etiquetaFiltro && etiquetaFiltro !== '__sin' ? filtrados.reduce((s, it) => s + it.total, 0) : null;
   const adjuntos = usePurchaseAttachments(visibles.flatMap((it) => (it.purchaseId ? [it.purchaseId] : [])));
   const hoy = getTodayDate();
   const elegir = (f: GastoFiltro) => { setFiltro(f); setMostrar(PAGINA); setAbierto(null); };
@@ -109,6 +118,13 @@ export function Gastos() {
       <div className="flex flex-wrap items-center gap-2">
         <input type="search" value={texto} onChange={(e) => { setTexto(e.target.value); setMostrar(PAGINA); }} placeholder="Buscar proveedor, concepto o factura"
           aria-label="Buscar gastos" className="flex-1 min-w-48 border border-[#E4DCC8] rounded-lg px-3 py-1.5 text-sm bg-white" />
+        <select value={etiquetaFiltro} onChange={(e) => { setEtiquetaFiltro(e.target.value); setMostrar(PAGINA); }} aria-label="Filtrar por etiqueta"
+          className="border border-[#E4DCC8] rounded-lg px-2 py-1.5 text-sm bg-white">
+          <option value="">Todas las etiquetas</option>
+          <option value="__sin">{SIN_ETIQUETA}</option>
+          {(catalogo.data ?? []).map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+        </select>
+        {totalEtiqueta !== null && <span className="text-sm">Total de la etiqueta{filtro === 'TODOS' ? '' : ' (en este filtro)'}: <b className="text-violet-900">{formatoPesos(totalEtiqueta)}</b></span>}
         {total !== null && filtrados.length > 0 && (
           <span className="text-sm">{filtro === 'CHEQUES' ? 'En cheques sin debitar' : 'Total pendiente'}: <b className={filtro === 'CHEQUES' ? 'text-sky-900' : 'text-red-700'}>{formatoPesos(total)}</b></span>
         )}
@@ -137,6 +153,7 @@ export function Gastos() {
                     <span className="w-full flex flex-wrap items-center gap-1.5 pl-6">
                       <span className={`text-xs px-2 py-0.5 rounded ${ESTADO_CLASE[it.estado]}`}>{GASTO_ESTADO_LABEL[it.estado]}</span>
                       {it.origen === 'WHATSAPP' && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-800">WhatsApp</span>}
+                      <ChipEtiqueta nombre={tagDe(it)?.nombre} />
                       {it.estado === 'PENDIENTE' && <EtiquetasFechas due={it.vence} planned={it.estimada} hoy={hoy} />}
                       {it.purchaseId && <Comprobantes docs={adjuntos.data?.get(it.purchaseId)} compacto />}
                     </span>
@@ -154,6 +171,7 @@ export function Gastos() {
         </>
       )}
 
+      <TotalesEtiqueta />
       <Fletes />
 
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
@@ -178,6 +196,7 @@ const boton = 'text-xs px-2 py-1 rounded border border-[#E4DCC8] bg-white hover:
 export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Parameters<typeof Comprobantes>[0]['docs']; onAccion: (a: Accion) => void }) {
   const compra = usePurchase(it.kind === 'SIN_CLASIFICAR' ? null : it.purchaseId);
   const c = compra.data;
+  const tags = useEtiquetasDeGastos();
   const [historial, setHistorial] = useState(false);
   return (
     <div className="border-t border-[#E4DCC8] bg-[#FAF6EE]">
@@ -211,6 +230,7 @@ export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Para
               <p>{c.subcategory ? <b>{c.subcategory} · </b> : null}{c.categoria_nombre} · {NATURALEZA_GASTO_LABEL[c.nature] ?? c.nature}
                 {c.amount_net !== c.amount_total ? ` · Neto ${formatoPesos(c.amount_net)}` : ''}{c.version_seq > 0 ? ' · Rectificada' : ''}</p>
               {c.lineas.map((l) => <p key={l.id}>{l.cantidad} {l.unit_type} · {l.descripcion} · {formatoPesos(l.precio_unitario)} c/u</p>)}
+              <EtiquetaDelGasto purchaseId={c.id} actual={tags.data?.get(c.id)} />
               <span className="flex flex-wrap gap-2 pt-1">
                 <button type="button" className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8B4423]" onClick={() => onAccion({ tipo: 'editar', compra: c, vinculos: vinculosDe(it, c) })}><Pencil className="w-3 h-3" aria-hidden />Editar</button>
                 {anulable(it) && <button type="button" className="text-xs px-3 py-1 rounded border border-red-200 text-red-700 bg-white hover:bg-red-50" onClick={() => onAccion({ tipo: 'anular', compra: c })}>Anular</button>}

@@ -31,6 +31,10 @@ export const TARGET_VIEWS = [
   'fin_purchase_audit',   // 0117 (ADMIN): the history of one expense across its versions (creation, rectifications)
   'fin_payables_due',   // 0121 (ADMIN): every open due item once — plan instalments, obligations without plan, own cheques to be debited
   'fin_expense_annulments',   // 0124 (ADMIN): the annulled expenses (who, when, why), shown struck through
+  'report_feed_month', 'report_feed_recipe_change',   // 0125 (ADMIN): monthly feed stock / consumption; recipe change history
+  'report_feed_purchase', 'report_feed_freight', 'report_feed_ingredient_cost_month', 'report_feed_recipe_cost_month',
+  'report_feed_consumption_cost',   // 0126 (ADMIN): feed purchases (kg, freight), cost per kg, cost of the feed consumed
+  'fin_purchase_tag', 'fin_expense_tag_total',   // 0127 (ADMIN): the tag of each expense; total spent per tag
 ] as const;
 export type TargetView = (typeof TARGET_VIEWS)[number];
 
@@ -55,6 +59,7 @@ export const TARGET_READ_TABLES = [
   'fin_transfer_intent',   // 0116: transfers between Mercado Pago and a bank registered before the movement (ADMIN policy, read-only)
   'audit_events',   // 0118: the payment-date corrections of a cheque (ADMIN policy, read-only)
   'payment_plan_item',   // 0121: the payment plans (instalments) of an obligation, versioned, append-only (ADMIN policy)
+  'feed_stock_period',   // 0125: closed / reopened feed stock months (ADMIN and OPERATOR read)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -132,6 +137,10 @@ export const TARGET_RPCS = [
   'endorse_cheque_to_payable',   // 0123 (ADMIN): a client cheque endorsed against ONE invoice / plan item (excess stays as supplier credit)
   'annul_expense',   // 0124 (ADMIN): annul an expense with nothing paid (P&L / IVA / supplier debt reversed; audited)
   'set_payment_plan', 'pay_plan_item', 'issue_plan_item_instruments',   // 0121 (ADMIN): instalments of an obligation; pay / issue cheques for ONE item
+  'set_feed_formula_comment', 'set_feed_type_standard_batch', 'set_feed_type_active',   // 0125 (ADMIN): recipe comment, standard batch, (de)activation
+  'close_feed_month', 'reopen_feed_month',   // 0125 (ADMIN): monthly feed stock close / reopen
+  'set_expense_category_feed', 'set_feed_purchase_quantity', 'allocate_feed_freight',   // 0126 (ADMIN): feed categories, purchase kg, freight split
+  'set_purchase_tag',   // 0127 (ADMIN): the tag of an expense (NULL = «Sin etiqueta»), audited
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

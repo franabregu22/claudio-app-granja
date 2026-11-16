@@ -1,12 +1,35 @@
 import { useState } from 'react';
-import { Plus, X, Edit2, AlertTriangle } from 'lucide-react';
+import { Plus, X, Edit2, AlertTriangle, Download } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
-import { shiftDate, type FlockDay, type FlockOption } from '../../target/production';
+import { supabase } from '../../lib/supabase';
+import { listAllProduction, PRODUCCION_CSV_CABECERA, produccionCsvFila, shiftDate, type FlockDay, type FlockOption } from '../../target/production';
+import { aCsv, descargarCsv } from '../../utils/csv';
 import { errorMessage } from '../../target/messages';
 import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
 import { FormProduccion } from './FormProduccion';
 import { useFlockDays, useFlockOptions, useMortalityEvents, useProductionMutations } from './useProduction';
+
+/** «Exportar CSV»: the whole production history (every page), as the Producción list shows it, one file. */
+function ExportarCsv() {
+  const [estado, setEstado] = useState<'listo' | 'bajando' | 'error'>('listo');
+  const exportar = async () => {
+    setEstado('bajando');
+    try {
+      const filas = await listAllProduction(supabase);
+      descargarCsv(`produccion_${getTodayDate()}.csv`, aCsv(PRODUCCION_CSV_CABECERA, filas.map(produccionCsvFila)));
+      setEstado('listo');
+    } catch {
+      setEstado('error');
+    }
+  };
+  return (
+    <button onClick={() => { void exportar(); }} disabled={estado === 'bajando'} title="Descargar todo el historial de producción en CSV"
+      className={`text-sm px-3 py-1.5 bg-white border rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 disabled:opacity-50 ${estado === 'error' ? 'border-red-300 text-red-700' : 'border-[#E4DCC8]'}`}>
+      <Download className="w-4 h-4" aria-hidden />{estado === 'bajando' ? 'Exportando…' : estado === 'error' ? 'Error: reintentar' : 'Exportar CSV'}
+    </button>
+  );
+}
 
 const ITEMS_POR_PAGINA = 12;
 const DIAS_HISTORICO = 60;
@@ -44,7 +67,10 @@ export function ProductionApp() {
             <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
             <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Producción</h1>
           </div>
-          <button onClick={() => setAjuste(true)} className="text-sm px-3 py-1.5 bg-white border border-[#E4DCC8] rounded-lg hover:bg-stone-50">Ajuste de conteo</button>
+          <span className="flex items-center gap-2">
+            <ExportarCsv />
+            <button onClick={() => setAjuste(true)} className="text-sm px-3 py-1.5 bg-white border border-[#E4DCC8] rounded-lg hover:bg-stone-50">Ajuste de conteo</button>
+          </span>
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 md:px-6 pt-6 pb-20">

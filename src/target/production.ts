@@ -10,7 +10,7 @@
  *     daily_production and population_events. Population and laying % are never recomputed here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { callRpc, readTable, readView } from './db';
+import { callRpc, readTable, readView, readViewPage } from './db';
 
 export interface FlockOption {
   id: string; shed_id: string; shed_nombre: string; estado: 'ACTIVE' | 'RETIRED' | 'ARCHIVED'; entry_date: string; exit_date: string | null;
@@ -46,6 +46,31 @@ export async function listFlockDays(client: SupabaseClient, from: string, to: st
     laying_pct: numOrNull(r.laying_pct), expected_laying_pct: numOrNull(r.expected_laying_pct), quality_data_warning: !!r.quality_data_warning,
   }));
 }
+
+/**
+ * The WHOLE production history the caller may see (RLS), oldest first, read in pages of 1000 rows (the response cap never hides
+ * rows): only the days with production, mortality or a count adjustment — the same rows the Producción list shows.
+ */
+export async function listAllProduction(client: SupabaseClient): Promise<FlockDay[]> {
+  const out: FlockDay[] = [];
+  for (let page = 0; ; page += 1) {
+    const { rows } = await readViewPage<FlockDay>(client, 'report_flock_day',
+      (q) => q.or('daily_production_id.not.is.null,mortality.neq.0,count_adjustment.neq.0')
+        .order('business_date', { ascending: true }).order('shed_nombre').order('flock_id'), '*', page, 1000);
+    out.push(...rows.map((r) => ({
+      ...r, eggs_total: numOrNull(r.eggs_total), eggs_broken: numOrNull(r.eggs_broken), eggs_dirty: numOrNull(r.eggs_dirty),
+      mortality: num(r.mortality), count_adjustment: num(r.count_adjustment), population: num(r.population), age_weeks: numOrNull(r.age_weeks),
+      laying_pct: numOrNull(r.laying_pct), expected_laying_pct: numOrNull(r.expected_laying_pct), quality_data_warning: !!r.quality_data_warning,
+    })));
+    if (rows.length < 1000) return out;
+  }
+}
+
+export const PRODUCCION_CSV_CABECERA = ['Fecha', 'Galpón', 'Línea genética', 'Edad (semanas)', 'Aves', 'Huevos', 'Rotos', 'Sucios', '% Postura', '% Esperado', 'Mortandad', 'Ajuste de conteo'];
+export const produccionCsvFila = (d: FlockDay) => [
+  `${d.business_date.slice(8, 10)}/${d.business_date.slice(5, 7)}/${d.business_date.slice(0, 4)}`, d.shed_nombre, d.genetics_line, d.age_weeks, d.population,
+  d.eggs_total, d.eggs_broken, d.eggs_dirty, d.laying_pct, d.expected_laying_pct, d.mortality, d.count_adjustment,
+];
 
 /** A calendar date shifted by whole days (YYYY-MM-DD; presentation ranges only). */
 export function shiftDate(date: string, days: number): string {

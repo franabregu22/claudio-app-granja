@@ -10,7 +10,9 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import type { FinancialAccountRow } from '../../target/masters';
 import { Comprobantes } from './Comprobantes';
+import { ChipEtiqueta } from './Etiquetas';
 import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos';
+import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
 import { campo, etiqueta, Modal } from './Modal';
 import { ImpuestoModal, ImpuestoPorPeriodo, TransferenciaModal, TransferenciasAnticipadas, VincularAnticipada } from './Transferencias';
 import { usePurchaseAttachments } from './useInvoicePayments';
@@ -36,9 +38,10 @@ export function pagableDesdeFila(r: OperationRow): number | null {
 interface Filtros {
   desde: string; hasta: string; tipo: OperationTipo | ''; cuenta: string; estado: OperationEstado | 'POR_REVISAR' | ''; grupo: string; subcategoria: string;
   naturaleza: OperationNature | ''; proveedor: string; buscar: string; orden: 'FECHA' | 'CARGA';
+  etiqueta: string;   // 0127: '' todas, 'SIN' sin etiqueta, else a tag id
 }
 export const FILTROS_VACIOS: Filtros = {
-  desde: '', hasta: '', tipo: '', cuenta: '', estado: '', grupo: '', subcategoria: '', naturaleza: '', proveedor: '', buscar: '', orden: 'FECHA',
+  desde: '', hasta: '', tipo: '', cuenta: '', estado: '', grupo: '', subcategoria: '', naturaleza: '', proveedor: '', buscar: '', orden: 'FECHA', etiqueta: '',
 };
 /** The server filter of a set of owner filters ("SIN" = Sin asignar). */
 export function filtroServidor(f: Filtros, recientes: boolean): OperationFilter {
@@ -46,6 +49,7 @@ export function filtroServidor(f: Filtros, recientes: boolean): OperationFilter 
     from: f.desde || undefined, to: f.hasta || undefined, tipo: f.tipo || undefined, accountId: f.cuenta && f.cuenta !== 'SIN' ? f.cuenta : undefined,
     sinCuenta: f.cuenta === 'SIN', estado: f.estado || undefined, groupId: f.grupo || undefined, categoryId: f.subcategoria || undefined,
     nature: f.naturaleza || undefined, supplierId: f.proveedor || undefined, search: f.buscar || undefined, order: recientes ? 'CARGA' : f.orden,
+    tagId: f.etiqueta && f.etiqueta !== 'SIN' ? f.etiqueta : undefined, sinEtiqueta: f.etiqueta === 'SIN',
   };
 }
 export const hayFiltros = (f: Filtros) => JSON.stringify(f) !== JSON.stringify(FILTROS_VACIOS);
@@ -62,6 +66,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
 }) {
   const [f, setF] = useState<Filtros>({ ...FILTROS_VACIOS, cuenta: cuentaId });
   const [texto, setTexto] = useState('');
+  const tags = useEtiquetasDeGastos();   // 0127: purchase id → its tag (the column «Etiqueta»)
   const [pagina, setPagina] = useState(0);
   const [abierta, setAbierta] = useState<string | null>(null);
   const [pagar, setPagar] = useState<OperationRow | null>(null);
@@ -71,6 +76,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const grupos = useExpenseGroups();
   const subcategorias = useAllExpenseSubcategories();
   const proveedores = useSuppliers();
+  const etiquetas = useEtiquetas();   // 0127
   // the account cards above filter the same list: kept in step with them
   const filtros = { ...f, cuenta: f.cuenta === 'SIN' ? 'SIN' : cuentaId };
   // 'RECIENTES': the just-recorded operation is not a row yet (Mercado Pago): the list by loading time instead of one row
@@ -102,7 +108,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         <span className="flex items-center gap-3">
           <span className="text-xs text-[#8A7A5C]">{lista.isFetching ? 'Actualizando…' : `${total} ${total === 1 ? 'operación' : 'operaciones'}`}
             {!lista.isFetching && lista.data && filtros.estado === 'PENDIENTE' ? <> · Total pendiente <b className="text-red-700">{formatoPesos(Math.abs(lista.data.importe))}</b></> : null}
-            {!lista.isFetching && lista.data && filtros.estado !== 'PENDIENTE' && (filtros.tipo === 'INGRESO' || filtros.tipo === 'EGRESO') ? <> · Total <b>{formatoPesos(Math.abs(lista.data.importe))}</b></> : null}</span>
+            {!lista.isFetching && lista.data && filtros.estado !== 'PENDIENTE' && (filtros.tipo === 'INGRESO' || filtros.tipo === 'EGRESO') ? <> · Total <b>{formatoPesos(Math.abs(lista.data.importe))}</b></> : null}
+            {!lista.isFetching && lista.data && filtros.etiqueta && filtros.etiqueta !== 'SIN' && filtros.estado !== 'PENDIENTE' && filtros.tipo !== 'INGRESO' && filtros.tipo !== 'EGRESO'
+              ? <> · Total de la etiqueta <b className="text-violet-900">{formatoPesos(Math.abs(lista.data.importe))}</b></> : null}</span>
           <button type="button" onClick={() => setTransfiriendo(true)} disabled={cuentas.length < 2}
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200 disabled:opacity-50">
             <ArrowLeftRight className="w-4 h-4" /> Transferir entre cuentas
@@ -123,6 +131,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         {sel('Naturaleza', filtros.naturaleza, (v) => poner({ naturaleza: v as OperationNature | '' }),
           (Object.keys(NATURALEZA_LABEL) as OperationNature[]).map((n) => ({ v: n, t: NATURALEZA_LABEL[n] })), 'Todas')}
         {sel('Proveedor', filtros.proveedor, (v) => poner({ proveedor: v }), (proveedores.data ?? []).map((s) => ({ v: s.id, t: s.nombre })))}
+        {sel('Etiqueta', filtros.etiqueta, (v) => poner({ etiqueta: v }), [{ v: 'SIN', t: 'Sin etiqueta' }, ...(etiquetas.data ?? []).map((e) => ({ v: e.id, t: e.nombre }))], 'Todas')}
         <form className="col-span-2 flex items-end gap-1" onSubmit={(e) => { e.preventDefault(); poner({ buscar: texto.trim() }); }}>
           <label className="text-xs text-[#8A7A5C] flex-1">Buscar
             <input type="search" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Concepto, proveedor, cliente, importe…" className={campo} />
@@ -158,16 +167,16 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
             <table className="w-full text-sm">
               <thead><tr className="text-xs text-[#8A7A5C] border-b border-[#E4DCC8] text-left">
                 <th className="px-2 py-2">Fecha</th><th className="px-2 py-2">Tipo</th><th className="px-2 py-2">Concepto</th><th className="px-2 py-2">Categoría</th>
-                <th className="px-2 py-2">Subcategoría</th><th className="px-2 py-2">Cuenta</th><th className="px-2 py-2 text-right">Importe</th>
+                <th className="px-2 py-2">Subcategoría</th><th className="px-2 py-2">Etiqueta</th><th className="px-2 py-2">Cuenta</th><th className="px-2 py-2 text-right">Importe</th>
                 <th className="px-2 py-2">Estado</th><th className="px-2 py-2">Acciones</th>
               </tr></thead>
               <tbody>
                 {filas.map((r) => (
                   <Fragment key={r.row_key}>
-                    <Fila r={r} destacada={focus === r.row_key} abierta={abierta === r.row_key} onAbrir={() => setAbierta(abierta === r.row_key ? null : r.row_key)}
+                    <Fila r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key} abierta={abierta === r.row_key} onAbrir={() => setAbierta(abierta === r.row_key ? null : r.row_key)}
                       onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} />
                     {abierta === r.row_key && (
-                      <tr className="border-b border-[#EFE8D6] bg-[#FAF6EE]"><td colSpan={9} className="p-0"><DetalleFila r={r} /></td></tr>
+                      <tr className="border-b border-[#EFE8D6] bg-[#FAF6EE]"><td colSpan={10} className="p-0"><DetalleFila r={r} /></td></tr>
                     )}
                   </Fragment>
                 ))}
@@ -201,9 +210,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   );
 }
 
-/** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Cuenta | Importe | Estado | Acciones ("—" when it does not apply). */
-function Fila({ r, destacada, abierta, onAbrir, onPagar, onHistorial }: {
-  r: OperationRow; destacada: boolean; abierta: boolean; onAbrir: () => void; onPagar: () => void; onHistorial: () => void;
+/** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Etiqueta (0127) | Cuenta | Importe | Estado | Acciones ("—" when it does not apply). */
+function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar, onHistorial }: {
+  r: OperationRow; etiqueta?: string; destacada: boolean; abierta: boolean; onAbrir: () => void; onPagar: () => void; onHistorial: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
   const importe = r.tipo === 'TRANSFERENCIA' ? formatoPesos(Math.abs(r.amount)) : `${r.amount < 0 ? '−' : '+'} ${formatoPesos(Math.abs(r.amount))}`;
@@ -214,6 +223,7 @@ function Fila({ r, destacada, abierta, onAbrir, onPagar, onHistorial }: {
       <td className="px-2 py-2 max-w-[18rem] truncate" title={r.concepto}><span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span></td>
       <td className={`${TD} max-w-[10rem] truncate`} title={r.category ?? undefined}>{r.category ?? NADA}</td>
       <td className={`${TD} max-w-[10rem] truncate`} title={r.subcategory ?? undefined}>{r.subcategory ?? NADA}</td>
+      <td className={TD}>{r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA}</td>
       <td className={`${TD} max-w-[12rem] truncate`}>{r.accounts.length === 0 ? <span className="text-[#8A7A5C] italic">Sin asignar</span> : cuentasLabel(r)}</td>
       <td className={`${TD} text-right font-bold ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
         title={r.informativo ? 'Ya está en Mercado Pago como movimiento sin clasificar: no se cuenta dos veces' : undefined}>

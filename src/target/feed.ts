@@ -12,8 +12,13 @@ import { callRpc, readTable, readView } from './db';
 export const FEED_MOVEMENT_TYPES = ['EXTERNAL_SALE', 'LOSS', 'ADJUSTMENT_POSITIVE', 'ADJUSTMENT_NEGATIVE'] as const;
 export type FeedMovementType = (typeof FEED_MOVEMENT_TYPES)[number];
 
-export interface FeedTypeRow { id: string; nombre: string; feed_category: 'LAYER' | 'BROILER' | 'PULLET' | 'INPUT'; activo: boolean }
-export interface FormulaVersionRow { id: string; feed_type_id: string; version: number; effective_from: string; effective_to: string | null }
+export interface FeedTypeRow {
+  id: string; nombre: string; feed_category: 'LAYER' | 'BROILER' | 'PULLET' | 'INPUT'; activo: boolean;
+  standard_batch_kg: number; inactive_from: string | null;   // 0125
+}
+export interface FormulaVersionRow { id: string; feed_type_id: string; version: number; effective_from: string; effective_to: string | null; comment: string | null }
+/** 0125: every recipe line is Premezcla (PREMIX, small amounts, 3 decimals) or Macronutrientes (MACRO). */
+export type FormulaSection = 'PREMIX' | 'MACRO';
 export interface FlockFeedRow { id: string; flock_id: string; feed_type_id: string; effective_from: string; effective_to: string | null }
 export interface ConsumptionInterval {
   feed_type_id: string; feed_type_nombre: string; opening_date: string; business_date: string; opening_kg: number; manufactured_kg: number;
@@ -25,15 +30,19 @@ const reasonOrNull = (r?: string | null) => (r && r.trim() !== '' ? r.trim() : n
 const KG: (keyof ConsumptionInterval)[] = ['opening_kg', 'manufactured_kg', 'external_sale_kg', 'loss_kg', 'adjustment_negative_kg',
   'adjustment_positive_kg', 'closing_kg', 'internal_consumption_kg'];
 
+/** Every feed type the caller may read (ADMIN: all; OPERATOR: active only, by RLS). */
+export async function listAllFeedTypes(client: SupabaseClient): Promise<FeedTypeRow[]> {
+  const rows = await readTable<FeedTypeRow>(client, 'feed_type', (q) => q.order('nombre'), 'id, nombre, feed_category, activo, standard_batch_kg, inactive_from');
+  return rows.map((t) => ({ ...t, standard_batch_kg: Number(t.standard_batch_kg) }));
+}
 export async function listFeedTypes(client: SupabaseClient): Promise<FeedTypeRow[]> {
-  const rows = await readTable<FeedTypeRow>(client, 'feed_type', (q) => q.order('nombre'), 'id, nombre, feed_category, activo');
-  return rows.filter((t) => t.activo);
+  return (await listAllFeedTypes(client)).filter((t) => t.activo);
 }
 
 /** Formula versions visible to the caller (RLS: OPERATOR sees the ones effective today). */
 export function listFormulaVersions(client: SupabaseClient): Promise<FormulaVersionRow[]> {
   return readTable<FormulaVersionRow>(client, 'feed_formula_version', (q) => q.order('effective_from', { ascending: false }),
-    'id, feed_type_id, version, effective_from, effective_to');
+    'id, feed_type_id, version, effective_from, effective_to, comment');
 }
 
 /** D-FEED-5: the versions usable for manufacturing on `date` (one per feed type by ADR-013), as read. */
@@ -42,12 +51,12 @@ export function versionsEffectiveOn(versions: FormulaVersionRow[], date: string)
   return versions.filter((v) => v.effective_from <= date && (v.effective_to === null || v.effective_to >= date));
 }
 
-export interface FormulaLineRow { formula_version_id: string; ingredient_id: string; ingredient_name: string; quantity_kg: number }
+export interface FormulaLineRow { formula_version_id: string; ingredient_id: string; ingredient_name: string; quantity_kg: number; section: FormulaSection }
 /** Composition without cost (feed_formula_line_safe), for the given versions. */
 export async function listFormulaComposition(client: SupabaseClient, versionIds: string[]): Promise<FormulaLineRow[]> {
   if (versionIds.length === 0) return [];
   const rows = await readView<FormulaLineRow>(client, 'feed_formula_line_safe', (q) => q.in('formula_version_id', versionIds).order('ingredient_name'),
-    'formula_version_id, ingredient_id, ingredient_name, quantity_kg');
+    'formula_version_id, ingredient_id, ingredient_name, quantity_kg, section');
   return rows.map((r) => ({ ...r, quantity_kg: Number(r.quantity_kg) }));
 }
 
@@ -56,11 +65,13 @@ export async function listFormulaComposition(client: SupabaseClient, versionIds:
  * next version number, prior version closed at effectiveFrom − 1, all lines or nothing.
  */
 export function publishFormulaVersion(client: SupabaseClient, p: {
-  feedTypeId: string; effectiveFrom: string; lines: { ingredientId: string; quantityKg: number }[]; reason?: string | null;
+  feedTypeId: string; effectiveFrom: string; lines: { ingredientId: string; quantityKg: number; section?: FormulaSection }[]; reason?: string | null;
+  comment?: string | null;
 }) {
   return callRpc<{ formula_version_id: string; version: number; line_count: number; closed_version_id: string | null }>(client, 'publish_feed_formula_version', {
     p_feed_type_id: p.feedTypeId, p_effective_from: p.effectiveFrom,
-    p_lines: p.lines.map((l) => ({ ingredient_id: l.ingredientId, quantity_kg: l.quantityKg })), p_reason: reasonOrNull(p.reason),
+    p_lines: p.lines.map((l) => ({ ingredient_id: l.ingredientId, quantity_kg: l.quantityKg, section: l.section ?? 'MACRO' })), p_reason: reasonOrNull(p.reason),
+    p_comment: reasonOrNull(p.comment),
   });
 }
 
@@ -86,10 +97,11 @@ export async function listConsumptionIntervals(client: SupabaseClient, limit = 5
 
 export function registerFeedManufacturing(client: SupabaseClient, p: {
   formulaVersionId: string; date: string; quantityKg: number; idempotencyKey: string; batchNumber?: string | null; reason?: string | null;
+  notes?: string | null;
 }) {
   return callRpc<{ manufacturing_id: string; quantity_kg: number }>(client, 'register_feed_manufacturing', {
     p_formula_version_id: p.formulaVersionId, p_manufacturing_date: p.date, p_quantity_kg: p.quantityKg, p_idempotency_key: p.idempotencyKey,
-    p_batch_number: reasonOrNull(p.batchNumber), p_reason: reasonOrNull(p.reason),
+    p_batch_number: reasonOrNull(p.batchNumber), p_reason: reasonOrNull(p.reason), p_notes: reasonOrNull(p.notes),
   });
 }
 
@@ -121,7 +133,7 @@ export function assignFlockFeed(client: SupabaseClient, p: { flockId: string; fe
 export interface ManufacturingVersion {
   id: string; formula_version_id: string; formula_version: number; feed_type_id: string; feed_type_nombre: string; manufacturing_date: string;
   quantity_kg: number; batch_number: string | null; created_at: string; created_by: string | null; version_seq: number; is_current: boolean;
-  supersedes_id: string | null; rectification_reason: string | null;
+  supersedes_id: string | null; rectification_reason: string | null; notes: string | null;
 }
 /** One manufacturing as the user sees it: the current version plus the versions it replaced (newest first). */
 export interface ManufacturingRecord { current: ManufacturingVersion; history: ManufacturingVersion[]; author: string | null }
@@ -139,7 +151,7 @@ type RawManufacturing = Omit<ManufacturingVersion, 'formula_version' | 'feed_typ
 export async function listManufacturing(client: SupabaseClient, from: string, to: string): Promise<ManufacturingRecord[]> {
   const rows = await readTable<RawManufacturing>(client, 'feed_manufacturing',
     (q) => q.gte('manufacturing_date', from).lte('manufacturing_date', to).order('manufacturing_date', { ascending: false }).order('created_at', { ascending: false }),
-    'id, formula_version_id, manufacturing_date, quantity_kg, batch_number, created_at, created_by, version_seq, is_current, supersedes_id, rectification_reason, '
+    'id, formula_version_id, manufacturing_date, quantity_kg, batch_number, created_at, created_by, version_seq, is_current, supersedes_id, rectification_reason, notes, '
     + 'feed_formula_version(version, feed_type_id, feed_type(nombre))');
   const versions = rows.map(({ feed_formula_version: fv, ...m }): ManufacturingVersion => ({
     ...m, quantity_kg: Number(m.quantity_kg), formula_version: fv?.version ?? 0, feed_type_id: fv?.feed_type_id ?? '', feed_type_nombre: fv?.feed_type?.nombre ?? '—',
@@ -170,9 +182,11 @@ export async function listProfileNames(client: SupabaseClient): Promise<Map<stri
 /** ADR-014 RPC 49: a whole-record new version; the reason is mandatory; the date is kept. */
 export function rectifyFeedManufacturing(client: SupabaseClient, p: {
   idempotencyKey: string; manufacturingId: string; quantityKg: number; reason: string; batchNumber?: string | null; formulaVersionId?: string | null;
+  notes?: string | null;   // 0125: undefined keeps the comment, '' clears it
 }) {
   return callRpc<{ manufacturing_id: string; superseded_id: string; version_seq: number; quantity_kg: number }>(client, 'rectify_feed_manufacturing', {
     p_idempotency_key: p.idempotencyKey, p_manufacturing_id: p.manufacturingId, p_quantity_kg: p.quantityKg, p_reason: p.reason,
     p_batch_number: reasonOrNull(p.batchNumber), p_formula_version_id: p.formulaVersionId ?? null,
+    p_notes: p.notes === undefined || p.notes === null ? null : p.notes.trim(),
   });
 }

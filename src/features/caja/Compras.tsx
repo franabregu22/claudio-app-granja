@@ -17,6 +17,8 @@ import { useRegisterExpense } from './useExpenses';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { facturaRepetida, posibleDuplicado } from '../../target/expenseHub';
 import { usePlanPago } from './EditorPlanPago';
+import { SelectorEtiqueta } from './Etiquetas';
+import { useEtiquetaMutations } from './useEtiquetas';
 import { usePaymentPlanMutations } from './usePaymentPlan';
 
 /**
@@ -78,6 +80,8 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const [cuentaId, setCuentaId] = useState('');
   const [fechaPago, setFechaPago] = useState(getTodayDate());
   const [comprobante, setComprobante] = useState<ComprobanteForm>(COMPROBANTE_VACIO);
+  const [etiquetaId, setEtiquetaId] = useState('');   // 0127: '' = Sin etiqueta
+  const etiquetas = useEtiquetaMutations();
   const [clave] = useState(() => `GASTO-${crypto.randomUUID()}`);   // idempotency: one per opened form
   const conProveedor = proveedorId !== '';
   // caja-mejoras-v2 (0121): a pending expense can be split into instalments or paid with own cheques right here (cheques: supplier only)
@@ -100,7 +104,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
 
   return (
     <Modal titulo="Nuevo gasto" onClose={onClose} puedeGuardar={puede} guardando={guardando}
-      error={comprobante.errorArchivo ?? registrar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
+      error={comprobante.errorArchivo ?? registrar.error ?? etiquetas.asignar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
       textoGuardar="Registrar gasto"
       onSubmit={() => { registrar.mutateAsync({
         userId: user!.id, files: comprobante.archivos, concept: concepto, supplierId: proveedorId || null, amountTotal: Number(total), fecha,
@@ -112,6 +116,8 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         const purchaseId = (r as { purchase_id?: string } | null)?.purchase_id;
         if (estado === 'PENDIENTE' && purchaseId && plan.forma === 'CHEQUES') await planes.chequesObligation.mutateAsync({ purchaseId, instruments: plan.cheques, idempotencyKey: `${clave}:CH` });
         else if (estado === 'PENDIENTE' && purchaseId && plan.items.length > 0) await planes.plan.mutateAsync({ purchaseId, items: plan.items, idempotencyKey: `${clave}:PLAN` });
+        // 0127: the tag (a retry that finds it already set is fine: NO_CHANGES is ignored)
+        if (etiquetaId && purchaseId) await etiquetas.asignar.mutateAsync({ purchaseId, etiquetaId }).catch((e: unknown) => { if (!String(e).includes('NO_CHANGES')) throw e; });
         if (!onRegistrado) { onClose(); return; }
         const fechaTxt = estado === 'PAGADO' && medio !== 'MERCADOPAGO' ? fechaPago : fecha;
         const forma = estado === 'PENDIENTE' && plan.forma === 'CUOTAS' ? ` en ${plan.items.length} cuotas` : estado === 'PENDIENTE' && plan.forma === 'CHEQUES' ? ` con ${plan.cheques.length} cheque(s)` : '';
@@ -139,6 +145,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
       {parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
       <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta} />
       <SelectorNaturaleza value={naturaleza} onChange={setNaturaleza} />
+      <SelectorEtiqueta value={etiquetaId} onChange={setEtiquetaId} />
       <fieldset className="space-y-2">
         <legend className={etiqueta}>Estado del pago</legend>
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Estado del pago">

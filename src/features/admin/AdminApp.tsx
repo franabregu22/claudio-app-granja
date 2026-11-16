@@ -21,7 +21,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'supplier', label: 'Proveedores' },
   { id: 'account', label: 'Cuentas' },
   { id: 'assignment', label: 'Asignaciones' },
-  { id: 'project', label: 'Proyectos' },
+  { id: 'project', label: 'Etiquetas de gasto' },   // 0127: the projects master is the expense tag catalog
   { id: 'feed', label: 'Alimento' },
   { id: 'user', label: 'Usuarios' },
 ];
