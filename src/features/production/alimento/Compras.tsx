@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { splitByKg, type FeedPurchase } from '../../../target/alimento';
+import { splitByKg, type FeedPurchase, type FeedPurchaseExtra } from '../../../target/alimento';
+import { Comprobantes } from '../../caja/Comprobantes';
 import { campo, etiqueta, Modal } from '../../caja/Modal';
 import { fechaCorta, fechaDMA, kgTxt, pesos } from './format';
 import { botonPrimario, Tabla, Titulo, td, tdR, thL, thR } from './ui';
-import { useAlimentoMutations, useFeedFreights, useFeedPurchases } from './useAlimento';
+import { useAlimentoMutations, useFeedFreights, useFeedPurchaseExtras, useFeedPurchases } from './useAlimento';
 import { NumeroInput } from '../../../components/NumeroInput';
 
 type Filtro = 'TODAS' | 'SIN_KG' | 'FLETE';
@@ -22,6 +23,7 @@ export function Compras() {
   const [kgDe, setKgDe] = useState<FeedPurchase | null>(null);
   const [vinculando, setVinculando] = useState(false);
   const todas = compras.data ?? [];
+  const extras = useFeedPurchaseExtras(todas);
   const sinKg = todas.filter((c) => c.quantity_kg === null);
   const pendFlete = todas.filter((c) => c.quantity_kg !== null && c.freight_status === 'PENDIENTE');
   const lista = filtro === 'SIN_KG' ? sinKg : filtro === 'FLETE' ? pendFlete : todas;
@@ -49,7 +51,9 @@ export function Compras() {
             <tr key={c.purchase_root_id}>
               <td className={td}>{elegible(c) && <input type="checkbox" aria-label="Elegir para el flete" checked={elegidas.includes(c.purchase_root_id)} onChange={() => alternar(c.purchase_root_id)} />}</td>
               <td className={td}>{fechaDMA(c.economic_date)}</td>
-              <td className={td}>{c.ingredient_nombre}{c.invoice_a && <span className="ml-1 text-[10px] bg-gray-100 text-gray-700 px-1 rounded">Fact. A</span>}</td>
+              <td className={td}>{c.ingredient_nombre}{c.invoice_a && <span className="ml-1 text-[10px] bg-gray-100 text-gray-700 px-1 rounded">Fact. A</span>}
+                {extras.data?.get(c.purchase_root_id)?.concepto && <span className="block text-xs text-gray-600">«{extras.data.get(c.purchase_root_id)!.concepto}»</span>}
+                <Comprobantes docs={extras.data?.get(c.purchase_root_id)?.docs} compacto /></td>
               <td className={tdR}><button className="text-[#A8552E] hover:underline" onClick={() => setKgDe(c)}>{c.quantity_kg === null ? 'cargar' : kgTxt(c.quantity_kg)}</button></td>
               <td className={`${td} hidden md:table-cell`}>{c.supplier_name ?? '—'}</td>
               <td className={tdR}>{pesos(c.price_per_kg)}</td>
@@ -62,7 +66,7 @@ export function Compras() {
           ))}
         </Tabla>
       )}
-      {kgDe && <KgModal compra={kgDe} onClose={() => setKgDe(null)} />}
+      {kgDe && <KgModal compra={kgDe} extra={extras.data?.get(kgDe.purchase_root_id)} onClose={() => setKgDe(null)} />}
       {vinculando && <FleteModal compras={todas.filter((c) => elegidas.includes(c.purchase_root_id))} fletes={(fletes.data ?? []).filter((f) => f.remaining > 0)}
         onClose={() => setVinculando(false)} onListo={() => { setVinculando(false); setElegidas([]); }} guardando={m.freight.isPending} error={m.freight.error}
         onGuardar={(freightPurchaseId, allocations, listo) => m.freight.mutate({ freightPurchaseId, allocations }, { onSuccess: listo })} />}
@@ -70,7 +74,7 @@ export function Compras() {
   );
 }
 
-function KgModal({ compra, onClose }: { compra: FeedPurchase; onClose: () => void }) {
+function KgModal({ compra, extra, onClose }: { compra: FeedPurchase; extra?: FeedPurchaseExtra; onClose: () => void }) {
   const m = useAlimentoMutations();
   const [kg, setKg] = useState(compra.quantity_kg === null ? '' : String(compra.quantity_kg));
   const [sinFlete, setSinFlete] = useState(compra.no_freight);
@@ -80,6 +84,8 @@ function KgModal({ compra, onClose }: { compra: FeedPurchase; onClose: () => voi
       puedeGuardar={n > 0 && (n !== compra.quantity_kg || sinFlete !== compra.no_freight)}
       onSubmit={() => m.kg.mutate({ purchaseId: compra.purchase_id, kg: n, noFreight: sinFlete }, { onSuccess: onClose })}>
       <p className="text-sm text-gray-700">{compra.supplier_name ?? '—'} · {pesos(compra.cost_amount)}{compra.invoice_a ? ' sin IVA (Factura A)' : ''}</p>
+      {extra?.concepto && <p className="text-sm text-gray-700">Concepto del gasto: <i>«{extra.concepto}»</i></p>}
+      {extra && (extra.numero || extra.docs.length > 0) && <p className="flex items-center gap-2 text-sm text-gray-700">Factura{extra.numero ? ` ${extra.numero}` : ''}{extra.docs.length > 0 && <>: <Comprobantes docs={extra.docs} /></>}</p>}
       <label className={etiqueta}>Kilos comprados<NumeroInput min="0" step="0.001" value={kg} onChange={(e) => setKg(e.target.value)} className={campo} /></label>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sinFlete} disabled={compra.freight_amount > 0} onChange={(e) => setSinFlete(e.target.checked)} />
         Confirmar flete $0 (vino sin flete o el flete está incluido en el precio)</label>

@@ -6,6 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readTable, readView } from './db';
+import { listDocumentLinks, type ViewableDocument } from './documents';
 
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 const trimOrNull = (s?: string | null) => (s && s.trim() !== '' ? s.trim() : null);
@@ -67,6 +68,46 @@ export async function listFeedPurchases(c: SupabaseClient): Promise<FeedPurchase
     freight_cost: Number(r.freight_cost), price_per_kg: n(r.price_per_kg), cost_per_kg: n(r.cost_per_kg),
   }));
 }
+/**
+ * What the owner wrote and attached when the expense was registered in Caja: the «Concepto del gasto» (purchases.subcategory, or the
+ * item descriptions of an itemized invoice — often the kg), the invoice number and the original invoice / receipt (ERP upload or
+ * WhatsApp). Keyed by purchase_root_id; read in chunks.
+ */
+export interface FeedPurchaseExtra { concepto: string | null; numero: string | null; docs: ViewableDocument[] }
+export async function listFeedPurchaseExtras(c: SupabaseClient, compras: Pick<FeedPurchase, 'purchase_root_id' | 'purchase_id'>[]): Promise<Map<string, FeedPurchaseExtra>> {
+  const out = new Map<string, FeedPurchaseExtra>();
+  const raizDe = new Map<string, string>();
+  for (const x of compras) { raizDe.set(x.purchase_root_id, x.purchase_root_id); raizDe.set(x.purchase_id, x.purchase_root_id); }
+  const vigente = new Set(compras.map((x) => x.purchase_id));
+  const ids = [...raizDe.keys()];
+  const add = (id: string, f: (e: FeedPurchaseExtra) => void) => {
+    const r = raizDe.get(id); if (!r) return;
+    const e = out.get(r) ?? { concepto: null, numero: null, docs: [] }; f(e); out.set(r, e);
+  };
+  for (let i = 0; i < ids.length; i += 80) {
+    const parte = ids.slice(i, i + 80);
+    const [cabeceras, lineas, adjuntos, links] = await Promise.all([
+      readTable<{ id: string; subcategory: string | null; supplier_invoice_number: string | null }>(c, 'purchases', (q) => q.in('id', parte), 'id, subcategory, supplier_invoice_number'),
+      readTable<{ purchase_id: string; descripcion: string | null }>(c, 'purchase_line', (q) => q.in('purchase_id', parte), 'purchase_id, descripcion'),
+      readTable<ViewableDocument & { purchase_id: string }>(c, 'purchase_attachment', (q) => q.in('purchase_id', parte), 'purchase_id, storage_path, file_name, content_type'),
+      listDocumentLinks(c, 'PURCHASE', parte),
+    ]);
+    // the version in force (purchase_id) wins over the root's
+    const items = new Map<string, string[]>();
+    for (const l of lineas) if (l.descripcion?.trim()) items.set(l.purchase_id, [...(items.get(l.purchase_id) ?? []), l.descripcion.trim()]);
+    for (const p of cabeceras) {
+      const concepto = p.subcategory?.trim() || items.get(p.id)?.join(' · ') || null;
+      add(p.id, (e) => {
+        if (concepto && (!e.concepto || vigente.has(p.id))) e.concepto = concepto;
+        if (p.supplier_invoice_number && (!e.numero || vigente.has(p.id))) e.numero = p.supplier_invoice_number;
+      });
+    }
+    for (const a of adjuntos) add(a.purchase_id, (e) => e.docs.push(a));
+    for (const [id, ds] of links) add(id, (e) => e.docs.push(...ds));
+  }
+  return out;
+}
+
 export interface FeedFreight {
   freight_purchase_root_id: string; purchase_id: string; economic_date: string; supplier_name: string | null; supplier_invoice_number: string | null;
   amount_total: number; allocated: number; remaining: number;

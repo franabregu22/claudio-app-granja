@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { allocateFeedFreight, closeFeedMonth, setFeedPurchaseQuantity, splitByKg } from '../../src/target/alimento';
+import { allocateFeedFreight, closeFeedMonth, listFeedPurchaseExtras, setFeedPurchaseQuantity, splitByKg } from '../../src/target/alimento';
 import { TARGET_READ_TABLES, TARGET_RPCS, TARGET_VIEWS } from '../../src/target/db';
 import { escalar, finDeMes, kgLinea, meses, periodoComparable } from '../../src/features/production/alimento/format';
 
@@ -44,6 +44,20 @@ describe('Alimento Balanceado — módulo real', () => {
       { fn: 'set_feed_purchase_quantity', args: { p_purchase_id: 'p', p_quantity_kg: 1000, p_no_freight: null } },
       { fn: 'allocate_feed_freight', args: { p_freight_purchase_id: 'f', p_allocations: [{ purchase_id: 'p', amount: 20000 }] } },
     ]);
+  });
+  it('purchase extras: the concept in force and every original (ERP upload + WhatsApp link), keyed by the purchase root', async () => {
+    const data: Record<string, unknown[]> = {
+      purchases: [{ id: 'root', subcategory: 'maíz viejo', supplier_invoice_number: '0001-1' }, { id: 'v2', subcategory: null, supplier_invoice_number: '0001-2' }],
+      purchase_line: [{ purchase_id: 'v2', descripcion: 'Maíz 1000 kg' }, { purchase_id: 'v2', descripcion: 'Flete incluido' }],
+      purchase_attachment: [{ purchase_id: 'v2', storage_path: 'u/a.pdf', file_name: 'a.pdf', content_type: 'application/pdf' }],
+      fin_document_links: [{ target_id: 'root', storage_path: 'wa/x.jpg', file_name: 'x.jpg', content_type: 'image/jpeg' }],
+    };
+    const q = (rows: unknown[]) => { const o: Record<string, unknown> = {}; for (const k of ['select', 'in', 'eq', 'order']) o[k] = () => o; o.then = (r: (v: unknown) => unknown) => r({ data: rows, error: null }); return o; };
+    const client = { from: (t: string) => q(data[t] ?? []) } as never;
+    const m = await listFeedPurchaseExtras(client, [{ purchase_root_id: 'root', purchase_id: 'v2' }]);
+    expect(m.get('root')?.concepto).toBe('Maíz 1000 kg · Flete incluido');   // an itemized invoice: its items; the version in force wins
+    expect(m.get('root')?.numero).toBe('0001-2');
+    expect(m.get('root')?.docs.map((d) => d.storage_path)).toEqual(['u/a.pdf', 'wa/x.jpg']);
   });
   it('allowlists carry the new views, table and RPCs', () => {
     for (const v of ['report_feed_month', 'report_feed_recipe_change', 'report_feed_purchase', 'report_feed_freight', 'report_feed_recipe_cost_month', 'report_feed_consumption_cost'])

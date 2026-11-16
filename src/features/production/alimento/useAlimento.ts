@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../lib/supabase';
 import {
-  allocateFeedFreight, closeFeedMonth, listConsumptionCosts, listFeedFreights, listFeedMonths, listFeedPurchases, listFeedStockPeriods,
+  allocateFeedFreight, closeFeedMonth, listConsumptionCosts, listFeedFreights, listFeedPurchaseExtras, listFeedMonths, listFeedPurchases, listFeedStockPeriods,
   listRecipeChanges, listRecipeCosts, reopenFeedMonth, setExpenseCategoryFeed, setFeedPurchaseQuantity, setFeedTypeActive, setFormulaComment,
   setStandardBatch,
 } from '../../../target/alimento';
@@ -48,4 +48,10 @@ export function useAlimentoMutations() {
     freight: useWrite(allocateFeedFreight, [['pnl']]),
     categoryFeed: useWrite(setExpenseCategoryFeed, [['pnl'], ['master']]),
   };
+}
+
+/** The concept and the original invoice of each feed purchase (Caja data, read-only here). */
+export function useFeedPurchaseExtras(compras: { purchase_root_id: string; purchase_id: string }[]) {
+  const clave = compras.map((x) => x.purchase_id).sort().join(',');
+  return useQuery({ queryKey: [...FEED, 'purchase-extras', clave], enabled: compras.length > 0, queryFn: () => listFeedPurchaseExtras(supabase, compras) });
 }
