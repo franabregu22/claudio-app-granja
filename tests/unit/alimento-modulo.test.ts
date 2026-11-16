@@ -55,5 +55,12 @@ describe('Alimento Balanceado — módulo real', () => {
     const mod = readFileSync(resolve(DIR, 'AlimentoModulo.tsx'), 'utf8');
     expect(mod).toContain("const OPERATIVAS: Vista[] = ['fabricaciones', 'ver'];");
     expect(readFileSync(resolve(DIR, '../AlimentoApp.tsx'), 'utf8')).toContain('<AlimentoModulo />');
+    // the recipe ingredients are the expense subcategories marked «insumo»: no ingredient is created from Recetas
+    const recetas = readFileSync(resolve(DIR, 'Recetas.tsx'), 'utf8');
+    expect(recetas).not.toMatch(/Nuevo ingrediente|useMasterMutations\('feed_ingredient'\)/);
+    expect(recetas).toContain("useMasterList<ExpenseCategoryRow>('expense_category')");
+    const cats = readFileSync(resolve(DIR, '../../admin/CategoriasAdmin.tsx'), 'utf8');
+    expect(cats).toContain('Marcar insumos de alimento');
+    expect(cats).toContain("renombrarIng.mutateAsync({ id: ing.id, values: { nombre: nombre.trim() } })");
   });
 });

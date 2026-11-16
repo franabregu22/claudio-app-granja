@@ -12,7 +12,8 @@ const CHIP = 'text-[11px] px-1.5 py-0.5 rounded';
 type Ingrediente = { id: string; nombre: string; activo: boolean };
 type Editor =
   | { tipo: 'categoria'; grupo?: ExpenseCategoryGroupRow }
-  | { tipo: 'sub'; grupo: ExpenseCategoryGroupRow; sub?: ExpenseCategoryRow }
+  | { tipo: 'sub'; grupo: ExpenseCategoryGroupRow; sub?: ExpenseCategoryRow; sugerirInsumo?: boolean }
+  | { tipo: 'insumos'; grupo: ExpenseCategoryGroupRow; hijos: ExpenseCategoryRow[] }
   | null;
 
 /**
@@ -76,7 +77,10 @@ export function CategoriasAdmin() {
                 ))}
                 {hijos.length === 0 && <li className="py-2 text-sm text-gray-400">Sin subcategorías.</li>}
               </ul>
-              <button className="mt-1 text-sm text-[#A8552E] hover:underline" onClick={() => setEditor({ tipo: 'sub', grupo: group })}>+ Agregar subcategoría</button>
+              <span className="mt-1 flex flex-wrap gap-4">
+                <button className="text-sm text-[#A8552E] hover:underline" onClick={() => setEditor({ tipo: 'sub', grupo: group, sugerirInsumo: hijos.some((h) => h.feed_ingredient_id) })}>+ Agregar subcategoría</button>
+                {!retiro && hijos.length > 0 && <button className="text-sm text-[#A8552E] hover:underline" onClick={() => setEditor({ tipo: 'insumos', grupo: group, hijos })}>Marcar insumos de alimento</button>}
+              </span>
             </div>
           )}
         </section>
@@ -104,7 +108,8 @@ export function CategoriasAdmin() {
       )}
 
       {editor?.tipo === 'categoria' && <CategoriaModal grupo={editor.grupo} proximoOrden={Math.max(0, ...(grupos.data ?? []).map((x) => x.display_order)) + 1} onClose={() => setEditor(null)} />}
-      {editor?.tipo === 'sub' && <SubcategoriaModal grupo={editor.grupo} sub={editor.sub} grupos={grupos.data ?? []} ingredientes={ingredientes.data ?? []} onClose={() => setEditor(null)} />}
+      {editor?.tipo === 'sub' && <SubcategoriaModal grupo={editor.grupo} sub={editor.sub} sugerirInsumo={editor.sugerirInsumo} grupos={grupos.data ?? []} ingredientes={ingredientes.data ?? []} onClose={() => setEditor(null)} />}
+      {editor?.tipo === 'insumos' && <MarcarInsumosModal grupo={editor.grupo} hijos={editor.hijos} ingredientes={ingredientes.data ?? []} onClose={() => setEditor(null)} />}
     </div>
   );
 }
@@ -140,8 +145,8 @@ function CategoriaModal({ grupo, proximoOrden, onClose }: { grupo?: ExpenseCateg
 }
 
 /** Create or edit a SUBCATEGORY: name, category (move), default nature, active and — 0126 — Alimento (no / insumo / flete). */
-function SubcategoriaModal({ grupo, sub, grupos, ingredientes, onClose }: {
-  grupo: ExpenseCategoryGroupRow; sub?: ExpenseCategoryRow; grupos: ExpenseCategoryGroupRow[]; ingredientes: Ingrediente[]; onClose: () => void;
+function SubcategoriaModal({ grupo, sub, sugerirInsumo, grupos, ingredientes, onClose }: {
+  grupo: ExpenseCategoryGroupRow; sub?: ExpenseCategoryRow; sugerirInsumo?: boolean; grupos: ExpenseCategoryGroupRow[]; ingredientes: Ingrediente[]; onClose: () => void;
 }) {
   const s = useMasterMutations('expense_category');
   const crearIng = useMasterMutations('feed_ingredient').create;
@@ -152,7 +157,9 @@ function SubcategoriaModal({ grupo, sub, grupos, ingredientes, onClose }: {
   const [naturaleza, setNaturaleza] = useState<PurchaseNatureValue>(sub?.default_nature ?? 'OPERATING');
   const [activo, setActivo] = useState(sub?.activo ?? true);
   const rolInicial = sub?.is_feed_freight ? 'FLETE' : sub?.feed_ingredient_id ? 'INSUMO' : 'NO';
-  const [rol, setRol] = useState<'NO' | 'INSUMO' | 'FLETE'>(rolInicial);
+  // a new subcategory of a category that already has feed ingredients is an ingredient by default
+  const [rol, setRol] = useState<'NO' | 'INSUMO' | 'FLETE'>(!sub && sugerirInsumo ? 'INSUMO' : rolInicial);
+  const renombrarIng = useMasterMutations('feed_ingredient').update;
   // the ingredient: the one already linked, else one with the same name, else it is created with the subcategory name
   const mismoNombre = ingredientes.find((i) => i.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
   const [ingId, setIngId] = useState(sub?.feed_ingredient_id ?? '');
@@ -174,6 +181,10 @@ function SubcategoriaModal({ grupo, sub, grupos, ingredientes, onClose }: {
     if (rol === 'INSUMO') ingredientId = ingElegido || ((await crearIng.mutateAsync({ nombre: nombre.trim() })) as { id: string }).id;
     const igual = rol === rolInicial && (rol !== 'INSUMO' || ingredientId === (sub?.feed_ingredient_id ?? null));
     if (!igual) await alimento.mutateAsync({ categoryId: id, ingredientId, isFreight: rol === 'FLETE' });
+    // the ingredient keeps the subcategory's name (the recipe lists and the categories always match)
+    const ing = ingredientes.find((i) => i.id === ingredientId);
+    if (ing && ing.nombre !== nombre.trim() && !ingredientes.some((i) => i.id !== ing.id && i.nombre.trim().toLowerCase() === nombre.trim().toLowerCase()))
+      await renombrarIng.mutateAsync({ id: ing.id, values: { nombre: nombre.trim() } });
     onClose();
   };
 
@@ -217,6 +228,58 @@ function SubcategoriaModal({ grupo, sub, grupos, ingredientes, onClose }: {
         </fieldset>
       )}
       {sub && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} /> Activa</label>}
+    </Modal>
+  );
+}
+
+/**
+ * «Marcar insumos de alimento»: every subcategory of one category at once — No / Insumo / Flete. An «Insumo» uses the ingredient already
+ * linked, else the one with its same name, else one created with its name (so the recipe ingredients are exactly these subcategories).
+ */
+function MarcarInsumosModal({ grupo, hijos, ingredientes, onClose }: { grupo: ExpenseCategoryGroupRow; hijos: ExpenseCategoryRow[]; ingredientes: Ingrediente[]; onClose: () => void }) {
+  const alimento = useAlimentoMutations().categoryFeed;
+  const crearIng = useMasterMutations('feed_ingredient').create;
+  type Rol = 'NO' | 'INSUMO' | 'FLETE';
+  const actual = (h: ExpenseCategoryRow): Rol => (h.is_feed_freight ? 'FLETE' : h.feed_ingredient_id ? 'INSUMO' : 'NO');
+  const editables = hijos.filter((h) => !h.fiscal_reserved).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const [roles, setRoles] = useState<Record<string, Rol>>(() => Object.fromEntries(editables.map((h) => [h.id, actual(h)])));
+  const [guardando, setGuardando] = useState(false);
+  const cambios = editables.filter((h) => roles[h.id] !== actual(h));
+  const guardar = async () => {
+    setGuardando(true);
+    try {
+      const creados = new Map<string, string>();
+      for (const h of cambios) {
+        let ingredientId: string | null = null;
+        if (roles[h.id] === 'INSUMO') {
+          const clave = h.nombre.trim().toLowerCase();
+          ingredientId = h.feed_ingredient_id ?? ingredientes.find((i) => i.nombre.trim().toLowerCase() === clave)?.id ?? creados.get(clave)
+            ?? ((await crearIng.mutateAsync({ nombre: h.nombre.trim() })) as { id: string }).id;
+          creados.set(clave, ingredientId);
+        }
+        await alimento.mutateAsync({ categoryId: h.id, ingredientId, isFreight: roles[h.id] === 'FLETE' });
+      }
+      onClose();
+    } catch {
+      setGuardando(false);
+    }
+  };
+  return (
+    <Modal titulo={`Insumos de alimento — ${grupo.nombre}`} onClose={onClose} guardando={guardando} error={alimento.error ?? crearIng.error}
+      puedeGuardar={cambios.length > 0} textoGuardar={cambios.length ? `Guardar ${cambios.length} cambio${cambios.length === 1 ? '' : 's'}` : 'Guardar'}
+      onSubmit={() => { void guardar(); }}>
+      <p className="text-xs text-gray-600">Insumo: se usa en las recetas y se le cargan los kilos de cada compra. Desde noviembre 2026 sus compras (y las de flete) no van al estado de resultados: va el alimento consumido. Los saldos de caja no cambian.</p>
+      <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+        {editables.map((h) => (
+          <div key={h.id} className={`flex items-center justify-between gap-2 py-1.5 text-sm ${h.activo ? '' : 'opacity-60'}`}>
+            <span>{h.nombre}</span>
+            <select value={roles[h.id]} aria-label={`Alimento: ${h.nombre}`} onChange={(e) => setRoles((r) => ({ ...r, [h.id]: e.target.value as Rol }))}
+              className="border border-gray-300 rounded px-2 py-1 text-sm">
+              <option value="NO">No</option><option value="INSUMO">Insumo</option><option value="FLETE">Flete</option>
+            </select>
+          </div>
+        ))}
+      </div>
     </Modal>
   );
 }

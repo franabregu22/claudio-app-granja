@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Pencil, Plus } from 'lucide-react';
 import type { RecipeChange } from '../../../target/alimento';
 import { versionsEffectiveOn, type FeedTypeRow, type FormulaLineRow, type FormulaSection, type FormulaVersionRow } from '../../../target/feed';
+import type { ExpenseCategoryRow } from '../../../target/masters';
 import { getTodayDate } from '../../../utils/dateUtils';
 import { useMasterList, useMasterMutations } from '../../admin/useMasters';
 import { campo, etiqueta, Modal } from '../../caja/Modal';
@@ -10,7 +11,7 @@ import { botonPrimario, botonSecundario, Tabla, Titulo, td, tdR, thL, thR } from
 import { useAlimentoMutations, useAllFeedTypes, useComposition, useRecipeChanges, useVersions } from './useAlimento';
 
 interface Ingrediente { id: string; nombre: string; activo: boolean }
-type Editor = { tipo: 'receta' } | { tipo: 'modificar'; receta: FeedTypeRow } | { tipo: 'batch'; receta: FeedTypeRow } | { tipo: 'ingrediente' } | null;
+type Editor = { tipo: 'receta' } | { tipo: 'modificar'; receta: FeedTypeRow } | { tipo: 'batch'; receta: FeedTypeRow } | null;
 
 /**
  * Recetas (ADMIN). List → versions with their validity and comment → ingredients by section. «Modificar ingredientes»
@@ -32,9 +33,9 @@ export function Recetas() {
   if (tipos.isLoading || versiones.isLoading) return <p className="text-sm text-gray-500">Cargando recetas…</p>;
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap items-center">
         <button className={botonPrimario} onClick={() => setEditor({ tipo: 'receta' })}><Plus className="w-4 h-4 inline -mt-0.5" /> Nueva receta</button>
-        <button className={botonSecundario} onClick={() => setEditor({ tipo: 'ingrediente' })}>Nuevo ingrediente</button>
+        <span className="text-xs text-gray-600">Los ingredientes son las subcategorías marcadas como insumo en Administración → Categorías de gasto.</span>
       </div>
       {lista.map((t) => {
         const vs = delTipo(t.id);
@@ -85,7 +86,6 @@ export function Recetas() {
         )}
       </section>
 
-      {editor?.tipo === 'ingrediente' && <IngredienteModal onClose={() => setEditor(null)} />}
       {editor?.tipo === 'batch' && <BatchModal receta={editor.receta} onClose={() => setEditor(null)} />}
       {editor?.tipo === 'receta' && <RecetaModal onClose={() => setEditor(null)} />}
       {editor?.tipo === 'modificar' && <RecetaModal receta={editor.receta} base={versionsEffectiveOn(delTipo(editor.receta.id), hoy)[0] ?? delTipo(editor.receta.id)[0]}
@@ -193,23 +193,13 @@ function BatchModal({ receta, onClose }: { receta: FeedTypeRow; onClose: () => v
   );
 }
 
-function IngredienteModal({ onClose }: { onClose: () => void }) {
-  const crear = useMasterMutations('feed_ingredient').create;
-  const [n, setN] = useState('');
-  return (
-    <Modal titulo="Nuevo ingrediente" onClose={onClose} guardando={crear.isPending} error={crear.error} puedeGuardar={n.trim() !== ''}
-      onSubmit={() => crear.mutate({ nombre: n.trim() }, { onSuccess: onClose })}>
-      <label className={etiqueta}>Nombre<input type="text" value={n} onChange={(e) => setN(e.target.value)} className={campo} placeholder="Ej: Harina de carne" /></label>
-    </Modal>
-  );
-}
-
 type Fila = { ingredientId: string; kg: string; section: FormulaSection };
 /** New recipe (feed type + v1) or «Modificar ingredientes» (publishes the next version from the one in use). */
 function RecetaModal({ receta, base, ultimaDesde, onClose }: { receta?: FeedTypeRow; base?: FormulaVersionRow; ultimaDesde?: string; onClose: () => void }) {
   const m = useAlimentoMutations();
   const crearTipo = useMasterMutations('feed_type').create;
   const ingredientes = useMasterList<Ingrediente>('feed_ingredient');
+  const categorias = useMasterList<ExpenseCategoryRow>('expense_category');
   const comp = useComposition(base ? [base.id] : []);
   const hoy = getTodayDate();
   const [nombre, setNombre] = useState('');
@@ -226,7 +216,12 @@ function RecetaModal({ receta, base, ultimaDesde, onClose }: { receta?: FeedType
     && completas.every((l) => actuales.some((a) => a.ingredient_id === l.ingredientId && a.quantity_kg === Number(l.kg) && a.section === l.section));
   const fechaOk = !ultimaDesde || desde > ultimaDesde;
   const puede = (!!receta || (nombre.trim() !== '' && Number(batch) > 0)) && completas.length > 0 && completas.length === lineas.length && !repetido && !sinCambios && fechaOk;
-  const activos = (ingredientes.data ?? []).filter((x) => x.activo);
+  // the ingredients offered = the feed ingredients of the ACTIVE expense subcategories marked «insumo» (Categorías de gasto), named as
+  // the subcategory; an ingredient the version being modified already uses stays selectable
+  const enUsoIds = new Set(actuales.map((l) => l.ingredient_id));
+  const vinculados = new Map((categorias.data ?? []).filter((c) => c.activo && c.feed_ingredient_id).map((c) => [c.feed_ingredient_id as string, c.nombre]));
+  const activos = (ingredientes.data ?? []).filter((x) => (x.activo && vinculados.has(x.id)) || enUsoIds.has(x.id))
+    .map((x) => ({ ...x, nombre: vinculados.get(x.id) ?? x.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
   const error = m.publish.error ?? crearTipo.error ?? m.batch.error;
   const guardar = async () => {
     const lines = completas.map((l) => ({ ingredientId: l.ingredientId, quantityKg: Number(l.kg), section: l.section }));
@@ -281,7 +276,7 @@ function RecetaModal({ receta, base, ultimaDesde, onClose }: { receta?: FeedType
       {repetido && <p className="text-xs text-red-700">Hay un ingrediente repetido.</p>}
       {sinCambios && <p className="text-xs text-red-700">No hay cambios en los ingredientes.</p>}
       {!fechaOk && ultimaDesde && <p className="text-xs text-red-700">La fecha debe ser posterior al {fechaDMA(ultimaDesde)} (inicio de la última versión).</p>}
-      {activos.length === 0 && <p className="text-sm text-amber-800">No hay ingredientes activos: crealos con «Nuevo ingrediente».</p>}
+      {activos.length === 0 && <p className="text-sm text-amber-800">No hay insumos de alimento: marcalos en Administración → Categorías de gasto («Marcar insumos de alimento»).</p>}
     </Modal>
   );
 }
