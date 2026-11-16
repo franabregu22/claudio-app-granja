@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
-  assignOperator, closeFlock, createMaster, listCurrentPrices, registerFlock, listFlocks, listMaster, listOperatorAssignments, listProfiles,
-  setAssignmentActive, setPrice, setProfileName, updateMaster, type MasterTable, type PriceList,
+  closeFlock, createMaster, listCurrentPrices, registerFlock, listFlocks, listMaster, listProfiles, setPrice, setProfileName, updateMaster, type MasterTable, type PriceList,
 } from '../../target/masters';
 
 export function useMasterList<Row>(table: MasterTable, order?: string) {
@@ -61,19 +60,4 @@ export function useSetProfileName() {
     mutationFn: (p: Parameters<typeof setProfileName>[1]) => setProfileName(supabase, p),
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ['master', 'perfiles'] }), qc.invalidateQueries({ queryKey: ['commercial'] })]),
   });
-}
-
-export function useOperatorAssignments() {
-  return useQuery({ queryKey: ['master', 'operator_assignments'], queryFn: () => listOperatorAssignments(supabase) });
-}
-
-export function useAssignmentMutations() {
-  const qc = useQueryClient();
-  const onSuccess = () => qc.invalidateQueries({ queryKey: ['master', 'operator_assignments'] });
-  return {
-    assign: useMutation({
-      mutationFn: (p: { operatorId: string; flockId: string; userId: string | null }) => assignOperator(supabase, p), onSuccess,
-    }),
-    setActive: useMutation({ mutationFn: (p: { id: string; activo: boolean }) => setAssignmentActive(supabase, p.id, p.activo), onSuccess }),
-  };
 }

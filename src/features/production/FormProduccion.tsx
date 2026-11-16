@@ -69,7 +69,7 @@ export function FormProduccion({ flocks, onDone }: Props) {
             className="w-full border border-gray-300 rounded px-3 py-2 mt-1 disabled:bg-gray-100" />
         </label>
       </div>
-      {activos.length === 0 && <p className="text-sm text-amber-800">No tenés lotes activos asignados.</p>}
+      {activos.length === 0 && <p className="text-sm text-amber-800">No hay lotes activos.</p>}
 
       <div className="p-4 bg-amber-50 rounded-lg border border-amber-100 grid grid-cols-3 gap-3">
         {campo('Huevos totales', total, setTotal, produccionGuardada)}

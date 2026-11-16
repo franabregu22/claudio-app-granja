@@ -122,7 +122,7 @@ describe('F27-B flock lifecycle goes through RPC 44 / 45 only (ADR-007)', () => 
 
 describe('F27-B migrated files use only the target', () => {
   const FILES = ['AdminApp', 'ClientesAdmin', 'PreciosAdmin', 'LotesAdmin', 'CategoriasAdmin', 'ProveedoresAdmin', 'CuentasAdmin',
-    'AsignacionesAdmin', 'ProyectosAdmin', 'MasterEditor', 'useMasters'].map((f) => resolve(__dirname, '../../src/features/admin',
+    'ProyectosAdmin', 'MasterEditor', 'useMasters'].map((f) => resolve(__dirname, '../../src/features/admin',
     `${f}.${f === 'useMasters' ? 'ts' : 'tsx'}`));
   const LEGACY = ['clientes', 'productos', 'precios_actuales', 'precios_historial', 'lotes', 'categorias_finanzas', 'movimientos_caja', 'dueño', 'colaborador', 'repartidor'];
 

@@ -76,16 +76,8 @@ export function LotesAdmin() {
 
   return (
     <div className="flex flex-col h-full">
-      <MasterEditor
-        table="sheds"
-        title="Galpones"
-        fields={[
-          { key: 'nombre', label: 'Nombre', required: true, placeholder: 'Ej: Galpón 1' },
-          { key: 'capacidad', label: 'Capacidad (aves)', type: 'number', placeholder: 'Capacidad (opcional)' },
-        ]}
-      />
-
-      <div className="px-6 pb-6 space-y-6">
+      {/* Lotes first: which flocks are active is what the owner looks at most; adding a shed is rare (owner 2026-11-16) */}
+      <section className="px-6 pt-6 pb-6 space-y-6">
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-bold text-amber-900">Lotes</h3>
           <button onClick={() => { register.reset(); setMostrarFormulario(!mostrarFormulario); }}
@@ -151,7 +143,19 @@ export function LotesAdmin() {
             )}
           </>
         )}
-      </div>
+      </section>
+
+      <section className="border-t-4 border-amber-200 mt-2">
+        <h3 className="px-6 pt-6 text-lg font-bold text-amber-900">Galpones</h3>
+        <MasterEditor
+          table="sheds"
+          title="Galpones"
+          fields={[
+            { key: 'nombre', label: 'Nombre', required: true, placeholder: 'Ej: Galpón 1' },
+            { key: 'capacidad', label: 'Capacidad (aves)', type: 'number', placeholder: 'Capacidad (opcional)' },
+          ]}
+        />
+      </section>
 
       {salida && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -169,7 +173,6 @@ export function LotesAdmin() {
                 <input type="text" value={salida.motivo} onChange={(e) => setSalida({ ...salida, motivo: e.target.value })}
                   placeholder="Ej: venta de gallinas de descarte" className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1" />
               </label>
-              <p className="text-xs text-gray-500">Al marcar la salida, las asignaciones de operadores del lote quedan inactivas.</p>
               {close.error && <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{errorMessage(close.error)}</div>}
               <div className="flex gap-3 justify-end">
                 <button onClick={() => setSalida(null)} className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium">Cancelar</button>

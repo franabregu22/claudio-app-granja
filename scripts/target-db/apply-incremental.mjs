@@ -104,6 +104,7 @@ const PROFILES = {
   ADR025_POST_0124: './verify-profiles/adr025-post-0124.mjs',
   ADR025_POST_0127: './verify-profiles/adr025-post-0127.mjs',   // 0125–0127 (alimento-balanceado-v1)
   ADR025_POST_0128: './verify-profiles/adr025-post-0128.mjs',   // 0128 (one ingredient per recipe section)
+  ADR025_POST_0129: './verify-profiles/adr025-post-0129.mjs',   // 0129 (production without operator↔flock assignments)
 };
 const t0 = Date.now();
 
