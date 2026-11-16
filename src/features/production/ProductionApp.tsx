@@ -9,6 +9,7 @@ import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
 import { FormProduccion } from './FormProduccion';
 import { useFlockDays, useFlockOptions, useMortalityEvents, useProductionMutations } from './useProduction';
+import { NumeroInput } from '../../components/NumeroInput';
 
 /** «Exportar CSV»: the whole production history (every page), as the Producción list shows it, one file. */
 function ExportarCsv() {
@@ -169,9 +170,9 @@ function RectificarProduccion({ dia, onClose }: { dia: FlockDay; onClose: () => 
       onSubmit={() => rectify.mutate({ productionId: dia.daily_production_id!, eggsTotal: Number(total), eggsBroken: Number(rotos || 0), eggsDirty: Number(sucios || 0), reason: motivo },
         { onSuccess: onClose })}>
       <div className="grid grid-cols-3 gap-2">
-        <label className={etiqueta}>Totales<input type="number" min="0" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} /></label>
-        <label className={etiqueta}>Rotos<input type="number" min="0" value={rotos} onChange={(e) => setRotos(e.target.value)} className={campo} /></label>
-        <label className={etiqueta}>Sucios<input type="number" min="0" value={sucios} onChange={(e) => setSucios(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Totales<NumeroInput min="0" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Rotos<NumeroInput min="0" value={rotos} onChange={(e) => setRotos(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Sucios<NumeroInput min="0" value={sucios} onChange={(e) => setSucios(e.target.value)} className={campo} /></label>
       </div>
       <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
     </Modal>
@@ -190,7 +191,7 @@ function RectificarMortandad({ dia, onClose }: { dia: FlockDay; onClose: () => v
       textoGuardar="Rectificar"
       onSubmit={() => rectifyMortality.mutate({ eventId: evento!.id, deaths: Number(muertes), reason: motivo }, { onSuccess: onClose })}>
       <p className="text-sm text-gray-600">{evento ? `Registrado: ${evento.deaths} aves` : eventos.isLoading ? 'Cargando…' : 'No hay un registro de mortandad para rectificar.'}</p>
-      <label className={etiqueta}>Mortandad correcta<input type="number" min="1" value={muertes} onChange={(e) => setMuertes(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Mortandad correcta<NumeroInput min="1" value={muertes} onChange={(e) => setMuertes(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
     </Modal>
   );
@@ -213,7 +214,7 @@ function AjusteConteo({ flocks, onClose }: { flocks: FlockOption[]; onClose: () 
         </select>
       </label>
       <label className={etiqueta}>Fecha del recuento<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
-      <label className={etiqueta}>Diferencia de aves (+ sobran / − faltan)<input type="number" value={delta} onChange={(e) => setDelta(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Diferencia de aves (+ sobran / − faltan)<NumeroInput value={delta} onChange={(e) => setDelta(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
       <p className="text-xs text-gray-500">La población la calcula el sistema a partir de los registros.</p>
     </Modal>

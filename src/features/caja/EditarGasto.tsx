@@ -15,6 +15,7 @@ import { useAnnulExpense, useExpenseAudit, useRectifyExpense } from './useExpens
 import { useAssignPayableToSupplier } from './usePaymentCalendar';
 import { useAllExpenseSubcategories, useSuppliers } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
+import { NumeroInput } from '../../components/NumeroInput';
 
 
 /**
@@ -100,7 +101,7 @@ export function EditarGastoModal({ compra, vinculos, onClose }: { compra: Purcha
       </label>
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Importe total
-          <input type="number" min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} disabled={!reglas.importe} className={bloqueado(reglas.importe)} />
+          <NumeroInput min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} disabled={!reglas.importe} className={bloqueado(reglas.importe)} />
           {candado(reglas.importe, 'importe')}
         </label>
         <label className={etiqueta}>Fecha

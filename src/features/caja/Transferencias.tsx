@@ -14,6 +14,7 @@ import { SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from './Movimient
 import { Paginador } from './PendientesClasificar';
 import { useClassifyMp, useConfirmPayoutTransfer } from './useMpActivity';
 import { useBankTaxPeriods, useMovementList, useTransferIntentMutations, useTransferIntents, useTreasuryMutations, useUnrelatedTaxes } from './useTreasury';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const ESTADO = { action: 'bg-amber-100 text-amber-900', done: 'bg-green-100 text-green-800', neutral: 'bg-stone-100 text-stone-600' };
 type Lado = { account_id: string; nombre: string } | null;
@@ -152,7 +153,7 @@ export function ImpuestoModal({ transferencia, onClose }: { transferencia: Movem
       <CuentaImpuesto transferencia={{ origen, destino }} value={cuenta} onChange={setCuenta} />
       <ImpuestosRegistrados cercanos={cercanos} transferenciaId={transferencia.operation_id} onAsociado={onClose} />
       <label className={etiqueta}>Monto efectivamente cobrado (del comprobante o del extracto)
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
       {igual && (
         <label className="flex items-center gap-1 text-xs text-amber-900">
@@ -357,7 +358,7 @@ export function TransferenciaModal({ onClose }: { onClose: () => void }) {
       {esMp && ruta === null && origen !== '' && destino !== '' && origen !== destino && <p className="text-xs text-[#8A7A5C]">Mercado Pago solo transfiere con una cuenta bancaria propia.</p>}
       {(!esMp || adelantada) && <>
       <label className={etiqueta}>Monto
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
       <label className={etiqueta}>Fecha
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
@@ -371,7 +372,7 @@ export function TransferenciaModal({ onClose }: { onClose: () => void }) {
         <summary className="text-sm text-[#8A6A2E] cursor-pointer">Impuesto Débitos/Créditos cobrado (opcional)</summary>
         <p className="text-xs text-[#8A7A5C] mt-1">Solo si el banco ya lo cobró y conocés el importe: no se calcula ningún porcentaje. Si llega después en el extracto, se concilia con este registro.</p>
         <label className={etiqueta}>Monto del impuesto
-          <input type="number" min="0" step="0.01" value={impuesto} onChange={(e) => setImpuesto(e.target.value)} className={campo} />
+          <NumeroInput min="0" step="0.01" value={impuesto} onChange={(e) => setImpuesto(e.target.value)} className={campo} />
         </label>
         {origen !== '' && destino !== '' && (
           <CuentaImpuesto transferencia={{ origen: { account_id: origen, nombre: nombre(origen) }, destino: { account_id: destino, nombre: nombre(destino) } }}

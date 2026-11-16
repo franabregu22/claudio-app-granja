@@ -9,6 +9,7 @@ import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta, Modal } from './Modal';
 import { useAssignPayableToSupplier } from './usePaymentCalendar';
 import { useSuppliers } from './useTreasury';
+import { NumeroInput } from '../../components/NumeroInput';
 
 export function usePayables(onlyOpen: boolean) {
   return useQuery({ queryKey: ['treasury', 'payables', onlyOpen], queryFn: () => listPayables(supabase, onlyOpen) });
@@ -50,7 +51,7 @@ export function PagarGastoModal({ gasto, onClose }: { gasto: PayableRow; onClose
     <Modal titulo={`Pagar — ${gasto.concept ?? gasto.category_name}`} onClose={onClose} puedeGuardar={puede} guardando={pagar.isPending}
       error={pagar.error ?? cuentas.error} textoGuardar="Registrar pago" onSubmit={() => pagar.mutate(undefined, { onSuccess: onClose })}>
       <p className="text-xs text-[#6B5D45]">Pendiente <b>{formatoPesos(gasto.pending)}</b> de {formatoPesos(gasto.amount)}. Registra solo la salida de dinero: el gasto ya está en resultados.</p>
-      <label className={etiqueta}>Monto (total o parcial)<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Monto (total o parcial)<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Fecha del pago<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Pagado desde
         <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={campo}>

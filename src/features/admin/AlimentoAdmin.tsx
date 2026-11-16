@@ -8,6 +8,7 @@ import { campo, etiqueta, Modal } from '../caja/Modal';
 import { useFormulaComposition, useFormulaVersions, usePublishFormula } from '../production/useProduction';
 import { MasterEditor } from './MasterEditor';
 import { useMasterList } from './useMasters';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const CATEGORIA: Record<FeedTypeRow['feed_category'], string> = { LAYER: 'Ponedoras', PULLET: 'Recría', BROILER: 'Parrilleros', INPUT: 'Insumo' };
 const UNIDAD: Record<UnitType, string> = { KG: 'Kg', TON: 'Tonelada', LITER: 'Litro', UNIT: 'Unidad', CARTON: 'Maple' };
@@ -138,7 +139,7 @@ function NuevaVersionModal({ tipo, ultima, onClose }: { tipo: FeedTypeRow; ultim
             </select>
           </label>
           <label className={etiqueta}>Cantidad (kg)
-            <input type="number" min="0" step="0.001" value={l.kg} onChange={(e) => set(i, { kg: e.target.value })} className={campo} />
+            <NumeroInput min="0" step="0.001" value={l.kg} onChange={(e) => set(i, { kg: e.target.value })} className={campo} />
           </label>
           <button type="button" onClick={() => setLineas((ls) => ls.filter((_, j) => j !== i))} disabled={lineas.length === 1}
             className="text-xs text-red-700 hover:underline disabled:opacity-40 pb-2">Quitar</button>

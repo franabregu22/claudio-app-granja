@@ -6,6 +6,7 @@ import { PRICE_LISTS, type PriceList } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
 import { formatoPesos } from './helpers';
 import { useOrderCatalog, useOrderMutations } from './useCommercial';
+import { NumeroInput } from '../../components/NumeroInput';
 
 type Modo = 'nuevo' | 'editar' | 'rectificar';
 const LIST_LABEL: Record<PriceList, string> = { MINORISTA: 'Minorista', MAYORISTA: 'Mayorista' };
@@ -132,7 +133,7 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
               <div className="flex items-center gap-2">
                 <button onClick={() => actualizar(l.producto_id, { cantidad: Math.max(1, l.cantidad - 1) })} disabled={mutation.isPending}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-[#A8552E] text-white">−</button>
-                <input type="number" inputMode="numeric" min={1} value={l.cantidad} aria-label={`Cantidad ${l.producto_nombre}`}
+                <NumeroInput inputMode="numeric" min={1} value={l.cantidad} aria-label={`Cantidad ${l.producto_nombre}`}
                   onFocus={(e) => e.target.select()} onChange={(e) => actualizar(l.producto_id, { cantidad: Math.max(0, Number(e.target.value) || 0) })}
                   disabled={mutation.isPending} className="flex-1 text-center font-semibold border border-[#D8CDB0] rounded-md py-1" />
                 <button onClick={() => actualizar(l.producto_id, { cantidad: l.cantidad + 1 })} disabled={mutation.isPending}

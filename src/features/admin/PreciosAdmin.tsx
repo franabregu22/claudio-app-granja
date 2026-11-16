@@ -6,6 +6,7 @@ import { errorMessage } from '../../target/messages';
 import { getTodayDate } from '../../utils/dateUtils';
 import { MasterEditor } from './MasterEditor';
 import { useCurrentPrices, useMasterList, useSetPrice } from './useMasters';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const TYPE_LABEL: Record<ProductType, string> = { VENDIBLE: 'Vendible', INPUT: 'Insumo', BOTH: 'Vendible e insumo' };
 const UNIT_LABEL: Record<UnitType, string> = { UNIT: 'Unidad', CARTON: 'Maple', KG: 'Kg', TON: 'Tonelada', LITER: 'Litro' };
@@ -109,7 +110,7 @@ export function PreciosAdmin() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {modal.actual ? `Precio actual: $${Number(modal.actual.precio).toLocaleString('es-AR')}` : 'Nuevo precio'}
                 </label>
-                <input type="number" min={0} value={nuevoPrecio} onChange={(e) => setNuevoPrecio(e.target.value)} placeholder="Nuevo precio"
+                <NumeroInput min={0} value={nuevoPrecio} onChange={(e) => setNuevoPrecio(e.target.value)} placeholder="Nuevo precio"
                   className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600" />
               </div>
               <div>

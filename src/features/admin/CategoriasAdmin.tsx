@@ -6,6 +6,7 @@ import { errorMessage } from '../../target/messages';
 import { campo, etiqueta, Modal } from '../caja/Modal';
 import { useAlimentoMutations } from '../production/alimento/useAlimento';
 import { useMasterList, useMasterMutations } from './useMasters';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const NATURES: PurchaseNatureValue[] = ['OPERATING', 'REINVESTMENT', 'INVESTMENT'];
 const CHIP = 'text-[11px] px-1.5 py-0.5 rounded';
@@ -138,7 +139,7 @@ function CategoriaModal({ grupo, proximoOrden, onClose }: { grupo?: ExpenseCateg
         </select>
       </label>
       {kind === 'OWNER_WITHDRAWAL' && <p className="text-xs text-gray-500">Retiro de socios: sus subcategorías son los socios; no se ofrecen en compras ni gastos.</p>}
-      <label className={etiqueta}>Orden en la lista<input type="number" min="1" value={orden} onChange={(e) => setOrden(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Orden en la lista<NumeroInput min="1" value={orden} onChange={(e) => setOrden(e.target.value)} className={campo} /></label>
       {grupo && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} /> Activa</label>}
     </Modal>
   );

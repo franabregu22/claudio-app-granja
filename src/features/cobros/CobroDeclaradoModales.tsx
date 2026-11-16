@@ -5,6 +5,7 @@ import { errorMessage } from '../../target/messages';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useActiveClients, useDeclaredCollectionReversal } from '../pedidos/useCommercial';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const campo = 'w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-600';
 
@@ -88,7 +89,7 @@ export function RectificarCobroDeclaradoModal({ cobro, clienteNombre, onClose }:
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="block text-sm font-medium text-gray-700">Importe correcto
-              <input type="number" min="0.01" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={`${campo} mt-1`} />
+              <NumeroInput min="0.01" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={`${campo} mt-1`} />
             </label>
             <label className="block text-sm font-medium text-gray-700">Fecha
               <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`${campo} mt-1`} />

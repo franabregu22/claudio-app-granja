@@ -8,6 +8,7 @@ import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts, useRegisterCollection, useRegisterDeclaredCollection } from '../pedidos/useCommercial';
 import { useTreasuryMutations } from '../caja/useTreasury';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const ESTADO: Record<BalanceState, { texto: string; tono: string }> = {
   DEBE: { texto: 'Debe', tono: 'text-red-600' }, AL_DIA: { texto: 'Al día', tono: 'text-[#6B7A4E]' }, A_FAVOR: { texto: 'A favor', tono: 'text-green-700' },
@@ -94,7 +95,7 @@ export function RegistroPagoModal({ cliente, onClose }: RegistroPagoModalProps) 
       </div>
       <form onSubmit={guardar} className="space-y-4">
         <label className="block text-sm font-medium text-gray-700">Importe a registrar
-          <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={`${campo} mt-1`} placeholder="0" />
+          <NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={`${campo} mt-1`} placeholder="0" />
         </label>
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Forma de cobro">
           {([['CUENTA', 'Dinero en cuenta'], ['CHEQUE', 'Cheque / eCheq']] as const).map(([f, l]) => (

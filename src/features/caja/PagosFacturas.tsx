@@ -16,6 +16,7 @@ import { useUnallocatedPayments } from './usePaymentCalendar';
 import {
   useAllocatePurchasePayment, useAttachInstrumentDocument, useDocumentLinks, useInvoicePaymentDetail, useIssuePurchaseInstruments,
 } from './useInvoicePayments';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const ACEPTA = Object.keys(ATTACHMENT_TYPES).join(',');
 
@@ -147,7 +148,7 @@ export function EmitirChequesModal({ f, reemplaza, onClose }: { f: PurchasePayme
           </div>
           <div className="grid grid-cols-2 gap-2">
             <label className={etiqueta}>Número<input type="text" value={r.numero} onChange={(e) => set(i, { numero: e.target.value })} className={campo} /></label>
-            <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={r.monto} onChange={(e) => set(i, { monto: e.target.value })} className={campo} /></label>
+            <label className={etiqueta}>Monto<NumeroInput min="0" step="0.01" value={r.monto} onChange={(e) => set(i, { monto: e.target.value })} className={campo} /></label>
             <label className={etiqueta}>Emisión<input type="date" value={r.emision} onChange={(e) => set(i, { emision: e.target.value })} className={campo} /></label>
             <label className={etiqueta}>Fecha de pago<input type="date" value={r.vencimiento} onChange={(e) => set(i, { vencimiento: e.target.value })} className={campo} /></label>
           </div>
@@ -195,7 +196,7 @@ export function ImputarPagoModal({ f, onClose }: { f: PurchasePaymentStatusRow; 
         </select>
       </label>
       {opId !== '' && Number(monto) > disponible + 0.005 && <p className="text-xs text-red-700">Supera lo disponible de ese pago ({formatoPesos(disponible)}).</p>}
-      <label className={etiqueta}>Monto a imputar<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Monto a imputar<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
     </Modal>
   );
 }

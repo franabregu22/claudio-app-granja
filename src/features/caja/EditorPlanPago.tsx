@@ -5,6 +5,7 @@ import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { campo, etiqueta } from './Modal';
+import { NumeroInput } from '../../components/NumeroInput';
 
 export type FormaPago = 'UNICO' | 'CUOTAS' | 'CHEQUES';
 interface ChequeForm { tipo: 'CHEQUE' | 'ECHEQ'; numero: string; fecha: string; importe: string; cuenta: string }
@@ -69,7 +70,7 @@ export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: 
       {formaEf === 'CUOTAS' && (
         <div className="space-y-2">
           <div className="grid grid-cols-3 gap-2">
-            <label className={etiqueta}>Cuotas<input type="number" min="2" max="60" value={nCuotas} onChange={(e) => { setNCuotas(e.target.value); reset(); }} className={campo} /></label>
+            <label className={etiqueta}>Cuotas<NumeroInput min="2" max="60" value={nCuotas} onChange={(e) => { setNCuotas(e.target.value); reset(); }} className={campo} /></label>
             <label className={`${etiqueta} col-span-2`}>Primera cuota<input type="date" value={primera} onChange={(e) => { setPrimera(e.target.value); reset(); }} className={campo} /></label>
           </div>
           <select value={frecuencia} onChange={(e) => { setFrecuencia(e.target.value as typeof frecuencia); reset(); }} className={campo} aria-label="Frecuencia">
@@ -82,7 +83,7 @@ export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: 
                 <li key={i} className="flex items-center gap-2 text-sm">
                   <span className="w-6 text-gray-500">{i + 1}.</span>
                   <input type="date" value={c.due_date} onChange={(e) => setEditadas(generadas.map((x, j) => (j === i ? { ...x, due_date: e.target.value } : x)))} className="border border-gray-300 rounded px-2 py-1 flex-1" aria-label={`Fecha cuota ${i + 1}`} />
-                  <input type="number" step="0.01" value={c.amount} onChange={(e) => setEditadas(generadas.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} className="border border-gray-300 rounded px-2 py-1 w-32 text-right" aria-label={`Importe cuota ${i + 1}`} />
+                  <NumeroInput step="0.01" value={c.amount} onChange={(e) => setEditadas(generadas.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} className="border border-gray-300 rounded px-2 py-1 w-32 text-right" aria-label={`Importe cuota ${i + 1}`} />
                 </li>
               ))}
             </ul>
@@ -99,7 +100,7 @@ export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: 
               <input value={c.numero} onChange={(e) => setCheque(i, 'numero', e.target.value)} placeholder="Número" className="col-span-2 border border-gray-300 rounded px-2 py-1" />
               <select value={c.cuenta || bancos[0]?.id || ''} onChange={(e) => setCheque(i, 'cuenta', e.target.value)} className="col-span-2 border border-gray-300 rounded px-1 py-1" aria-label="Cuenta">{bancos.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}</select>
               <input type="date" value={c.fecha} onChange={(e) => setCheque(i, 'fecha', e.target.value)} className="col-span-3 border border-gray-300 rounded px-2 py-1" aria-label="Fecha de débito" title="Fecha de débito" />
-              <input type="number" step="0.01" value={c.importe} onChange={(e) => setCheque(i, 'importe', e.target.value)} placeholder="Importe" className="col-span-2 border border-gray-300 rounded px-2 py-1 text-right" />
+              <NumeroInput step="0.01" value={c.importe} onChange={(e) => setCheque(i, 'importe', e.target.value)} placeholder="Importe" className="col-span-2 border border-gray-300 rounded px-2 py-1 text-right" />
               <button type="button" onClick={() => setCheques(cheques.filter((_, j) => j !== i))} disabled={cheques.length === 1} className="text-gray-400 hover:text-red-600 disabled:opacity-30 justify-self-center" aria-label="Quitar cheque"><Trash2 className="w-4 h-4" /></button>
             </div>
           ))}

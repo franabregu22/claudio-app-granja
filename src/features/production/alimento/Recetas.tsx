@@ -9,6 +9,7 @@ import { campo, etiqueta, Modal } from '../../caja/Modal';
 import { fechaDMA, kgLinea, kgTxt, pctLinea, SECCIONES } from './format';
 import { botonPrimario, botonSecundario, Tabla, Titulo, td, tdR, thL, thR } from './ui';
 import { useAlimentoMutations, useAllFeedTypes, useComposition, useRecipeChanges, useVersions } from './useAlimento';
+import { NumeroInput } from '../../../components/NumeroInput';
 
 interface Ingrediente { id: string; nombre: string; activo: boolean }
 type Editor = { tipo: 'receta' } | { tipo: 'modificar'; receta: FeedTypeRow } | { tipo: 'batch'; receta: FeedTypeRow } | null;
@@ -100,10 +101,10 @@ function describirCambio(h: RecipeChange): string {
   const a = h.after_values ?? {}; const b = h.before_values ?? {};
   switch (h.action) {
     case 'PUBLISH': {
-      const prev = new Map(((a.previous_lines as LineaJson[] | null) ?? []).map((l) => [l.ingredient_id, l]));
+      const prev = new Map(((a.previous_lines as LineaJson[] | null) ?? []).map((l) => [`${l.ingredient_id}:${l.section}`, l]));
       const nuevas = (a.lines as LineaJson[] | null) ?? [];
-      const cambios = nuevas.filter((l) => prev.get(l.ingredient_id)?.quantity_kg !== l.quantity_kg || prev.get(l.ingredient_id)?.section !== l.section).length;
-      const quitados = [...prev.keys()].filter((id) => !nuevas.some((l) => l.ingredient_id === id)).length;
+      const cambios = nuevas.filter((l) => prev.get(`${l.ingredient_id}:${l.section}`)?.quantity_kg !== l.quantity_kg).length;
+      const quitados = [...prev.keys()].filter((k) => !nuevas.some((l) => `${l.ingredient_id}:${l.section}` === k)).length;
       const desde = typeof a.effective_from === 'string' ? fechaDMA(a.effective_from) : '';
       return `Versión v${a.version} desde ${desde}${prev.size ? `: ${cambios} ingrediente(s) nuevo(s) o modificado(s)${quitados ? `, ${quitados} quitado(s)` : ''}` : ' (primera)'}${a.comment ? ` · «${a.comment}»` : ''}`;
     }
@@ -171,7 +172,7 @@ function IngredientesTabla({ lineas, batch, titulo, otra }: { lineas: FormulaLin
             <tr key={`${s.id}-${l.ingredient_id}`}>
               <td className={`${td} pl-6`}>{l.ingredient_name}</td><td className={tdR}>{pctLinea(l.quantity_kg, batch, s.id)}</td>
               <td className={`${tdR} tabular-nums`}>{kgLinea(l.quantity_kg, s.id)}</td>
-              {otra && <td className={`${tdR} tabular-nums`}>{kgLinea(otra.lineas.find((x) => x.ingredient_id === l.ingredient_id)?.quantity_kg ?? 0, s.id)}</td>}
+              {otra && <td className={`${tdR} tabular-nums`}>{kgLinea(otra.lineas.find((x) => x.ingredient_id === l.ingredient_id && x.section === l.section)?.quantity_kg ?? 0, s.id)}</td>}
             </tr>
           )),
         ];
@@ -188,7 +189,7 @@ function BatchModal({ receta, onClose }: { receta: FeedTypeRow; onClose: () => v
     <Modal titulo={`Tamaño estándar del batch — ${receta.nombre}`} onClose={onClose} guardando={m.batch.isPending} error={m.batch.error}
       puedeGuardar={n > 0 && n !== receta.standard_batch_kg} onSubmit={() => m.batch.mutate({ feedTypeId: receta.id, kg: n }, { onSuccess: onClose })}>
       <p className="text-sm text-gray-700">Es el tamaño que aparece por defecto en «Ver recetas» y en Nueva fabricación. Las proporciones no cambian y no se crea una versión nueva.</p>
-      <label className={etiqueta}>Tamaño estándar del batch (kg)<input type="number" min="1" value={kg} onChange={(e) => setKg(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Tamaño estándar del batch (kg)<NumeroInput min="1" value={kg} onChange={(e) => setKg(e.target.value)} className={campo} /></label>
     </Modal>
   );
 }
@@ -211,7 +212,8 @@ function RecetaModal({ receta, base, ultimaDesde, onClose }: { receta?: FeedType
   const lineas: Fila[] = filas ?? actuales.map((l) => ({ ingredientId: l.ingredient_id, kg: String(l.quantity_kg), section: l.section }));
   const setL = (i: number, p: Partial<Fila>) => setFilas(lineas.map((l, j) => (j === i ? { ...l, ...p } : l)));
   const completas = lineas.filter((l) => l.ingredientId && Number(l.kg) > 0);
-  const repetido = new Set(completas.map((l) => l.ingredientId)).size !== completas.length;
+  // [0128] an ingredient may be in Premezcla AND in Macronutrientes, once in each
+  const repetido = new Set(completas.map((l) => `${l.ingredientId}:${l.section}`)).size !== completas.length;
   const sinCambios = !!receta && actuales.length > 0 && completas.length === actuales.length
     && completas.every((l) => actuales.some((a) => a.ingredient_id === l.ingredientId && a.quantity_kg === Number(l.kg) && a.section === l.section));
   const fechaOk = !ultimaDesde || desde > ultimaDesde;
@@ -241,7 +243,7 @@ function RecetaModal({ receta, base, ultimaDesde, onClose }: { receta?: FeedType
       {!receta && <label className={etiqueta}>Nombre<input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} className={campo} placeholder="Ej: Ponedoras - Pre postura" /></label>}
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Vigente desde<input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className={campo} /></label>
-        {!receta && <label className={etiqueta}>Batch estándar (kg)<input type="number" min="1" value={batch} onChange={(e) => setBatch(e.target.value)} className={campo} /></label>}
+        {!receta && <label className={etiqueta}>Batch estándar (kg)<NumeroInput min="1" value={batch} onChange={(e) => setBatch(e.target.value)} className={campo} /></label>}
       </div>
       {receta && !filas && comp.isLoading && <p className="text-xs text-gray-500">Cargando la versión actual…</p>}
       {SECCIONES.map((s) => {
@@ -259,7 +261,7 @@ function RecetaModal({ receta, base, ultimaDesde, onClose }: { receta?: FeedType
                     {activos.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
                   </select>
                 </label>
-                <label className={etiqueta}>Kg<input type="number" min="0" step={s.id === 'PREMIX' ? '0.001' : '0.01'} value={l.kg} placeholder={s.id === 'PREMIX' ? '0,290' : ''}
+                <label className={etiqueta}>Kg<NumeroInput min="0" step={s.id === 'PREMIX' ? '0.001' : '0.01'} value={l.kg} placeholder={s.id === 'PREMIX' ? '0,290' : ''}
                   onChange={(e) => setL(i, { kg: e.target.value })} className={campo} /></label>
                 <span className="flex flex-col items-start pb-1 gap-0.5">
                   <button type="button" onClick={() => setL(i, { section: otra.id })} className="text-[11px] text-[#A8552E] hover:underline whitespace-nowrap">→ {otra.label}</button>
@@ -273,7 +275,7 @@ function RecetaModal({ receta, base, ultimaDesde, onClose }: { receta?: FeedType
       })}
       <p className="text-xs text-gray-600">Total del batch: {kgLinea(completas.reduce((t, l) => t + Number(l.kg), 0), 'PREMIX')}</p>
       <label className={etiqueta}>Comentario de la versión (opcional)<input type="text" value={comentario} onChange={(e) => setComentario(e.target.value)} className={campo} /></label>
-      {repetido && <p className="text-xs text-red-700">Hay un ingrediente repetido.</p>}
+      {repetido && <p className="text-xs text-red-700">Hay un ingrediente repetido dentro de la misma sección.</p>}
       {sinCambios && <p className="text-xs text-red-700">No hay cambios en los ingredientes.</p>}
       {!fechaOk && ultimaDesde && <p className="text-xs text-red-700">La fecha debe ser posterior al {fechaDMA(ultimaDesde)} (inicio de la última versión).</p>}
       {activos.length === 0 && <p className="text-sm text-amber-800">No hay insumos de alimento: marcalos en Administración → Categorías de gasto («Marcar insumos de alimento»).</p>}

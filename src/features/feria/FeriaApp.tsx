@@ -12,6 +12,7 @@ import { campo, etiqueta, Modal } from '../caja/Modal';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { useFeriaClosingMutations, useFeriaClosings, useSessionCash, useSessionMovements, useSessions } from './useFeriaFiscal';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const DIAS = 365;
 const MOVIMIENTO = { DISPATCH: 'Despacho', RETURN: 'Devolución', LOSS: 'Pérdida', ADJUSTMENT: 'Ajuste' } as const;
@@ -222,7 +223,7 @@ function CierreModal({ session, rectificar, onClose }: { session?: SessionRow; r
   };
   const titulo = r ? `Rectificar cierre — ${r.closing_date}` : session ? `Cierre de Feria — ${session.session_date}` : 'Cierre de Feria';
   const montoInput = (label: string, v: string, set: (s: string) => void) => (
-    <label className={etiqueta}>{label}<input type="number" min="0" step="0.01" inputMode="decimal" value={v} onChange={(e) => set(e.target.value)} className={campo} /></label>
+    <label className={etiqueta}>{label}<NumeroInput min="0" step="0.01" inputMode="decimal" value={v} onChange={(e) => set(e.target.value)} className={campo} /></label>
   );
   return (
     <Modal titulo={titulo} onClose={onClose} puedeGuardar={puede} guardando={mutation.isPending} error={mutation.error ?? cuentas.error}

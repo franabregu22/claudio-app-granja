@@ -5,6 +5,7 @@ import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
 import { AlimentoModulo } from './alimento/AlimentoModulo';
 import { useFeedMutations, useFeedTypes, useFlockFeed, useFlockOptions } from './useProduction';
+import { NumeroInput } from '../../components/NumeroInput';
 
 type Accion = 'movimiento' | 'asignacion';
 const MOVIMIENTO: Record<FeedMovementType, string> = {
@@ -85,7 +86,7 @@ function MovimientoModal({ onClose }: { onClose: () => void }) {
         </select>
       </label>
       <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
-      <label className={etiqueta}>Cantidad (kg)<input type="number" min="0" step="0.001" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Cantidad (kg)<NumeroInput min="0" step="0.001" value={cantidad} onChange={(e) => setCantidad(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
     </Modal>
   );

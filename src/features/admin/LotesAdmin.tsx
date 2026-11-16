@@ -5,6 +5,7 @@ import { errorMessage } from '../../target/messages';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { MasterEditor } from './MasterEditor';
 import { useFlockLifecycle, useFlocks, useMasterList } from './useMasters';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const ESTADO_LABEL: Record<FlockRow['estado'], string> = { ACTIVE: 'Activo', RETIRED: 'Retirado', ARCHIVED: 'Archivado' };
 const emptyForm = () => ({ shedId: '', entryDate: getTodayDate(), initialPopulation: '', geneticsLine: '', birthDate: '', supplierId: '' });
@@ -106,7 +107,7 @@ export function LotesAdmin() {
                 <input type="date" value={form.entryDate} max={getTodayDate()} onChange={(e) => setForm({ ...form, entryDate: e.target.value })} className={`${input} mt-1`} required />
               </label>
               <label className="block text-sm font-medium text-gray-700">Aves iniciales
-                <input type="number" min={0} value={form.initialPopulation} onChange={(e) => setForm({ ...form, initialPopulation: e.target.value })}
+                <NumeroInput min={0} value={form.initialPopulation} onChange={(e) => setForm({ ...form, initialPopulation: e.target.value })}
                   placeholder="1000" className={`${input} mt-1`} required />
               </label>
               <label className="block text-sm font-medium text-gray-700">Línea genética

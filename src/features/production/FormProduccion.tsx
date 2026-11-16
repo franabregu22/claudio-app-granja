@@ -3,6 +3,7 @@ import type { FlockOption } from '../../target/production';
 import { errorMessage } from '../../target/messages';
 import { getTodayDate } from '../../utils/dateUtils';
 import { useProductionMutations } from './useProduction';
+import { NumeroInput } from '../../components/NumeroInput';
 
 interface Props {
   flocks: FlockOption[];
@@ -48,7 +49,7 @@ export function FormProduccion({ flocks, onDone }: Props) {
 
   const campo = (label: string, value: string, set: (v: string) => void, disabled = false) => (
     <label className="block text-sm font-medium text-gray-700">{label}
-      <input type="number" inputMode="numeric" min="0" value={value} disabled={disabled} onChange={(e) => set(e.target.value)}
+      <NumeroInput inputMode="numeric" min="0" value={value} disabled={disabled} onChange={(e) => set(e.target.value)}
         onFocus={(e) => e.target.select()} className={`${numero} mt-1 disabled:bg-gray-100`} />
     </label>
   );

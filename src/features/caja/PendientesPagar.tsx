@@ -17,6 +17,7 @@ import { usePayablesDue, usePaymentPlanMutations } from './usePaymentPlan';
 import { useLedgerBalances } from './useTreasury';
 import { useAnnulments } from './useExpenses';
 import { usePlanPago } from './EditorPlanPago';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const TARJETAS: { id: Tarjeta; label: string }[] = [
   { id: 'TOTAL', label: 'Total a pagar' }, { id: 'VENCIDO', label: 'Vencido' }, { id: 'PROX7', label: 'Próximos 7 días' },
@@ -239,7 +240,7 @@ function PagarModal({ r, g, onClose }: { r: PayableDueRow; g: GastoItem | null; 
       {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor registrado: para pagarlo con cheque o eCheq, primero vinculalo a un proveedor (desde el detalle).</p>}
       {medio !== 'CHEQUE' ? (
         <>
-          <label className={etiqueta}>Importe<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+          <label className={etiqueta}>Importe<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
           {n > 0 && n < r.amount && <p className="text-xs text-[#8A7A5C]">Pago parcial: en este vencimiento quedan {formatoPesos(r.amount - n)}.</p>}
           {n > r.amount + 0.005 && <p className="text-xs text-red-700">No puede superar lo pendiente de este vencimiento.</p>}
           <div className="grid grid-cols-2 gap-2">
@@ -257,7 +258,7 @@ function PagarModal({ r, g, onClose }: { r: PayableDueRow; g: GastoItem | null; 
               <input value={c.numero} onChange={(e) => setCheque(i, 'numero', e.target.value)} placeholder="Número" className="col-span-2 border border-gray-300 rounded px-2 py-1" />
               <select value={c.cuenta || bancos[0]?.id || ''} onChange={(e) => setCheque(i, 'cuenta', e.target.value)} className="col-span-2 border border-gray-300 rounded px-1 py-1" aria-label="Cuenta">{bancos.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}</select>
               <input type="date" value={c.fecha} onChange={(e) => setCheque(i, 'fecha', e.target.value)} className="col-span-3 border border-gray-300 rounded px-2 py-1" aria-label="Fecha de pago" />
-              <input type="number" step="0.01" value={c.importe} onChange={(e) => setCheque(i, 'importe', e.target.value)} placeholder="Importe" className="col-span-2 border border-gray-300 rounded px-2 py-1 text-right" />
+              <NumeroInput step="0.01" value={c.importe} onChange={(e) => setCheque(i, 'importe', e.target.value)} placeholder="Importe" className="col-span-2 border border-gray-300 rounded px-2 py-1 text-right" />
               <button type="button" onClick={() => setCheques(cheques.filter((_, j) => j !== i))} disabled={cheques.length === 1} className="text-gray-400 hover:text-red-600 disabled:opacity-30 justify-self-center" aria-label="Quitar cheque"><Trash2 className="w-4 h-4" /></button>
             </div>
           ))}

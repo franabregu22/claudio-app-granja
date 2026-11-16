@@ -12,6 +12,7 @@ import { BloqueoMp, SelectorMovimientoMp, useActividadMp, useEsCuentaMp } from '
 import { useClassifyMp } from './useMpActivity';
 import { FichaProveedor } from './FichaProveedor';
 import { useActiveMaster, useInstruments, useLedgerBalances, useTreasuryMutations } from './useTreasury';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const METODO: Record<SupplierPaymentMethod | InstrumentType, string> = {
   CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'MercadoPago', CHEQUE: 'Cheque', ECHEQ: 'eCheq',
@@ -195,7 +196,7 @@ function PagoProveedorModal({ proveedor, onClose }: { proveedor: SupplierAccount
       ))}
       {!esMp && <>
       <label className={etiqueta}>Monto
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
       <label className={etiqueta}>{esInstrumento ? 'Fecha de emisión' : 'Fecha del pago'}
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />

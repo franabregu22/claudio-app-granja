@@ -20,6 +20,7 @@ import { usePlanPago } from './EditorPlanPago';
 import { SelectorEtiqueta } from './Etiquetas';
 import { useEtiquetaMutations } from './useEtiquetas';
 import { usePaymentPlanMutations } from './usePaymentPlan';
+import { NumeroInput } from '../../components/NumeroInput';
 
 /**
  * Compras y fletes (F27-D; Phase 27 acceptance fixes D-WALK-3/4/5/6). The forms of a purchase and of freight; the list of purchases is
@@ -136,7 +137,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
       {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo después con cheque o eCheq habrá que vincularlo a un proveedor.</p>}
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Importe total
-          <input type="number" min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
+          <NumeroInput min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
         </label>
         <label className={etiqueta}>Fecha
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
@@ -276,12 +277,12 @@ export function RectificarCompraModal({ compra, onClose }: { compra: PurchaseRow
       onSubmit={() => rectifyPurchase.mutate({ purchaseId: compra.id, amountNet: neto === '' ? Number(total) : Number(neto), amountTotal: Number(total), lines: lineasEnvio(), reason: motivo },
         { onSuccess: onClose })}>
       <label className={etiqueta}>Total
-        <input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
       </label>
       <details className="border border-[#E4DCC8] rounded-lg p-2">
         <summary className="text-sm text-[#8A6A2E] cursor-pointer">Más datos</summary>
         <label className={etiqueta}>Neto (si es distinto del total)
-          <input type="number" min="0" step="0.01" value={neto} placeholder={total} onChange={(e) => setNeto(e.target.value)} className={campo} />
+          <NumeroInput min="0" step="0.01" value={neto} placeholder={total} onChange={(e) => setNeto(e.target.value)} className={campo} />
         </label>
       </details>
       {sinLineas && <p className="text-xs text-gray-500">La compra no tiene ítems: se registra como un único ítem "Compra" por el total.</p>}
@@ -290,10 +291,10 @@ export function RectificarCompraModal({ compra, onClose }: { compra: PurchaseRow
           <p className="text-xs font-medium text-gray-700">{l.descripcion} ({l.unit_type})</p>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-gray-600">Cantidad
-              <input type="number" min="0" step="0.0001" value={l.cantidad} onChange={(e) => set(i, 'cantidad', e.target.value)} className={campo} />
+              <NumeroInput min="0" step="0.0001" value={l.cantidad} onChange={(e) => set(i, 'cantidad', e.target.value)} className={campo} />
             </label>
             <label className="text-xs text-gray-600">Precio unitario
-              <input type="number" min="0" step="0.01" value={l.precio_unitario} onChange={(e) => set(i, 'precio_unitario', e.target.value)} className={campo} />
+              <NumeroInput min="0" step="0.01" value={l.precio_unitario} onChange={(e) => set(i, 'precio_unitario', e.target.value)} className={campo} />
             </label>
           </div>
         </div>
@@ -327,7 +328,7 @@ export function FleteModal({ onClose }: { onClose: () => void }) {
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
       </label>
       <label className={etiqueta}>Monto
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
       <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={setCategoriaId} campo={campo} etiqueta={etiqueta} />
       <label className={etiqueta}>Transportista (opcional)
@@ -361,7 +362,7 @@ export function AsignarFleteModal({ purchaseId, fletes, onClose }: { purchaseId:
         </select>
       </label>
       <label className={etiqueta}>Monto a asignar
-        <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
     </Modal>
   );
@@ -391,8 +392,8 @@ function DatosFiscales({ value, onChange }: { value: FiscalForm; onChange: (v: F
         {value.tipo !== '' && (
           <>
             <div className="grid grid-cols-2 gap-2">
-              <label className={etiqueta}>Neto del comprobante<input type="number" min="0" step="0.01" value={value.neto} onChange={(e) => set({ neto: e.target.value })} className={campo} /></label>
-              <label className={etiqueta}>Total del comprobante<input type="number" min="0" step="0.01" value={value.total} onChange={(e) => set({ total: e.target.value })} className={campo} /></label>
+              <label className={etiqueta}>Neto del comprobante<NumeroInput min="0" step="0.01" value={value.neto} onChange={(e) => set({ neto: e.target.value })} className={campo} /></label>
+              <label className={etiqueta}>Total del comprobante<NumeroInput min="0" step="0.01" value={value.total} onChange={(e) => set({ total: e.target.value })} className={campo} /></label>
             </div>
             {value.componentes.map((c, i) => (
               <div key={i} className="grid grid-cols-4 gap-2 items-end">
@@ -401,9 +402,9 @@ function DatosFiscales({ value, onChange }: { value: FiscalForm; onChange: (v: F
                     {TAX_KINDS.map((k) => <option key={k} value={k}>{IMPUESTO[k]}</option>)}
                   </select>
                 </label>
-                <label className="text-xs text-gray-600">Base<input type="number" min="0" step="0.01" value={c.base} onChange={(e) => setComp(i, { base: e.target.value })} className={campo} /></label>
-                <label className="text-xs text-gray-600">Alícuota %<input type="number" min="0" step="0.01" value={c.alicuota} onChange={(e) => setComp(i, { alicuota: e.target.value })} className={campo} /></label>
-                <label className="text-xs text-gray-600">Importe<input type="number" min="0" step="0.01" value={c.importe} onChange={(e) => setComp(i, { importe: e.target.value })} className={campo} /></label>
+                <label className="text-xs text-gray-600">Base<NumeroInput min="0" step="0.01" value={c.base} onChange={(e) => setComp(i, { base: e.target.value })} className={campo} /></label>
+                <label className="text-xs text-gray-600">Alícuota %<NumeroInput min="0" step="0.01" value={c.alicuota} onChange={(e) => setComp(i, { alicuota: e.target.value })} className={campo} /></label>
+                <label className="text-xs text-gray-600">Importe<NumeroInput min="0" step="0.01" value={c.importe} onChange={(e) => setComp(i, { importe: e.target.value })} className={campo} /></label>
               </div>
             ))}
             <button type="button" onClick={() => set({ componentes: [...value.componentes, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '' }] })}

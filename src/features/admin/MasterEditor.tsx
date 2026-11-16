@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Pencil, Plus } from 'lucide-react';
 import type { MasterTable } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
+import { NumeroInput } from '../../components/NumeroInput';
 import { useMasterList, useMasterMutations } from './useMasters';
 
 export interface FieldDef {
@@ -50,8 +51,11 @@ function FieldInput({ f, value, onChange }: { f: FieldDef; value: string; onChan
       </select>
     );
   }
+  if (f.type === 'number') {
+    return <NumeroInput value={value} onChange={(e) => onChange(e.target.value)} placeholder={f.placeholder ?? f.label} aria-label={f.label} className={cls} />;
+  }
   return (
-    <input type={f.type === 'number' ? 'number' : 'text'} value={value} onChange={(e) => onChange(e.target.value)}
+    <input type="text" value={value} onChange={(e) => onChange(e.target.value)}
       placeholder={f.placeholder ?? f.label} aria-label={f.label} className={cls} />
   );
 }

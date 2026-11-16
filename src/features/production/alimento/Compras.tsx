@@ -4,6 +4,7 @@ import { campo, etiqueta, Modal } from '../../caja/Modal';
 import { fechaCorta, fechaDMA, kgTxt, pesos } from './format';
 import { botonPrimario, Tabla, Titulo, td, tdR, thL, thR } from './ui';
 import { useAlimentoMutations, useFeedFreights, useFeedPurchases } from './useAlimento';
+import { NumeroInput } from '../../../components/NumeroInput';
 
 type Filtro = 'TODAS' | 'SIN_KG' | 'FLETE';
 
@@ -79,7 +80,7 @@ function KgModal({ compra, onClose }: { compra: FeedPurchase; onClose: () => voi
       puedeGuardar={n > 0 && (n !== compra.quantity_kg || sinFlete !== compra.no_freight)}
       onSubmit={() => m.kg.mutate({ purchaseId: compra.purchase_id, kg: n, noFreight: sinFlete }, { onSuccess: onClose })}>
       <p className="text-sm text-gray-700">{compra.supplier_name ?? '—'} · {pesos(compra.cost_amount)}{compra.invoice_a ? ' sin IVA (Factura A)' : ''}</p>
-      <label className={etiqueta}>Kilos comprados<input type="number" min="0" step="0.001" value={kg} onChange={(e) => setKg(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Kilos comprados<NumeroInput min="0" step="0.001" value={kg} onChange={(e) => setKg(e.target.value)} className={campo} /></label>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sinFlete} disabled={compra.freight_amount > 0} onChange={(e) => setSinFlete(e.target.checked)} />
         Confirmar flete $0 (vino sin flete o el flete está incluido en el precio)</label>
       {n > 0 && <p className="text-xs text-gray-600">Precio/kg: {pesos(compra.cost_amount / n)}</p>}
@@ -117,13 +118,13 @@ function FleteModal({ compras, fletes, guardando, error, onClose, onListo, onGua
         <label className="flex items-center gap-1"><input type="radio" checked={modo === 'KG'} onChange={() => setModo('KG')} /> Proporcional por kg</label>
         <label className="flex items-center gap-1"><input type="radio" checked={modo === 'MANUAL'} onChange={() => setModo('MANUAL')} /> Manual</label>
       </div>
-      {modo === 'KG' && elegido && <label className={etiqueta}>Monto a repartir ($)<input type="number" min="0" max={saldo} step="0.01" value={monto ?? String(saldo)} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>}
+      {modo === 'KG' && elegido && <label className={etiqueta}>Monto a repartir ($)<NumeroInput min="0" max={saldo} step="0.01" value={monto ?? String(saldo)} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>}
       <div className="space-y-1 text-sm">
         {compras.map((c) => (
           <div key={c.purchase_root_id} className="grid grid-cols-[1fr_8rem] gap-2 items-center">
             <span>{c.ingredient_nombre} · {fechaCorta(c.economic_date)} · {kgTxt(c.quantity_kg)}</span>
             {modo === 'KG' ? <span className="text-right">{pesos(partes[c.purchase_root_id] ?? 0)}</span> : (
-              <input type="number" min="0" step="0.01" aria-label={`Flete ${c.ingredient_nombre}`} value={manual[c.purchase_root_id] ?? ''}
+              <NumeroInput min="0" step="0.01" aria-label={`Flete ${c.ingredient_nombre}`} value={manual[c.purchase_root_id] ?? ''}
                 onChange={(e) => setManual((x) => ({ ...x, [c.purchase_root_id]: e.target.value }))} className="border border-gray-300 rounded px-2 py-1 text-right" />
             )}
           </div>

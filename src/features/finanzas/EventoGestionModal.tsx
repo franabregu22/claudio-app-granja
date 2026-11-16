@@ -11,6 +11,7 @@ import { useAllExpenseSubcategories, useExpenseGroups } from '../caja/useTreasur
 import { socios } from '../../target/expenseCategories';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
+import { NumeroInput } from '../../components/NumeroInput';
 
 /** User-facing names (D-FIN-1 / D-FIN-2). The backend types and the P&L lines are unchanged (ADR-004 D7–D9). */
 export const EVENTO_LABEL: Record<ManagementEventType, string> = { RETIRO: 'Retiro de socios', RESERVA_INTERNA: 'Reserva interna' };
@@ -77,7 +78,7 @@ export function EventoGestionModal({ tipo, onClose }: { tipo: ManagementEventTyp
       ))}
       {!esMp && <>
         <label className={etiqueta}>Fecha<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
-        <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Monto<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
       </>}
       {compensables.length > 0 && (
         <label className={etiqueta}>{tipo === 'RETIRO' ? 'Devolución de un retiro anterior (opcional)' : 'Libera una reserva anterior (opcional)'}

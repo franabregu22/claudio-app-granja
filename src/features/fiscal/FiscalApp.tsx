@@ -15,6 +15,7 @@ import { useFiscalDocuments, useFiscalMutations, useFiscalPayments, useFiscalPer
 import type { FiscalPeriodRow } from '../../target/fiscal';
 import { Comprobantes } from '../caja/Comprobantes';
 import { useDocumentLinks } from '../caja/useInvoicePayments';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const TIPO: Record<FiscalDocumentType, string> = {
   INVOICE_A: 'Factura A', INVOICE_B: 'Factura B', INVOICE_C: 'Factura C', CREDIT_NOTE: 'Nota de crédito', DEBIT_NOTE: 'Nota de débito', RECEIPT: 'Recibo', OTHER: 'Otro',
@@ -215,8 +216,8 @@ function DocumentoModal({ onClose }: { onClose: () => void }) {
         <label className={etiqueta}>Número (opcional)<input type="text" inputMode="numeric" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="00004321" className={campo} /></label>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Neto<input type="number" min="0" step="0.01" value={neto} onChange={(e) => setNeto(e.target.value)} className={campo} /></label>
-        <label className={etiqueta}>Total<input type="number" min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Neto<NumeroInput min="0" step="0.01" value={neto} onChange={(e) => setNeto(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Total<NumeroInput min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} /></label>
       </div>
       <div>
         <div className="flex items-center justify-between">
@@ -229,9 +230,9 @@ function DocumentoModal({ onClose }: { onClose: () => void }) {
             <select value={c.tax_kind} onChange={(e) => setComp(i, { tax_kind: e.target.value as TaxKind })} className={campo}>
               {TAX_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
             </select>
-            <label className="text-xs text-gray-600">Base<input type="number" min="0" step="0.01" value={c.base_amount} onChange={(e) => setComp(i, { base_amount: Number(e.target.value) })} className={campo} /></label>
-            <label className="text-xs text-gray-600">Alícuota %<input type="number" min="0" step="0.01" value={c.rate_applied} onChange={(e) => setComp(i, { rate_applied: Number(e.target.value) })} className={campo} /></label>
-            <label className="text-xs text-gray-600">Impuesto<input type="number" min="0" step="0.01" value={c.tax_amount} onChange={(e) => setComp(i, { tax_amount: Number(e.target.value) })} className={campo} /></label>
+            <label className="text-xs text-gray-600">Base<NumeroInput min="0" step="0.01" value={c.base_amount} onChange={(e) => setComp(i, { base_amount: Number(e.target.value) })} className={campo} /></label>
+            <label className="text-xs text-gray-600">Alícuota %<NumeroInput min="0" step="0.01" value={c.rate_applied} onChange={(e) => setComp(i, { rate_applied: Number(e.target.value) })} className={campo} /></label>
+            <label className="text-xs text-gray-600">Impuesto<NumeroInput min="0" step="0.01" value={c.tax_amount} onChange={(e) => setComp(i, { tax_amount: Number(e.target.value) })} className={campo} /></label>
           </div>
         ))}
         <p className="text-xs text-gray-500 mt-1">Cargá el impuesto tal como figura en el comprobante.</p>
@@ -262,7 +263,7 @@ function ObligacionModal({ onClose }: { onClose: () => void }) {
         <label className={etiqueta}>Período<input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={campo} /></label>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>Monto<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
         <label className={etiqueta}>Vencimiento (opcional)<input type="date" value={vence} onChange={(e) => setVence(e.target.value)} className={campo} /></label>
       </div>
       <div>
@@ -274,7 +275,7 @@ function ObligacionModal({ onClose }: { onClose: () => void }) {
         {cuotas.map((c, i) => (
           <div key={i} className="grid grid-cols-3 gap-2 mt-2 items-end">
             <p className="text-sm text-gray-700 pb-2">Cuota {c.installment_number}</p>
-            <label className="text-xs text-gray-600">Monto<input type="number" min="0" step="0.01" value={c.amount} onChange={(e) => setCuota(i, { amount: Number(e.target.value) })} className={campo} /></label>
+            <label className="text-xs text-gray-600">Monto<NumeroInput min="0" step="0.01" value={c.amount} onChange={(e) => setCuota(i, { amount: Number(e.target.value) })} className={campo} /></label>
             <label className="text-xs text-gray-600">Vence<input type="date" value={c.due_date ?? ''} onChange={(e) => setCuota(i, { due_date: e.target.value })} className={campo} /></label>
           </div>
         ))}
@@ -307,7 +308,7 @@ function PagoModal({ obligacion, onClose }: { obligacion: ObligationRow; onClose
           </select>
         </label>
       )}
-      <label className={etiqueta}>Monto<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Monto<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Fecha del pago<input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Cuenta de la que sale el dinero
         <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)} className={campo}>

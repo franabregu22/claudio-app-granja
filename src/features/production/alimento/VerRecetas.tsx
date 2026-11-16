@@ -3,6 +3,7 @@ import { versionsEffectiveOn } from '../../../target/feed';
 import { getTodayDate } from '../../../utils/dateUtils';
 import { escalar, fechaDMA, kgLinea, kgTxt, SECCIONES } from './format';
 import { useAllFeedTypes, useComposition, useVersions } from './useAlimento';
+import { NumeroInput } from '../../../components/NumeroInput';
 
 /** «Ver recetas» (ADMIN and OPERATOR, read-only): active recipes, the version in force today, kg for a batch — the standard one by default. */
 export function VerRecetas() {
@@ -31,7 +32,7 @@ export function VerRecetas() {
                 {v.comment && <p className="text-xs italic text-gray-600">«{v.comment}»</p>}
               </div>
               <label className="text-xs text-gray-700 text-right">Batch (kg)
-                <input type="number" min="1" step="1" inputMode="numeric" placeholder={String(t.standard_batch_kg)} value={batch[t.id] ?? ''}
+                <NumeroInput min="1" step="1" inputMode="numeric" placeholder={String(t.standard_batch_kg)} value={batch[t.id] ?? ''}
                   onChange={(e) => setBatch((b) => ({ ...b, [t.id]: e.target.value }))} className="block border border-gray-300 rounded px-2 py-1 w-24 mt-0.5 text-right" />
               </label>
             </div>
@@ -41,7 +42,7 @@ export function VerRecetas() {
                 <div key={s.id} className="mt-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#8A6A2E]">{s.label}</p>
                   <ul className="divide-y divide-amber-100">
-                    {ls.map((l) => <li key={l.ingredient_id} className="flex justify-between py-1.5"><span>{l.ingredient_name}</span><span className="font-semibold tabular-nums">{kgLinea(l.quantity_kg, s.id)}</span></li>)}
+                    {ls.map((l) => <li key={`${s.id}-${l.ingredient_id}`} className="flex justify-between py-1.5"><span>{l.ingredient_name}</span><span className="font-semibold tabular-nums">{kgLinea(l.quantity_kg, s.id)}</span></li>)}
                   </ul>
                 </div>
               );

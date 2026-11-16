@@ -11,6 +11,7 @@ import { campo, etiqueta, Modal } from '../caja/Modal';
 import { useClients } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
 import { useAllocationLookup, useMPAction, useReceipt, useReceipts } from './useMP';
+import { NumeroInput } from '../../components/NumeroInput';
 
 /** Axis A and axis B are always two separate badges (§1.4); neither is derived from the other. */
 export function AxisBadges({ a, b, reasons }: { a: string; b: string; reasons?: string[] }) {
@@ -176,7 +177,7 @@ function RevertirModal({ movementId, onClose }: { movementId: number; onClose: (
           {(asignaciones.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.effective_date} · {nombre(a.cliente_id)} · {formatoPesos(a.amount)}</option>)}
         </select>
       </label>
-      <label className={etiqueta}>Monto a revertir<input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+      <label className={etiqueta}>Monto a revertir<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
       <label className={etiqueta}>Motivo<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
     </Modal>
   );

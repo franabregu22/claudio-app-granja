@@ -5,6 +5,7 @@ import { useProfileNames } from '../useProduction';
 import { etiquetaMes, fechaDMA, finDeMes, kgTxt, mesDe, meses } from './format';
 import { botonPrimario, Tabla, Titulo, td, tdR, thL, thR } from './ui';
 import { useAlimentoMutations, useAllFeedTypes, useFeedMonths, useStockPeriods } from './useAlimento';
+import { NumeroInput } from '../../../components/NumeroInput';
 
 /** The stock is counted from November 2026 (owner 2026-11-16: stock at 31/10 = 0). */
 export const PRIMER_MES = '2026-11-01';
@@ -98,7 +99,7 @@ function CierreModal({ periodo, tipos, onClose }: { periodo: string; tipos: { id
       <p className="text-sm text-gray-700">Stock físico al {fechaDMA(finDeMes(periodo))}. Al cerrar, no se pueden registrar ni editar fabricaciones de {etiquetaMes(periodo)}.</p>
       {tipos.map((t) => (
         <label key={t.id} className={etiqueta}>Stock final {t.nombre} (kg)
-          <input type="number" min="0" step="0.1" value={finales[t.id] ?? ''} onChange={(e) => setFinales((f) => ({ ...f, [t.id]: e.target.value }))} className={campo} />
+          <NumeroInput min="0" step="0.1" value={finales[t.id] ?? ''} onChange={(e) => setFinales((f) => ({ ...f, [t.id]: e.target.value }))} className={campo} />
         </label>
       ))}
       <label className={etiqueta}>Comentario (opcional)<input type="text" value={comentario} onChange={(e) => setComentario(e.target.value)} className={campo} /></label>

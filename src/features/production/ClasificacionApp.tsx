@@ -6,6 +6,7 @@ import { shiftDate } from '../../target/production';
 import { getTodayDate } from '../../utils/dateUtils';
 import { campo, etiqueta, Modal } from '../caja/Modal';
 import { useClassificationDays, useClassificationSessions, useGrades, useRectifyClassification, useRegisterClassification } from './useProduction';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const DIAS = 14;
 const hora = (ts: string) => new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
@@ -25,7 +26,7 @@ function GradosInput({ grados, entrada, onChange }: { grados: GradeRow[]; entrad
           <div key={g.id} className="block text-sm font-medium text-gray-700">
             <span>{g.nombre}</span>
             <div className="flex gap-2 mt-1">
-              <input type="number" inputMode="numeric" min="0" aria-label={`${g.nombre} cantidad`} value={v.cantidad} onFocus={(e) => e.target.select()}
+              <NumeroInput inputMode="numeric" min="0" aria-label={`${g.nombre} cantidad`} value={v.cantidad} onFocus={(e) => e.target.select()}
                 onChange={(e) => onChange({ ...entrada, [g.id]: { ...v, cantidad: e.target.value } })}
                 className="w-full border border-gray-300 rounded px-3 py-2 text-lg" />
               <select aria-label={`${g.nombre} unidad`} value={v.unidad} onChange={(e) => onChange({ ...entrada, [g.id]: { ...v, unidad: e.target.value as EntryUnit } })}

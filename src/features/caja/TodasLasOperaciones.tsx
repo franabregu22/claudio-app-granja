@@ -19,6 +19,7 @@ import { usePurchaseAttachments } from './useInvoicePayments';
 import { useOperationList, useOperationTimeline, usePayFromRow } from './useOperations';
 import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, useSuppliers, useTransferIntents } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
+import { NumeroInput } from '../../components/NumeroInput';
 
 const CHIP = 'text-xs px-2 py-0.5 rounded whitespace-nowrap';
 const TONO_ESTADO: Record<OperationEstado, string> = { PENDIENTE: 'bg-amber-100 text-amber-900', COMPLETADA: 'bg-green-100 text-green-800' };
@@ -369,7 +370,7 @@ function PagarDesdeFilaModal({ r, cuentas, onClose, onPagado }: {
         o eCheq, o por Mercado Pago, usá su circuito propio.
       </p>
       <label className={etiqueta}>Importe
-        <input type="number" min="0" step="0.01" max={maximo} value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.01" max={maximo} value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} />
       </label>
       {importe > maximo && <p className="text-xs text-red-700">No puede superar lo pendiente ({formatoPesos(maximo)}).</p>}
       {importe > 0 && importe < maximo && <p className="text-xs text-[#8A7A5C]">Pago parcial: quedará pendiente {formatoPesos(maximo - importe)}.</p>}

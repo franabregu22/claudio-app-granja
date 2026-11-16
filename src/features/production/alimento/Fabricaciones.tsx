@@ -9,6 +9,7 @@ import { useProfileNames } from '../useProduction';
 import { fechaDMA, kgTxt, mesDe } from './format';
 import { botonPrimario, Tabla, Titulo, td, tdR, thL, thR } from './ui';
 import { useAlimentoMutations, useAllFeedTypes, useFabricaciones, useStockPeriods, useVersions } from './useAlimento';
+import { NumeroInput } from '../../../components/NumeroInput';
 
 /**
  * Fabricaciones (ADMIN and OPERATOR). Register: date (past allowed while its stock month is open), one recipe/version
@@ -139,7 +140,7 @@ function FabricacionModal({ registro, cerrado, onClose }: { registro: Manufactur
         </label>
       )}
       <label className={etiqueta}>Kilos
-        <input type="number" min="0" step="0.1" value={kilos} placeholder={String(kgSugerido)} onChange={(e) => setKilos(e.target.value)} className={campo} />
+        <NumeroInput min="0" step="0.1" value={kilos} placeholder={String(kgSugerido)} onChange={(e) => setKilos(e.target.value)} className={campo} />
       </label>
       <label className={etiqueta}>Comentario (opcional)<input type="text" value={comentario} onChange={(e) => setComentario(e.target.value)} className={campo} /></label>
       {actual && <label className={etiqueta}>Motivo del cambio<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} placeholder="Ej: eran 400 kg" /></label>}
