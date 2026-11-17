@@ -120,7 +120,7 @@ export function ProductionApp() {
                 className="underline hover:text-[#A8552E]">Limpiar filtros</button>
             )}
           </div>
-          <div className="w-full bg-white rounded-lg border border-amber-200 overflow-x-auto">
+          <div className="relative w-full bg-white rounded-lg border border-amber-200 overflow-x-auto">
             <table className="w-full text-xs md:text-sm">
               <thead className="border-b border-amber-200">
                 <tr>
@@ -151,7 +151,7 @@ export function ProductionApp() {
                   <th className={`${TH} text-right`}>Mortandad</th>
                   <th className={`${TH} text-right`}>Aves</th>
                   <th className={`${TH} text-left w-full`}>Notas</th>
-                  <th className={`${TH} text-center`}><span className="sr-only">Acción</span></th>
+                  <th className={`${TH} text-center`} aria-label="Acción" />
                 </tr>
               </thead>
               <tbody>
@@ -324,7 +324,7 @@ function ConteoAves({ flocks, onClose }: { flocks: FlockOption[]; onClose: () =>
           {conteos.isLoading ? <p className="text-xs text-gray-500">Cargando…</p> : (conteos.data ?? []).length === 0 ? (
             <p className="text-xs text-gray-500">Todavía no hay conteos.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="min-w-full text-xs">
                 <thead><tr className="text-left text-amber-900">
                   <th className="px-1 py-1">Fecha</th><th className="px-1 py-1 text-right">Contadas</th><th className="px-1 py-1 text-right">Sistema</th>

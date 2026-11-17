@@ -72,6 +72,9 @@ describe('0131 — Producción screen', () => {
   it('the whole table on a phone: no column hidden by width', () => {
     expect(app).not.toMatch(/hidden (sm|md|lg|xl):table-cell/);
     expect(app).toMatch(/overflow-x-auto/);
+    // nothing escapes the table's own scroll (an absolute sr-only label widened the page on Android and pushed «Nuevo» off screen)
+    expect(app).toMatch(/className="relative w-full bg-white rounded-lg border border-amber-200 overflow-x-auto"/);
+    expect(app).not.toMatch(/sr-only/);
     // all the page's rows visible, then the pages (no inner vertical scroll)
     expect(app).not.toMatch(/max-h-\[calc/);
   });
