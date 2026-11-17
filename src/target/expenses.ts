@@ -13,7 +13,7 @@
  * refuses what would break payments, cheques, Mercado Pago links or fiscal documents. Nothing is computed here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { callRpc, readView } from './db';
+import { callRpc, readTable, readView } from './db';
 import { FISCAL_VACIO, type FiscalForm, type PurchaseFiscalInput } from './fiscal';
 import type { PurchaseNatureValue } from './masters';
 import { payPendingExpense } from './payables';
@@ -176,6 +176,17 @@ export interface AnulacionRow {
 }
 export function anularGasto(client: SupabaseClient, p: { purchaseId: string; reason: string; idempotencyKey: string }) {
   return callRpc<{ replayed: boolean; purchase_root_id: string }>(client, 'annul_expense', { p_purchase_id: p.purchaseId, p_reason: p.reason.trim(), p_idempotency_key: p.idempotencyKey });
+}
+/** 0130: the payment of an expense without supplier (cash / bank) is reversed — the expense is pending again, the money back. */
+export function revertirPago(client: SupabaseClient, p: { purchaseId: string; operationId: number; reason: string; idempotencyKey: string }) {
+  return callRpc<{ replayed: boolean; kind: 'AT_REGISTRATION' | 'PAYABLE_PAYMENT'; reversal_operation_id: number }>(client, 'reverse_expense_payment', {
+    p_purchase_id: p.purchaseId, p_payment_operation_id: p.operationId, p_reason: p.reason.trim(), p_idempotency_key: p.idempotencyKey,
+  });
+}
+/** The payment operations already reversed (0130). */
+export async function listPagosRevertidos(client: SupabaseClient): Promise<Set<number>> {
+  const rows = await readTable<{ payment_operation_id: number }>(client, 'expense_payment_reversal', (q) => q, 'payment_operation_id');
+  return new Set(rows.map((r) => Number(r.payment_operation_id)));
 }
 export async function listAnulaciones(client: SupabaseClient): Promise<AnulacionRow[]> {
   const rows = await readView<AnulacionRow>(client, 'fin_expense_annulments', (q) => q.order('created_at', { ascending: false }).limit(200));

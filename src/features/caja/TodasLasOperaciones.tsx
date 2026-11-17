@@ -1,4 +1,4 @@
-import { ArrowLeftRight, History, MoreHorizontal } from 'lucide-react';
+import { ArrowLeftRight, History, MoreHorizontal, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import { movementAccounts, type MovementRow } from '../../target/movementHistory';
@@ -19,6 +19,7 @@ import { campo, etiqueta, Modal } from './Modal';
 import { ImpuestoModal, ImpuestoPorPeriodo, TransferenciaModal, TransferenciasAnticipadas, VincularAnticipada } from './Transferencias';
 import { usePurchaseAttachments } from './useInvoicePayments';
 import { useOperationList, useOperationTimeline, usePayFromRow } from './useOperations';
+import { usePagosRevertidos, useRevertirPago } from './useExpenses';
 import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, useSuppliers, useTransferIntents } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
 import { NumeroInput } from '../../components/NumeroInput';
@@ -72,7 +73,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const [texto, setTexto] = useState('');
   const tags = useEtiquetasDeGastos();   // 0127: purchase id → its tag (the column «Etiqueta»)
   const [pagina, setPagina] = useState(0);
-  const [detalle, setDetalle] = useState<OperationRow | null>(null);   // owner 2026-11-17: the full detail opens in a window («⋯»)
+  const [detalle, setDetalle] = useState<OperationRow | null>(null);
+  const [revertir, setRevertir] = useState<OperationRow | null>(null);   // 0130
+  const revertidos = usePagosRevertidos();   // owner 2026-11-17: the full detail opens in a window («⋯»)
   const [editando, setEditando] = useState<{ fila: string; campo: CampoFila } | null>(null);   // owner 2026-11-17: in-row editing
   const [pagar, setPagar] = useState<OperationRow | null>(null);
   const [historial, setHistorial] = useState<OperationRow | null>(null);
@@ -210,6 +213,8 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
                   <Fila key={r.row_key} r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
                     docs={r.purchase_id ? adjuntos.data?.get(r.purchase_id) : undefined}
                     onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onDetalle={() => setDetalle(r)}
+                    revertido={r.operation_id !== null && !!revertidos.data?.has(r.operation_id)}
+                    revertible={pagoRevertible(r, cuentas) && !(r.operation_id !== null && revertidos.data?.has(r.operation_id))} onRevertir={() => setRevertir(r)}
                     editando={editando?.fila === r.row_key ? editando.campo : null}
                     onEditar={(campo) => setEditando(campo ? { fila: r.row_key, campo } : null)} />
                 ))}
@@ -239,6 +244,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
           onPagado={(op, resto) => { setPagar(null); setAviso({ texto: `Pago registrado${resto > 0 ? `; queda pendiente ${formatoPesos(resto)}` : ''}.`, clave: `OP:${op}` }); }} />
       )}
       {historial && <HistorialModal r={historial} onClose={() => setHistorial(null)} />}
+      {revertir && <RevertirPagoModal r={revertir} onClose={() => setRevertir(null)} onListo={(t) => { setRevertir(null); setAviso({ texto: t, clave: null }); }} />}
       {detalle && (
         <Modal titulo={`${TIPO_LABEL[detalle.tipo]} — ${detalle.concepto}`} onClose={() => setDetalle(null)} puedeGuardar guardando={false} error={null} textoGuardar="Cerrar" onSubmit={() => setDetalle(null)}>
           <DetalleFila r={detalle} onHistorial={() => setHistorial(detalle)} />
@@ -252,9 +258,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
  * (owner 2026-11-17): an expense is corrected in its cells (double click), an unclassified Mercado Pago outflow is classified from its
  * subcategory cell; Acciones: Registrar pago, the invoice, the history and «⋯» (the full detail: supplier / invoice number, rectify
  * items, annul, payments, cheques, transfer, Mercado Pago classification as a supplier payment or a partner withdrawal). */
-function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, editando, onEditar }: {
+function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
   r: OperationRow; etiqueta?: string; destacada: boolean; docs: Parameters<typeof Comprobantes>[0]['docs']; onPagar: () => void; onHistorial: () => void;
-  onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void;
+  onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
   const editable = editableEnFila(r);
@@ -288,10 +294,12 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
         <span className="flex items-center gap-1">
           <span className={`${CHIP} ${TONO_ESTADO[r.estado]}`}>{estadoLabel(r)}</span>
           {r.clasificacion && <span className={`${CHIP} bg-orange-100 text-orange-900`} title={CLASIFICACION_LABEL[r.clasificacion]}>Por revisar</span>}
+          {revertido && <span className={`${CHIP} bg-stone-200 text-stone-700`} title="El pago se revirtió: el gasto volvió a pendiente y el dinero a la cuenta">Pago revertido</span>}
         </span>
       </td>
       <td className={TD}>
         <span className="flex items-center gap-1">
+          {revertible && <button type="button" onClick={onRevertir} title="Revertir pago (vuelve a pendiente)" aria-label="Revertir pago" className={icono}><Undo2 className="w-4 h-4" /></button>}
           {pagable !== null && <button type="button" onClick={onPagar} className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar pago</button>}
           <Comprobantes docs={docs} compacto />
           <button type="button" onClick={onHistorial} title="Historial de cambios" aria-label="Historial de cambios" className={icono}><History className="w-4 h-4" /></button>
@@ -330,6 +338,31 @@ function DetalleFila({ r }: { r: OperationRow; onHistorial?: () => void }) {
       {clasificableEnFila(r) && r.operation_id !== null && <ClasificarDeFila operationId={r.operation_id} />}
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
     </div>
+  );
+}
+
+/** 0130: the payment row of an expense WITHOUT supplier paid from cash / bank (the backend checks the same and more). */
+export function pagoRevertible(r: OperationRow, cuentas: FinancialAccountRow[]): boolean {
+  if (r.row_kind !== 'OP' || r.tipo !== 'EGRESO' || r.estado !== 'COMPLETADA' || !r.purchase_id || r.supplier_id || r.operation_id === null || r.informativo) return false;
+  return r.accounts.length === 1 && cuentas.some((c) => c.id === r.accounts[0].account_id && (c.account_type === 'CASH' || c.account_type === 'BANK_ACCOUNT'));
+}
+
+function RevertirPagoModal({ r, onClose, onListo }: { r: OperationRow; onClose: () => void; onListo: (texto: string) => void }) {
+  const revertir = useRevertirPago();
+  const [motivo, setMotivo] = useState('');
+  const [clave] = useState(() => `REV-${crypto.randomUUID()}`);
+  const monto = formatoPesos(Math.abs(r.amount));
+  return (
+    <Modal titulo={`Revertir pago — ${r.concepto}`} onClose={onClose} puedeGuardar={!revertir.isPending} guardando={revertir.isPending} error={revertir.error}
+      textoGuardar="Revertir pago"
+      onSubmit={() => revertir.mutate({ purchaseId: r.purchase_id!, operationId: r.operation_id!, reason: motivo.trim() || 'Revertir pago', idempotencyKey: clave },
+        { onSuccess: () => onListo(`Pago revertido: «${r.concepto}» quedó pendiente de pago y ${monto} volvió a ${cuentasLabel(r)}.`) })}>
+      <p className="text-sm text-[#2C2419]">El gasto vuelve a <b>pendiente de pago</b> y {monto} vuelve a <b>{cuentasLabel(r)}</b> con la fecha del pago ({r.date ? formatearFechaLocal(r.date) : '—'}).</p>
+      <p className="text-xs text-[#6B5D45]">El gasto sigue en resultados. El pago original y la reversión quedan en el historial.</p>
+      <label className={etiqueta}>Motivo (opcional)
+        <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} placeholder="Ej.: se cargó como pagado por error" className={campo} />
+      </label>
+    </Modal>
   );
 }
 

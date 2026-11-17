@@ -46,6 +46,7 @@ export const TARGET_READ_TABLES = [
   'perfiles', 'clients', 'products', 'price_history', 'expense_category', 'financial_account', 'sheds', 'flocks', 'suppliers', 'projects',
   'operator_assignments', 'classification_grade', 'feed_type', 'feed_ingredient', 'feed_formula_version', 'genetics_consumption_curve',
   'pedidos', 'pedido_lineas', 'daily_production', 'population_events', 'management_period', 'purchases', 'purchase_line', 'purchase_attachment',
+  'expense_payment_reversal',   // 0130 (ADMIN, read): which expense payments were reversed
   'freight', 'financial_instrument', 'sales_session', 'sales_session_movement', 'classification', 'classification_line', 'feed_manufacturing',
   'feed_movement', 'feed_inventory_count', 'flock_feed_assignment', 'fiscal_document', 'fiscal_obligation', 'fiscal_obligation_installment',
   'mp_client_allocation', 'mp_payer_client_map', 'mp_webhook_delivery',
@@ -136,6 +137,7 @@ export const TARGET_RPCS = [
   'fin_cash_flow',   // 0122 (ADMIN, read): Caja → Flujo de caja, money by month / week (income, outflows by category, other movements, net)
   'endorse_cheque_to_payable',   // 0123 (ADMIN): a client cheque endorsed against ONE invoice / plan item (excess stays as supplier credit)
   'annul_expense',   // 0124 (ADMIN): annul an expense with nothing paid (P&L / IVA / supplier debt reversed; audited)
+  'reverse_expense_payment',   // 0130 (ADMIN): an expense without supplier back to «pendiente de pago»; the money back on the original date
   'set_payment_plan', 'pay_plan_item', 'issue_plan_item_instruments',   // 0121 (ADMIN): instalments of an obligation; pay / issue cheques for ONE item
   'set_feed_formula_comment', 'set_feed_type_standard_batch', 'set_feed_type_active',   // 0125 (ADMIN): recipe comment, standard batch, (de)activation
   'close_feed_month', 'reopen_feed_month',   // 0125 (ADMIN): monthly feed stock close / reopen
