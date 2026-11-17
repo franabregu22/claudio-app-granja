@@ -9,7 +9,6 @@ import {
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import type { FinancialAccountRow } from '../../target/masters';
-import { ClasificarSalida } from './AccionesMp';
 import { Comprobantes } from './Comprobantes';
 import { clasificableEnFila, EditorCelda, editableEnFila, type CampoFila } from './EdicionEnFila';
 import { ChipEtiqueta } from './Etiquetas';
@@ -257,7 +256,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
 /** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Naturaleza | Etiqueta | Cuenta | Importe | Estado | Acciones. No drop-down
  * (owner 2026-11-17): an expense is corrected in its cells (double click), an unclassified Mercado Pago outflow is classified from its
  * subcategory cell; Acciones: Registrar pago, the invoice, the history and «⋯» (the full detail: supplier / invoice number, rectify
- * items, annul, payments, cheques, transfer, Mercado Pago classification as a supplier payment or a partner withdrawal). */
+ * items, annul, payments, cheques, transfer, transfer). An unclassified Mercado Pago outflow is classified only from its cell. */
 function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
   r: OperationRow; etiqueta?: string; destacada: boolean; docs: Parameters<typeof Comprobantes>[0]['docs']; onPagar: () => void; onHistorial: () => void;
   onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
@@ -303,7 +302,7 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
           {pagable !== null && <button type="button" onClick={onPagar} className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar pago</button>}
           <Comprobantes docs={docs} compacto />
           <button type="button" onClick={onHistorial} title="Historial de cambios" aria-label="Historial de cambios" className={icono}><History className="w-4 h-4" /></button>
-          <button type="button" onClick={onDetalle} title="Más: proveedor y factura, anular, pagos, cheques, clasificar…" aria-label="Más" className={icono}><MoreHorizontal className="w-4 h-4" /></button>
+          <button type="button" onClick={onDetalle} title="Más: proveedor y factura, anular, pagos, cheques…" aria-label="Más" className={icono}><MoreHorizontal className="w-4 h-4" /></button>
         </span>
       </td>
     </tr>
@@ -335,7 +334,6 @@ function DetalleFila({ r }: { r: OperationRow; onHistorial?: () => void }) {
       {r.row_kind === 'CHEQUE' && <p className={DATO}>Cheque propio sin factura: se debita, anula, rechaza o cambia su fecha de pago en Cuentas a pagar → Cheques.</p>}
       {r.row_kind === 'CHEQUE_RECIBIDO' && <p className={DATO}>Cheque de cliente: se deposita, acredita, endosa o rechaza en Cuentas a pagar → Cheques.</p>}
       {(r.purchase_id || r.pending_class_id !== null) && <GastoDeFila r={r} onAccion={setAccion} />}
-      {clasificableEnFila(r) && r.operation_id !== null && <ClasificarDeFila operationId={r.operation_id} />}
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
     </div>
   );
@@ -364,15 +362,6 @@ function RevertirPagoModal({ r, onClose, onListo }: { r: OperationRow; onClose: 
       </label>
     </Modal>
   );
-}
-
-/** An unclassified Mercado Pago outflow: the full classification (gasto with or without supplier, supplier payment, partner withdrawal). */
-function ClasificarDeFila({ operationId }: { operationId: number }) {
-  const q = useMovementList({ search: String(operationId), pending: 'MP_CLASIFICAR' }, 0);
-  const fila = (q.data?.rows ?? []).find((x): x is MovementRow => x.row_type === 'OP' && x.operation_id === operationId);
-  const fuente = (fila?.pending?.type === 'MP_CLASIFICAR' ? fila.pending.source_id : null) ?? fila?.mp.find((m) => m.source_id)?.source_id ?? null;
-  if (!fuente) return null;
-  return <div className="bg-white rounded border border-[#E4DCC8] p-2"><p className={DATO}>Egreso de Mercado Pago sin clasificar:</p><ClasificarSalida sourceId={fuente} /></div>;
 }
 
 /** The real movements of one operation and their evidence, from the existing unified list (fin_movement_list, searched by its number). */

@@ -8,11 +8,11 @@ import type { MovementRow } from '../../target/movementHistory';
 import type { PurchaseRow } from '../../target/treasury';
 import { NumeroInput } from '../../components/NumeroInput';
 import { NATURALEZA_LABEL, type OperationNature } from '../../target/operations';
-import { useClassifyMp } from './useMpActivity';
+import { useClassifyMp, useConfirmPayoutTransfer, useMpPayoutMatches } from './useMpActivity';
 import { useGastoItems, vinculosDe } from './Gastos';
 import { useEtiquetaMutations, useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
 import { useRectifyExpense } from './useExpenses';
-import { useExpenseCategories, useExpenseGroups, useMovementList, usePurchase } from './useTreasury';
+import { useExpenseCategories, useExpenseGroups, useLedgerBalances, useMovementList, usePurchase, useSuppliers } from './useTreasury';
 
 /**
  * Owner 2026-11-17: an expense is corrected right in its row of Todas las operaciones, like a spreadsheet — a double click on a cell
@@ -25,8 +25,7 @@ export const MOTIVO_TABLA = 'Edición en la tabla';
 /** Only an expense row is edited in place; income, transfers, cheques and the automatic Mercado Pago / bank rows are not. */
 export const editableEnFila = (r: OperationRow) => r.purchase_id !== null && r.tipo === 'EGRESO' && !r.informativo && r.row_kind !== 'CHEQUE';
 /** Owner 2026-11-17: a Mercado Pago outflow still unclassified is classified from its Categoría / Subcategoría cell (a gasto without
- * supplier in the chosen subcategory — mp_classify_payout_outflow CASUAL_PURCHASE); a supplier payment or a partner withdrawal is
- * chosen from «⋯ → Clasificar». */
+ * supplier in the chosen subcategory), a transfer to an own account, a supplier debt payment or a partner withdrawal — one choice. */
 export const clasificableEnFila = (r: OperationRow) => r.clasificacion === 'MP_SIN_CLASIFICAR' && r.operation_id !== null && r.tipo === 'EGRESO';
 
 const SIN_VINCULOS: VinculosGasto = { pendienteSinProveedor: false, mpVinculado: false, asignado: 0, estadoPago: '', comoPagar: '' };
@@ -146,42 +145,67 @@ function Editor({ r, c, vinculos, campo, onFin }: { r: OperationRow; c: Purchase
   );
 }
 
-/** The subcategory of an unclassified Mercado Pago outflow: it becomes a gasto without supplier (its concept = the subcategory name,
- * editable afterwards in its cell; nature = the subcategory default). The movement's source is read from its operation. */
+/** An unclassified Mercado Pago outflow, classified from its row (owner 2026-11-17: no separate form). ONE choice:
+ *  · a gasto without supplier in a subcategory (its concept = the subcategory name, editable afterwards; nature = the default);
+ *  · a transfer to an own account — only a payout whose destination IS that account (0084 OWN_ACCOUNT_EXACT → mp_confirm_payout_transfer);
+ *  · the payment of a supplier's debt (SUPPLIER_PAYMENT, suppliers with a balance);
+ *  · a partner withdrawal (OWNER_WITHDRAWAL).
+ * The movement's source is read from its operation (the Por resolver key). */
 function ClasificarMpCelda({ r, onFin }: { r: OperationRow; onFin: () => void }) {
   const mov = useMovementList({ search: String(r.operation_id), pending: 'MP_CLASIFICAR' }, 0);   // the Por resolver key carries the MP source
+  const cuentaMp = r.accounts[0]?.account_id ?? '';
+  const coincidencias = useMpPayoutMatches(cuentaMp);
   const grupos = useExpenseGroups();
   const subs = useExpenseCategories();
+  const proveedores = useSuppliers();
+  const saldos = useLedgerBalances('SUPPLIER');
   const { outflow } = useClassifyMp();
+  const transferir = useConfirmPayoutTransfer();
   const hecho = useRef(false);
   const fila = (mov.data?.rows ?? []).find((x): x is MovementRow => x.row_type === 'OP' && x.operation_id === r.operation_id);
   const fuente = (fila?.pending?.type === 'MP_CLASIFICAR' ? fila.pending.source_id : null) ?? fila?.mp.find((m) => m.source_id)?.source_id ?? null;
   if (mov.isLoading) return <span className="text-xs text-gray-500">Abriendo…</span>;
-  if (!fuente) return <Aviso texto="No encontré el movimiento de Mercado Pago: clasificalo desde ⋯." onFin={onFin} />;
+  if (!fuente) return <Aviso texto="No encontré el movimiento de Mercado Pago." onFin={onFin} />;
   const g = grupos.data ?? []; const s = subs.data ?? [];
-  const elegir = async (id: string) => {
-    if (hecho.current || !id) return;
+  const destino = coincidencias.data?.get(fuente);
+  const propia = destino?.match_status === 'OWN_ACCOUNT_EXACT' ? destino : null;
+  const conDeuda = (proveedores.data ?? []).filter((p) => ((saldos.data ?? []).find((x) => x.entity_id === p.id)?.balance ?? 0) > 0);
+  const elegir = async (v: string) => {
+    if (hecho.current || !v) return;
     hecho.current = true;
-    const sub = s.find((x) => x.id === id);
     try {
-      await outflow.mutateAsync({ sourceId: fuente, classification: 'CASUAL_PURCHASE', expenseCategoryId: id, nature: defaultNatureOf(s, id),
-        concept: (sub?.nombre ?? 'Gasto').slice(0, 100), counterpartyName: null });
+      if (v === 'TRANSFERENCIA') await transferir.mutateAsync(fuente);
+      else if (v === 'RETIRO') await outflow.mutateAsync({ sourceId: fuente, classification: 'OWNER_WITHDRAWAL' });
+      else if (v.startsWith('PROV:')) await outflow.mutateAsync({ sourceId: fuente, classification: 'SUPPLIER_PAYMENT', supplierId: v.slice(5) });
+      else {
+        const sub = s.find((x) => x.id === v);
+        await outflow.mutateAsync({ sourceId: fuente, classification: 'CASUAL_PURCHASE', expenseCategoryId: v, nature: defaultNatureOf(s, v),
+          concept: (sub?.nombre ?? 'Gasto').slice(0, 100), counterpartyName: null });
+      }
       onFin();
     } catch { hecho.current = false; }
   };
+  const error = outflow.error ?? transferir.error;
   return (
     <span className="block" onClick={(e) => e.stopPropagation()}>
-      <select defaultValue="" autoFocus aria-label="Clasificar como gasto" className={INPUT} onChange={(e) => { void elegir(e.target.value); }}
+      <select defaultValue="" autoFocus aria-label="Clasificar el egreso" className={INPUT} onChange={(e) => { void elegir(e.target.value); }}
         onBlur={() => { if (!hecho.current) onFin(); }} onKeyDown={(e) => { if (e.key === 'Escape') { hecho.current = true; onFin(); } }}>
-        <option value="">Gasto en…</option>
+        <option value="">¿Qué fue?…</option>
+        {propia && <optgroup label="Transferencia entre cuentas"><option value="TRANSFERENCIA">Transferencia a {propia.matched_account_name ?? 'cuenta propia'}</option></optgroup>}
+        <optgroup label="Otros"><option value="RETIRO">Retiro de socios</option></optgroup>
+        {conDeuda.length > 0 && (
+          <optgroup label="Pago a proveedor (cancela su deuda)">
+            {conDeuda.map((p) => <option key={p.id} value={`PROV:${p.id}`}>{p.nombre}</option>)}
+          </optgroup>
+        )}
         {selectableGroups(g, s).map((grupo) => (
-          <optgroup key={grupo.id} label={grupo.nombre}>
+          <optgroup key={grupo.id} label={`Gasto · ${grupo.nombre}`}>
             {selectableSubcategories(g, s, grupo.id).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
           </optgroup>
         ))}
       </select>
-      {outflow.isPending && <span className="block text-[11px] text-[#8A7A5C]">Clasificando…</span>}
-      {outflow.error ? <Aviso texto={errorMessage(outflow.error)} onFin={onFin} /> : null}
+      {(outflow.isPending || transferir.isPending) && <span className="block text-[11px] text-[#8A7A5C]">Clasificando…</span>}
+      {error ? <Aviso texto={errorMessage(error)} onFin={onFin} /> : null}
     </span>
   );
 }
