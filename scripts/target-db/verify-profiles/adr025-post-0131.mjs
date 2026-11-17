@@ -15,7 +15,7 @@ import * as prev from './adr025-post-0130.mjs';
 export const NAME = 'ADR025_POST_0131';
 export const THROUGH = '0131';
 const MIGRATION = '0131_produccion_edicion_y_conteos.sql';
-const NEW_MARKERS = ['flock_day_note', 'bird_count', 'register_production_day', 'edit_production_day', 'list_production_day_edits'];
+const NEW_MARKERS = ['flock_day_note', 'bird_count', 'register_production_day', 'edit_production_day', 'list_production_day_edits', 'list_production_days'];
 const RPCS = {
   edit_production_day: 'edit_production_day(uuid,date,integer,integer,bigint,text,time without time zone,text)',
   list_bird_counts: 'list_bird_counts(uuid)',
