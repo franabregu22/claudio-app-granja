@@ -1,5 +1,5 @@
-import { ArrowLeftRight, ChevronDown, History } from 'lucide-react';
-import { Fragment, useRef, useState } from 'react';
+import { ArrowLeftRight, History, MoreHorizontal } from 'lucide-react';
+import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import { movementAccounts, type MovementRow } from '../../target/movementHistory';
 import {
@@ -9,8 +9,9 @@ import {
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import type { FinancialAccountRow } from '../../target/masters';
+import { ClasificarSalida } from './AccionesMp';
 import { Comprobantes } from './Comprobantes';
-import { EditorCelda, editableEnFila, type CampoFila } from './EdicionEnFila';
+import { clasificableEnFila, EditorCelda, editableEnFila, type CampoFila } from './EdicionEnFila';
 import { ChipEtiqueta } from './Etiquetas';
 import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos';
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
@@ -71,7 +72,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const [texto, setTexto] = useState('');
   const tags = useEtiquetasDeGastos();   // 0127: purchase id → its tag (the column «Etiqueta»)
   const [pagina, setPagina] = useState(0);
-  const [abierta, setAbierta] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<OperationRow | null>(null);   // owner 2026-11-17: the full detail opens in a window («⋯»)
   const [editando, setEditando] = useState<{ fila: string; campo: CampoFila } | null>(null);   // owner 2026-11-17: in-row editing
   const [pagar, setPagar] = useState<OperationRow | null>(null);
   const [historial, setHistorial] = useState<OperationRow | null>(null);
@@ -87,13 +88,14 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const focus = recientes ? null : foco;
   const lista = useOperationList(filtroServidor(filtros, recientes), pagina, focus);
   const filas = lista.data?.rows ?? [];
+  const adjuntos = usePurchaseAttachments(filas.flatMap((r) => (r.purchase_id ? [r.purchase_id] : [])));
   const total = lista.data?.total ?? 0;
   const poner = (cambio: Partial<Filtros>) => {
     setF((x) => ({ ...x, ...cambio, ...('grupo' in cambio ? { subcategoria: '' } : {}) }));
     if ('cuenta' in cambio) onCuenta(cambio.cuenta && cambio.cuenta !== 'SIN' ? cambio.cuenta : '');
-    setPagina(0); setAbierta(null); onFocus(null);
+    setPagina(0); setEditando(null); onFocus(null);
   };
-  const limpiar = () => { setF(FILTROS_VACIOS); setTexto(''); onCuenta(''); setPagina(0); setAbierta(null); onFocus(null); };
+  const limpiar = () => { setF(FILTROS_VACIOS); setTexto(''); onCuenta(''); setPagina(0); setEditando(null); onFocus(null); };
   const subcatsDelGrupo = (subcategorias.data ?? []).filter((s) => !filtros.grupo || s.group_id === filtros.grupo);
   // owner 2026-11-17: Excel-like filters — an arrow next to each column name opens its choices (the same server filters as before)
   const opcion = (titulo: string, valor: string, onElegir: (v: string) => void, opciones: { v: string; t: string }[], todos = 'Todos', subtitulo?: string) => (
@@ -137,19 +139,10 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
           )}
         </FiltroColumna>
       </th>
-      <th className={TH}>
-        <FiltroColumna titulo="Categoría" activo={filtros.grupo !== '' || filtros.naturaleza !== ''}>
-          {(cerrar) => (
-            <div className="space-y-3">
-              <OpcionesFiltro subtitulo="Categoría" valor={filtros.grupo} todos="Todas" opciones={(grupos.data ?? []).map((g) => ({ v: g.id, t: g.nombre }))}
-                onElegir={(v) => { poner({ grupo: v }); cerrar(); }} />
-              <OpcionesFiltro subtitulo="Naturaleza" valor={filtros.naturaleza} todos="Todas" opciones={(Object.keys(NATURALEZA_LABEL) as OperationNature[]).map((n) => ({ v: n, t: NATURALEZA_LABEL[n] }))}
-                onElegir={(v) => { poner({ naturaleza: v as OperationNature | '' }); cerrar(); }} />
-            </div>
-          )}
-        </FiltroColumna>
-      </th>
+      <th className={TH}>{opcion('Categoría', filtros.grupo, (v) => poner({ grupo: v }), (grupos.data ?? []).map((g) => ({ v: g.id, t: g.nombre })), 'Todas')}</th>
       <th className={TH}>{opcion('Subcategoría', filtros.subcategoria, (v) => poner({ subcategoria: v }), subcatsDelGrupo.map((x) => ({ v: x.id, t: x.nombre })), 'Todas')}</th>
+      <th className={TH}>{opcion('Naturaleza', filtros.naturaleza, (v) => poner({ naturaleza: v as OperationNature | '' }),
+        (Object.keys(NATURALEZA_LABEL) as OperationNature[]).map((n) => ({ v: n, t: NATURALEZA_LABEL[n] })), 'Todas')}</th>
       <th className={TH}>{opcion('Etiqueta', filtros.etiqueta, (v) => poner({ etiqueta: v }), [{ v: 'SIN', t: 'Sin etiqueta' }, ...(etiquetas.data ?? []).map((e) => ({ v: e.id, t: e.nombre }))], 'Todas')}</th>
       <th className={TH}>{opcion('Cuenta', filtros.cuenta, (v) => poner({ cuenta: v }), [{ v: 'SIN', t: 'Sin asignar' }, ...cuentas.map((c) => ({ v: c.id, t: c.nombre }))], 'Todas')}</th>
       <th className={`${TH} text-right`}>Importe</th>
@@ -184,7 +177,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         </form>
         <button type="button" onClick={limpiar} disabled={!hayFiltros(filtros) && texto === '' && !foco}
           className="text-xs px-3 py-1.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50 disabled:opacity-40">Limpiar filtros</button>
-        <span className="w-full text-xs text-[#8A7A5C]">Para filtrar, tocá la flechita al lado del nombre de cada columna. Para corregir un gasto, doble clic en la celda (queda en el historial).</span>
+        <span className="w-full text-xs text-[#8A7A5C]">Para filtrar, tocá la flechita al lado del nombre de cada columna. Para corregir un gasto —o clasificar un egreso de Mercado Pago eligiendo su subcategoría— doble clic en la celda (queda en el historial).</span>
       </div>
 
       {aviso && (
@@ -209,19 +202,16 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
               {encabezado}
               <tbody>
                 {filas.length === 0 && (
-                  <tr><td colSpan={10} className="px-3 py-4 text-sm text-[#8A7A5C]">
+                  <tr><td colSpan={11} className="px-3 py-4 text-sm text-[#8A7A5C]">
                     {focus ? 'La operación todavía no aparece. Probá con “Cargadas recientemente”.' : 'No hay operaciones con estos filtros.'}
                   </td></tr>
                 )}
                 {filas.map((r) => (
-                  <Fragment key={r.row_key}>
-                    <Fila r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key} abierta={abierta === r.row_key} onAbrir={() => setAbierta(abierta === r.row_key ? null : r.row_key)}
-                      onPagar={() => setPagar(r)} editando={editando?.fila === r.row_key ? editando.campo : null}
-                      onEditar={(campo) => setEditando(campo ? { fila: r.row_key, campo } : null)} />
-                    {abierta === r.row_key && (
-                      <tr className="border-b border-[#EFE8D6] bg-[#FAF6EE]"><td colSpan={10} className="p-0"><DetalleFila r={r} onHistorial={() => setHistorial(r)} /></td></tr>
-                    )}
-                  </Fragment>
+                  <Fila key={r.row_key} r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
+                    docs={r.purchase_id ? adjuntos.data?.get(r.purchase_id) : undefined}
+                    onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onDetalle={() => setDetalle(r)}
+                    editando={editando?.fila === r.row_key ? editando.campo : null}
+                    onEditar={(campo) => setEditando(campo ? { fila: r.row_key, campo } : null)} />
                 ))}
               </tbody>
             </table>
@@ -249,42 +239,48 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
           onPagado={(op, resto) => { setPagar(null); setAviso({ texto: `Pago registrado${resto > 0 ? `; queda pendiente ${formatoPesos(resto)}` : ''}.`, clave: `OP:${op}` }); }} />
       )}
       {historial && <HistorialModal r={historial} onClose={() => setHistorial(null)} />}
+      {detalle && (
+        <Modal titulo={`${TIPO_LABEL[detalle.tipo]} — ${detalle.concepto}`} onClose={() => setDetalle(null)} puedeGuardar guardando={false} error={null} textoGuardar="Cerrar" onSubmit={() => setDetalle(null)}>
+          <DetalleFila r={detalle} onHistorial={() => setHistorial(detalle)} />
+        </Modal>
+      )}
     </div>
   );
 }
 
-/** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Etiqueta (0127) | Cuenta | Importe | Estado | Acciones ("—" when it does not apply). */
-function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar, editando, onEditar }: {
-  r: OperationRow; etiqueta?: string; destacada: boolean; abierta: boolean; onAbrir: () => void; onPagar: () => void;
-  editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void;
+/** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Naturaleza | Etiqueta | Cuenta | Importe | Estado | Acciones. No drop-down
+ * (owner 2026-11-17): an expense is corrected in its cells (double click), an unclassified Mercado Pago outflow is classified from its
+ * subcategory cell; Acciones: Registrar pago, the invoice, the history and «⋯» (the full detail: supplier / invoice number, rectify
+ * items, annul, payments, cheques, transfer, Mercado Pago classification as a supplier payment or a partner withdrawal). */
+function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, editando, onEditar }: {
+  r: OperationRow; etiqueta?: string; destacada: boolean; docs: Parameters<typeof Comprobantes>[0]['docs']; onPagar: () => void; onHistorial: () => void;
+  onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void;
 }) {
   const pagable = pagableDesdeFila(r);
   const editable = editableEnFila(r);
-  // one click opens the detail, a double click on an editable cell edits it (the pending single click is cancelled)
-  const espera = useRef<number | undefined>(undefined);
+  const clasificable = clasificableEnFila(r);
   const celda = (campo: CampoFila, contenido: React.ReactNode) => (editando === campo ? <EditorCelda r={r} campo={campo} onFin={() => onEditar(null)} /> : contenido);
-  const alDoble = (campo: CampoFila) => (editable ? { onDoubleClick: () => { window.clearTimeout(espera.current); onEditar(campo); }, title: 'Doble clic para editar' } : {});
-  const editableCls = editable ? ' hover:bg-amber-100/50' : '';
+  const puede = (campo: CampoFila) => editable || (clasificable && campo === 'categoria');
+  const alDoble = (campo: CampoFila) => (puede(campo)
+    ? { onDoubleClick: () => onEditar(campo), title: clasificable ? 'Doble clic para clasificar el egreso' : 'Doble clic para editar' } : {});
+  const cls = (campo: CampoFila) => (puede(campo) ? ' cursor-text hover:bg-amber-100/50' : '');
   const importe = r.tipo === 'TRANSFERENCIA' ? formatoPesos(Math.abs(r.amount)) : `${r.amount < 0 ? '−' : '+'} ${formatoPesos(Math.abs(r.amount))}`;
+  const icono = 'p-1 rounded text-[#A8552E] hover:bg-amber-50';
   return (
-    // owner 2026-11-17: the whole row opens its detail (where the expense is edited, annulled, tagged, paid; its invoice and history)
-    <tr onClick={(e) => {
-      if ((e.target as HTMLElement).closest('button, a, input, select') || e.detail > 1 || editando) return;
-      window.clearTimeout(espera.current); espera.current = window.setTimeout(onAbrir, 230);
-    }}
-      className={`border-b border-[#EFE8D6] cursor-pointer hover:bg-amber-50/30 ${destacada ? 'bg-sky-50' : abierta ? 'bg-amber-50/40' : ''}`}>
-      <td className={`${TD}${editableCls}`} {...alDoble('fecha')}>{celda('fecha', r.date ? formatearFechaLocal(r.date) : NADA)}</td>
+    <tr className={`border-b border-[#EFE8D6] ${destacada ? 'bg-sky-50' : ''}`}>
+      <td className={`${TD}${cls('fecha')}`} {...alDoble('fecha')}>{celda('fecha', r.date ? formatearFechaLocal(r.date) : NADA)}</td>
       <td className={`${TD} font-semibold ${TONO_TIPO[r.tipo]}`}>{TIPO_LABEL[r.tipo]}</td>
-      <td className={`px-2 py-2 max-w-[18rem] ${editando === 'concepto' ? '' : 'truncate'}${editableCls}`} title={r.concepto} {...alDoble('concepto')}>
+      <td className={`px-2 py-2 max-w-[18rem] ${editando === 'concepto' ? '' : 'truncate'}${cls('concepto')}`} title={r.concepto} {...alDoble('concepto')}>
         {celda('concepto', <span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span>)}</td>
-      <td className={`${TD} max-w-[10rem] ${editando === 'categoria' ? '' : 'truncate'}${editableCls}`} title={r.category ?? undefined} {...alDoble('categoria')}>
-        {editando === 'categoria' ? null : (r.category ?? NADA)}</td>
-      <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${editableCls}`} title={r.subcategory ?? undefined} {...alDoble('categoria')}>
+      <td className={`${TD} max-w-[10rem] ${editando === 'categoria' ? '' : 'truncate'}${cls('categoria')}`} title={r.category ?? undefined} {...alDoble('categoria')}>
+        {editando === 'categoria' ? null : (r.category ?? (clasificable ? <span className="text-xs text-orange-800">Sin clasificar</span> : NADA))}</td>
+      <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${cls('categoria')}`} title={r.subcategory ?? undefined} {...alDoble('categoria')}>
         {celda('categoria', r.subcategory ?? NADA)}</td>
-      <td className={`${TD}${editableCls}`} {...alDoble('etiqueta')}>
+      <td className={`${TD}${cls('naturaleza')}`} {...alDoble('naturaleza')}>{celda('naturaleza', r.nature ? NATURALEZA_LABEL[r.nature] : NADA)}</td>
+      <td className={`${TD}${cls('etiqueta')}`} {...alDoble('etiqueta')}>
         {celda('etiqueta', r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA)}</td>
       <td className={`${TD} max-w-[12rem] truncate`}>{r.accounts.length === 0 ? <span className="text-[#8A7A5C] italic">Sin asignar</span> : cuentasLabel(r)}</td>
-      <td {...alDoble('importe')} className={`${TD} text-right font-bold${editableCls} ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
+      <td {...alDoble('importe')} className={`${TD} text-right font-bold${cls('importe')} ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
         title={r.informativo ? 'Ya está en Mercado Pago como movimiento sin clasificar: no se cuenta dos veces' : undefined}>
         {celda('importe', r.informativo ? `(${importe})` : importe)}
       </td>
@@ -297,8 +293,9 @@ function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar, editando, onE
       <td className={TD}>
         <span className="flex items-center gap-1">
           {pagable !== null && <button type="button" onClick={onPagar} className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar pago</button>}
-          <button type="button" onClick={onAbrir} aria-expanded={abierta} title={abierta ? 'Ocultar detalle' : 'Ver detalle'} aria-label="Detalle"
-            className="p-1 rounded text-[#A8552E] hover:bg-amber-50"><ChevronDown className={`w-4 h-4 transition ${abierta ? 'rotate-180' : ''}`} /></button>
+          <Comprobantes docs={docs} compacto />
+          <button type="button" onClick={onHistorial} title="Historial de cambios" aria-label="Historial de cambios" className={icono}><History className="w-4 h-4" /></button>
+          <button type="button" onClick={onDetalle} title="Más: proveedor y factura, anular, pagos, cheques, clasificar…" aria-label="Más" className={icono}><MoreHorizontal className="w-4 h-4" /></button>
         </span>
       </td>
     </tr>
@@ -311,7 +308,7 @@ const DATO = 'text-xs text-[#6B5D45]';
  * is one row, its two movements stay apart), the bank / Mercado Pago evidence, its taxes and the anticipated transfer it settled, and the
  * expense or invoice it belongs to (Gastos' own detail: receipts, Editar / Rectificar, payments, cheques, dates, freight, history).
  */
-function DetalleFila({ r, onHistorial }: { r: OperationRow; onHistorial: () => void }) {
+function DetalleFila({ r }: { r: OperationRow; onHistorial?: () => void }) {
   const [accion, setAccion] = useState<Accion | null>(null);
   return (
     <div className="p-3 space-y-3">
@@ -330,12 +327,19 @@ function DetalleFila({ r, onHistorial }: { r: OperationRow; onHistorial: () => v
       {r.row_kind === 'CHEQUE' && <p className={DATO}>Cheque propio sin factura: se debita, anula, rechaza o cambia su fecha de pago en Cuentas a pagar → Cheques.</p>}
       {r.row_kind === 'CHEQUE_RECIBIDO' && <p className={DATO}>Cheque de cliente: se deposita, acredita, endosa o rechaza en Cuentas a pagar → Cheques.</p>}
       {(r.purchase_id || r.pending_class_id !== null) && <GastoDeFila r={r} onAccion={setAccion} />}
-      <button type="button" onClick={onHistorial} className="inline-flex items-center gap-1 text-xs text-[#A8552E] hover:underline">
-        <History className="w-3.5 h-3.5" /> Historial de cambios
-      </button>
+      {clasificableEnFila(r) && r.operation_id !== null && <ClasificarDeFila operationId={r.operation_id} />}
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
     </div>
   );
+}
+
+/** An unclassified Mercado Pago outflow: the full classification (gasto with or without supplier, supplier payment, partner withdrawal). */
+function ClasificarDeFila({ operationId }: { operationId: number }) {
+  const q = useMovementList({ search: String(operationId), pending: 'MP_CLASIFICAR' }, 0);
+  const fila = (q.data?.rows ?? []).find((x): x is MovementRow => x.row_type === 'OP' && x.operation_id === operationId);
+  const fuente = (fila?.pending?.type === 'MP_CLASIFICAR' ? fila.pending.source_id : null) ?? fila?.mp.find((m) => m.source_id)?.source_id ?? null;
+  if (!fuente) return null;
+  return <div className="bg-white rounded border border-[#E4DCC8] p-2"><p className={DATO}>Egreso de Mercado Pago sin clasificar:</p><ClasificarSalida sourceId={fuente} /></div>;
 }
 
 /** The real movements of one operation and their evidence, from the existing unified list (fin_movement_list, searched by its number). */

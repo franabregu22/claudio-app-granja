@@ -4,12 +4,15 @@ import { defaultNatureOf, selectableGroups, selectableSubcategories } from '../.
 import { reglasDeCompra, type VinculosGasto } from '../../target/expenses';
 import { errorMessage } from '../../target/messages';
 import type { OperationRow } from '../../target/operations';
+import type { MovementRow } from '../../target/movementHistory';
 import type { PurchaseRow } from '../../target/treasury';
 import { NumeroInput } from '../../components/NumeroInput';
+import { NATURALEZA_LABEL, type OperationNature } from '../../target/operations';
+import { useClassifyMp } from './useMpActivity';
 import { useGastoItems, vinculosDe } from './Gastos';
 import { useEtiquetaMutations, useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
 import { useRectifyExpense } from './useExpenses';
-import { useExpenseCategories, useExpenseGroups, usePurchase } from './useTreasury';
+import { useExpenseCategories, useExpenseGroups, useMovementList, usePurchase } from './useTreasury';
 
 /**
  * Owner 2026-11-17: an expense is corrected right in its row of Todas las operaciones, like a spreadsheet — a double click on a cell
@@ -17,15 +20,24 @@ import { useExpenseCategories, useExpenseGroups, usePurchase } from './useTreasu
  * field before / after in the history) or the audited tag change (set_purchase_tag). No reason is typed: the backend's required reason
  * is recorded as MOTIVO_TABLA. The same locks as «Editar» apply (paid, linked to Mercado Pago, cheques assigned, fiscal document).
  */
-export type CampoFila = 'fecha' | 'concepto' | 'categoria' | 'etiqueta' | 'importe';
+export type CampoFila = 'fecha' | 'concepto' | 'categoria' | 'naturaleza' | 'etiqueta' | 'importe';
 export const MOTIVO_TABLA = 'Edición en la tabla';
 /** Only an expense row is edited in place; income, transfers, cheques and the automatic Mercado Pago / bank rows are not. */
 export const editableEnFila = (r: OperationRow) => r.purchase_id !== null && r.tipo === 'EGRESO' && !r.informativo && r.row_kind !== 'CHEQUE';
+/** Owner 2026-11-17: a Mercado Pago outflow still unclassified is classified from its Categoría / Subcategoría cell (a gasto without
+ * supplier in the chosen subcategory — mp_classify_payout_outflow CASUAL_PURCHASE); a supplier payment or a partner withdrawal is
+ * chosen from «⋯ → Clasificar». */
+export const clasificableEnFila = (r: OperationRow) => r.clasificacion === 'MP_SIN_CLASIFICAR' && r.operation_id !== null && r.tipo === 'EGRESO';
 
 const SIN_VINCULOS: VinculosGasto = { pendienteSinProveedor: false, mpVinculado: false, asignado: 0, estadoPago: '', comoPagar: '' };
 const INPUT = 'w-full min-w-[7rem] border border-amber-500 rounded px-1.5 py-0.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-600';
 
 export function EditorCelda({ r, campo, onFin }: { r: OperationRow; campo: CampoFila; onFin: () => void }) {
+  if (clasificableEnFila(r)) return <ClasificarMpCelda r={r} onFin={onFin} />;
+  return <EditorGasto r={r} campo={campo} onFin={onFin} />;
+}
+
+function EditorGasto({ r, campo, onFin }: { r: OperationRow; campo: CampoFila; onFin: () => void }) {
   const compra = usePurchase(r.purchase_id);
   const { todos } = useGastoItems();
   const c = compra.data;
@@ -57,12 +69,12 @@ function Editor({ r, c, vinculos, campo, onFin }: { r: OperationRow; c: Purchase
   const [importe, setImporte] = useState(String(c.amount_total));   // dot-decimal, shown with a comma by NumeroInput
   const concepto = c.subcategory ?? c.lineas[0]?.descripcion ?? r.concepto;
 
-  const rectificarCon = async (cambio: { concept?: string; categoryId?: string; fecha?: string; amountTotal?: number }) => {
+  const rectificarCon = async (cambio: { concept?: string; categoryId?: string; fecha?: string; amountTotal?: number; nature?: OperationNature }) => {
     const importe = cambio.amountTotal ?? c.amount_total;
     const categoryId = cambio.categoryId ?? c.expense_category_id;
     await rectificar.mutateAsync({
       purchaseId: c.id, concept: (cambio.concept ?? concepto).trim(), categoryId,
-      nature: cambio.categoryId ? defaultNatureOf(subs.data ?? [], categoryId) : c.nature,
+      nature: cambio.nature ?? (cambio.categoryId ? defaultNatureOf(subs.data ?? [], categoryId) : c.nature),
       fecha: cambio.fecha ?? c.economic_date, supplierId: c.supplier_id, invoiceNumber: c.supplier_invoice_number,
       amountTotal: importe, amountNet: importe === c.amount_total ? c.amount_net : importe, reason: MOTIVO_TABLA, fiscal: null,
     });
@@ -92,6 +104,14 @@ function Editor({ r, c, vinculos, campo, onFin }: { r: OperationRow; c: Purchase
   } else if (campo === 'importe') {
     editor = <NumeroInput value={importe} onChange={(e) => setImporte(e.target.value)} min="0" step="0.01" autoFocus onKeyDown={teclas} aria-label="Importe" className={`${INPUT} text-right`}
       onBlur={() => { const v = Number(importe); void guardar(v > 0 && v !== c.amount_total, () => rectificarCon({ amountTotal: v })); }} />;
+  } else if (campo === 'naturaleza') {
+    editor = (
+      <select defaultValue={c.nature} autoFocus aria-label="Naturaleza" className={INPUT}
+        onChange={(e) => { const v = e.target.value as OperationNature; void guardar(v !== c.nature, () => rectificarCon({ nature: v })); }}
+        onBlur={() => { if (!hecho.current) { hecho.current = true; onFin(); } }} onKeyDown={(e) => { if (e.key === 'Escape') { hecho.current = true; onFin(); } }}>
+        {(Object.keys(NATURALEZA_LABEL) as OperationNature[]).map((n) => <option key={n} value={n}>{NATURALEZA_LABEL[n]}</option>)}
+      </select>
+    );
   } else if (campo === 'categoria') {
     const g = grupos.data ?? []; const s = subs.data ?? [];
     editor = (
@@ -122,6 +142,46 @@ function Editor({ r, c, vinculos, campo, onFin }: { r: OperationRow; c: Purchase
       {editor}
       {ocupado && <span className="block text-[11px] text-[#8A7A5C]">Guardando…</span>}
       {error ? <Aviso texto={errorMessage(error)} onFin={onFin} /> : null}
+    </span>
+  );
+}
+
+/** The subcategory of an unclassified Mercado Pago outflow: it becomes a gasto without supplier (its concept = the subcategory name,
+ * editable afterwards in its cell; nature = the subcategory default). The movement's source is read from its operation. */
+function ClasificarMpCelda({ r, onFin }: { r: OperationRow; onFin: () => void }) {
+  const mov = useMovementList({ search: String(r.operation_id), pending: 'MP_CLASIFICAR' }, 0);   // the Por resolver key carries the MP source
+  const grupos = useExpenseGroups();
+  const subs = useExpenseCategories();
+  const { outflow } = useClassifyMp();
+  const hecho = useRef(false);
+  const fila = (mov.data?.rows ?? []).find((x): x is MovementRow => x.row_type === 'OP' && x.operation_id === r.operation_id);
+  const fuente = (fila?.pending?.type === 'MP_CLASIFICAR' ? fila.pending.source_id : null) ?? fila?.mp.find((m) => m.source_id)?.source_id ?? null;
+  if (mov.isLoading) return <span className="text-xs text-gray-500">Abriendo…</span>;
+  if (!fuente) return <Aviso texto="No encontré el movimiento de Mercado Pago: clasificalo desde ⋯." onFin={onFin} />;
+  const g = grupos.data ?? []; const s = subs.data ?? [];
+  const elegir = async (id: string) => {
+    if (hecho.current || !id) return;
+    hecho.current = true;
+    const sub = s.find((x) => x.id === id);
+    try {
+      await outflow.mutateAsync({ sourceId: fuente, classification: 'CASUAL_PURCHASE', expenseCategoryId: id, nature: defaultNatureOf(s, id),
+        concept: (sub?.nombre ?? 'Gasto').slice(0, 100), counterpartyName: null });
+      onFin();
+    } catch { hecho.current = false; }
+  };
+  return (
+    <span className="block" onClick={(e) => e.stopPropagation()}>
+      <select defaultValue="" autoFocus aria-label="Clasificar como gasto" className={INPUT} onChange={(e) => { void elegir(e.target.value); }}
+        onBlur={() => { if (!hecho.current) onFin(); }} onKeyDown={(e) => { if (e.key === 'Escape') { hecho.current = true; onFin(); } }}>
+        <option value="">Gasto en…</option>
+        {selectableGroups(g, s).map((grupo) => (
+          <optgroup key={grupo.id} label={grupo.nombre}>
+            {selectableSubcategories(g, s, grupo.id).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+          </optgroup>
+        ))}
+      </select>
+      {outflow.isPending && <span className="block text-[11px] text-[#8A7A5C]">Clasificando…</span>}
+      {outflow.error ? <Aviso texto={errorMessage(outflow.error)} onFin={onFin} /> : null}
     </span>
   );
 }
