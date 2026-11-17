@@ -250,7 +250,7 @@ const raizDe = (it: GastoItem) => (it.kind === 'FACTURA' ? it.factura.purchase_r
   : it.kind === 'MP_PENDIENTE' ? it.mp.purchase_root_id : null);
 
 /** What the row says about the expense's links and how its payment is handled (the edit form explains it; the backend enforces it). */
-function vinculosDe(it: GastoItem, c: PurchaseRow): VinculosGasto {
+export function vinculosDe(it: GastoItem, c: PurchaseRow): VinculosGasto {
   const estadoPago = GASTO_ESTADO_LABEL[it.estado];
   const noSeDeshace = 'Un pago registrado no se deshace desde aquí (requiere revertir su movimiento).';
   if (it.kind === 'FACTURA') {

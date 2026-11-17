@@ -1,5 +1,5 @@
 import { ArrowLeftRight, ChevronDown, History } from 'lucide-react';
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { errorMessage } from '../../target/messages';
 import { movementAccounts, type MovementRow } from '../../target/movementHistory';
 import {
@@ -10,6 +10,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import type { FinancialAccountRow } from '../../target/masters';
 import { Comprobantes } from './Comprobantes';
+import { EditorCelda, editableEnFila, type CampoFila } from './EdicionEnFila';
 import { ChipEtiqueta } from './Etiquetas';
 import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos';
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
@@ -71,6 +72,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const tags = useEtiquetasDeGastos();   // 0127: purchase id → its tag (the column «Etiqueta»)
   const [pagina, setPagina] = useState(0);
   const [abierta, setAbierta] = useState<string | null>(null);
+  const [editando, setEditando] = useState<{ fila: string; campo: CampoFila } | null>(null);   // owner 2026-11-17: in-row editing
   const [pagar, setPagar] = useState<OperationRow | null>(null);
   const [historial, setHistorial] = useState<OperationRow | null>(null);
   const [transfiriendo, setTransfiriendo] = useState(false);
@@ -182,7 +184,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         </form>
         <button type="button" onClick={limpiar} disabled={!hayFiltros(filtros) && texto === '' && !foco}
           className="text-xs px-3 py-1.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50 disabled:opacity-40">Limpiar filtros</button>
-        <span className="w-full text-xs text-[#8A7A5C]">Para filtrar, tocá la flechita al lado del nombre de cada columna.</span>
+        <span className="w-full text-xs text-[#8A7A5C]">Para filtrar, tocá la flechita al lado del nombre de cada columna. Para corregir un gasto, doble clic en la celda (queda en el historial).</span>
       </div>
 
       {aviso && (
@@ -214,7 +216,8 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
                 {filas.map((r) => (
                   <Fragment key={r.row_key}>
                     <Fila r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key} abierta={abierta === r.row_key} onAbrir={() => setAbierta(abierta === r.row_key ? null : r.row_key)}
-                      onPagar={() => setPagar(r)} />
+                      onPagar={() => setPagar(r)} editando={editando?.fila === r.row_key ? editando.campo : null}
+                      onEditar={(campo) => setEditando(campo ? { fila: r.row_key, campo } : null)} />
                     {abierta === r.row_key && (
                       <tr className="border-b border-[#EFE8D6] bg-[#FAF6EE]"><td colSpan={10} className="p-0"><DetalleFila r={r} onHistorial={() => setHistorial(r)} /></td></tr>
                     )}
@@ -251,25 +254,39 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
 }
 
 /** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Etiqueta (0127) | Cuenta | Importe | Estado | Acciones ("—" when it does not apply). */
-function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar }: {
+function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar, editando, onEditar }: {
   r: OperationRow; etiqueta?: string; destacada: boolean; abierta: boolean; onAbrir: () => void; onPagar: () => void;
+  editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void;
 }) {
   const pagable = pagableDesdeFila(r);
+  const editable = editableEnFila(r);
+  // one click opens the detail, a double click on an editable cell edits it (the pending single click is cancelled)
+  const espera = useRef<number | undefined>(undefined);
+  const celda = (campo: CampoFila, contenido: React.ReactNode) => (editando === campo ? <EditorCelda r={r} campo={campo} onFin={() => onEditar(null)} /> : contenido);
+  const alDoble = (campo: CampoFila) => (editable ? { onDoubleClick: () => { window.clearTimeout(espera.current); onEditar(campo); }, title: 'Doble clic para editar' } : {});
+  const editableCls = editable ? ' hover:bg-amber-100/50' : '';
   const importe = r.tipo === 'TRANSFERENCIA' ? formatoPesos(Math.abs(r.amount)) : `${r.amount < 0 ? '−' : '+'} ${formatoPesos(Math.abs(r.amount))}`;
   return (
     // owner 2026-11-17: the whole row opens its detail (where the expense is edited, annulled, tagged, paid; its invoice and history)
-    <tr onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a, input, select')) onAbrir(); }}
+    <tr onClick={(e) => {
+      if ((e.target as HTMLElement).closest('button, a, input, select') || e.detail > 1 || editando) return;
+      window.clearTimeout(espera.current); espera.current = window.setTimeout(onAbrir, 230);
+    }}
       className={`border-b border-[#EFE8D6] cursor-pointer hover:bg-amber-50/30 ${destacada ? 'bg-sky-50' : abierta ? 'bg-amber-50/40' : ''}`}>
-      <td className={TD}>{r.date ? formatearFechaLocal(r.date) : NADA}</td>
+      <td className={`${TD}${editableCls}`} {...alDoble('fecha')}>{celda('fecha', r.date ? formatearFechaLocal(r.date) : NADA)}</td>
       <td className={`${TD} font-semibold ${TONO_TIPO[r.tipo]}`}>{TIPO_LABEL[r.tipo]}</td>
-      <td className="px-2 py-2 max-w-[18rem] truncate" title={r.concepto}><span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span></td>
-      <td className={`${TD} max-w-[10rem] truncate`} title={r.category ?? undefined}>{r.category ?? NADA}</td>
-      <td className={`${TD} max-w-[10rem] truncate`} title={r.subcategory ?? undefined}>{r.subcategory ?? NADA}</td>
-      <td className={TD}>{r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA}</td>
+      <td className={`px-2 py-2 max-w-[18rem] ${editando === 'concepto' ? '' : 'truncate'}${editableCls}`} title={r.concepto} {...alDoble('concepto')}>
+        {celda('concepto', <span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span>)}</td>
+      <td className={`${TD} max-w-[10rem] ${editando === 'categoria' ? '' : 'truncate'}${editableCls}`} title={r.category ?? undefined} {...alDoble('categoria')}>
+        {editando === 'categoria' ? null : (r.category ?? NADA)}</td>
+      <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${editableCls}`} title={r.subcategory ?? undefined} {...alDoble('categoria')}>
+        {celda('categoria', r.subcategory ?? NADA)}</td>
+      <td className={`${TD}${editableCls}`} {...alDoble('etiqueta')}>
+        {celda('etiqueta', r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA)}</td>
       <td className={`${TD} max-w-[12rem] truncate`}>{r.accounts.length === 0 ? <span className="text-[#8A7A5C] italic">Sin asignar</span> : cuentasLabel(r)}</td>
-      <td className={`${TD} text-right font-bold ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
+      <td {...alDoble('importe')} className={`${TD} text-right font-bold${editableCls} ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
         title={r.informativo ? 'Ya está en Mercado Pago como movimiento sin clasificar: no se cuenta dos veces' : undefined}>
-        {r.informativo ? `(${importe})` : importe}
+        {celda('importe', r.informativo ? `(${importe})` : importe)}
       </td>
       <td className={TD}>
         <span className="flex items-center gap-1">
