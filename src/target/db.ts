@@ -61,6 +61,7 @@ export const TARGET_READ_TABLES = [
   'audit_events',   // 0118: the payment-date corrections of a cheque (ADMIN policy, read-only)
   'payment_plan_item',   // 0121: the payment plans (instalments) of an obligation, versioned, append-only (ADMIN policy)
   'feed_stock_period',   // 0125: closed / reopened feed stock months (ADMIN and OPERATOR read)
+  'flock_day_note',   // 0131: the note of a production day (ADMIN and OPERATOR read)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -98,6 +99,7 @@ export const TARGET_RPCS = [
   'register_flock', 'close_flock',
   'register_classification', 'register_feed_manufacturing', 'register_feed_movement', 'register_feed_inventory_count',
   'register_count_adjustment', 'assign_flock_feed',
+  'register_production_day', 'edit_production_day', 'list_production_day_edits', 'list_production_days', 'register_bird_count', 'void_bird_count', 'list_bird_counts',   // 0131
   'open_sales_session', 'close_sales_session', 'register_session_movement', 'register_session_cash_event',
   'register_fiscal_document', 'register_fiscal_obligation', 'pay_fiscal_obligation',
   'mp_reconcile_movement', 'mp_allocate_to_client', 'mp_reverse_client_allocation', 'mp_flag_for_attribution', 'mp_clear_attribution_flag',

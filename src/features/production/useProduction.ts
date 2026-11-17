@@ -6,8 +6,8 @@ import {
   registerFeedInventoryCount, registerFeedManufacturing, registerFeedMovement,
 } from '../../target/feed';
 import {
-  listFlockDays, listFlockOptions, listMortalityEvents, rectifyDailyProduction, rectifyMortality, registerCountAdjustment,
-  registerDailyProduction, registerMortality,
+  editProductionDay, getFlockDay, listBirdCounts, listDayNotes, listFlockDays, listFlockDaysRange, listFlockOptions, listProductionDayEdits, listProductionDays, registerBirdCount,
+  registerProductionDay, voidBirdCount,
 } from '../../target/production';
 
 const PRODUCTION = ['production'];
@@ -27,16 +27,26 @@ function useWrite<F extends (client: never, p: never) => Promise<unknown>>(fn: F
 export const useFlockOptions = () => useQuery({ queryKey: [...PRODUCTION, 'flocks'], queryFn: () => listFlockOptions(supabase) });
 export const useFlockDays = (from: string, to: string) =>
   useQuery({ queryKey: [...PRODUCTION, 'days', from, to], queryFn: () => listFlockDays(supabase, from, to) });
-export const useMortalityEvents = (flockId: string, date: string, enabled: boolean) =>
-  useQuery({ queryKey: [...PRODUCTION, 'mortality', flockId, date], queryFn: () => listMortalityEvents(supabase, flockId, date), enabled });
+export const useFlockDaysRange = (from: string, to: string) =>
+  useQuery({ queryKey: [...PRODUCTION, 'range', from, to], queryFn: () => listFlockDaysRange(supabase, from, to) });
+export const useDayNotes = (from: string, to: string) =>
+  useQuery({ queryKey: [...PRODUCTION, 'notes', from, to], queryFn: () => listDayNotes(supabase, from, to) });
+export const useProductionDays = (from: string, to: string) =>
+  useQuery({ queryKey: [...PRODUCTION, 'info', from, to], queryFn: () => listProductionDays(supabase, from, to) });
+export const useDayEdits = (from: string, to: string) =>
+  useQuery({ queryKey: [...PRODUCTION, 'edits', from, to], queryFn: () => listProductionDayEdits(supabase, from, to) });
+export const useFlockDay = (flockId: string, date: string) =>
+  useQuery({ queryKey: [...PRODUCTION, 'day', flockId, date], queryFn: () => getFlockDay(supabase, flockId, date), enabled: flockId !== '' && date !== '' });
+export const useBirdCounts = (flockId: string) =>
+  useQuery({ queryKey: [...PRODUCTION, 'counts', flockId], queryFn: () => listBirdCounts(supabase, flockId), enabled: flockId !== '' });
 
+/** 0131: the day in one call, its edit (reason), a bird count by its total and the deletion of the last count. */
 export function useProductionMutations() {
   return {
-    register: useWrite(registerDailyProduction, [PRODUCTION]),
-    rectify: useWrite(rectifyDailyProduction, [PRODUCTION]),
-    mortality: useWrite(registerMortality, [PRODUCTION]),
-    rectifyMortality: useWrite(rectifyMortality, [PRODUCTION]),
-    countAdjustment: useWrite(registerCountAdjustment, [PRODUCTION]),
+    registerDay: useWrite(registerProductionDay, [PRODUCTION]),
+    editDay: useWrite(editProductionDay, [PRODUCTION]),
+    count: useWrite(registerBirdCount, [PRODUCTION]),
+    voidCount: useWrite(voidBirdCount, [PRODUCTION]),
   };
 }
 

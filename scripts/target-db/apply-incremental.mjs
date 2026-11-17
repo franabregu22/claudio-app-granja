@@ -106,6 +106,7 @@ const PROFILES = {
   ADR025_POST_0128: './verify-profiles/adr025-post-0128.mjs',   // 0128 (one ingredient per recipe section)
   ADR025_POST_0129: './verify-profiles/adr025-post-0129.mjs',   // 0129 (production without operator↔flock assignments)
   ADR025_POST_0130: './verify-profiles/adr025-post-0130.mjs',   // 0130 (reverse the payment of an expense without supplier)
+  ADR025_POST_0131: './verify-profiles/adr025-post-0131.mjs',   // 0131 (Producción: day edit with reason, notes, bird counts by their total)
 };
 const t0 = Date.now();
 

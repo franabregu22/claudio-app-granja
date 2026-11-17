@@ -66,11 +66,44 @@ export async function listAllProduction(client: SupabaseClient): Promise<FlockDa
   }
 }
 
-export const PRODUCCION_CSV_CABECERA = ['Fecha', 'Galpón', 'Línea genética', 'Edad (semanas)', 'Aves', 'Huevos', 'Rotos', 'Sucios', '% Postura', '% Esperado', 'Mortandad', 'Ajuste de conteo'];
-export const produccionCsvFila = (d: FlockDay) => [
-  `${d.business_date.slice(8, 10)}/${d.business_date.slice(5, 7)}/${d.business_date.slice(0, 4)}`, d.shed_nombre, d.genetics_line, d.age_weeks, d.population,
-  d.eggs_total, d.eggs_broken, d.eggs_dirty, d.laying_pct, d.expected_laying_pct, d.mortality, d.count_adjustment,
+/** report_flock_day rows in [from, to], oldest first, read in pages of 1000 (the response cap never hides rows) — the dashboard. */
+export async function listFlockDaysRange(client: SupabaseClient, from: string, to: string): Promise<FlockDay[]> {
+  const out: FlockDay[] = [];
+  for (let page = 0; ; page += 1) {
+    const { rows } = await readViewPage<FlockDay>(client, 'report_flock_day',
+      (q) => q.gte('business_date', from).lte('business_date', to).order('business_date', { ascending: true }).order('shed_nombre').order('flock_id'),
+      '*', page, 1000);
+    out.push(...rows.map((r) => ({
+      ...r, eggs_total: numOrNull(r.eggs_total), eggs_broken: numOrNull(r.eggs_broken), eggs_dirty: numOrNull(r.eggs_dirty),
+      mortality: num(r.mortality), count_adjustment: num(r.count_adjustment), population: num(r.population), age_weeks: numOrNull(r.age_weeks),
+      laying_pct: numOrNull(r.laying_pct), expected_laying_pct: numOrNull(r.expected_laying_pct), quality_data_warning: !!r.quality_data_warning,
+    })));
+    if (rows.length < 1000) return out;
+  }
+}
+
+/** 0131 (owner 2026-11-17): the CSV is the whole table — time, who loaded it and the note included; dirty eggs and the expected
+ *  curve are out (no longer used). */
+export const PRODUCCION_CSV_CABECERA = ['Fecha', 'Hora', 'Responsable', 'Galpón', 'Lote', 'Línea genética', 'Edad (semanas)', 'Huevos', 'Rotos', '% Rotos',
+  '% Postura', 'Mortandad', 'Aves', 'Ajuste de conteo', 'Notas'];
+export const produccionCsvFila = (d: FlockDay, extra: { time?: string | null; by?: string | null; notes?: string | null; lote?: string | null } = {}) => [
+  `${d.business_date.slice(8, 10)}/${d.business_date.slice(5, 7)}/${d.business_date.slice(0, 4)}`, extra.time ?? null, extra.by ?? null, d.shed_nombre,
+  extra.lote ?? null, d.genetics_line, d.age_weeks, d.eggs_total, d.eggs_broken, brokenPct(d), d.laying_pct, d.mortality, d.population, d.count_adjustment, extra.notes ?? null,
 ];
+
+/** The flock's code as the farm names it (owner 2026-11-17): G + the shed number (2 digits) + «-» + entry year and month (YYMM) —
+ *  «Galpón 3» entered 2025-01 → «G03-2501». A shed name without a number keeps its name. */
+export function codigoLote(f: { shed_nombre: string; entry_date: string }): string {
+  const n = /(\d+)\s*$/.exec(f.shed_nombre.trim())?.[1];
+  const yymm = `${f.entry_date.slice(2, 4)}${f.entry_date.slice(5, 7)}`;
+  return n ? `G${n.padStart(2, '0')}-${yymm}` : `${f.shed_nombre}-${yymm}`;
+}
+
+/** Broken eggs as a share of the day's eggs (presentation only; 2 decimals). */
+export function brokenPct(d: Pick<FlockDay, 'eggs_total' | 'eggs_broken'>): number | null {
+  if (d.eggs_total === null || d.eggs_broken === null || d.eggs_total <= 0) return null;
+  return Math.round((d.eggs_broken * 10000) / d.eggs_total) / 100;
+}
 
 /** A calendar date shifted by whole days (YYYY-MM-DD; presentation ranges only). */
 export function shiftDate(date: string, days: number): string {
@@ -132,3 +165,83 @@ export function registerCountAdjustment(client: SupabaseClient, p: { flockId: st
     p_flock_id: p.flockId, p_event_date: p.date, p_delta: p.delta, p_reason: p.reason,
   });
 }
+
+// ── 0131: the day in one call, its edits, notes and bird counts ─────────────
+
+export interface DayNote { flock_id: string; note_date: string; notes: string }
+/** The notes of the days in [from, to] (flock_day_note). */
+export async function listDayNotes(client: SupabaseClient, from: string, to: string): Promise<DayNote[]> {
+  return readTable<DayNote>(client, 'flock_day_note', (q) => q.gte('note_date', from).lte('note_date', to), 'flock_id, note_date, notes');
+}
+
+/** One day as the report shows it (the population the system computes for that date), or null. */
+export async function getFlockDay(client: SupabaseClient, flockId: string, date: string): Promise<FlockDay | null> {
+  const rows = await readView<FlockDay>(client, 'report_flock_day', (q) => q.eq('flock_id', flockId).eq('business_date', date));
+  return rows.length === 0 ? null : { ...rows[0], population: num(rows[0].population), mortality: num(rows[0].mortality), count_adjustment: num(rows[0].count_adjustment) };
+}
+
+export interface DayInfo { time: string | null; by: string | null }
+/** Per day in [from, to] (key «flock|date»): the time the production was recorded («HH:MM»; null for the imported history) and WHO
+ *  LOADED it (the first version's author; «Importado» for the imported history) — list_production_days (0131). */
+export async function listProductionDays(client: SupabaseClient, from: string, to: string): Promise<Map<string, DayInfo>> {
+  const rows = (await callRpc<{ flock_id: string; date: string; time: string | null; by: string | null }[] | null>(client, 'list_production_days',
+    { p_from: from, p_to: to })) ?? [];
+  return new Map(rows.map((r) => [`${r.flock_id}|${r.date}`, { time: r.time, by: r.by }]));
+}
+
+/** The current time of day, «HH:MM» — what the forms propose (editable). */
+export function horaActual(d = new Date()): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+const timeOrNull = (t?: string | null) => (t && /^\d{2}:\d{2}/.test(t) ? t.slice(0, 5) : null);
+
+export function registerProductionDay(client: SupabaseClient, p: {
+  flockId: string; date: string; eggsTotal: number; eggsBroken: number; deaths: number; notes?: string | null; recordedTime?: string | null;
+}) {
+  return callRpc<{ production_id: string }>(client, 'register_production_day', {
+    p_flock_id: p.flockId, p_date: p.date, p_eggs_total: p.eggsTotal, p_eggs_broken: p.eggsBroken, p_deaths: p.deaths, p_notes: reasonOrNull(p.notes),
+    p_recorded_time: timeOrNull(p.recordedTime),
+  });
+}
+
+/** Any user, any record; the reason is mandatory; eggsTotal null only for a day without production. */
+export function editProductionDay(client: SupabaseClient, p: {
+  flockId: string; date: string; eggsTotal: number | null; eggsBroken: number; deaths: number; notes: string | null; recordedTime: string | null; reason: string;
+}) {
+  return callRpc<unknown>(client, 'edit_production_day', {
+    p_flock_id: p.flockId, p_date: p.date, p_eggs_total: p.eggsTotal, p_eggs_broken: p.eggsBroken, p_deaths: p.deaths,
+    p_notes: reasonOrNull(p.notes), p_recorded_time: timeOrNull(p.recordedTime), p_reason: p.reason,
+  });
+}
+
+export interface DayValues { eggs_total?: number | null; eggs_broken?: number | null; deaths?: number | null; notes?: string | null; time?: string | null }
+export interface DayEdit { flock_id: string; date: string; at: string; actor: string; before: DayValues; after: DayValues; reason: string | null }
+export async function listProductionDayEdits(client: SupabaseClient, from: string, to: string): Promise<DayEdit[]> {
+  return (await callRpc<DayEdit[] | null>(client, 'list_production_day_edits', { p_from: from, p_to: to })) ?? [];
+}
+
+const CAMPOS: [keyof DayValues, string][] = [['time', 'Hora'], ['eggs_total', 'Huevos'], ['eggs_broken', 'Rotos'], ['deaths', 'Mortandad'], ['notes', 'Notas']];
+const valor = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
+/** «Huevos 582 → 590 · Mortandad 6 → 4»: only the fields that changed. */
+export function describeDayEdit(e: Pick<DayEdit, 'before' | 'after'>): string {
+  return CAMPOS.filter(([k]) => k in e.after && valor(e.before[k]) !== valor(e.after[k]))
+    .map(([k, t]) => `${t} ${valor(e.before[k])} → ${valor(e.after[k])}`).join(' · ');
+}
+
+export interface BirdCount {
+  id: number; flock_id: string; date: string; counted: number; computed: number; difference: number; reason: string | null; at: string; by: string;
+  voided_at: string | null; voided_by: string | null; void_reason: string | null;
+}
+export async function listBirdCounts(client: SupabaseClient, flockId: string): Promise<BirdCount[]> {
+  return (await callRpc<BirdCount[] | null>(client, 'list_bird_counts', { p_flock_id: flockId })) ?? [];
+}
+export function registerBirdCount(client: SupabaseClient, p: { flockId: string; date: string; counted: number; reason?: string | null }) {
+  return callRpc<{ count_id: number; counted: number; computed: number; difference: number }>(client, 'register_bird_count', {
+    p_flock_id: p.flockId, p_date: p.date, p_counted: p.counted, p_reason: reasonOrNull(p.reason),
+  });
+}
+export function voidBirdCount(client: SupabaseClient, p: { countId: number; reason?: string | null }) {
+  return callRpc<{ count_id: number }>(client, 'void_bird_count', { p_count_id: p.countId, p_reason: reasonOrNull(p.reason) });
+}
+/** The count that can be deleted: the newest one not deleted (the list comes newest first). */
+export const lastValidCount = (counts: BirdCount[]): BirdCount | null => counts.find((c) => c.voided_at === null) ?? null;
