@@ -43,7 +43,7 @@ export function FiltroColumna({ titulo, activo, derecha = false, children }: {
         <>
           <div className="fixed inset-0 z-40" onClick={cerrar} aria-hidden />
           <div ref={panel} role="dialog" aria-label={`Filtro: ${titulo}`} style={{ top: pos.top, left: pos.left, width: ANCHO }}
-            className="fixed z-50 max-h-[70vh] overflow-auto rounded-lg border border-[#E4DCC8] bg-white p-2 text-sm font-normal normal-case text-[#2C2419] shadow-lg">
+            className="fixed z-50 max-h-[70vh] overflow-y-auto overflow-x-hidden [&_label>input]:block rounded-lg border border-[#E4DCC8] bg-white p-2 text-sm font-normal normal-case text-[#2C2419] shadow-lg">
             {children(cerrar)}
           </div>
         </>

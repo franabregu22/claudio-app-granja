@@ -77,7 +77,6 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const [aviso, setAviso] = useState<{ texto: string; clave: string | null } | null>(null);
   const grupos = useExpenseGroups();
   const subcategorias = useAllExpenseSubcategories();
-  const proveedores = useSuppliers();
   const etiquetas = useEtiquetas();   // 0127
   // the account cards above filter the same list: kept in step with them
   const filtros = { ...f, cuenta: f.cuenta === 'SIN' ? 'SIN' : cuentaId };
@@ -120,7 +119,22 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         </FiltroColumna>
       </th>
       <th className={TH}>{opcion('Tipo', filtros.tipo, (v) => poner({ tipo: v as OperationTipo | '' }), [{ v: 'INGRESO', t: 'Ingresos' }, { v: 'EGRESO', t: 'Egresos' }, { v: 'TRANSFERENCIA', t: 'Transferencias' }])}</th>
-      <th className={TH}>{opcion('Concepto', filtros.proveedor, (v) => poner({ proveedor: v }), (proveedores.data ?? []).map((x) => ({ v: x.id, t: x.nombre })), 'Todos los proveedores', 'Proveedor')}</th>
+      <th className={TH}>
+        <FiltroColumna titulo="Concepto" activo={filtros.buscar !== ''}>
+          {(cerrar) => (
+            <form className="space-y-2 p-1" onSubmit={(e) => { e.preventDefault(); poner({ buscar: texto.trim() }); cerrar(); }}>
+              <label className="block text-xs text-[#8A7A5C]">Contiene
+                <input type="search" ref={(el) => el?.focus({ preventScroll: true })} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Ej.: gasoil, maíz, nombre del proveedor…" className={campo} />
+              </label>
+              <p className="text-[11px] text-[#8A7A5C]">Busca en el concepto, el proveedor o el cliente.</p>
+              <div className="flex items-center justify-between">
+                <button type="button" onClick={() => { setTexto(''); poner({ buscar: '' }); cerrar(); }} className="text-xs text-[#A8552E] hover:underline">Quitar filtro</button>
+                <button type="submit" className="text-xs px-3 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Filtrar</button>
+              </div>
+            </form>
+          )}
+        </FiltroColumna>
+      </th>
       <th className={TH}>
         <FiltroColumna titulo="Categoría" activo={filtros.grupo !== '' || filtros.naturaleza !== ''}>
           {(cerrar) => (
@@ -200,9 +214,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
                 {filas.map((r) => (
                   <Fragment key={r.row_key}>
                     <Fila r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key} abierta={abierta === r.row_key} onAbrir={() => setAbierta(abierta === r.row_key ? null : r.row_key)}
-                      onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} />
+                      onPagar={() => setPagar(r)} />
                     {abierta === r.row_key && (
-                      <tr className="border-b border-[#EFE8D6] bg-[#FAF6EE]"><td colSpan={10} className="p-0"><DetalleFila r={r} /></td></tr>
+                      <tr className="border-b border-[#EFE8D6] bg-[#FAF6EE]"><td colSpan={10} className="p-0"><DetalleFila r={r} onHistorial={() => setHistorial(r)} /></td></tr>
                     )}
                   </Fragment>
                 ))}
@@ -237,13 +251,15 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
 }
 
 /** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Etiqueta (0127) | Cuenta | Importe | Estado | Acciones ("—" when it does not apply). */
-function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar, onHistorial }: {
-  r: OperationRow; etiqueta?: string; destacada: boolean; abierta: boolean; onAbrir: () => void; onPagar: () => void; onHistorial: () => void;
+function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar }: {
+  r: OperationRow; etiqueta?: string; destacada: boolean; abierta: boolean; onAbrir: () => void; onPagar: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
   const importe = r.tipo === 'TRANSFERENCIA' ? formatoPesos(Math.abs(r.amount)) : `${r.amount < 0 ? '−' : '+'} ${formatoPesos(Math.abs(r.amount))}`;
   return (
-    <tr className={`border-b border-[#EFE8D6] ${destacada ? 'bg-sky-50' : abierta ? 'bg-amber-50/40' : ''}`}>
+    // owner 2026-11-17: the whole row opens its detail (where the expense is edited, annulled, tagged, paid; its invoice and history)
+    <tr onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a, input, select')) onAbrir(); }}
+      className={`border-b border-[#EFE8D6] cursor-pointer hover:bg-amber-50/30 ${destacada ? 'bg-sky-50' : abierta ? 'bg-amber-50/40' : ''}`}>
       <td className={TD}>{r.date ? formatearFechaLocal(r.date) : NADA}</td>
       <td className={`${TD} font-semibold ${TONO_TIPO[r.tipo]}`}>{TIPO_LABEL[r.tipo]}</td>
       <td className="px-2 py-2 max-w-[18rem] truncate" title={r.concepto}><span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span></td>
@@ -266,7 +282,6 @@ function Fila({ r, etiqueta, destacada, abierta, onAbrir, onPagar, onHistorial }
           {pagable !== null && <button type="button" onClick={onPagar} className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar pago</button>}
           <button type="button" onClick={onAbrir} aria-expanded={abierta} title={abierta ? 'Ocultar detalle' : 'Ver detalle'} aria-label="Detalle"
             className="p-1 rounded text-[#A8552E] hover:bg-amber-50"><ChevronDown className={`w-4 h-4 transition ${abierta ? 'rotate-180' : ''}`} /></button>
-          <button type="button" onClick={onHistorial} title="Historial" aria-label="Historial" className="p-1 rounded text-[#A8552E] hover:bg-amber-50"><History className="w-4 h-4" /></button>
         </span>
       </td>
     </tr>
@@ -279,7 +294,7 @@ const DATO = 'text-xs text-[#6B5D45]';
  * is one row, its two movements stay apart), the bank / Mercado Pago evidence, its taxes and the anticipated transfer it settled, and the
  * expense or invoice it belongs to (Gastos' own detail: receipts, Editar / Rectificar, payments, cheques, dates, freight, history).
  */
-function DetalleFila({ r }: { r: OperationRow }) {
+function DetalleFila({ r, onHistorial }: { r: OperationRow; onHistorial: () => void }) {
   const [accion, setAccion] = useState<Accion | null>(null);
   return (
     <div className="p-3 space-y-3">
@@ -298,6 +313,9 @@ function DetalleFila({ r }: { r: OperationRow }) {
       {r.row_kind === 'CHEQUE' && <p className={DATO}>Cheque propio sin factura: se debita, anula, rechaza o cambia su fecha de pago en Cuentas a pagar → Cheques.</p>}
       {r.row_kind === 'CHEQUE_RECIBIDO' && <p className={DATO}>Cheque de cliente: se deposita, acredita, endosa o rechaza en Cuentas a pagar → Cheques.</p>}
       {(r.purchase_id || r.pending_class_id !== null) && <GastoDeFila r={r} onAccion={setAccion} />}
+      <button type="button" onClick={onHistorial} className="inline-flex items-center gap-1 text-xs text-[#A8552E] hover:underline">
+        <History className="w-3.5 h-3.5" /> Historial de cambios
+      </button>
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
     </div>
   );
