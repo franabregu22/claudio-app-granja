@@ -20,6 +20,7 @@ import { useOperationList, useOperationTimeline, usePayFromRow } from './useOper
 import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, useSuppliers, useTransferIntents } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
 import { NumeroInput } from '../../components/NumeroInput';
+import { FiltroColumna, OpcionesFiltro } from '../../components/FiltroColumna';
 
 const CHIP = 'text-xs px-2 py-0.5 rounded whitespace-nowrap';
 const TONO_ESTADO: Record<OperationEstado, string> = { PENDIENTE: 'bg-amber-100 text-amber-900', COMPLETADA: 'bg-green-100 text-green-800' };
@@ -93,13 +94,53 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   };
   const limpiar = () => { setF(FILTROS_VACIOS); setTexto(''); onCuenta(''); setPagina(0); setAbierta(null); onFocus(null); };
   const subcatsDelGrupo = (subcategorias.data ?? []).filter((s) => !filtros.grupo || s.group_id === filtros.grupo);
-  const sel = (label: string, value: string, onChange: (v: string) => void, opciones: { v: string; t: string }[], todos = 'Todos') => (
-    <label className="text-xs text-[#8A7A5C]">{label}
-      <select value={value} onChange={(e) => onChange(e.target.value)} className={campo}>
-        <option value="">{todos}</option>
-        {opciones.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-      </select>
-    </label>
+  // owner 2026-11-17: Excel-like filters — an arrow next to each column name opens its choices (the same server filters as before)
+  const opcion = (titulo: string, valor: string, onElegir: (v: string) => void, opciones: { v: string; t: string }[], todos = 'Todos', subtitulo?: string) => (
+    <FiltroColumna titulo={titulo} activo={valor !== ''}>
+      {(cerrar) => <OpcionesFiltro valor={valor} opciones={opciones} todos={todos} subtitulo={subtitulo} onElegir={(v) => { onElegir(v); cerrar(); }} />}
+    </FiltroColumna>
+  );
+  const TH = 'px-2 py-2 font-medium whitespace-nowrap';
+  const encabezado = (
+    <thead><tr className="text-xs text-[#8A7A5C] border-b border-[#E4DCC8] text-left">
+      <th className={TH}>
+        <FiltroColumna titulo="Fecha" activo={filtros.desde !== '' || filtros.hasta !== '' || filtros.orden === 'CARGA'}>
+          {(cerrar) => (
+            <div className="space-y-2 p-1">
+              <label className="block text-xs text-[#8A7A5C]">Desde<input type="date" value={filtros.desde} onChange={(e) => poner({ desde: e.target.value })} className={campo} /></label>
+              <label className="block text-xs text-[#8A7A5C]">Hasta<input type="date" value={filtros.hasta} onChange={(e) => poner({ hasta: e.target.value })} className={campo} /></label>
+              <OpcionesFiltro subtitulo="Orden" valor={filtros.orden === 'CARGA' ? 'CARGA' : ''} todos="Por fecha" opciones={[{ v: 'CARGA', t: 'Cargadas recientemente' }]}
+                onElegir={(v) => poner({ orden: v === 'CARGA' ? 'CARGA' : 'FECHA' })} />
+              <div className="flex items-center justify-between pt-1">
+                <button type="button" onClick={() => { poner({ desde: '', hasta: '', orden: 'FECHA' }); cerrar(); }} className="text-xs text-[#A8552E] hover:underline">Quitar filtro</button>
+                <button type="button" onClick={cerrar} className="text-xs px-3 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Listo</button>
+              </div>
+            </div>
+          )}
+        </FiltroColumna>
+      </th>
+      <th className={TH}>{opcion('Tipo', filtros.tipo, (v) => poner({ tipo: v as OperationTipo | '' }), [{ v: 'INGRESO', t: 'Ingresos' }, { v: 'EGRESO', t: 'Egresos' }, { v: 'TRANSFERENCIA', t: 'Transferencias' }])}</th>
+      <th className={TH}>{opcion('Concepto', filtros.proveedor, (v) => poner({ proveedor: v }), (proveedores.data ?? []).map((x) => ({ v: x.id, t: x.nombre })), 'Todos los proveedores', 'Proveedor')}</th>
+      <th className={TH}>
+        <FiltroColumna titulo="Categoría" activo={filtros.grupo !== '' || filtros.naturaleza !== ''}>
+          {(cerrar) => (
+            <div className="space-y-3">
+              <OpcionesFiltro subtitulo="Categoría" valor={filtros.grupo} todos="Todas" opciones={(grupos.data ?? []).map((g) => ({ v: g.id, t: g.nombre }))}
+                onElegir={(v) => { poner({ grupo: v }); cerrar(); }} />
+              <OpcionesFiltro subtitulo="Naturaleza" valor={filtros.naturaleza} todos="Todas" opciones={(Object.keys(NATURALEZA_LABEL) as OperationNature[]).map((n) => ({ v: n, t: NATURALEZA_LABEL[n] }))}
+                onElegir={(v) => { poner({ naturaleza: v as OperationNature | '' }); cerrar(); }} />
+            </div>
+          )}
+        </FiltroColumna>
+      </th>
+      <th className={TH}>{opcion('Subcategoría', filtros.subcategoria, (v) => poner({ subcategoria: v }), subcatsDelGrupo.map((x) => ({ v: x.id, t: x.nombre })), 'Todas')}</th>
+      <th className={TH}>{opcion('Etiqueta', filtros.etiqueta, (v) => poner({ etiqueta: v }), [{ v: 'SIN', t: 'Sin etiqueta' }, ...(etiquetas.data ?? []).map((e) => ({ v: e.id, t: e.nombre }))], 'Todas')}</th>
+      <th className={TH}>{opcion('Cuenta', filtros.cuenta, (v) => poner({ cuenta: v }), [{ v: 'SIN', t: 'Sin asignar' }, ...cuentas.map((c) => ({ v: c.id, t: c.nombre }))], 'Todas')}</th>
+      <th className={`${TH} text-right`}>Importe</th>
+      <th className={TH}>{opcion('Estado', filtros.estado, (v) => poner({ estado: v as Filtros['estado'] }),
+        [{ v: 'PENDIENTE', t: 'Pendientes' }, { v: 'COMPLETADA', t: 'Pagadas / cobradas / realizadas' }, { v: 'POR_REVISAR', t: 'Por revisar' }])}</th>
+      <th className={TH}>Acciones</th>
+    </tr></thead>
   );
 
   return (
@@ -119,30 +160,15 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         </span>
       </div>
 
-      <div className="bg-white rounded-lg border border-[#E4DCC8] p-3 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2 text-sm" role="group" aria-label="Filtros">
-        <label className="text-xs text-[#8A7A5C]">Desde<input type="date" value={filtros.desde} onChange={(e) => poner({ desde: e.target.value })} className={campo} /></label>
-        <label className="text-xs text-[#8A7A5C]">Hasta<input type="date" value={filtros.hasta} onChange={(e) => poner({ hasta: e.target.value })} className={campo} /></label>
-        {sel('Tipo', filtros.tipo, (v) => poner({ tipo: v as OperationTipo | '' }), [{ v: 'INGRESO', t: 'Ingresos' }, { v: 'EGRESO', t: 'Egresos' }, { v: 'TRANSFERENCIA', t: 'Transferencias' }])}
-        {sel('Cuenta', filtros.cuenta, (v) => poner({ cuenta: v }), [{ v: 'SIN', t: 'Sin asignar' }, ...cuentas.map((c) => ({ v: c.id, t: c.nombre }))], 'Todas')}
-        {sel('Estado', filtros.estado, (v) => poner({ estado: v as Filtros['estado'] }),
-          [{ v: 'PENDIENTE', t: 'Pendientes' }, { v: 'COMPLETADA', t: 'Pagadas / cobradas / realizadas' }, { v: 'POR_REVISAR', t: 'Por revisar' }])}
-        {sel('Orden', filtros.orden === 'FECHA' ? '' : 'CARGA', (v) => poner({ orden: v === 'CARGA' ? 'CARGA' : 'FECHA' }), [{ v: 'CARGA', t: 'Cargadas recientemente' }], 'Por fecha')}
-        {sel('Categoría', filtros.grupo, (v) => poner({ grupo: v }), (grupos.data ?? []).map((g) => ({ v: g.id, t: g.nombre })), 'Todas')}
-        {sel('Subcategoría', filtros.subcategoria, (v) => poner({ subcategoria: v }), subcatsDelGrupo.map((s) => ({ v: s.id, t: s.nombre })), 'Todas')}
-        {sel('Naturaleza', filtros.naturaleza, (v) => poner({ naturaleza: v as OperationNature | '' }),
-          (Object.keys(NATURALEZA_LABEL) as OperationNature[]).map((n) => ({ v: n, t: NATURALEZA_LABEL[n] })), 'Todas')}
-        {sel('Proveedor', filtros.proveedor, (v) => poner({ proveedor: v }), (proveedores.data ?? []).map((s) => ({ v: s.id, t: s.nombre })))}
-        {sel('Etiqueta', filtros.etiqueta, (v) => poner({ etiqueta: v }), [{ v: 'SIN', t: 'Sin etiqueta' }, ...(etiquetas.data ?? []).map((e) => ({ v: e.id, t: e.nombre }))], 'Todas')}
-        <form className="col-span-2 flex items-end gap-1" onSubmit={(e) => { e.preventDefault(); poner({ buscar: texto.trim() }); }}>
-          <label className="text-xs text-[#8A7A5C] flex-1">Buscar
-            <input type="search" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Concepto, proveedor, cliente, importe…" className={campo} />
-          </label>
-          <button type="submit" className="px-3 py-2 rounded-lg bg-amber-600 text-white text-sm hover:bg-amber-700">Buscar</button>
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtros">
+        <form className="flex flex-1 min-w-[15rem] items-center gap-1" onSubmit={(e) => { e.preventDefault(); poner({ buscar: texto.trim() }); }}>
+          <input type="search" value={texto} onChange={(e) => setTexto(e.target.value)} aria-label="Buscar" placeholder="Buscar concepto, proveedor, cliente, importe…"
+            className="flex-1 min-w-0 border border-[#E4DCC8] rounded-lg px-3 py-1.5 text-sm bg-white" />
+          <button type="submit" className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-sm hover:bg-amber-700">Buscar</button>
         </form>
-        <div className="col-span-2 md:col-span-4 xl:col-span-6 flex justify-end">
-          <button type="button" onClick={limpiar} disabled={!hayFiltros(filtros) && texto === '' && !foco}
-            className="text-xs px-3 py-1 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50 disabled:opacity-40">Limpiar filtros</button>
-        </div>
+        <button type="button" onClick={limpiar} disabled={!hayFiltros(filtros) && texto === '' && !foco}
+          className="text-xs px-3 py-1.5 rounded border border-[#E4DCC8] bg-white hover:bg-stone-50 disabled:opacity-40">Limpiar filtros</button>
+        <span className="w-full text-xs text-[#8A7A5C]">Para filtrar, tocá la flechita al lado del nombre de cada columna.</span>
       </div>
 
       {aviso && (
@@ -161,17 +187,16 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
 
       {lista.isLoading ? <p className="text-sm text-gray-500">Cargando operaciones…</p>
         : lista.error ? <p className="text-sm text-red-700">{errorMessage(lista.error)}</p>
-        : filas.length === 0 ? (
-          <p className="text-sm text-[#8A7A5C]">{focus ? 'La operación todavía no aparece. Probá con “Cargadas recientemente”.' : 'No hay operaciones con estos filtros.'}</p>
-        ) : (
+        : (
           <div className="bg-white rounded-lg border border-[#E4DCC8] overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="text-xs text-[#8A7A5C] border-b border-[#E4DCC8] text-left">
-                <th className="px-2 py-2">Fecha</th><th className="px-2 py-2">Tipo</th><th className="px-2 py-2">Concepto</th><th className="px-2 py-2">Categoría</th>
-                <th className="px-2 py-2">Subcategoría</th><th className="px-2 py-2">Etiqueta</th><th className="px-2 py-2">Cuenta</th><th className="px-2 py-2 text-right">Importe</th>
-                <th className="px-2 py-2">Estado</th><th className="px-2 py-2">Acciones</th>
-              </tr></thead>
+              {encabezado}
               <tbody>
+                {filas.length === 0 && (
+                  <tr><td colSpan={10} className="px-3 py-4 text-sm text-[#8A7A5C]">
+                    {focus ? 'La operación todavía no aparece. Probá con “Cargadas recientemente”.' : 'No hay operaciones con estos filtros.'}
+                  </td></tr>
+                )}
                 {filas.map((r) => (
                   <Fragment key={r.row_key}>
                     <Fila r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key} abierta={abierta === r.row_key} onAbrir={() => setAbierta(abierta === r.row_key ? null : r.row_key)}

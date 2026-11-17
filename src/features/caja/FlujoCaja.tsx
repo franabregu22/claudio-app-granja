@@ -9,6 +9,8 @@ import { errorMessage } from '../../target/messages';
 const VENTANA: Record<Grano, number> = { MES: 6, SEMANA: 8 };
 const pesos = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
 const importe = (v: number) => (v === 0 ? '—' : pesos.format(v));
+const CLAVE_ABIERTO = 'caja.flujo.abierto';
+const leerAbierto = () => { try { return localStorage.getItem(CLAVE_ABIERTO) === '1'; } catch { return false; } };
 const hoyLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /**
@@ -18,6 +20,9 @@ const hoyLocal = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
  */
 export function FlujoCaja() {
   const hoy = hoyLocal();
+  // folded by default (owner 2026-11-17: the balances and the movement list come first); the choice is remembered per browser
+  const [visible, setVisible] = useState(leerAbierto);
+  const plegar = () => setVisible((v) => { try { localStorage.setItem(CLAVE_ABIERTO, v ? '0' : '1'); } catch { /* private mode: not remembered */ } return !v; });
   const [grano, setGrano] = useState<Grano>('MES');
   const inicial = (g: Grano) => moverPeriodo(g, inicioPeriodo(g, hoy), -(VENTANA[g] - 1));
   const [primero, setPrimero] = useState(() => inicial('MES'));
@@ -29,6 +34,7 @@ export function FlujoCaja() {
   const datos = useQuery({
     queryKey: ['treasury', 'cash-flow', grano, cols[0].inicio, cols[n - 1].fin],
     queryFn: () => getCashFlow(supabase, cols[0].inicio, cols[n - 1].fin, grano),
+    enabled: visible,   // nothing is read while it is folded
   });
   const flujo = construirFlujo(cols, datos.data ?? { opening: 0, net: [], rows: [] });
 
@@ -66,12 +72,15 @@ export function FlujoCaja() {
   };
 
   return (
-    <section aria-label="Flujo de caja" className="bg-white rounded-lg border border-[#E4DCC8] p-3 sm:p-4 space-y-3">
+    <section aria-label="Flujo de caja" className={`bg-white rounded-lg border border-[#E4DCC8] ${visible ? 'p-3 sm:p-4 space-y-3' : 'px-3 py-2'}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="font-semibold text-[#2C2419]">Flujo de caja</h2>
-        </div>
-        <div className="flex items-center gap-2 text-sm">
+        <h2 className="font-semibold text-[#2C2419]">
+          <button type="button" onClick={plegar} aria-expanded={visible} className="inline-flex items-center gap-1.5 hover:text-[#A8552E]">
+            <ChevronDown className={`w-4 h-4 transition-transform ${visible ? '' : '-rotate-90'}`} />Flujo de caja
+            {!visible && <span className="text-xs font-normal text-[#8A7A5C]">(tocá para ver)</span>}
+          </button>
+        </h2>
+        {visible && <div className="flex items-center gap-2 text-sm">
           <div className="inline-flex rounded-lg border border-[#E4DCC8] overflow-hidden" role="group" aria-label="Período">
             {(['MES', 'SEMANA'] as Grano[]).map((g) => (
               <button key={g} type="button" onClick={() => cambiarGrano(g)} aria-pressed={grano === g}
@@ -85,9 +94,9 @@ export function FlujoCaja() {
           <button type="button" onClick={() => setPrimero(inicial(grano))} className="px-2 py-1 rounded text-[#A8552E] hover:bg-stone-100">Hoy</button>
           <button type="button" onClick={() => setPrimero(moverPeriodo(grano, primero, 1))} disabled={primero >= maximo}
             aria-label="Período siguiente" className="p-1 rounded hover:bg-stone-100 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
-        </div>
+        </div>}
       </div>
-      {datos.error ? <p className="text-sm text-red-700">{errorMessage(datos.error)}</p> : datos.isLoading ? <p className="text-sm text-gray-500">Cargando flujo de caja...</p> : (
+      {!visible ? null : datos.error ? <p className="text-sm text-red-700">{errorMessage(datos.error)}</p> : datos.isLoading ? <p className="text-sm text-gray-500">Cargando flujo de caja...</p> : (
       <div className="overflow-x-auto -mx-3 sm:mx-0">
         <table className="w-full text-xs sm:text-sm border-collapse">
           <thead>
@@ -105,9 +114,9 @@ export function FlujoCaja() {
         </table>
       </div>
       )}
-      <p className="text-xs text-[#8A7A5C]">
+      {visible && <p className="text-xs text-[#8A7A5C]">
         Dinero cobrado y pagado, sin transferencias entre cuentas propias. Saldo final: caja al cierre de cada período (el período en curso, hasta hoy).
-      </p>
+      </p>}
     </section>
   );
 }
