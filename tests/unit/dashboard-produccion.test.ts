@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  deGalpon, escalaPostura, posturaPonderada, ticksRedondos, rangosDashboard, seriePostura, serieHuevosMes, totalesDe, variacionPct,
+  deLote, escalaPostura, posturaPonderada, ticksRedondos, rangosDashboard, seriePostura, serieHuevosMes, totalesDe, variacionPct,
 } from '../../src/features/production/indicadoresProduccion';
 import type { FlockDay } from '../../src/target/production';
 
@@ -43,12 +43,12 @@ describe('totals', () => {
     expect(t.postura).toBeCloseTo(90, 6);
     expect(t.pctRotos).toBeCloseTo(15 * 100 / 1350, 6);
   });
-  it('mortality counts every flock-day of the range (with or without production); the shed filter', () => {
+  it('mortality counts every flock-day of the range (with or without production); the lote filter', () => {
     const conMuertes = [dia({ mortality: 3 }), dia({ flock_id: 'f3', shed_nombre: 'Galpón 3', daily_production_id: null, eggs_total: null, eggs_broken: null, mortality: 2 }),
       dia({ business_date: '2026-11-09', mortality: 7 })];
     expect(totalesDe(conMuertes, { desde: '2026-11-16', hasta: '2026-11-16' }).muertes).toBe(5);
-    expect(totalesDe(deGalpon(conMuertes, 'Galpón 3'), { desde: '2026-11-16', hasta: '2026-11-16' }).muertes).toBe(2);
-    expect(deGalpon(conMuertes, '')).toHaveLength(3);
+    expect(totalesDe(deLote(conMuertes, 'f3'), { desde: '2026-11-16', hasta: '2026-11-16' }).muertes).toBe(2);
+    expect(deLote(conMuertes, '')).toHaveLength(3);
   });
   it('weighted laying % = total eggs ÷ bird-days', () => {
     expect(posturaPonderada([dia({ laying_pct: 90, population: 1000 }), dia({ laying_pct: 60, population: 500 })])).toBeCloseTo(80, 6);
@@ -71,7 +71,7 @@ describe('charts', () => {
   });
   it('laying % per day: farm total and per shed; gaps stay null; a readable Y range', () => {
     const filas = [dia({ business_date: '2026-11-15', laying_pct: 70 }), dia({ business_date: '2026-11-15', flock_id: 'f2', shed_nombre: 'Galpón 2', laying_pct: 40, population: 1000 })];
-    const serie = seriePostura(filas, '2026-11-15', '2026-11-16', ['Galpón 1', 'Galpón 2']);
+    const serie = seriePostura(filas, '2026-11-15', '2026-11-16', ['Galpón 1', 'Galpón 2'], (d) => d.shed_nombre);
     expect(serie[0]).toMatchObject({ fecha: '2026-11-15', 'Galpón 1': 70, 'Galpón 2': 40 });
     expect(serie[0].total).toBeCloseTo(55, 6);
     expect(serie[1]).toMatchObject({ fecha: '2026-11-16', total: null, 'Galpón 1': null });
@@ -87,11 +87,13 @@ describe('charts', () => {
 describe('the screen', () => {
   const app = readFileSync(resolve(__dirname, '../../src/features/production/ProductionDashboard.tsx'), 'utf8');
   it('sections and cards as asked; the old per-flock charts are gone', () => {
-    for (const t of ['Esta semana', 'Este mes', 'Huevos sanos', 'Huevos rotos', '% de postura', 'Mortandad', 'Evolución', 'Sin días cerrados todavía', 'Todos los galpones']) expect(app).toContain(t);
+    for (const t of ['Esta semana', 'Este mes', 'Huevos sanos', 'Huevos rotos', '% de postura', 'Mortandad', 'Evolución', 'Sin días cerrados todavía', 'Todos los lotes']) expect(app).toContain(t);
     expect((app.match(/<Tarjeta label=/g) ?? []).length).toBe(4);   // one card per indicator; the period selector replaces the repeated cards
     expect(app).not.toMatch(/ddmm|slice\(8, 10\)\}\/\$/);   // dates as «1 nov», never dd/mm
     expect(app).toMatch(/MESES_CORTOS = \['ene'/);
-    expect(app).toMatch(/const filas = deGalpon\(todas, galpon\);/);   // the shed filter feeds every card and chart
+    expect(app).toMatch(/const filas = deLote\(todas, elegido\);/);   // the lote filter feeds every card and chart
+    expect(app).toMatch(/filter\(\(f\) => f\.estado === 'ACTIVE'\)\.map\(\(f\) => \(\{ id: f\.id, codigo: codigoLote\(f\)/);   // only the ACTIVE lotes, by code
+    expect(app).toMatch(/label="Mortandad" vacio=\{comp \? null/);   // mortality shows even without eggs (recría)
     expect(app).not.toMatch(/latestPerFlock|Edad \(sem\.\)/);
     expect(app).toMatch(/VENTANAS = \[30, 60, 90\]/);
     expect(app).toMatch(/menosEsMejor/);   // more broken eggs is red

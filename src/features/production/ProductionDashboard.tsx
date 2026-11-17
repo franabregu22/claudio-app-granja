@@ -4,13 +4,14 @@ import { errorMessage } from '../../target/messages';
 import { agregarDiasAFecha, getTodayDate } from '../../utils/dateUtils';
 import type { Rango } from '../pedidos/periodos';
 import {
-  deGalpon, escalaPostura, rangosDashboard, ticksRedondos, seriePostura, serieHuevosMes, totalesDe, variacionPct,
+  deLote, escalaPostura, rangosDashboard, ticksRedondos, seriePostura, serieHuevosMes, totalesDe, variacionPct,
 } from './indicadoresProduccion';
-import { useFlockDaysRange } from './useProduction';
+import { codigoLote } from '../../target/production';
+import { useFlockDaysRange, useFlockOptions } from './useProduction';
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-/** Sheds in a fixed order (by name) → a fixed hue each (validated categorical slots 1–4…; never cycled by rank). */
-const COLORES_GALPON = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
+/** Active lotes in a fixed order (by code) → a fixed hue each (validated categorical slots 1–4…; never cycled by rank). */
+const COLORES_LOTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
 const TINTA = '#2C2419';
 const ACENTO = '#A8552E';
 const REFERENCIA = '#B8AC94';
@@ -56,24 +57,28 @@ function Tarjeta({ label, valor, anterior, cambio, unidad = '%', menosEsMejor = 
 
 /**
  * Dashboard → Producción (owner 2026-11-17): one glance on top — healthy eggs, broken eggs, laying % and mortality of the selected
- * period (this week / this month, closed days only: up to yesterday, against the same days of the previous period) for every shed or
- * one — and the evolution charts below. report_flock_day only; indicadoresProduccion.ts holds the rules.
+ * period (this week / this month, closed days only: up to yesterday, against the same days of the previous period) for the whole farm
+ * or one active lote — and the evolution charts below. report_flock_day only; indicadoresProduccion.ts holds the rules.
  */
 export function ProductionDashboard() {
   const hoy = getTodayDate();
   const { semana, mes, ayer } = rangosDashboard(hoy);
   const [periodo, setPeriodo] = useState<Periodo>('semana');
-  const [galpon, setGalpon] = useState('');   // '' = todos
+  const [lote, setLote] = useState('');   // flock id; '' = toda la granja
   const [ventana, setVentana] = useState<(typeof VENTANAS)[number]>(30);
   // one read covers every period: the previous month's 1st (or the previous week) and the longest chart window
   const desdeLectura = [agregarDiasAFecha(ayer, -89), mes?.anterior.desde ?? ayer, semana?.anterior.desde ?? ayer].sort()[0];
   const dias = useFlockDaysRange(desdeLectura, ayer);
-  if (dias.isLoading) return <div className="flex items-center justify-center py-12"><p className="text-gray-500">Cargando dashboard…</p></div>;
-  if (dias.error) return <p className="m-6 text-sm text-red-700">{errorMessage(dias.error)}</p>;
+  const lotes = useFlockOptions();
+  if (dias.isLoading || lotes.isLoading) return <div className="flex items-center justify-center py-12"><p className="text-gray-500">Cargando dashboard…</p></div>;
+  if (dias.error ?? lotes.error) return <p className="m-6 text-sm text-red-700">{errorMessage(dias.error ?? lotes.error)}</p>;
   const todas = dias.data ?? [];
-  // the sheds in a fixed order (by name): the filter buttons and each shed's fixed hue
-  const todosGalpones = [...new Set(todas.filter((d) => d.daily_production_id !== null).map((d) => d.shed_nombre))].sort((a, b) => a.localeCompare(b, 'es'));
-  const filas = deGalpon(todas, galpon);
+  // the ACTIVE lotes (owner 2026-11-17: the filter is by lote, only the active ones), by code: the buttons and each lote's fixed hue.
+  // «Todos los lotes» is the whole farm (a lote closed during the compared period still counts there).
+  const activos = (lotes.data ?? []).filter((f) => f.estado === 'ACTIVE').map((f) => ({ id: f.id, codigo: codigoLote(f), galpon: f.shed_nombre }))
+    .sort((x, y) => x.codigo.localeCompare(y.codigo, 'es'));
+  const elegido = activos.some((f) => f.id === lote) ? lote : '';
+  const filas = deLote(todas, elegido);
 
   // the cards: the selected period against the same days of the previous one
   const comp = periodo === 'semana' ? semana : mes;
@@ -88,11 +93,11 @@ export function ProductionDashboard() {
   const mesNombre = MESES[Number(hoy.slice(5, 7)) - 1];
   const mesAnteriorNombre = mes ? MESES[Number(mes.anterior.desde.slice(5, 7)) - 1] : '';
 
-  // laying % per day: the farm total and one line per shed (one line when a shed is selected)
-  const galpones = galpon === '' ? todosGalpones : [galpon];
-  const postura = seriePostura(filas, agregarDiasAFecha(ayer, -(ventana - 1)), ayer, galpones);
-  const conTotal = galpon === '';
-  const [yMin, yMax] = escalaPostura(postura, conTotal ? ['total', ...galpones] : galpones);
+  // laying % per day: the farm total and one line per active lote (one line when a lote is selected)
+  const series = elegido === '' ? activos : activos.filter((f) => f.id === elegido);
+  const postura = seriePostura(filas, agregarDiasAFecha(ayer, -(ventana - 1)), ayer, series.map((f) => f.id));
+  const conTotal = elegido === '';
+  const [yMin, yMax] = escalaPostura(postura, conTotal ? ['total', ...series.map((f) => f.id)] : series.map((f) => f.id));
   const ticks = Array.from({ length: Math.floor((yMax - yMin) / 5) + 1 }, (_, i) => yMin + i * 5).filter((t, _i, arr) => arr.length <= 12 || t % 10 === 0);
 
   return (
@@ -107,10 +112,11 @@ export function ProductionDashboard() {
           <button type="button" onClick={() => setPeriodo('semana')} aria-pressed={periodo === 'semana'} className={botonClase(periodo === 'semana')}>Esta semana</button>
           <button type="button" onClick={() => setPeriodo('mes')} aria-pressed={periodo === 'mes'} className={botonClase(periodo === 'mes')}>Este mes</button>
         </div>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Galpón">
-          {['', ...todosGalpones].map((g) => (
-            <button key={g || 'todos'} type="button" onClick={() => setGalpon(g)} aria-pressed={galpon === g} className={botonClase(galpon === g, true)}>
-              {g === '' ? 'Todos los galpones' : g}
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Lote">
+          <button type="button" onClick={() => setLote('')} aria-pressed={elegido === ''} className={botonClase(elegido === '', true)}>Todos los lotes</button>
+          {activos.map((f) => (
+            <button key={f.id} type="button" onClick={() => setLote(f.id)} aria-pressed={elegido === f.id} title={f.galpon} className={botonClase(elegido === f.id, true)}>
+              {f.codigo}
             </button>
           ))}
         </div>
@@ -127,7 +133,7 @@ export function ProductionDashboard() {
           detalle={a ? `${pct1(a.pctRotos)} del total` : undefined} cambio={a && b ? variacionPct(a.rotos, b.rotos) : null} menosEsMejor />
         <Tarjeta label="% de postura" vacio={vacio} valor={a ? pct1(a.postura) : ''} anterior={b ? pct1(b.postura) : ''}
           detalle={periodo === 'mes' ? 'acumulado del mes' : undefined} cambio={a && b ? pp(a.postura, b.postura) : null} unidad="pp" />
-        <Tarjeta label="Mortandad" vacio={vacio} valor={a ? entero(a.muertes) : ''} anterior={b ? entero(b.muertes) : ''}
+        <Tarjeta label="Mortandad" vacio={comp ? null : 'Sin días cerrados todavía'} valor={a ? entero(a.muertes) : ''} anterior={b ? entero(b.muertes) : ''}
           detalle="aves muertas" cambio={a && b ? variacionPct(a.muertes, b.muertes) : null} menosEsMejor />
       </div>
 
@@ -163,7 +169,7 @@ export function ProductionDashboard() {
 
           <div className="bg-white rounded-lg p-3 border border-amber-200">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">% de postura por día</p>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">% de postura por día · por lote</p>
               <div className="flex gap-1" role="group" aria-label="Período del gráfico">
                 {VENTANAS.map((v) => (
                   <button key={v} type="button" onClick={() => setVentana(v)} aria-pressed={ventana === v} className={botonClase(ventana === v, true)}>{v} días</button>
@@ -181,8 +187,8 @@ export function ProductionDashboard() {
                   formatter={(v, n) => [pct1(typeof v === 'number' ? v : null), n === 'total' ? 'Total granja' : String(n)]}
                   itemSorter={(item) => -(Number(item.value) || 0)} contentStyle={{ fontSize: 12 }} />
                 <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} formatter={(n) => (n === 'total' ? 'Total granja' : n)} />
-                {galpones.map((g) => (
-                  <Line key={g} dataKey={g} name={g} stroke={COLORES_GALPON[todosGalpones.indexOf(g) % COLORES_GALPON.length]} strokeWidth={conTotal ? 2 : 3}
+                {series.map((f) => (
+                  <Line key={f.id} dataKey={f.id} name={f.codigo} stroke={COLORES_LOTE[activos.indexOf(f) % COLORES_LOTE.length]} strokeWidth={conTotal ? 2 : 3}
                     dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
                 ))}
                 {conTotal && <Line dataKey="total" name="total" stroke={TINTA} strokeWidth={3} dot={false} activeDot={{ r: 5 }} isAnimationActive={false} />}

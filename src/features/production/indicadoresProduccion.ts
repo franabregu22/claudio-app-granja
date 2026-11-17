@@ -69,8 +69,8 @@ export function totalesDe(filas: FlockDay[], r: Rango): Totales {
   };
 }
 
-/** The rows of one shed ('' = every shed): the shed filter of the dashboard applies to every card and chart. */
-export const deGalpon = (filas: FlockDay[], galpon: string): FlockDay[] => (galpon === '' ? filas : filas.filter((d) => d.shed_nombre === galpon));
+/** The rows of one flock ('' = the whole farm): the lote filter of the dashboard applies to every card and chart. */
+export const deLote = (filas: FlockDay[], flockId: string): FlockDay[] => (flockId === '' ? filas : filas.filter((d) => d.flock_id === flockId));
 
 /** Relative change in % (null without a base). */
 export const variacionPct = (x: number, y: number): number | null => (y === 0 ? null : ((x - y) / y) * 100);
@@ -91,8 +91,9 @@ export function serieHuevosMes(filas: FlockDay[], mes: Comparacion): PuntoHuevos
 }
 
 export type PuntoPostura = { fecha: string; total: number | null } & Record<string, number | string | null>;
-/** Daily laying %: the farm total (weighted by birds) and one value per shed (the view's own %), [desde, hasta]. */
-export function seriePostura(filas: FlockDay[], desde: string, hasta: string, galpones: string[]): PuntoPostura[] {
+/** Daily laying %: the farm total (weighted by birds) and one value per series key (by default the flock: the view's own %), [desde, hasta]. */
+export function seriePostura(filas: FlockDay[], desde: string, hasta: string, claves: string[],
+  claveDe: (d: FlockDay) => string = (d) => d.flock_id): PuntoPostura[] {
   const porFecha = new Map<string, FlockDay[]>();
   for (const d of filas) {
     if (d.daily_production_id === null || d.business_date < desde || d.business_date > hasta) continue;
@@ -102,7 +103,7 @@ export function seriePostura(filas: FlockDay[], desde: string, hasta: string, ga
   for (let f = desde; f <= hasta; f = agregarDiasAFecha(f, 1)) {
     const delDia = porFecha.get(f) ?? [];
     const punto: PuntoPostura = { fecha: f, total: posturaPonderada(delDia) };
-    for (const g of galpones) punto[g] = posturaPonderada(delDia.filter((d) => d.shed_nombre === g));
+    for (const k of claves) punto[k] = posturaPonderada(delDia.filter((d) => claveDe(d) === k));
     out.push(punto);
   }
   return out;
