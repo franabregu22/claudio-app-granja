@@ -29,7 +29,7 @@ describe('Caja — the five tabs', () => {
       [tlo, '<DetalleGasto '], [tlo, '<ModalesGasto '],
       [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "id: 'ENTRADA_SIN_VINCULAR'"],
       [lista, '<AvisosPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionPendienteMp '], [lista, '<AccionEntrada '],
-      [pagar, '<Fletes />'], [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],
+      [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
     ] as const) expect(src.split(tag).length - 1, tag).toBe(1);
   });

@@ -112,7 +112,7 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
   });
   it('Gastos reuses the existing forms: eCheqs, allocation, payment, supplier link, dates, classification, rectification, freight', () => {
     for (const tag of ['<EmitirChequesModal ', '<ImputarPagoModal ', '<PagarGastoModal ', '<VincularProveedorModal ', '<FechasPagoModal ', '<AccionGastoSinClasificar ',
-      '<RectificarCompraModal ', '<AsignarFleteModal ', '<DetalleFactura ', '<Fletes />']) expect(gastos, tag).toContain(tag);
+      '<RectificarCompraModal ', '<DetalleFactura ']) expect(gastos, tag).toContain(tag);
     expect(gastos).not.toMatch(/\.rpc\(|callRpc|\.insert\(|\.update\(|\.delete\(|\.mutate\(/);
   });
   it('a cheque lowers the supplier debt; the bank moves only when it is debited', () => {

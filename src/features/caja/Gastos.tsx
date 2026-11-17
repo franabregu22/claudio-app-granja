@@ -10,7 +10,7 @@ import type { PayableRow } from '../../target/payables';
 import type { PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
-import { AsignarFleteModal, Fletes, RectificarCompraModal } from './Compras';
+import { RectificarCompraModal } from './Compras';
 import { Comprobantes } from './Comprobantes';
 import { ChipEtiqueta, EtiquetaDelGasto, TotalesEtiqueta } from './Etiquetas';
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
@@ -22,7 +22,7 @@ import { AccionGastoSinClasificar } from './GastosSinClasificar';
 import { DetalleFactura, EmitirChequesModal, ImputarPagoModal } from './PagosFacturas';
 import { useInvoicePaymentStatus, usePurchaseAttachments } from './useInvoicePayments';
 import { usePurchaseMpLinks } from './useMpActivity';
-import { useFreight, usePurchase, usePurchases } from './useTreasury';
+import { usePurchase, usePurchases } from './useTreasury';
 import { useUnclassifiedOpen } from './useUnclassified';
 
 const PAGINA = 30;
@@ -38,7 +38,6 @@ export type Accion =
   | { tipo: 'fechas'; purchaseId: string; rootId: string; titulo: string; due: string | null; planned: string | null }
   | { tipo: 'rectificar'; compra: PurchaseRow }
   | { tipo: 'editar'; compra: PurchaseRow; vinculos: VinculosGasto }
-  | { tipo: 'flete'; purchaseId: string }
   | { tipo: 'anular'; compra: PurchaseRow };
 
 /**
@@ -66,7 +65,6 @@ export function useGastoItems() {
 
 /** The forms of the expense actions (each one its existing RPC), shared by Gastos and Todas las operaciones. */
 export function ModalesGasto({ accion, onClose }: { accion: Accion | null; onClose: () => void }) {
-  const fletes = useFreight();
   return (
     <>
       {accion?.tipo === 'emitir' && <EmitirChequesModal f={accion.f} reemplaza={accion.reemplaza} onClose={onClose} />}
@@ -77,7 +75,6 @@ export function ModalesGasto({ accion, onClose }: { accion: Accion | null; onClo
       {accion?.tipo === 'editar' && <EditarGastoModal compra={accion.compra} vinculos={accion.vinculos} onClose={onClose} />}
       {accion?.tipo === 'rectificar' && <RectificarCompraModal compra={accion.compra} onClose={onClose} />}
       {accion?.tipo === 'anular' && <AnularGastoModal compra={accion.compra} onClose={onClose} />}
-      {accion?.tipo === 'flete' && <AsignarFleteModal purchaseId={accion.purchaseId} fletes={fletes.data ?? []} onClose={onClose} />}
     </>
   );
 }
@@ -172,7 +169,6 @@ export function Gastos() {
       )}
 
       <TotalesEtiqueta />
-      <Fletes />
 
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
     </div>
@@ -235,7 +231,6 @@ export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Para
                 <button type="button" className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded bg-[#A8552E] text-white hover:bg-[#8B4423]" onClick={() => onAccion({ tipo: 'editar', compra: c, vinculos: vinculosDe(it, c) })}><Pencil className="w-3 h-3" aria-hidden />Editar</button>
                 {anulable(it) && <button type="button" className="text-xs px-3 py-1 rounded border border-red-200 text-red-700 bg-white hover:bg-red-50" onClick={() => onAccion({ tipo: 'anular', compra: c })}>Anular</button>}
                 {c.supplier_id && c.lineas.length > 0 && !c.fiscal_document_id && <button type="button" className={boton} onClick={() => onAccion({ tipo: 'rectificar', compra: c })}>Rectificar ítems</button>}
-                <button type="button" className={boton} onClick={() => onAccion({ tipo: 'flete', purchaseId: c.id })}>Asignar flete</button>
                 <button type="button" className={boton} aria-expanded={historial} onClick={() => setHistorial((h) => !h)}>{historial ? 'Ocultar historial' : 'Historial'}</button>
               </span>
               {historial && <HistorialGasto purchaseId={c.id} rootId={raizDe(it)} />}

@@ -1,5 +1,4 @@
 import { Cheques } from './Cheques';
-import { Fletes } from './Compras';
 import { CuentasAPagar } from './CuentasAPagar';
 import { PendientesPagar } from './PendientesPagar';
 
@@ -29,7 +28,7 @@ export function SolapaPagar({ sub, onSub }: { sub: SubPagar; onSub: (s: SubPagar
         ))}
       </div>
       {sub === 'pendientes' && <PendientesPagar />}
-      {sub === 'proveedores' && <><CuentasAPagar /><Fletes /></>}
+      {sub === 'proveedores' && <CuentasAPagar />}
       {sub === 'instrumentos' && <Cheques />}
     </div>
   );
