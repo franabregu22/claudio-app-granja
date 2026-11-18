@@ -9,6 +9,11 @@
 --   fin_operation_list (0127 body, same signature, identity and rights) leaves out, once the outflow is CLASSIFIED, both the
 --   provisional and the release: they net to zero, so no total, balance or amount changes. An outflow still to classify keeps its
 --   provisional row (Por revisar: classified from its cell).
+--   Short concepts («abreviá los conceptos; "Cobro Mercado Pago" no me dice nada»): a Mercado Pago inflow says what it is —
+--   «Rendimiento MP», «Transferencia recibida MP», «Cobro con tarjeta MP», «Cobro MP» — plus its client when one is allocated (never
+--   the payer: 0097); an outflow to classify reads «Salida MP sin clasificar» (its SOURCE_ID travels in the new key mp_source_id,
+--   still searchable); the MP tax «Imp. débitos y créditos MP»; other internal reasons lose their «Owner …:» / «Meta X:» prefix,
+--   what follows « — » and a trailing parenthesis of references.
 --   No table, row or other function changes; nothing is written.
 -- ============================================================================
 
@@ -206,10 +211,35 @@ BEGIN
                    (SELECT 'Cobro · ' || cl.nombre FROM collections co JOIN clients cl ON cl.id = co.cliente_id
                      WHERE o2.source_entity_type = 'collections' AND co.id::TEXT = o2.source_entity_id),
                    (SELECT 'Pago a ' || s.nombre FROM suppliers s WHERE o2.operation_type::TEXT = 'SUPPLIER_PAYMENT' AND s.id::TEXT = o2.source_entity_id),
-                   CASE WHEN o2.reason IS NOT NULL AND o2.reason !~* '^(ADR-?\d|phase\d)' THEN o2.reason END,
+                   -- [0132] a Mercado Pago inflow says what it is (its movement kind and payment method; never the payer — 0097) and
+                   -- its client when one is allocated
+                   (SELECT CASE
+                             WHEN m.movement_kind = 'yield' THEN 'Rendimiento MP'
+                             WHEN coalesce(r.event_data->>'operation_type', '') IN ('money_transfer', 'account_fund')
+                               OR coalesce(r.event_data->>'PAYMENT_METHOD_TYPE', r.event_data->>'payment_type_id', '') = 'bank_transfer' THEN 'Transferencia recibida MP'
+                             WHEN coalesce(r.event_data->>'PAYMENT_METHOD_TYPE', r.event_data->>'payment_type_id', '') = 'credit_card' THEN 'Cobro con tarjeta MP'
+                             ELSE 'Cobro MP' END
+                           || coalesce(' · ' || (SELECT string_agg(DISTINCT cl.nombre, ', ') FROM mp_client_allocation a JOIN clients cl ON cl.id = a.cliente_id
+                                                  WHERE a.mp_financial_movement_id = m.id AND a.reversal_of_id IS NULL
+                                                    AND NOT EXISTS (SELECT 1 FROM mp_client_allocation b WHERE b.reversal_of_id = a.id)), '')
+                      FROM mp_financial_movement m JOIN mp_source_record r ON r.id = m.mp_source_record_id
+                     WHERE o2.operation_type::TEXT = 'MP_SETTLEMENT'
+                       AND m.id = CASE WHEN o2.source_entity_type = 'mp_financial_movement' AND o2.source_entity_id ~ '^[0-9]{1,18}$' THEN o2.source_entity_id::BIGINT
+                                       ELSE (SELECT rc.mp_financial_movement_id FROM mp_reconciliation rc WHERE rc.financial_operation_id = o2.id ORDER BY rc.id LIMIT 1) END),
+                   -- [0132] short concepts: never the internal reference text (ids, ADR notes, statement line numbers)
+                   CASE WHEN o2.external_ref LIKE 'MP-PENDING:%' THEN 'Salida MP sin clasificar'
+                        WHEN o2.external_ref LIKE 'MP-OUTFLOW-TAX:%' OR o2.reason ILIKE 'Impuesto débitos y créditos%'
+                          THEN 'Imp. débitos y créditos' || CASE WHEN o2.external_ref LIKE 'MP%' OR o2.reason ILIKE '%Mercado Pago%' THEN ' MP' ELSE '' END
+                        WHEN o2.operation_type::TEXT = 'OWNER_WITHDRAWAL' THEN c2.label
+                        WHEN o2.reason ~ '→' THEN initcap(left(btrim(substring(regexp_replace(o2.reason, '^(Owner|Meta [A-Z])[^:]*:\s*', '') FROM '^([^(,]+)')), 1))
+                                                   || substr(btrim(substring(regexp_replace(o2.reason, '^(Owner|Meta [A-Z])[^:]*:\s*', '') FROM '^([^(,]+)')), 2)
+                        WHEN o2.reason IS NOT NULL AND o2.reason !~* '^(ADR-?\d|phase\d)'
+                          THEN nullif(btrim(regexp_replace(split_part(regexp_replace(o2.reason, '^(Owner|Meta [A-Z])[^:]*:\s*', ''), ' — ', 1), '\s*\([^)]*\)\s*$', '')), '') END,
                    c2.label)
                    FROM financial_operation o2 CROSS JOIN LATERAL fin_movement_class(o2.operation_type::TEXT, o2.external_ref) c2 WHERE o2.id = pg.op_id)),
                'detalle', pg.detalle, 'operation_id', pg.op_id, 'ref_uuid', pg.ref_uuid, 'ref_id', pg.ref_id,
+               -- [0132] the Mercado Pago SOURCE_ID of an outflow still to classify (the cell classifies it; the concept no longer carries it)
+               'mp_source_id', (SELECT mpo.source_id FROM mp_pending_outflow mpo WHERE mpo.provisional_operation_id = pg.op_id),
                'purchase_root_id', pg.root, 'purchase_id', (SELECT c.id FROM cur c WHERE c.root = pg.root),
                'supplier_id', pg.supplier_id, 'supplier', (SELECT s.nombre FROM suppliers s WHERE s.id = pg.supplier_id),
                'category_id', pg.category_id, 'subcategory', (SELECT ec.nombre FROM expense_category ec WHERE ec.id = pg.category_id),

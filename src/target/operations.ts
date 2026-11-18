@@ -29,6 +29,8 @@ export interface OperationRow {
   /** Signed: an egreso negative, an ingreso positive; a transfer, minus what moved. */
   amount: number; estado: OperationEstado; concepto: string; detalle: string;
   operation_id: number | null; ref_uuid: string | null; ref_id: number | null;
+  /** 0132: the Mercado Pago SOURCE_ID of an outflow still to classify (absent before 0132). */
+  mp_source_id?: string | null;
   accounts: OperationAccount[];
   conciliacion: Conciliacion; clasificacion: Clasificacion;
   pendiente: PendienteGasto | PendienteFactura | null;

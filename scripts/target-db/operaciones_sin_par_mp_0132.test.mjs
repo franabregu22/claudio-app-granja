@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * 0132 — Todas las operaciones without the bookkeeping pair of a CLASSIFIED Mercado Pago outflow (its provisional and its release);
- * an outflow still to classify keeps its row. Runs over the real local copy (it needs classified outflows). LOCAL TEST DATABASE
- * ONLY; one transaction, rolled back. If 0132 is not yet in the ledger it is applied inside that transaction.
+ * 0131 — Producción: the day registered / edited in one call (reason mandatory, any role), notes, the modifications list and bird
+ * counts by their total (only the last one can be deleted). LOCAL TEST DATABASE ONLY; one transaction, rolled back. If 0131 is
+ * not yet in the ledger it is applied inside that transaction.
  *
  * Usage:
  *   TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" node scripts/target-db/operaciones_sin_par_mp_0132.test.mjs
@@ -129,11 +129,26 @@ expect('E3 … its classified operation still is', `(SELECT ((v->>'other_rows'):
 add(`DO $d$ DECLARE x RECORD; v JSONB; n INT := 0; BEGIN
   FOR x IN SELECT * FROM unresolved LOOP
     SELECT substr(pg_temp.run_as('authenticated', '${ADMIN}', format('SELECT fin_operation_list(p_search => %L, p_limit => 100)::text', x.source_id), NULL), 4)::jsonb INTO v;
-    n := n + (SELECT count(*) FROM jsonb_array_elements(v->'rows') e WHERE (e->>'operation_id')::bigint = x.prov AND e->>'clasificacion' = 'MP_SIN_CLASIFICAR');
+    n := n + (SELECT count(*) FROM jsonb_array_elements(v->'rows') e WHERE (e->>'operation_id')::bigint = x.prov AND e->>'clasificacion' = 'MP_SIN_CLASIFICAR'
+                AND e->>'concepto' = 'Salida MP sin clasificar' AND e->>'mp_source_id' = x.source_id);
   END LOOP;
   INSERT INTO res VALUES ('unresolved', to_jsonb(n));
 END $d$;`);
-expect('E4 an outflow still to classify keeps its row, classifiable from its cell', `(SELECT (v::text::int = (SELECT count(*) FROM unresolved))::text FROM res WHERE k = 'unresolved')`, 'true');
+add(`DO $d$ DECLARE v JSONB; p INT := 0; BEGIN
+  -- every listed row of the copy (pages of 100): the concepts as shown
+  CREATE TEMP TABLE conceptos (concepto TEXT, kind TEXT);
+  LOOP
+    SELECT substr(pg_temp.run_as('authenticated', '${ADMIN}', format('SELECT fin_operation_list(p_limit => 100, p_offset => %s)::text', p * 100), NULL), 4)::jsonb INTO v;
+    INSERT INTO conceptos SELECT e->>'concepto', e->>'row_kind' FROM jsonb_array_elements(v->'rows') e;
+    EXIT WHEN jsonb_array_length(v->'rows') < 100 OR p > 200;
+    p := p + 1;
+  END LOOP;
+END $d$;`);
+expect('E9 no row reads the generic «Cobro Mercado Pago» any more', `(SELECT count(*)::text FROM conceptos WHERE concepto = 'Cobro Mercado Pago')`, '0');
+expect('E10 Mercado Pago inflows say what they are', `(SELECT (count(*) > 0)::text FROM conceptos WHERE concepto ~ '^(Rendimiento MP|Transferencia recibida MP|Cobro con tarjeta MP|Cobro MP)')`, 'true');
+expect('E11 no concept carries internal references (ADR notes, «histórico», statement lines, «Owner …:»)',
+  `(SELECT count(*)::text FROM conceptos WHERE concepto ~* '(ADR-?\\d|histórico|\\(línea|^Owner |^Meta [A-Z]:|pendiente de clasificar \\()')`, '0');
+expect('E4 an outflow still to classify keeps its row, classifiable from its cell (short concept, its SOURCE_ID in mp_source_id)', `(SELECT (v::text::int = (SELECT count(*) FROM unresolved))::text FROM res WHERE k = 'unresolved')`, 'true');
 expect('E5 no release («salida clasificada») is listed at all',
   `(SELECT (${LIST("p_search => 'MP-PENDING-RELEASE', p_limit => 1")})->>'total')`, '0');
 expect('E6 the provisional rows listed are exactly the outflows still to classify',

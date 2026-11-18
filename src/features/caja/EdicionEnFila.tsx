@@ -163,9 +163,9 @@ function ClasificarMpCelda({ r, onFin }: { r: OperationRow; onFin: () => void })
   const transferir = useConfirmPayoutTransfer();
   const hecho = useRef(false);
   const fila = (mov.data?.rows ?? []).find((x): x is MovementRow => x.row_type === 'OP' && x.operation_id === r.operation_id);
-  // the Mercado Pago movement id is in the row's concept («… pendiente de clasificar (<id>)» / «(<id>, histórico …)»); the list lookup
-  // is the fallback (it only sees the current pending ones)
-  const delConcepto = /\((\d{6,20})[,)]/.exec(r.concepto)?.[1] ?? null;
+  // the Mercado Pago movement id: the row's own key (0132 mp_source_id; the concept is short now), else the old long concept
+  // («… pendiente de clasificar (<id>)» / «(<id>, histórico …)»); the list lookup is the last fallback (it only sees the current pending ones)
+  const delConcepto = r.mp_source_id ?? /\((\d{6,20})[,)]/.exec(r.concepto)?.[1] ?? null;
   const fuente = delConcepto ?? (fila?.pending?.type === 'MP_CLASIFICAR' ? fila.pending.source_id : null) ?? fila?.mp.find((m) => m.source_id)?.source_id ?? null;
   if (!delConcepto && mov.isLoading) return <span className="text-xs text-gray-500">Abriendo…</span>;
   if (!fuente) return <Aviso texto="No encontré el movimiento de Mercado Pago." onFin={onFin} />;
