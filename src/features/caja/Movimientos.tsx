@@ -6,7 +6,6 @@ import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { MovimientosHistoricos } from './MovimientosHistoricos';
 import { TodasLasOperaciones } from './TodasLasOperaciones';
 import { TarjetasPorResolver } from './PorResolver';
-import { FlujoCaja } from './FlujoCaja';
 import { useLedgerBalances } from './useTreasury';
 
 const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', EXTERNAL_SERVICE: 'Servicio externo' };
@@ -56,8 +55,7 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
           {cuentaId && <button type="button" onClick={() => setCuentaId('')} className="text-xs text-[#A8552E] hover:underline">← Todas las cuentas</button>}
         </div>
       )}
-      {/* caja-mejoras-v2: balances, then the cash flow (prototype over fictitious data), then the movement history */}
-      <FlujoCaja />
+      {/* balances, then the movement history (the cash flow lives in Caja → Análisis since 2026-11-18) */}
       <h2 className="font-semibold text-[#2C2419] pt-2">Historial de movimientos</h2>
       <TarjetasPorResolver activo={pendiente} onFiltro={setPendiente} />
       {/* 0119: Todas las operaciones is the list; a Por resolver card opens its resolution list (classification / linking actions) */}

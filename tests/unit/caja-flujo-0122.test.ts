@@ -9,11 +9,14 @@ const HOY = '2026-11-13';
 const val = (f: ReturnType<typeof construirFlujo>, id: string) => f.filas.find((x) => x.id === id)?.valores;
 
 describe('Flujo de caja (0122)', () => {
-  it('sits between the balance cards and the history; real data, no demo label', () => {
+  it('lives in its own tab, Caja → Análisis (owner 2026-11-18), always open; Movimientos keeps the balances and the table; real data', () => {
     const mov = SRC('features/caja/Movimientos.tsx');
-    expect(mov.indexOf('Saldos por cuenta')).toBeLessThan(mov.indexOf('<FlujoCaja />'));
-    expect(mov.indexOf('<FlujoCaja />')).toBeLessThan(mov.indexOf('Historial de movimientos'));
+    expect(mov).not.toMatch(/FlujoCaja/);
+    expect(mov.indexOf('Saldos por cuenta')).toBeLessThan(mov.indexOf('Historial de movimientos'));
+    const caja = SRC('features/caja/CajaApp.tsx');
+    expect(caja).toMatch(/\{vista === 'analisis' && <FlujoCaja \/>\}/);
     const ui = SRC('features/caja/FlujoCaja.tsx');
+    expect(ui).not.toMatch(/plegar|tocá para ver|caja\.flujo\.abierto|enabled: visible/);
     expect(ui).toContain('getCashFlow(supabase');
     expect(ui).not.toMatch(/Datos ficticios|flujoDemo/);
   });

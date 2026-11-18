@@ -10,10 +10,12 @@ import { useBadgeSinClasificar } from './useUnclassified';
 import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 import { NuevaCompraModal } from './Compras';
 import { CarteraCheques } from './CarteraCheques';
+import { FlujoCaja } from './FlujoCaja';
 
-type Vista = 'movimientos' | 'pagar' | 'cartera' | 'calendario' | 'extractos';
+type Vista = 'movimientos' | 'pagar' | 'cartera' | 'calendario' | 'extractos' | 'analisis';
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'movimientos', label: 'Movimientos' },   // balances, Por resolver and Todas las operaciones (expenses, invoices, transfers and their actions)
+  { id: 'analisis', label: 'Análisis' },   // owner 2026-11-18: the cash flow (0122) moved here from Movimientos; second tab
   { id: 'pagar', label: 'Cuentas a pagar' },   // 0121: every pending due item (Proveedores and Cheques emitidos still reachable inside)
   { id: 'cartera', label: 'Cartera de cheques' },   // 0123: client cheques held — deposit / credit, or endorse against a supplier's due item
   { id: 'calendario', label: 'Calendario' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
@@ -52,7 +54,7 @@ export function CajaApp() {
   return (
     <div className="min-h-screen bg-stone-100 flex justify-center relative">
       {/* min-w-0: the tab bar scrolls inside Caja (overflow-x-auto) instead of setting the page's minimum width */}
-      <div className="w-full max-w-6xl min-w-0 bg-[#FAF6EE] min-h-screen flex flex-col">
+      <div className="w-full min-w-0 bg-[#FAF6EE] min-h-screen flex flex-col">
         <header className="px-4 md:px-6 pt-6 pb-3 border-b border-[#E4DCC8]">
           <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
           <div className="flex items-start justify-between gap-2">
@@ -89,6 +91,7 @@ export function CajaApp() {
           {vista === 'cartera' && <CarteraCheques />}
           {vista === 'calendario' && <CalendarioPagos />}
           {vista === 'extractos' && <ExtractosBancarios />}
+          {vista === 'analisis' && <FlujoCaja />}
         </div>
         {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}
         {/* Nuevo gasto: on every Caja tab, the existing purchase form (with or without invoice) */}

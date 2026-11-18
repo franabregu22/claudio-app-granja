@@ -14,7 +14,7 @@ describe('layout — stable sidebar', () => {
   });
   it('Caja handles its own horizontal overflow (the tab bar scrolls inside it)', () => {
     const caja = SRC('features/caja/CajaApp.tsx');
-    expect(caja).toMatch(/className="w-full max-w-6xl min-w-0 /);
+    expect(caja).toMatch(/className="w-full min-w-0 /);   // owner 2026-11-18: Caja uses the whole width up to the sidebar
     expect(caja).toMatch(/<nav className="flex gap-2 mt-4 overflow-x-auto">/);
   });
 });

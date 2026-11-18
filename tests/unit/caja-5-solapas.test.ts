@@ -14,7 +14,7 @@ const trf = SRC('features/caja/Transferencias.tsx');
 describe('Caja — the five tabs', () => {
   it('main tabs (0120: Transferencias inside Todas las operaciones; caja-mejoras-v2: Cartera de cheques), Movimientos first and by default', () => {
     const labels = [...app.matchAll(/\{ id: '\w+', label: '([^']+)' \}/g)].map((m) => m[1]);
-    expect(labels).toEqual(['Movimientos', 'Cuentas a pagar', 'Cartera de cheques', 'Calendario', 'Extractos']);
+    expect(labels).toEqual(['Movimientos', 'Análisis', 'Cuentas a pagar', 'Cartera de cheques', 'Calendario', 'Extractos']);
     expect(app).toMatch(/useState<Vista>\('movimientos'\)/);
   });
   it('the ADMIN guard comes before any tab and Retiro de socios stays in Más acciones', () => {

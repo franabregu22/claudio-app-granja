@@ -28,7 +28,7 @@ const CHIP = 'text-xs px-2 py-0.5 rounded whitespace-nowrap';
 const TONO_ESTADO: Record<OperationEstado, string> = { PENDIENTE: 'bg-amber-100 text-amber-900', COMPLETADA: 'bg-green-100 text-green-800' };
 const TONO_TIPO: Record<OperationTipo, string> = { INGRESO: 'text-green-800', EGRESO: 'text-red-800', TRANSFERENCIA: 'text-sky-800' };
 const NADA = '—';
-const TD = 'px-2 py-2 whitespace-nowrap';
+const TD = 'px-1.5 py-1.5 whitespace-nowrap';
 
 /** What can be paid from the row now (null: nothing): a pending expense's remainder; the part of an invoice no cheque covers. */
 export function pagableDesdeFila(r: OperationRow): number | null {
@@ -105,7 +105,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
       {(cerrar) => <OpcionesFiltro valor={valor} opciones={opciones} todos={todos} subtitulo={subtitulo} onElegir={(v) => { onElegir(v); cerrar(); }} />}
     </FiltroColumna>
   );
-  const TH = 'px-2 py-2 font-medium whitespace-nowrap';
+  const TH = 'px-1.5 py-1.5 font-medium whitespace-nowrap';
   const encabezado = (
     <thead><tr className="text-xs text-[#8A7A5C] border-b border-[#E4DCC8] text-left">
       <th className={TH}>
@@ -125,7 +125,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         </FiltroColumna>
       </th>
       <th className={TH}>{opcion('Tipo', filtros.tipo, (v) => poner({ tipo: v as OperationTipo | '' }), [{ v: 'INGRESO', t: 'Ingresos' }, { v: 'EGRESO', t: 'Egresos' }, { v: 'TRANSFERENCIA', t: 'Transferencias' }])}</th>
-      <th className={TH}>
+      <th className={`${TH} w-full`}>
         <FiltroColumna titulo="Concepto" activo={filtros.buscar !== ''}>
           {(cerrar) => (
             <form className="space-y-2 p-1" onSubmit={(e) => { e.preventDefault(); poner({ buscar: texto.trim() }); cerrar(); }}>
@@ -145,11 +145,12 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
       <th className={TH}>{opcion('Subcategoría', filtros.subcategoria, (v) => poner({ subcategoria: v }), subcatsDelGrupo.map((x) => ({ v: x.id, t: x.nombre })), 'Todas')}</th>
       <th className={TH}>{opcion('Naturaleza', filtros.naturaleza, (v) => poner({ naturaleza: v as OperationNature | '' }),
         (Object.keys(NATURALEZA_LABEL) as OperationNature[]).map((n) => ({ v: n, t: NATURALEZA_LABEL[n] })), 'Todas')}</th>
-      <th className={TH}>{opcion('Etiqueta', filtros.etiqueta, (v) => poner({ etiqueta: v }), [{ v: 'SIN', t: 'Sin etiqueta' }, ...(etiquetas.data ?? []).map((e) => ({ v: e.id, t: e.nombre }))], 'Todas')}</th>
       <th className={TH}>{opcion('Cuenta', filtros.cuenta, (v) => poner({ cuenta: v }), [{ v: 'SIN', t: 'Sin asignar' }, ...cuentas.map((c) => ({ v: c.id, t: c.nombre }))], 'Todas')}</th>
       <th className={`${TH} text-right`}>Importe</th>
       <th className={TH}>{opcion('Estado', filtros.estado, (v) => poner({ estado: v as Filtros['estado'] }),
         [{ v: 'PENDIENTE', t: 'Pendientes' }, { v: 'COMPLETADA', t: 'Pagadas / cobradas / realizadas' }, { v: 'POR_REVISAR', t: 'Por revisar' }])}</th>
+      {/* owner 2026-11-18: Etiqueta between Estado and Acciones */}
+      <th className={TH}>{opcion('Etiqueta', filtros.etiqueta, (v) => poner({ etiqueta: v }), [{ v: 'SIN', t: 'Sin etiqueta' }, ...(etiquetas.data ?? []).map((e) => ({ v: e.id, t: e.nombre }))], 'Todas')}</th>
       <th className={TH}>Acciones</th>
     </tr></thead>
   );
@@ -275,15 +276,13 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
     <tr className={`border-b border-[#EFE8D6] ${destacada ? 'bg-sky-50' : ''}`}>
       <td className={`${TD}${cls('fecha')}`} {...alDoble('fecha')}>{celda('fecha', r.date ? formatearFechaLocal(r.date) : NADA)}</td>
       <td className={`${TD} font-semibold ${TONO_TIPO[r.tipo]}`}>{TIPO_LABEL[r.tipo]}</td>
-      <td className={`px-2 py-2 max-w-[18rem] ${editando === 'concepto' ? '' : 'truncate'}${cls('concepto')}`} title={r.concepto} {...alDoble('concepto')}>
+      <td className={`px-1.5 py-1.5 min-w-[12rem] ${editando === 'concepto' ? '' : 'max-w-0 truncate'}${cls('concepto')}`} title={r.concepto} {...alDoble('concepto')}>
         {celda('concepto', <span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span>)}</td>
       <td className={`${TD} max-w-[10rem] ${editando === 'categoria' ? '' : 'truncate'}${cls('categoria')}`} title={r.category ?? undefined} {...alDoble('categoria')}>
         {editando === 'categoria' ? null : (r.category ?? (clasificable ? <span className="text-xs text-orange-800">Sin clasificar</span> : NADA))}</td>
       <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${cls('categoria')}`} title={r.subcategory ?? undefined} {...alDoble('categoria')}>
         {celda('categoria', r.subcategory ?? NADA)}</td>
       <td className={`${TD}${cls('naturaleza')}`} {...alDoble('naturaleza')}>{celda('naturaleza', r.nature ? NATURALEZA_LABEL[r.nature] : NADA)}</td>
-      <td className={`${TD}${cls('etiqueta')}`} {...alDoble('etiqueta')}>
-        {celda('etiqueta', r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA)}</td>
       <td className={`${TD} max-w-[12rem] truncate`}>{r.accounts.length === 0 ? <span className="text-[#8A7A5C] italic">Sin asignar</span> : cuentasLabel(r)}</td>
       <td {...alDoble('importe')} className={`${TD} text-right font-bold${cls('importe')} ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
         title={r.informativo ? 'Ya está en Mercado Pago como movimiento sin clasificar: no se cuenta dos veces' : undefined}>
@@ -296,6 +295,8 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
           {revertido && <span className={`${CHIP} bg-stone-200 text-stone-700`} title="El pago se revirtió: el gasto volvió a pendiente y el dinero a la cuenta">Pago revertido</span>}
         </span>
       </td>
+      <td className={`${TD}${cls('etiqueta')}`} {...alDoble('etiqueta')}>
+        {celda('etiqueta', r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA)}</td>
       <td className={TD}>
         <span className="flex items-center gap-1">
           {revertible && <button type="button" onClick={onRevertir} title="Revertir pago (vuelve a pendiente)" aria-label="Revertir pago" className={icono}><Undo2 className="w-4 h-4" /></button>}
