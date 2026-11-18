@@ -1,7 +1,10 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../auth/useAuth';
+import { supabase } from '../../lib/supabase';
 import { ATTACHMENT_TYPES, validateAttachments } from '../../target/attachments';
-import { defaultNatureOf } from '../../target/expenseCategories';
+import { defaultNatureOf, socios } from '../../target/expenseCategories';
+import { registerManagementEvent } from '../../target/pnl';
 import { COMPROBANTE_VACIO, cuentaAdmitida, MEDIO_PAGO_LABEL, NATURALEZA_GASTO, rutaGasto, type ComprobanteForm, type EstadoPago, type MedioPago } from '../../target/expenses';
 import { claveDeRegistro } from '../../target/operations';
 import { cuitOrNull, fiscalInput, TAX_KINDS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
@@ -11,7 +14,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { campo, etiqueta, Modal } from './Modal';
 import { SelectorCategoria } from './SelectorCategoria';
-import { useExpenseCategories, useFreight, useSuppliers, useTreasuryMutations } from './useTreasury';
+import { useExpenseCategories, useExpenseGroups, useFreight, useSuppliers, useTreasuryMutations } from './useTreasury';
 import { useInvoicePaymentStatus } from './useInvoicePayments';
 import { useRegisterExpense } from './useExpenses';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
@@ -84,6 +87,18 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const [etiquetaId, setEtiquetaId] = useState('');   // 0127: '' = Sin etiqueta
   const etiquetas = useEtiquetaMutations();
   const [clave] = useState(() => `GASTO-${crypto.randomUUID()}`);   // idempotency: one per opened form
+  // owner 2026-11-18: «Retiros de socios → <socio>» in the same form records a partner withdrawal (management_event RETIRO): it moves
+  // the money but stays OUT of the expenses in the P&L (below the operating result). Cash / bank only: a Mercado Pago withdrawal is
+  // classified from its movement (never a second one).
+  const grupos = useExpenseGroups();
+  const esRetiro = socios(grupos.data ?? [], categorias.data ?? []).some((x) => x.id === categoriaId);
+  const [cuentaRetiro, setCuentaRetiro] = useState('');
+  const cuentasRetiro = (cuentas.data ?? []).filter((a) => a.account_type === 'CASH' || a.account_type === 'BANK_ACCOUNT');
+  const qc = useQueryClient();
+  const retiro = useMutation({
+    mutationFn: (p: Parameters<typeof registerManagementEvent>[1]) => registerManagementEvent(supabase, p),
+    onSuccess: () => Promise.all([['pnl'], ['treasury']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
+  });
   const conProveedor = proveedorId !== '';
   // caja-mejoras-v2 (0121): a pending expense can be split into instalments or paid with own cheques right here (cheques: supplier only)
   const plan = usePlanPago(Number(total), { cheques: conProveedor ? 'SI' : 'REQUIERE_PROVEEDOR' });
@@ -98,16 +113,25 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const fiscalOk = comprobante.fiscal.tipo === '' || (fiscalDatos !== null && (conProveedor || cuitEmisor !== null));
   const pagoOk = estado === 'PENDIENTE'
     || (ruta !== 'PROVEEDOR_MP_NO_PERMITIDO' && cuentaElegida !== '' && (medio === 'MERCADOPAGO' || (fechaPago !== '' && fechaPago >= fecha)));
-  const puede = !!user && concepto.trim() !== '' && concepto.trim().length <= 100 && Number(total) > 0 && fecha !== '' && categoriaId !== ''
-    && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida && (estado === 'PAGADO' || plan.valido);
-  const guardando = registrar.isPending || planes.plan.isPending || planes.chequesObligation.isPending;
+  const basico = !!user && concepto.trim() !== '' && concepto.trim().length <= 100 && Number(total) > 0 && fecha !== '' && categoriaId !== '';
+  const puede = esRetiro ? basico && cuentaRetiro !== ''
+    : basico && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida && (estado === 'PAGADO' || plan.valido);
+  const guardando = registrar.isPending || planes.plan.isPending || planes.chequesObligation.isPending || retiro.isPending;
+  const registrarRetiro = () => retiro.mutateAsync({
+    type: 'RETIRO', effectiveDate: fecha, amount: Number(total), idempotencyKey: clave, reason: concepto.trim(),
+    accountId: cuentaRetiro, compensatesEventId: null, socioCategoryId: categoriaId,
+  }).then(() => {
+    if (!onRegistrado) { onClose(); return; }
+    onRegistrado(null, `Retiro de socios «${concepto.trim()}» registrado (fecha ${formatearFechaLocal(fecha)}).`);
+  }).catch(() => {});
   const elegirSub = (id: string) => { setCategoriaId(id); if (id) setNaturaleza(defaultNatureOf(categorias.data ?? [], id)); };
 
   return (
-    <Modal titulo="Nuevo gasto" onClose={onClose} puedeGuardar={puede} guardando={guardando}
-      error={comprobante.errorArchivo ?? registrar.error ?? etiquetas.asignar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
-      textoGuardar="Registrar gasto"
-      onSubmit={() => { registrar.mutateAsync({
+    <Modal titulo={esRetiro ? 'Nuevo retiro de socios' : 'Nuevo gasto'} onClose={onClose} puedeGuardar={puede} guardando={guardando}
+      error={esRetiro ? retiro.error ?? cuentas.error
+        : comprobante.errorArchivo ?? registrar.error ?? etiquetas.asignar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
+      textoGuardar={esRetiro ? 'Registrar retiro' : 'Registrar gasto'}
+      onSubmit={() => { if (esRetiro) { void registrarRetiro(); return; } registrar.mutateAsync({
         userId: user!.id, files: comprobante.archivos, concept: concepto, supplierId: proveedorId || null, amountTotal: Number(total), fecha,
         categoryId: categoriaId, nature: naturaleza, estado, medio: estado === 'PAGADO' ? medio : null, accountId: cuentaElegida || null,
         fechaPago: medio === 'MERCADOPAGO' ? fecha : fechaPago, invoiceNumber: comprobante.numero.trim() || null, fiscal: fiscalDatos,
@@ -124,17 +148,19 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         const forma = estado === 'PENDIENTE' && plan.forma === 'CUOTAS' ? ` en ${plan.items.length} cuotas` : estado === 'PENDIENTE' && plan.forma === 'CHEQUES' ? ` con ${plan.cheques.length} cheque(s)` : '';
         onRegistrado(claveDeRegistro(ruta, r), `Gasto «${concepto.trim()}» registrado${estado === 'PENDIENTE' ? ` como pendiente de pago${forma}` : ' y pagado'} (fecha ${formatearFechaLocal(fechaTxt)}).`);
       }).catch(() => {}); }}>
-      <label className={etiqueta}>Concepto del gasto
-        <input type="text" value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={100} placeholder="Ej.: maíz, gasoil, reparación de la bomba"
-          className={`${campo} text-base`} autoFocus />
+      <label className={etiqueta}>{esRetiro ? 'Concepto' : 'Concepto del gasto'}
+        <input type="text" value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={100}
+          placeholder={esRetiro ? 'Ej.: retiro mensual' : 'Ej.: maíz, gasoil, reparación de la bomba'} className={`${campo} text-base`} autoFocus />
       </label>
-      <label className={etiqueta}>Proveedor
-        <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className={campo}>
-          <option value="">Sin proveedor</option>
-          {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-        </select>
-      </label>
-      {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo después con cheque o eCheq habrá que vincularlo a un proveedor.</p>}
+      {!esRetiro && <>
+        <label className={etiqueta}>Proveedor
+          <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className={campo}>
+            <option value="">Sin proveedor</option>
+            {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+        </label>
+        {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo después con cheque o eCheq habrá que vincularlo a un proveedor.</p>}
+      </>}
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Importe total
           <NumeroInput min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
@@ -143,8 +169,20 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
         </label>
       </div>
-      {parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
-      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta} />
+      {!esRetiro && parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
+      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta} conRetiros />
+      {esRetiro ? (
+        <div className="space-y-1 border border-[#E4DCC8] rounded-lg p-2">
+          <label className={etiqueta}>Cuenta de la que sale el dinero
+            <select value={cuentaRetiro} onChange={(e) => setCuentaRetiro(e.target.value)} className={campo}>
+              <option value="">Elegir…</option>
+              {cuentasRetiro.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+          </label>
+          <p className="text-xs text-[#6B5D45]">Es un retiro de socios: mueve el dinero pero no es un gasto (en Resultados va aparte, debajo del resultado operativo).
+            Si salió por Mercado Pago, clasificá su movimiento en la tabla: doble clic → «Retiro · socio».</p>
+        </div>
+      ) : <>
       <SelectorNaturaleza value={naturaleza} onChange={setNaturaleza} />
       <SelectorEtiqueta value={etiquetaId} onChange={setEtiquetaId} />
       <fieldset className="space-y-2">
@@ -193,6 +231,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
       </fieldset>
       <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos />
       {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Movimientos → Todas las operaciones en lugar de cargarla de nuevo.</p>}
+      </>}
     </Modal>
   );
 }

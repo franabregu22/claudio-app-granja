@@ -105,7 +105,7 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
     expect(app).toMatch(/className="fixed bottom-6 right-4/);
     expect(app).toMatch(/\{nuevoGasto && <NuevaCompraModal onClose=\{\(\) => setNuevoGasto\(false\)\}\s+onRegistrado=/);   // 0119: confirmation with a link to its row
     expect(app.indexOf("if (rol !== 'ADMIN')")).toBeLessThan(app.indexOf('<NuevaCompraModal'));
-    expect(compras).toMatch(/<Modal titulo="Nuevo gasto"/);
+    expect(compras).toContain("<Modal titulo={esRetiro ? 'Nuevo retiro de socios' : 'Nuevo gasto'}");
     expect(compras).toMatch(/<DatosFiscales value=\{value\.fiscal\} onChange=\{\(fiscal\) => set\(\{ fiscal \}\)\} \/>/);   // with or without invoice, fiscal validation kept
     expect(compras).toMatch(/useState\(\(\) => `GASTO-\$\{crypto\.randomUUID\(\)\}`\)/);
     expect(compras).toContain("&& !repetida && (estado === 'PAGADO' || plan.valido);");   // caja-mejoras-v2: a pending expense also needs a valid payment plan

@@ -17,9 +17,9 @@ describe('Caja — the five tabs', () => {
     expect(labels).toEqual(['Movimientos', 'Análisis', 'Cuentas a pagar', 'Cartera de cheques', 'Calendario', 'Extractos']);
     expect(app).toMatch(/useState<Vista>\('movimientos'\)/);
   });
-  it('the ADMIN guard comes before any tab and Retiro de socios stays in Más acciones', () => {
+  it('the ADMIN guard comes before any tab; no «Más acciones» (owner 2026-11-18: a withdrawal is recorded from Nuevo gasto)', () => {
     expect(app.indexOf("if (rol !== 'ADMIN')")).toBeLessThan(app.indexOf('<Movimientos '));
-    expect(app).toMatch(/<EventoGestionModal tipo="RETIRO"/);
+    expect(app).not.toMatch(/<details|EventoGestionModal/);
   });
   it('every old screen has one door: the tabs, Todas las operaciones (transfers and expenses), a Por resolver filter, or Cuentas corrientes', () => {
     const tlo = SRC('features/caja/TodasLasOperaciones.tsx');

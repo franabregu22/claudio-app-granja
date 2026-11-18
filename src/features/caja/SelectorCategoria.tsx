@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { defaultNatureOf, NATURE_LABEL, selectableGroups, selectableSubcategories } from '../../target/expenseCategories';
+import { defaultNatureOf, NATURE_LABEL, selectableGroups, selectableSubcategories, socios } from '../../target/expenseCategories';
 import type { PurchaseNatureValue } from '../../target/masters';
 import { useExpenseCategories, useExpenseGroups } from './useTreasury';
 
@@ -10,15 +10,20 @@ const NATURES: PurchaseNatureValue[] = ['OPERATING', 'REINVESTMENT', 'INVESTMENT
  * pre-fills its default nature, which the owner may still change for this operation only (the master default never changes).
  * Reserved subcategories (Retiros de socios, IVA / Ganancias) are never offered. DIRECT / INDIRECT is not shown.
  */
-export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, onNaturaleza, campo, etiqueta = '', compacto = false }: {
+export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, onNaturaleza, campo, etiqueta = '', compacto = false, conRetiros = false }: {
   subcategoriaId: string; onSubcategoria: (id: string) => void;
   naturaleza?: PurchaseNatureValue; onNaturaleza?: (n: PurchaseNatureValue) => void;
   campo: string; etiqueta?: string; compacto?: boolean;
+  /** Nuevo gasto (owner 2026-11-18): «Retiros de socios» is offered too — a socio as subcategory; the form records a withdrawal. */
+  conRetiros?: boolean;
 }) {
   const grupos = useExpenseGroups();
   const subs = useExpenseCategories();
   const g = grupos.data ?? [];
   const s = subs.data ?? [];
+  const listaSocios = conRetiros ? socios(g, s) : [];
+  const gruposRetiro = g.filter((x) => listaSocios.some((y) => y.group_id === x.id));
+  const subsDe = (grupo: string) => (gruposRetiro.some((x) => x.id === grupo) ? listaSocios.filter((y) => y.group_id === grupo) : selectableSubcategories(g, s, grupo));
   const [grupoElegido, setGrupoElegido] = useState('');
   const grupoId = s.find((x) => x.id === subcategoriaId)?.group_id ?? grupoElegido;
   const conNaturaleza = naturaleza !== undefined && onNaturaleza !== undefined;
@@ -31,12 +36,13 @@ export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, 
     <select aria-label="Categoría" value={grupoId} onChange={(e) => { setGrupoElegido(e.target.value); onSubcategoria(''); }} className={campo}>
       <option value="">{compacto ? 'Categoría…' : 'Elegir categoría…'}</option>
       {selectableGroups(g, s).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+      {gruposRetiro.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
     </select>
   );
   const subcategoria = (
     <select aria-label="Subcategoría" value={subcategoriaId} onChange={(e) => elegirSub(e.target.value)} className={campo} disabled={grupoId === ''}>
       <option value="">{compacto ? 'Subcategoría…' : 'Elegir subcategoría…'}</option>
-      {grupoId !== '' && selectableSubcategories(g, s, grupoId).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+      {grupoId !== '' && subsDe(grupoId).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
     </select>
   );
   const nat = conNaturaleza && (

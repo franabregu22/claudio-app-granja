@@ -7,7 +7,6 @@ import { ExtractosBancarios } from './ExtractosBancarios';
 import { CalendarioPagos } from './CalendarioPagos';
 import { usePendingSummary } from './useMpActivity';
 import { useBadgeSinClasificar } from './useUnclassified';
-import { EventoGestionModal } from '../finanzas/EventoGestionModal';
 import { NuevaCompraModal } from './Compras';
 import { CarteraCheques } from './CarteraCheques';
 import { FlujoCaja } from './FlujoCaja';
@@ -31,7 +30,6 @@ export function CajaApp() {
   const { rol } = useAuth();
   const [vista, setVista] = useState<Vista>('movimientos');
   const [subPagar, setSubPagar] = useState<SubPagar>('pendientes');
-  const [retiro, setRetiro] = useState(false);
   const [nuevoGasto, setNuevoGasto] = useState(false);
   const [foco, setFoco] = useState<string | null>(null);   // 0119: the row of a just-recorded operation in Todas las operaciones
   const [registrado, setRegistrado] = useState<{ texto: string; clave: string | null } | null>(null);
@@ -57,15 +55,8 @@ export function CajaApp() {
       <div className="w-full min-w-0 bg-[#FAF6EE] min-h-screen flex flex-col">
         <header className="px-4 md:px-6 pt-6 pb-3 border-b border-[#E4DCC8]">
           <p className="text-xs font-semibold tracking-wide text-[#A8552E] uppercase">Granja Santo Tomás</p>
-          <div className="flex items-start justify-between gap-2">
-            <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Caja & Tesorería</h1>
-            <details className="relative text-sm mt-2">
-              <summary className="cursor-pointer text-[#A8552E]">Más acciones</summary>
-              <div className="absolute right-0 z-10 mt-1 bg-white border border-[#E4DCC8] rounded-lg shadow p-2 w-56">
-                <button onClick={() => setRetiro(true)} className="w-full text-left px-2 py-1 rounded hover:bg-amber-50">Retiro de socios</button>
-              </div>
-            </details>
-          </div>
+          {/* owner 2026-11-18: no extra actions menu — a partner withdrawal is recorded from «Nuevo gasto» (category Retiros de socios) */}
+          <h1 className="text-2xl font-bold text-[#2C2419] mt-1">Caja & Tesorería</h1>
           <nav className="flex gap-2 mt-4 overflow-x-auto">
             {VISTAS.map((v) => (
               <button key={v.id} onClick={() => setVista(v.id)}
@@ -93,7 +84,6 @@ export function CajaApp() {
           {vista === 'extractos' && <ExtractosBancarios />}
           {vista === 'analisis' && <FlujoCaja />}
         </div>
-        {retiro && <EventoGestionModal tipo="RETIRO" onClose={() => setRetiro(false)} />}
         {/* Nuevo gasto: on every Caja tab, the existing purchase form (with or without invoice) */}
         <button type="button" onClick={() => setNuevoGasto(true)} title="Registrar un gasto"
           className="fixed bottom-6 right-4 md:right-8 z-40 flex items-center gap-1.5 bg-[#A8552E] text-white font-semibold pl-3 pr-4 py-3 rounded-full shadow-lg hover:bg-[#8B4423]">

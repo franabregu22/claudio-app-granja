@@ -79,10 +79,13 @@ describe('D-FIN-1 / D-FIN-2 finance UX', () => {
   const finanzas = readFileSync('src/features/finanzas/FinanzasApp.tsx', 'utf8');
   const modal = readFileSync('src/features/finanzas/EventoGestionModal.tsx', 'utf8');
 
-  it('the withdrawal action is "Retiro de socios" under Caja → Más acciones', () => {
-    expect(caja).toMatch(/Más acciones/);
-    expect(caja).toMatch(/Retiro de socios/);
-    expect(caja).toMatch(/<EventoGestionModal tipo="RETIRO"/);
+  it('a withdrawal is recorded from Caja → Nuevo gasto, category «Retiros de socios» (owner 2026-11-18): a RETIRO, never an expense', () => {
+    const gasto = readFileSync('src/features/caja/Compras.tsx', 'utf8');
+    expect(caja).not.toMatch(/Más acciones/);
+    expect(gasto).toMatch(/<SelectorCategoria [^>]*conRetiros \/>/);
+    expect(gasto).toMatch(/type: 'RETIRO', effectiveDate: fecha, amount: Number\(total\)[\s\S]*socioCategoryId: categoriaId/);
+    expect(gasto).toMatch(/if \(esRetiro\) \{ void registrarRetiro\(\); return; \}/);   // never register_purchase for a socio
+    expect(gasto).toMatch(/a\.account_type === 'CASH' \|\| a\.account_type === 'BANK_ACCOUNT'/);   // Mercado Pago: from its movement
     expect(modal).toMatch(/RETIRO: 'Retiro de socios'/);
   });
 
