@@ -1,9 +1,12 @@
 import { ArrowLeftRight, History, MoreHorizontal, Undo2 } from 'lucide-react';
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '../../lib/supabase';
+import { listCompensatedAmounts, registerManagementEvent } from '../../target/pnl';
 import { errorMessage } from '../../target/messages';
 import { movementAccounts, type MovementRow } from '../../target/movementHistory';
 import {
-  ACCION_HISTORIAL, CLASIFICACION_LABEL, CONCILIACION_LABEL, cuentasLabel, estadoLabel, NATURALEZA_LABEL, OPERATION_PAGE, TIPO_LABEL,
+  ACCION_HISTORIAL, CLASIFICACION_LABEL, retiroAnulable, retiroAnulado, CONCILIACION_LABEL, cuentasLabel, estadoLabel, NATURALEZA_LABEL, OPERATION_PAGE, TIPO_LABEL,
   type OperationEstado, type OperationFilter, type OperationNature, type OperationRow, type OperationTipo, type PendienteFactura, type TimelineEvent,
 } from '../../target/operations';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
@@ -74,7 +77,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const [pagina, setPagina] = useState(0);
   const [detalle, setDetalle] = useState<OperationRow | null>(null);
   const [revertir, setRevertir] = useState<OperationRow | null>(null);   // 0130
-  const revertidos = usePagosRevertidos();   // owner 2026-11-17: the full detail opens in a window («⋯»)
+  const revertidos = usePagosRevertidos();
+  const [anular, setAnular] = useState<OperationRow | null>(null);   // owner 2026-11-18: Anular retiro
+  const compensados = useQuery({ queryKey: ['treasury', 'retiros-compensados'], queryFn: () => listCompensatedAmounts(supabase) });   // owner 2026-11-17: the full detail opens in a window («⋯»)
   const [editando, setEditando] = useState<{ fila: string; campo: CampoFila } | null>(null);   // owner 2026-11-17: in-row editing
   const [pagar, setPagar] = useState<OperationRow | null>(null);
   const [historial, setHistorial] = useState<OperationRow | null>(null);
@@ -213,8 +218,10 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
                   <Fila key={r.row_key} r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
                     docs={r.purchase_id ? adjuntos.data?.get(r.purchase_id) : undefined}
                     onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onDetalle={() => setDetalle(r)}
-                    revertido={r.operation_id !== null && !!revertidos.data?.has(r.operation_id)}
-                    revertible={pagoRevertible(r, cuentas) && !(r.operation_id !== null && revertidos.data?.has(r.operation_id))} onRevertir={() => setRevertir(r)}
+                    revertido={r.retiro ? retiroAnulado(r, compensados.data) : r.operation_id !== null && !!revertidos.data?.has(r.operation_id)}
+                    revertible={r.retiro ? retiroAnulable(r, cuentas, compensados.data)
+                      : pagoRevertible(r, cuentas) && !(r.operation_id !== null && revertidos.data?.has(r.operation_id))}
+                    onRevertir={() => (r.retiro ? setAnular(r) : setRevertir(r))}
                     editando={editando?.fila === r.row_key ? editando.campo : null}
                     onEditar={(campo) => setEditando(campo ? { fila: r.row_key, campo } : null)} />
                 ))}
@@ -245,6 +252,8 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
       )}
       {historial && <HistorialModal r={historial} onClose={() => setHistorial(null)} />}
       {revertir && <RevertirPagoModal r={revertir} onClose={() => setRevertir(null)} onListo={(t) => { setRevertir(null); setAviso({ texto: t, clave: null }); }} />}
+      {anular && <AnularRetiroModal r={anular} compensado={(anular.retiro && compensados.data?.get(anular.retiro.event_id)) || 0}
+        onClose={() => setAnular(null)} onListo={(t) => { setAnular(null); setAviso({ texto: t, clave: null }); }} />}
       {detalle && (
         <Modal titulo={`${TIPO_LABEL[detalle.tipo]} — ${detalle.concepto}`} onClose={() => setDetalle(null)} puedeGuardar guardando={false} error={null} textoGuardar="Cerrar" onSubmit={() => setDetalle(null)}>
           <DetalleFila r={detalle} onHistorial={() => setHistorial(detalle)} />
@@ -293,14 +302,18 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
         <span className="flex items-center gap-1">
           <span className={`${CHIP} ${TONO_ESTADO[r.estado]}`}>{estadoLabel(r)}</span>
           {r.clasificacion && <span className={`${CHIP} bg-orange-100 text-orange-900`} title={CLASIFICACION_LABEL[r.clasificacion]}>Por revisar</span>}
-          {revertido && <span className={`${CHIP} bg-stone-200 text-stone-700`} title="El pago se revirtió: el gasto volvió a pendiente y el dinero a la cuenta">Pago revertido</span>}
+          {revertido && (r.retiro
+            ? <span className={`${CHIP} bg-stone-200 text-stone-700`} title="El retiro se anuló: el dinero volvió a la cuenta">Retiro anulado</span>
+            : <span className={`${CHIP} bg-stone-200 text-stone-700`} title="El pago se revirtió: el gasto volvió a pendiente y el dinero a la cuenta">Pago revertido</span>)}
         </span>
       </td>
       <td className={`${TD}${cls('etiqueta')}`} {...alDoble('etiqueta')}>
         {celda('etiqueta', r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA)}</td>
       <td className={TD}>
         <span className="flex items-center gap-1">
-          {revertible && <button type="button" onClick={onRevertir} title="Revertir pago (vuelve a pendiente)" aria-label="Revertir pago" className={icono}><Undo2 className="w-4 h-4" /></button>}
+          {revertible && (r.retiro
+            ? <button type="button" onClick={onRevertir} title="Anular retiro (el dinero vuelve a la cuenta)" aria-label="Anular retiro" className={icono}><Undo2 className="w-4 h-4" /></button>
+            : <button type="button" onClick={onRevertir} title="Revertir pago (vuelve a pendiente)" aria-label="Revertir pago" className={icono}><Undo2 className="w-4 h-4" /></button>)}
           {pagable !== null && <button type="button" onClick={onPagar} className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar pago</button>}
           <Comprobantes docs={docs} compacto />
           <button type="button" onClick={onHistorial} title="Historial de cambios" aria-label="Historial de cambios" className={icono}><History className="w-4 h-4" /></button>
@@ -345,6 +358,32 @@ function DetalleFila({ r }: { r: OperationRow; onHistorial?: () => void }) {
 export function pagoRevertible(r: OperationRow, cuentas: FinancialAccountRow[]): boolean {
   if (r.row_kind !== 'OP' || r.tipo !== 'EGRESO' || r.estado !== 'COMPLETADA' || !r.purchase_id || r.supplier_id || r.operation_id === null || r.informativo) return false;
   return r.accounts.length === 1 && cuentas.some((c) => c.id === r.accounts[0].account_id && (c.account_type === 'CASH' || c.account_type === 'BANK_ACCOUNT'));
+}
+
+/** Anular retiro: a compensation of the whole rest (register_management_event, same account and date) — audited, nothing deleted. */
+function AnularRetiroModal({ r, compensado, onClose, onListo }: { r: OperationRow; compensado: number; onClose: () => void; onListo: (texto: string) => void }) {
+  const qc = useQueryClient();
+  const anular = useMutation({
+    mutationFn: (p: Parameters<typeof registerManagementEvent>[1]) => registerManagementEvent(supabase, p),
+    onSuccess: () => Promise.all([['pnl'], ['treasury'], ['management-events']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
+  });
+  const [motivo, setMotivo] = useState('');
+  const [clave] = useState(() => `ANUL-RET-${crypto.randomUUID()}`);
+  const resto = Math.round((Math.abs(r.amount) - compensado) * 100) / 100;
+  return (
+    <Modal titulo={`Anular retiro — ${r.concepto}`} onClose={onClose} puedeGuardar={!anular.isPending && resto > 0} guardando={anular.isPending} error={anular.error}
+      textoGuardar="Anular retiro"
+      onSubmit={() => anular.mutate({
+        type: 'RETIRO', effectiveDate: r.date!, amount: resto, idempotencyKey: clave, reason: `Anulación: ${motivo.trim() || 'retiro cargado por error'}`.slice(0, 200),
+        accountId: r.accounts[0].account_id, compensatesEventId: r.retiro!.event_id,
+      }, { onSuccess: () => onListo(`Retiro anulado: ${formatoPesos(resto)} volvió a ${cuentasLabel(r)}. Si había un error, cargalo de nuevo desde «Nuevo gasto».`) })}>
+      <p className="text-sm text-[#2C2419]">{formatoPesos(resto)} vuelve a <b>{cuentasLabel(r)}</b> con la fecha del retiro ({r.date ? formatearFechaLocal(r.date) : '—'}).</p>
+      <p className="text-xs text-[#6B5D45]">No se borra nada: el retiro y su anulación quedan en el historial. Si el importe o la fecha estaban mal, cargalo de nuevo desde «Nuevo gasto».</p>
+      <label className={etiqueta}>Motivo (opcional)
+        <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={150} placeholder="Ej.: importe mal cargado" className={campo} />
+      </label>
+    </Modal>
+  );
 }
 
 function RevertirPagoModal({ r, onClose, onListo }: { r: OperationRow; onClose: () => void; onListo: (texto: string) => void }) {

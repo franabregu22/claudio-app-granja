@@ -75,6 +75,15 @@ export async function listManagementEvents(client: SupabaseClient, limit = 100):
   return rows.map((r) => ({ ...r, amount: num(r.amount) }));
 }
 
+/** Owner 2026-11-18: how much of each withdrawal was already given back (compensations), by the withdrawal's event id. */
+export async function listCompensatedAmounts(client: SupabaseClient): Promise<Map<string, number>> {
+  const rows = await readTable<{ compensates_event_id: string; amount: number }>(client, 'management_event',
+    (q) => q.not('compensates_event_id', 'is', null), 'compensates_event_id, amount');
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.compensates_event_id, (out.get(r.compensates_event_id) ?? 0) + num(r.amount));
+  return out;
+}
+
 /**
  * RPC 43 (ADMIN). RETIRO needs the account the money leaves (ACCOUNT_REQUIRED); RESERVA_INTERNA must not have one
  * (ACCOUNT_NOT_ALLOWED); a reason is required; the idempotency key is 1–95 characters.

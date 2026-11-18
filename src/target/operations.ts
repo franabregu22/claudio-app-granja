@@ -139,3 +139,13 @@ export function setWithdrawalSocio(client: SupabaseClient, p: { operationId: num
     p_operation_id: p.operationId, p_socio_category_id: p.socioId, p_reason: p.reason?.trim() || null,
   });
 }
+
+/** Owner 2026-11-18: a partner withdrawal is fully given back (its compensations reach its amount). */
+export function retiroAnulado(r: OperationRow, compensados: Map<string, number> | undefined): boolean {
+  return !!r.retiro && (compensados?.get(r.retiro.event_id) ?? 0) >= Math.abs(r.amount) - 0.005;
+}
+/** A withdrawal recorded from cash / bank, not yet given back (a Mercado Pago one is its movement: nothing to give back here). */
+export function retiroAnulable(r: OperationRow, cuentas: readonly { id: string; account_type: string }[], compensados: Map<string, number> | undefined): boolean {
+  if (!r.retiro || r.tipo !== 'EGRESO' || r.operation_id === null || compensados === undefined || retiroAnulado(r, compensados)) return false;
+  return r.accounts.length === 1 && cuentas.some((c) => c.id === r.accounts[0].account_id && (c.account_type === 'CASH' || c.account_type === 'BANK_ACCOUNT'));
+}
