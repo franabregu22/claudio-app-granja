@@ -108,6 +108,7 @@ const PROFILES = {
   ADR025_POST_0130: './verify-profiles/adr025-post-0130.mjs',   // 0130 (reverse the payment of an expense without supplier)
   ADR025_POST_0131: './verify-profiles/adr025-post-0131.mjs',   // 0131 (Producción: day edit with reason, notes, bird counts by their total)
   ADR025_POST_0132: './verify-profiles/adr025-post-0132.mjs',   // 0132 (Todas las operaciones without the classified Mercado Pago bookkeeping pair)
+  ADR025_POST_0133: './verify-profiles/adr025-post-0133.mjs',   // 0133 (the socio of a partner withdrawal from Todas las operaciones)
 };
 const t0 = Date.now();
 

@@ -124,6 +124,7 @@ export const TARGET_RPCS = [
   'register_declared_collection', 'reverse_declared_collection', 'rectify_declared_collection',   // ADR-027 (0112, ADMIN): Mercado Pago collection declared, no money
   'reverse_collection', 'rectify_collection',   // Lote 1E (0108, ADMIN): annul / rectify a cash or bank collection, append-only
   'set_profile_name',   // Lote 2A (0109, ADMIN): first / last name of a profile, audited
+  'set_withdrawal_socio',   // 0133 (ADMIN): the socio of a partner withdrawal, from Todas las operaciones
   'assign_payable_to_supplier', 'set_payment_date',   // Lote 3B (0110, ADMIN): pending expense → supplier; due / estimated payment date
   'settle_purchase_mp',   // Lote 4 (0111, ADMIN, ADR-021 §2.3(c)): a purchase paid with Mercado Pago, linked to its real outflow
   'fin_instrument_precut_candidates', 'fin_mark_instrument_debited_precut',   // 0115 (ADMIN): an own cheque debited before the bank cut, no money moves

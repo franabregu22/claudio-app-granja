@@ -10,7 +10,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import type { FinancialAccountRow } from '../../target/masters';
 import { Comprobantes } from './Comprobantes';
-import { clasificableEnFila, EditorCelda, editableEnFila, type CampoFila } from './EdicionEnFila';
+import { clasificableEnFila, EditorCelda, editableEnFila, socioEditableEnFila, type CampoFila } from './EdicionEnFila';
 import { ChipEtiqueta } from './Etiquetas';
 import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos';
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
@@ -265,10 +265,11 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
   const pagable = pagableDesdeFila(r);
   const editable = editableEnFila(r);
   const clasificable = clasificableEnFila(r);
+  const retiro = socioEditableEnFila(r);   // 0133: a partner withdrawal — its socio from the Categoría / Subcategoría cell
   const celda = (campo: CampoFila, contenido: React.ReactNode) => (editando === campo ? <EditorCelda r={r} campo={campo} onFin={() => onEditar(null)} /> : contenido);
-  const puede = (campo: CampoFila) => editable || (clasificable && campo === 'categoria');
+  const puede = (campo: CampoFila) => editable || ((clasificable || retiro) && campo === 'categoria');
   const alDoble = (campo: CampoFila) => (puede(campo)
-    ? { onDoubleClick: () => onEditar(campo), title: clasificable ? 'Doble clic para clasificar el egreso' : 'Doble clic para editar' } : {});
+    ? { onDoubleClick: () => onEditar(campo), title: clasificable ? 'Doble clic para clasificar el egreso' : retiro ? 'Doble clic para elegir el socio' : 'Doble clic para editar' } : {});
   const cls = (campo: CampoFila) => (puede(campo) ? ' cursor-text hover:bg-amber-100/50' : '');
   const importe = r.tipo === 'TRANSFERENCIA' ? formatoPesos(Math.abs(r.amount)) : `${r.amount < 0 ? '−' : '+'} ${formatoPesos(Math.abs(r.amount))}`;
   const icono = 'p-1 rounded text-[#A8552E] hover:bg-amber-50';
@@ -279,9 +280,9 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
       <td className={`px-1.5 py-1.5 min-w-[12rem] ${editando === 'concepto' ? '' : 'max-w-0 truncate'}${cls('concepto')}`} title={r.concepto} {...alDoble('concepto')}>
         {celda('concepto', <span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span>)}</td>
       <td className={`${TD} max-w-[10rem] ${editando === 'categoria' ? '' : 'truncate'}${cls('categoria')}`} title={r.category ?? undefined} {...alDoble('categoria')}>
-        {editando === 'categoria' ? null : (r.category ?? (clasificable ? <span className="text-xs text-orange-800">Sin clasificar</span> : NADA))}</td>
+        {editando === 'categoria' ? null : (r.category ?? (clasificable ? <span className="text-xs text-orange-800">Sin clasificar</span> : retiro ? 'Retiros de socios' : NADA))}</td>
       <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${cls('categoria')}`} title={r.subcategory ?? undefined} {...alDoble('categoria')}>
-        {celda('categoria', r.subcategory ?? NADA)}</td>
+        {celda('categoria', r.subcategory ?? (retiro ? <span className="text-xs text-orange-800">Sin socio</span> : NADA))}</td>
       <td className={`${TD}${cls('naturaleza')}`} {...alDoble('naturaleza')}>{celda('naturaleza', r.nature ? NATURALEZA_LABEL[r.nature] : NADA)}</td>
       <td className={`${TD} max-w-[12rem] truncate`}>{r.accounts.length === 0 ? <span className="text-[#8A7A5C] italic">Sin asignar</span> : cuentasLabel(r)}</td>
       <td {...alDoble('importe')} className={`${TD} text-right font-bold${cls('importe')} ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}

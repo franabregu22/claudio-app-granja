@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
-import { listOperations, operationTimeline, payPurchaseInvoice, type OperationFilter } from '../../target/operations';
+import { listOperations, operationTimeline, payPurchaseInvoice, setWithdrawalSocio, type OperationFilter } from '../../target/operations';
 import { payPendingExpense } from '../../target/payables';
 
 /** 0119: one page of Caja → Todas las operaciones (or exactly the row of `focus`). */
@@ -20,6 +20,11 @@ export function useOperationTimeline(rowKey: string | null) {
 function useRefresh() {
   const qc = useQueryClient();
   return () => Promise.all([['treasury'], ['commercial', 'balances'], ['pnl'], ['expense-audit']].map((queryKey) => qc.invalidateQueries({ queryKey })));
+}
+/** 0133: the socio of a partner withdrawal, from its row (Todas las operaciones, P&L by socio and the timeline refresh). */
+export function useSetWithdrawalSocio() {
+  const onSuccess = useRefresh();
+  return useMutation({ mutationFn: (p: Parameters<typeof setWithdrawalSocio>[1]) => setWithdrawalSocio(supabase, p), onSuccess });
 }
 export function usePayFromRow() {
   const onSuccess = useRefresh();

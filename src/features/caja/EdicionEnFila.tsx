@@ -1,6 +1,7 @@
 import { Lock } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { defaultNatureOf, selectableGroups, selectableSubcategories } from '../../target/expenseCategories';
+import { defaultNatureOf, selectableGroups, selectableSubcategories, socios } from '../../target/expenseCategories';
+import { useSetWithdrawalSocio } from './useOperations';
 import { reglasDeCompra, type VinculosGasto } from '../../target/expenses';
 import { errorMessage } from '../../target/messages';
 import type { OperationRow } from '../../target/operations';
@@ -31,8 +32,12 @@ export const clasificableEnFila = (r: OperationRow) => r.clasificacion === 'MP_S
 const SIN_VINCULOS: VinculosGasto = { pendienteSinProveedor: false, mpVinculado: false, asignado: 0, estadoPago: '', comoPagar: '' };
 const INPUT = 'w-full min-w-[7rem] border border-amber-500 rounded px-1.5 py-0.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-600';
 
+/** 0133: a partner withdrawal's socio is chosen from its Categoría / Subcategoría cell. */
+export const socioEditableEnFila = (r: OperationRow) => !!r.retiro && r.operation_id !== null;
+
 export function EditorCelda({ r, campo, onFin }: { r: OperationRow; campo: CampoFila; onFin: () => void }) {
   if (clasificableEnFila(r)) return <ClasificarMpCelda r={r} onFin={onFin} />;
+  if (socioEditableEnFila(r) && campo === 'categoria') return <SocioCelda r={r} onFin={onFin} />;
   return <EditorGasto r={r} campo={campo} onFin={onFin} />;
 }
 
@@ -161,6 +166,7 @@ function ClasificarMpCelda({ r, onFin }: { r: OperationRow; onFin: () => void })
   const saldos = useLedgerBalances('SUPPLIER');
   const { outflow } = useClassifyMp();
   const transferir = useConfirmPayoutTransfer();
+  const setSocio = useSetWithdrawalSocio();
   const hecho = useRef(false);
   const fila = (mov.data?.rows ?? []).find((x): x is MovementRow => x.row_type === 'OP' && x.operation_id === r.operation_id);
   // the Mercado Pago movement id: the row's own key (0132 mp_source_id; the concept is short now), else the old long concept
@@ -178,7 +184,11 @@ function ClasificarMpCelda({ r, onFin }: { r: OperationRow; onFin: () => void })
     hecho.current = true;
     try {
       if (v === 'TRANSFERENCIA') await transferir.mutateAsync(fuente);
-      else if (v === 'RETIRO') await outflow.mutateAsync({ sourceId: fuente, classification: 'OWNER_WITHDRAWAL' });
+      else if (v.startsWith('RETIRO:')) {
+        // 0133: the withdrawal, then its socio (two calls: if the second fails the withdrawal stays and its socio is set from the row)
+        const res = await outflow.mutateAsync({ sourceId: fuente, classification: 'OWNER_WITHDRAWAL' });
+        await setSocio.mutateAsync({ operationId: res.financial_operation_id, socioId: v.slice(7) });
+      }
       else if (v.startsWith('PROV:')) await outflow.mutateAsync({ sourceId: fuente, classification: 'SUPPLIER_PAYMENT', supplierId: v.slice(5) });
       else {
         const sub = s.find((x) => x.id === v);
@@ -188,14 +198,18 @@ function ClasificarMpCelda({ r, onFin }: { r: OperationRow; onFin: () => void })
       onFin();
     } catch { hecho.current = false; }
   };
-  const error = outflow.error ?? transferir.error;
+  const error = outflow.error ?? transferir.error ?? setSocio.error;
   return (
     <span className="block" onClick={(e) => e.stopPropagation()}>
       <select defaultValue="" autoFocus aria-label="Clasificar el egreso" className={INPUT} onChange={(e) => { void elegir(e.target.value); }}
         onBlur={() => { if (!hecho.current) onFin(); }} onKeyDown={(e) => { if (e.key === 'Escape') { hecho.current = true; onFin(); } }}>
         <option value="">¿Qué fue?…</option>
         {propia && <optgroup label="Transferencia entre cuentas"><option value="TRANSFERENCIA">Transferencia a {propia.matched_account_name ?? 'cuenta propia'}</option></optgroup>}
-        <optgroup label="Otros"><option value="RETIRO">Retiro de socios</option></optgroup>
+        {socios(g, s).length > 0 && (
+          <optgroup label="Retiro de socios">
+            {socios(g, s).map((x) => <option key={x.id} value={`RETIRO:${x.id}`}>Retiro · {x.nombre}</option>)}
+          </optgroup>
+        )}
         {conDeuda.length > 0 && (
           <optgroup label="Pago a proveedor (cancela su deuda)">
             {conDeuda.map((p) => <option key={p.id} value={`PROV:${p.id}`}>{p.nombre}</option>)}
@@ -207,8 +221,33 @@ function ClasificarMpCelda({ r, onFin }: { r: OperationRow; onFin: () => void })
           </optgroup>
         ))}
       </select>
-      {(outflow.isPending || transferir.isPending) && <span className="block text-[11px] text-[#8A7A5C]">Clasificando…</span>}
+      {(outflow.isPending || transferir.isPending || setSocio.isPending) && <span className="block text-[11px] text-[#8A7A5C]">Clasificando…</span>}
       {error ? <Aviso texto={errorMessage(error)} onFin={onFin} /> : null}
+    </span>
+  );
+}
+
+/** 0133: the socio of a partner withdrawal, chosen in its Categoría / Subcategoría cell (audited; «Sin socio» clears it). */
+function SocioCelda({ r, onFin }: { r: OperationRow; onFin: () => void }) {
+  const grupos = useExpenseGroups();
+  const subs = useExpenseCategories();
+  const setSocio = useSetWithdrawalSocio();
+  const hecho = useRef(false);
+  const lista = socios(grupos.data ?? [], subs.data ?? []);
+  const elegir = async (v: string) => {
+    if (hecho.current || r.operation_id === null) return;
+    hecho.current = true;
+    try { await setSocio.mutateAsync({ operationId: r.operation_id, socioId: v === '' ? null : v, reason: MOTIVO_TABLA }); onFin(); } catch { hecho.current = false; }
+  };
+  return (
+    <span className="block" onClick={(e) => e.stopPropagation()}>
+      <select defaultValue={r.retiro?.socio_id ?? ''} autoFocus aria-label="Socio del retiro" className={INPUT} onChange={(e) => { void elegir(e.target.value); }}
+        onBlur={() => { if (!hecho.current) onFin(); }} onKeyDown={(e) => { if (e.key === 'Escape') { hecho.current = true; onFin(); } }}>
+        <option value="">Sin socio</option>
+        {lista.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+      </select>
+      {setSocio.isPending && <span className="block text-[11px] text-[#8A7A5C]">Guardando…</span>}
+      {setSocio.error ? <Aviso texto={errorMessage(setSocio.error)} onFin={onFin} /> : null}
     </span>
   );
 }

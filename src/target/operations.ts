@@ -31,6 +31,8 @@ export interface OperationRow {
   operation_id: number | null; ref_uuid: string | null; ref_id: number | null;
   /** 0132: the Mercado Pago SOURCE_ID of an outflow still to classify (absent before 0132). */
   mp_source_id?: string | null;
+  /** 0133: a partner withdrawal (not a compensation) and its socio (an OWNER_WITHDRAWAL subcategory), editable from the row. */
+  retiro?: { event_id: string; socio_id: string | null } | null;
   accounts: OperationAccount[];
   conciliacion: Conciliacion; clasificacion: Clasificacion;
   pendiente: PendienteGasto | PendienteFactura | null;
@@ -130,3 +132,10 @@ export const ACCION_HISTORIAL: Record<string, string> = {
   CHEQUE_CANCELLED: 'Cheque anulado', CHEQUE_REJECTED: 'Cheque rechazado', CHEQUE_RECEIVED: 'Cheque recibido', CHEQUE_DEPOSITED: 'Cheque depositado',
   CHEQUE_CLEARED: 'Cheque acreditado', CHEQUE_ENDORSED: 'Cheque endosado',
 };
+
+/** 0133: the socio of a partner withdrawal (its compensations follow; NULL clears it). ADMIN; audited; the period must be open. */
+export function setWithdrawalSocio(client: SupabaseClient, p: { operationId: number; socioId: string | null; reason?: string | null }) {
+  return callRpc<{ event_id: string; socio_id: string | null; changed: boolean }>(client, 'set_withdrawal_socio', {
+    p_operation_id: p.operationId, p_socio_category_id: p.socioId, p_reason: p.reason?.trim() || null,
+  });
+}

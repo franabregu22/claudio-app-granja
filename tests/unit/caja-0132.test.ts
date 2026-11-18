@@ -14,3 +14,19 @@ describe('0132 — Mercado Pago outflow classified from its cell', () => {
     expect(src('target/operations.ts')).toMatch(/mp_source_id\?: string \| null;/);
   });
 });
+
+describe('0133 — partner withdrawal: the socio from the row', () => {
+  const celda = src('features/caja/EdicionEnFila.tsx');
+  const tabla = src('features/caja/TodasLasOperaciones.tsx');
+  it('classifying a Mercado Pago outflow as a withdrawal asks which socio (one option per socio)', () => {
+    expect(celda).toMatch(/value=\{`RETIRO:\$\{x\.id\}`\}>Retiro · \{x\.nombre\}/);
+    expect(celda).not.toMatch(/value="RETIRO">Retiro de socios/);
+    expect(celda).toMatch(/setSocio\.mutateAsync\(\{ operationId: res\.financial_operation_id, socioId: v\.slice\(7\) \}\)/);
+  });
+  it('a withdrawal row: Categoría «Retiros de socios», Subcategoría its socio or «Sin socio», editable with a double click', () => {
+    expect(tabla).toMatch(/retiro \? 'Retiros de socios'/);
+    expect(tabla).toMatch(/>Sin socio<\/span>/);
+    expect(tabla).toMatch(/\(clasificable \|\| retiro\) && campo === 'categoria'/);
+    expect(celda).toMatch(/if \(socioEditableEnFila\(r\) && campo === 'categoria'\) return <SocioCelda/);
+  });
+});
