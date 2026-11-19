@@ -186,6 +186,22 @@ console.log(JSON.stringify({ evt: 'whatsapp_send', status: r.statusCode, error: 
 if (!(r.statusCode >= 200 && r.statusCode < 300)) throw new Error('WhatsApp send failed: HTTP ' + r.statusCode + (e.code ? ' code ' + e.code : '')
   + (e.error_subcode ? ' subcode ' + e.error_subcode : '') + (e.type ? ' ' + String(e.type).replace(/[^A-Za-z]/g, '').slice(0, 40) : ''));
 return { json: { status: r.statusCode } };`;
+// 0134: once WhatsApp accepted the reply, it is stored as the reply of THAT message (public.wa_note_reply through the Edge, with
+// that message's capability) — the conversation's short memory lives in the database, never in n8n. Not an action: it creates no
+// draft and writes nothing financial; a failure only loses the memory of this turn (logged by status, never the text).
+const GLUE_PREPARE_NOTE = `
+${logic}
+${interp}
+let v = null, g = null;
+try { v = $('Verify & route').item.json; } catch (e) { v = null; }
+try { g = $('Has message?').item.json.graph; } catch (e) { g = null; }
+const reply = WAI.replyText(g);
+if (!v || !v.inbound_id || !v.request || !v.request.cap || !reply) return { json: { note: false } };
+const p = WA.prepare({ action: 'note_reply', inbound_id: v.inbound_id, cap: v.request.cap, reply }, Math.floor(Date.now() / 1000), WA.nonce());
+return { json: { note: true, raw: p.raw, h: p.headers } };`;
+const GLUE_LOG_NOTE = `const r = $json;
+console.log(JSON.stringify({ evt: 'reply_noted', status: r.statusCode, ok: !!(r.body && r.body.ok) }));
+return { json: { status: r.statusCode } };`;
 
 let x = 0;
 const node = (name, type, typeVersion, parameters, extra = {}) => ({ id: randomUUID(), name, type, typeVersion, position: [220 * x++, 300], parameters, ...extra });
@@ -218,6 +234,10 @@ const nodes = [
   { ...http('Send WhatsApp', '=https://graph.facebook.com/v21.0/{{ $json.phone_number_id }}/messages', { authentication: 'genericCredentialType', genericAuthType: 'httpHeaderAuth',
       sendBody: true, specifyBody: 'json', jsonBody: '={{ JSON.stringify($json.graph) }}' }), credentials: cred('httpHeaderAuth', T.prefix + 'META_GRAPH_TOKEN') },
   code('Log send', GLUE_LOG_SEND),
+  code('Prepare note', GLUE_PREPARE_NOTE),
+  ifCond('Note reply?', '$json.note === true'),
+  { ...edgeCall('Call Edge note'), credentials: cred('httpHeaderAuth', T.prefix + 'WA_N8N_TO_EDGE') },
+  code('Log note', GLUE_LOG_NOTE),
   node('Every 30 min', 'n8n-nodes-base.scheduleTrigger', 1.2, { rule: { interval: [{ field: 'minutes', minutesInterval: 30 }] } }),
   code('Expire request', GLUE_EXPIRE, 'runOnceForAllItems'),
 ];
@@ -238,6 +258,10 @@ const connections = {
   'Compose follow-up': { main: [[to('Has message?')]] },
   'Has message?': { main: [[to('Send WhatsApp')], []] },
   'Send WhatsApp': { main: [[to('Log send')]] },
+  'Log send': { main: [[to('Prepare note')]] },
+  'Prepare note': { main: [[to('Note reply?')]] },
+  'Note reply?': { main: [[to('Call Edge note')], []] },
+  'Call Edge note': { main: [[to('Log note')]] },
   'Every 30 min': { main: [[to('Expire request')]] },
   'Expire request': { main: [[to('Prepare request')]] },
 };

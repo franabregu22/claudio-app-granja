@@ -193,6 +193,19 @@ Deno.test('E-14 context action: read-only wa_context with the capability of THAT
   assertEquals((await x.h(actionReq({ action: 'context', inbound_id: 77 }, x.nowS()))).status, 403);
 });
 
+Deno.test('E-15 note_reply (0134): the bot reply of THAT message → wa_note_reply; refused without its capability or with a bad / empty / long text', async () => {
+  const x = rig({ rpc: () => [200, { ok: true }] });
+  const cap = await mintCap(CAPS, 91, x.nowS());
+  assertEquals((await x.h(actionReq({ action: 'note_reply', inbound_id: 91, cap, reply: '¿Qué compraste?' }, x.nowS()))).status, 200);
+  assertEquals(JSON.parse(String(x.calls.find((c) => c.url.endsWith('/rpc/wa_note_reply'))!.init.body)), { p_inbound_id: 91, p_reply: '¿Qué compraste?' });
+  assertEquals((await x.h(actionReq({ action: 'note_reply', inbound_id: 92, cap, reply: 'x' }, x.nowS()))).status, 403);
+  assertEquals((await x.h(actionReq({ action: 'note_reply', inbound_id: 91, reply: 'x' }, x.nowS()))).status, 403);
+  for (const reply of ['', '   ', 'x'.repeat(1001), 5, null]) {
+    assertEquals((await x.h(actionReq({ action: 'note_reply', inbound_id: 91, cap, reply }, x.nowS()))).status, 400);
+  }
+  assertEquals(x.calls.filter((c) => c.url.endsWith('/rpc/wa_note_reply')).length, 1);
+});
+
 
 // ── receipts: photo / PDF stored once, n8n gets a signed URL (ADR-025 stage 4) ────────────────────────────────────────────
 const GRAPH = 'graph-token-'.padEnd(40, 'g');

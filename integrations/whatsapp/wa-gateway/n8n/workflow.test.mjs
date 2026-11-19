@@ -14,9 +14,9 @@ const PHONE = '+5491155551234';
 
 /** a fresh simulated world: fake wa_* database behind the Edge, fake OpenAI, fake Graph, n8n static data, logs */
 function world() {
-  const W = { catalog: JSON.parse(JSON.stringify(CATALOG)), drafts: [], seq: 9, edgeCalls: [], openaiBodies: [], sent: [], logs: [], staticData: {}, gpt: null, openaiStatus: 200, nextInbound: 100, buttons: {}, pending: [] };
+  const W = { catalog: JSON.parse(JSON.stringify(CATALOG)), drafts: [], seq: 9, edgeCalls: [], openaiBodies: [], sent: [], logs: [], staticData: {}, gpt: null, openaiStatus: 200, nextInbound: 100, buttons: {}, pending: [], inbox: {}, used: {}, notes: {}, noteCalls: [] };
   const edge = (item) => {
-    const req = JSON.parse(item.raw); W.edgeCalls.push(req);
+    const req = JSON.parse(item.raw); (req.action === 'note_reply' ? W.noteCalls : W.edgeCalls).push(req);   // 0134: the reply memory apart
     if (!/^[0-9]{10}$/.test(item.h['x-wa-timestamp']) || !/^[0-9a-f]{32}$/.test(item.h['x-wa-nonce'])) return { statusCode: 401, body: { error: 'unauthorized' } };
     if (req.action !== 'expire' && !/^v1\./.test(String(req.cap))) return { statusCode: 403, body: { error: 'forbidden' } };
     const open = W.drafts.filter((d) => ['DRAFT', 'FAILED'].includes(d.state)).at(-1) || null;
@@ -33,20 +33,26 @@ function world() {
       if (x.account_id) delete x.account_pending; else x.account_pending = true;
       if (x.category_id) { delete x.category_pending; delete x.category_options; } else { x.category_pending = true; x.category_options = x.category_options || []; }
       return x; };
+    // 0134: what the database keeps per message — the action it drove (and its draft) and the bot's reply
+    const markUsed = (r, d) => { if (r.statusCode === 200 && d) W.used[req.inbound_id] = { action: req.action.toUpperCase(), draft: d.code }; return r; };
+    const history = () => Object.entries(W.inbox).map(([id, m]) => ({ id: Number(id), ...m })).filter((m) => m.id < req.inbound_id).slice(-8)
+      .map((m) => ({ at: m.at, kind: m.kind, text: m.text, button: m.button, button_method: m.button_method, action: W.used[m.id]?.action ?? null, draft: W.used[m.id]?.draft ?? null, bot: W.notes[m.id] ?? null }));
     switch (req.action) {
-      case 'context': return { statusCode: 200, body: { ok: true, result: { ok: true, open: open && { draft_id: open.id, short_code: open.code, state: open.state, version: open.version, payload: { ...open.payload, needs_mp: false } }, waiting: [], catalog: W.catalog } } };
+      case 'note_reply': { if (typeof req.reply !== 'string' || !req.reply.trim()) return { statusCode: 400, body: { error: 'invalid action' } };
+        if (!(req.inbound_id in W.notes)) W.notes[req.inbound_id] = req.reply; return { statusCode: 200, body: { ok: true, result: { ok: true } } }; }
+      case 'context': return { statusCode: 200, body: { ok: true, result: { ok: true, open: open && { draft_id: open.id, short_code: open.code, state: open.state, version: open.version, payload: { ...open.payload, needs_mp: false } }, waiting: [], catalog: W.catalog, history: history() } } };
       case 'propose': {
         if (!catOk(req.payload)) return err('WA_CATEGORY_NOT_SELECTABLE');
         if (!usable(req.payload)) return err('WA_ACCOUNT_NOT_SELECTABLE');
         if (W.drafts.some((d) => d.state === 'DRAFT')) return err('WA_OPEN_DRAFT_EXISTS');
         const d = { id: `00000000-0000-4000-8000-${String(++W.seq).padStart(12, '0')}`, code: `W-${String(W.seq).padStart(4, '0')}`, state: 'DRAFT', version: 1, payload: stored(req.payload) };
-        W.drafts.push(d); return { statusCode: 200, body: { ok: true, result: view(d) } };
+        W.drafts.push(d); return markUsed({ statusCode: 200, body: { ok: true, result: view(d) } }, d);
       }
       case 'correct': { if (!catOk(req.payload)) return err('WA_CATEGORY_NOT_SELECTABLE'); if (!usable(req.payload)) return err('WA_ACCOUNT_NOT_SELECTABLE'); const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND'); if (d.version !== req.expected_version) return err('WA_VERSION_CHANGED');
         const btn = W.buttons[req.inbound_id];   // like wa_correct: a button only drives the correction it names
         if (btn && (btn !== `METHOD:${d.id}:${d.version}:${req.payload.method}` || !d.payload.method_pending)) return err('WA_BUTTON_MISMATCH');
-        d.version++; d.payload = stored(req.payload); d.state = 'DRAFT'; return { statusCode: 200, body: { ok: true, result: view(d) } }; }
-      case 'cancel': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED'); d.state = 'CANCELLED';
+        d.version++; d.payload = stored(req.payload); d.state = 'DRAFT'; return markUsed({ statusCode: 200, body: { ok: true, result: view(d) } }, d); }
+      case 'cancel': { const d = find(); if (!d || d.version !== req.expected_version) return err('WA_VERSION_CHANGED'); d.state = 'CANCELLED'; markUsed({ statusCode: 200 }, d);
         return { statusCode: 200, body: { ok: true, result: { ok: true, draft_id: d.id, short_code: d.code, state: 'CANCELLED' } } }; }
       case 'confirm': { const d = find(); if (!d) return err('WA_DRAFT_NOT_FOUND');
         if (d.state === 'CONFIRMED') return { statusCode: 200, body: { ok: true, result: { ok: true, already_confirmed: true, draft_id: d.id, short_code: d.code } } };
@@ -75,7 +81,7 @@ function world() {
     }
   };
   W.http = {
-    'Call Edge action': edge, 'Call Edge follow-up': edge,
+    'Call Edge action': edge, 'Call Edge follow-up': edge, 'Call Edge note': edge,
     'OpenAI interpret': (item) => { W.openaiBodies.push(item.openai_body);
       if (W.openaiStatus !== 200) return { statusCode: W.openaiStatus, body: { error: { message: 'x' } } };
       return { statusCode: 200, body: { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(W.gpt) }] }], usage: { input_tokens: 950, output_tokens: 90 } } }; },
@@ -118,14 +124,16 @@ async function run(W, start, items) {
 }
 const capOf = (id) => `v1.${id}.${Math.floor(Date.now() / 1000) + 900}.${'c'.repeat(64)}`;
 let nn = 0;
-const inbound = (W, ev) => { const id = W.nextInbound++; if (ev && ev.button_payload) W.buttons[id] = ev.button_payload; return [{ body: { ts: String(Math.floor(Date.now() / 1000)), nonce: (++nn).toString(16).padStart(32, 'a'),
+const inbound = (W, ev) => { const id = W.nextInbound++; if (ev && ev.button_payload) W.buttons[id] = ev.button_payload;
+  const bp = ev && ev.button_payload ? String(ev.button_payload).split(':') : null;
+  W.inbox[id] = { at: new Date(W.clock ?? Date.now()).toISOString(), kind: ev?.kind || 'text', text: ev?.text ?? null, button: bp ? bp[0] : null, button_method: bp && bp[0] === 'METHOD' ? bp[3] : null }; return [{ body: { ts: String(Math.floor(Date.now() / 1000)), nonce: (++nn).toString(16).padStart(32, 'a'),
   event: { type: 'wa.message', inbound_id: id, kind: 'text', phone: PHONE, cap: capOf(id), ...ev } }, headers: {} }]; };
 const WAI = new Function(readFileSync(new URL('./interpreter.js', import.meta.url), 'utf8') + '\nreturn WAI;')();
 let CUR = CATALOG;   // the catalog the next GPT answer refers to (set by say)
 const G = (o) => { const g = { intent: 'new_expense', amount: null, amount_evidence: null, concept: null, category: null, method: null, date: null, changed_fields: [], clarification_question: null, ...o };
   return { ...g, category: g.category == null ? null : (WAI.options(CUR).find((x) => x.nombre === g.category)?.code ?? g.category) }; };
 const say = (W, text, gpt) => { W.gpt = typeof gpt === 'function' ? gpt() : gpt; return run(W, 'Edge → n8n', inbound(W, { text })); };
-const actions = (W) => W.edgeCalls.map((c) => c.action);
+const actions = (W) => W.edgeCalls.map((c) => c.action).filter((a) => a !== 'note_reply');   // 0134: the reply memory is not a draft action
 
 test('WF-1 W-0009 #1 fixed: "gaste 18mil en combustible en efectivo" → draft of $18.000 with category Combustible', async () => {
   const W = world();
@@ -241,7 +249,7 @@ test('WF-11 Meta answers 4xx / 5xx → Log send fails the execution (saved, visi
       (e) => { assert.match(e.message, new RegExp(`^WhatsApp send failed: HTTP ${status}`));
         if (error) assert.match(e.message, new RegExp(`code ${error.code}`));
         assert.ok(!/5491155551234|validating|Recipient|gaste|18mil|wamid|Ab$/.test(e.message), e.message); return true; });
-    assert.equal(W.edgeCalls.map((c) => c.action).join(), 'context,propose');   // the draft exists; only the reply failed
+    assert.equal(actions(W).join(), 'context,propose');   // the draft exists; only the reply failed
     const logs = W.logs.join('\n'); assert.ok(!logs.includes('5491155551234') && !logs.includes('validating') && !logs.includes('gaste'));
   }
 });
@@ -328,7 +336,7 @@ test('WF-14 live paying accounts end to end: ask BNA / Patagonia, no confirm whi
   assert.deepEqual([d.payload.total, d.payload.concept, d.payload.category_id, d.payload.method], [5000, 'flete', C1, 'TRANSFER']);
   await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:3` }));
   assert.equal(d.state, 'CONFIRMED');
-  assert.ok(!JSON.stringify(W.openaiBodies).match(/acc-|Patagonia"|"BNA"|Caja chica/), 'no account id or name ever sent to OpenAI');
+  assert.ok(!JSON.stringify(W.openaiBodies).match(/acc-/), 'no account id ever sent to OpenAI (names go, with opaque codes: owner 2026-11-18)');
   CUR = CATALOG;
 });
 
@@ -527,5 +535,148 @@ test('WF-R3 MPLINK button → link_mp of THAT draft / version / SOURCE_ID (the d
   const W = world();
   const id = '11111111-2222-4333-8444-555555555555';
   await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `MPLINK:${id}:2:930000025099` }));
-  assert.deepEqual(W.edgeCalls.map((c) => [c.action, c.draft_id, c.expected_version, c.source_id]), [['link_mp', id, 2, '930000025099']]);
+  assert.deepEqual(W.edgeCalls.filter((c) => c.action !== 'note_reply').map((c) => [c.action, c.draft_id, c.expected_version, c.source_id]), [['link_mp', id, 2, '930000025099']]);
+});
+
+// ── 0134: conversational assistant — short memory from the database, natural answers, button-only confirmation ──
+const CONFIRM_BTN = (W, d) => run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:${d.version}` }));
+const userOf = (W, i = -1) => JSON.parse(W.openaiBodies.at(i).input[1].content);
+const GALICIA = { id: 'acc-gal', nombre: 'Banco Galicia', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' };
+
+test('WF-C1 memory: each reply WhatsApp accepted is stored for THAT message (note_reply, its capability); the next turn sends historial + ultima_pregunta', async () => {
+  const W = world();
+  await say(W, 'gasté 18 mil', G({ intent: 'new_expense', amount: 18000, amount_evidence: '18 mil' }));
+  assert.deepEqual(actions(W), ['context']); assert.equal(W.drafts.length, 0);
+  assert.equal(W.sent.at(-1).text.body, '¿Qué compraste o pagaste?');
+  assert.equal(W.noteCalls.length, 1); assert.equal(W.noteCalls[0].inbound_id, 100); assert.match(W.noteCalls[0].cap, /^v1\.100\./);
+  assert.equal(W.notes[100], '¿Qué compraste o pagaste?');
+  await say(W, 'combustible', G({ intent: 'clarify', clarification_question: '¿Cómo lo pagaste?' }));
+  const u = userOf(W);
+  assert.deepEqual(u.historial, [{ usuario: 'gasté 18 mil', bot: '¿Qué compraste o pagaste?' }]);
+  assert.equal(u.ultima_pregunta, '¿Qué compraste o pagaste?');
+  // a summary is stored with its buttons; nothing private (phone, ids, capability) goes to OpenAI or into the logs
+  await say(W, 'gasté 18 mil de combustible en efectivo', G({ amount: 18000, amount_evidence: '18 mil', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  assert.match(W.notes[102], /\$ 18\.000,00[\s\S]*\[Confirmar\] \[Cancelar\]$/);
+  const s = JSON.stringify(W.openaiBodies);
+  assert.ok(!s.includes('5491155551234') && !/[0-9a-f]{8}-[0-9a-f]{4}-/.test(s) && !s.includes('v1.') && !s.includes('acc-'));
+  assert.ok(!W.logs.join('\n').includes('Qué compraste'), 'the reply text is never logged');
+});
+
+test("WF-C2 answering the bot's question completes the SAME expense: amount from the earlier message, ONE draft; a later message never duplicates it", async () => {
+  const W = world();
+  await say(W, 'gasté 18 mil', G({ amount: 18000, amount_evidence: '18 mil' }));
+  await say(W, 'en combustible, efectivo', G({ amount: 18000, amount_evidence: '18 mil', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  assert.deepEqual(actions(W), ['context', 'context', 'propose']); assert.equal(W.drafts.length, 1);
+  assert.deepEqual([W.drafts[0].payload.total, W.drafts[0].payload.concept, W.drafts[0].payload.method, W.drafts[0].payload.account_id], [18000, 'Combustible', 'CASH', 'acc-cash']);
+  // the open draft is now the memory: the same words again are not a second expense
+  await say(W, 'gasté 18 mil en combustible', G({ amount: 18000, amount_evidence: '18 mil', concept: 'Combustible', category: 'Combustible' }));
+  assert.equal(W.drafts.length, 1); assert.match(W.sent.at(-1).text.body, /Tenés el borrador W-0010 abierto/);
+  // after it is confirmed (button), an old message cannot complete a new expense: the confirmation closes the operation
+  await CONFIRM_BTN(W, W.drafts[0]);
+  await say(W, 'nafta', G({ amount: 18000, amount_evidence: '18 mil', concept: 'Nafta', category: 'Combustible', method: 'CASH' }));
+  assert.equal(W.drafts.length, 1); assert.match(W.sent.at(-1).text.body, /importe exacto/);
+});
+
+test('WF-C3 evidence guards: an amount nobody wrote, or one older than 30 minutes, never becomes a draft', async () => {
+  const W = world();
+  await say(W, 'gasté en combustible', G({ concept: 'Combustible', category: 'Combustible' }));
+  await say(W, 'en efectivo', G({ amount: 20000, amount_evidence: '20 mil', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  assert.equal(W.drafts.length, 0); assert.match(W.sent.at(-1).text.body, /importe exacto/);
+  const V = world();
+  V.clock = Date.now() - 31 * 60 * 1000;
+  await say(V, 'gasté 18 mil', G({ amount: 18000, amount_evidence: '18 mil' }));
+  V.clock = undefined;
+  await say(V, 'combustible en efectivo', G({ amount: 18000, amount_evidence: '18 mil', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  assert.equal(V.drafts.length, 0); assert.match(V.sent.at(-1).text.body, /importe exacto/);
+});
+
+test('WF-C4 natural corrections: several fields in one message (amount + account) go to GPT and are applied together; a short answer stays deterministic', async () => {
+  const W = world(); W.catalog.accounts.push({ id: 'acc-pat', nombre: 'Patagonia', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' }); CUR = W.catalog;
+  await say(W, 'transferí 5000 del flete', G({ amount: 5000, amount_evidence: '5000', concept: 'flete', category: 'Insumos', method: 'TRANSFER' }));
+  const d = W.drafts[0]; assert.equal(d.payload.account_pending, true);
+  const pat = WAI.accountOptions(W.catalog).find((a) => a.nombre === 'Patagonia').code;
+  const gpt = W.openaiBodies.length;
+  await say(W, 'desde patagonia, pero eran 6000', G({ intent: 'correct_draft', changed_fields: ['account', 'amount'], amount: 6000, amount_evidence: '6000', account: pat }));
+  assert.equal(W.openaiBodies.length, gpt + 1, 'not a short answer: GPT reads it');
+  assert.deepEqual([d.version, d.payload.total, d.payload.account_id, d.payload.method, d.payload.concept], [2, 6000, 'acc-pat', 'TRANSFER', 'flete']);
+  assert.match(W.sent.at(-1).interactive.body.text, /Importe \$ 5\.000,00 → \$ 6\.000,00/);
+  // "fue ayer" — the date only
+  const y = new Date(Date.now() - 27 * 3600 * 1000).toISOString().slice(0, 10);
+  await say(W, 'ah y fue ayer', G({ intent: 'correct_draft', changed_fields: ['date'], date: y }));
+  assert.deepEqual([d.version, d.payload.date, d.payload.total], [3, y, 6000]);
+  CUR = CATALOG;
+});
+
+test("WF-C5 accounts by part of their name: GPT's account counts only if the user's words name it (\"el galicia\"); otherwise it is asked", async () => {
+  const W = world(); W.catalog.accounts.push(GALICIA); CUR = W.catalog;
+  const gal = WAI.accountOptions(W.catalog).find((a) => a.nombre === 'Banco Galicia').code;
+  await say(W, 'transferí 5000 de flete desde el galicia', G({ amount: 5000, amount_evidence: '5000', concept: 'flete', category: 'Insumos', method: 'TRANSFER', account: gal }));
+  assert.deepEqual([W.drafts[0].payload.account_id, W.drafts[0].payload.method], ['acc-gal', 'TRANSFER']);
+  const V = world(); V.catalog.accounts.push(GALICIA); CUR = V.catalog;
+  await say(V, 'transferí 5000 de flete', G({ amount: 5000, amount_evidence: '5000', concept: 'flete', category: 'Insumos', method: 'TRANSFER', account: gal }));
+  assert.equal(V.drafts[0].payload.account_id, undefined); assert.match(V.sent.at(-1).text.body, /¿Desde qué cuenta lo pagaste\? BNA o Banco Galicia\./);
+  // a change of account later, in natural words, with the account's own word
+  await say(V, 'no, salió del galicia', G({ intent: 'correct_draft', changed_fields: ['account'], account: gal, concept: 'salió' }));
+  assert.deepEqual([V.drafts[0].payload.account_id, V.drafts[0].payload.concept, V.drafts[0].payload.total], ['acc-gal', 'flete', 5000]);
+  CUR = CATALOG;
+});
+
+test("WF-C6 cancelling in natural words cancels the open draft (database version); GPT's intent alone never cancels", async () => {
+  const W = world();
+  await say(W, 'gasté 18000 en combustible en efectivo', G({ amount: 18000, amount_evidence: '18000', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  await say(W, 'no sé, mejor dejalo así', G({ intent: 'cancel_request' }));
+  assert.equal(W.drafts[0].state, 'DRAFT'); assert.match(W.sent.at(-1).text.body, /¿Querés descartar W-0010\?/);
+  await say(W, 'olvidate de ese, borralo', G({ intent: 'cancel_request' }));
+  assert.deepEqual(actions(W).slice(-2), ['context', 'cancel']); assert.equal(W.edgeCalls.at(-1).expected_version, 1);
+  assert.equal(W.drafts[0].state, 'CANCELLED'); assert.match(W.sent.at(-1).text.body, /Cancelado/);
+  assert.equal(W.pending.length, 0);
+});
+
+test('WF-C7 confirmation only by the button: any text is a reply; the button records ONCE; a second tap does not duplicate', async () => {
+  const W = world();
+  await say(W, 'gasté 18000 en combustible en efectivo', G({ amount: 18000, amount_evidence: '18000', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  const d = W.drafts[0];
+  for (const t of ['sí, dale, registralo', 'confirmo', 'ok guardalo']) {
+    await say(W, t, G({ intent: 'confirm_request', reply: 'Listo, lo registré.' }));
+    assert.equal(d.state, 'DRAFT'); assert.match(W.sent.at(-1).text.body, /tocá el botón del último resumen/);
+  }
+  assert.ok(!actions(W).includes('confirm'));
+  await CONFIRM_BTN(W, d); assert.equal(d.state, 'CONFIRMED');
+  await run(W, 'Edge → n8n', inbound(W, { kind: 'interactive', button_payload: `CONFIRM:${d.id}:1` }));
+  assert.equal(actions(W).filter((a) => a === 'confirm').length, 2); assert.match(W.sent.at(-1).text.body, /ya estaba registrado/);
+  assert.equal(actions(W).filter((a) => a === 'propose').length, 1);
+});
+
+test('WF-C8 natural replies, but never a claim the backend did not make; ambiguous messages get ONE question and no action', async () => {
+  const W = world();
+  await say(W, 'hola, cómo va?', G({ intent: 'help', reply: '¡Hola! Contame qué gastaste y cómo lo pagaste.' }));
+  assert.equal(W.sent.at(-1).text.body, '¡Hola! Contame qué gastaste y cómo lo pagaste.');
+  for (const r of ['Listo, ya lo registré.', 'Guardé el gasto de 18 mil.', 'Ya está, lo cambié.', 'Cancelé el borrador.']) {
+    await say(W, 'y?', G({ intent: 'other', reply: r }));
+    assert.equal(W.sent.at(-1).text.body, WAI.help, r);
+  }
+  await say(W, 'gasté 18000 en combustible en efectivo', G({ amount: 18000, amount_evidence: '18000', concept: 'Combustible', category: 'Combustible', method: 'CASH' }));
+  const n = W.edgeCalls.length;
+  await say(W, 'eran 15 mil de pan', G({ intent: 'clarify', clarification_question: '¿Es otro gasto o corregimos el de recién?' }));
+  assert.equal(W.sent.at(-1).text.body, '¿Es otro gasto o corregimos el de recién?');
+  assert.deepEqual(W.edgeCalls.slice(n).map((c) => c.action), ['context']); assert.equal(W.drafts[0].payload.total, 18000);
+  await say(W, 'y?', G({ intent: 'clarify', clarification_question: 'Ya lo corregí, ¿algo más?' }));
+  assert.equal(W.sent.at(-1).text.body, '¿Me das más detalles del gasto?');
+});
+
+test('WF-C9 the full conversation: new → method → account → correction → button; one draft, one record, every reply stored', async () => {
+  const W = world(); W.catalog.accounts.push({ id: 'acc-pat', nombre: 'Patagonia', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' }); CUR = W.catalog;
+  await say(W, 'pagué 25 lucas de alimento', G({ amount: 25000, amount_evidence: '25 lucas', concept: 'Alimento', category: 'Insumos' }));
+  const d = W.drafts[0]; assert.equal(d.payload.method_pending, true);
+  await say(W, 'por transferencia', G({ intent: 'correct_draft', changed_fields: ['method'], method: 'TRANSFER' }));
+  assert.match(W.sent.at(-1).text.body, /¿Desde qué cuenta lo pagaste\? BNA o Patagonia\./);
+  await say(W, 'la de patagonia', G({ intent: 'other' }));
+  await say(W, 'perdón, eran 24.500', G({ intent: 'correct_draft', changed_fields: ['amount'], amount: 24500, amount_evidence: '24.500' }));
+  assert.deepEqual([d.payload.total, d.payload.method, d.payload.account_id, d.payload.concept], [24500, 'TRANSFER', 'acc-pat', 'Alimento']);
+  await CONFIRM_BTN(W, d);
+  assert.equal(d.state, 'CONFIRMED'); assert.equal(W.drafts.length, 1); assert.equal(actions(W).filter((a) => a === 'propose').length, 1);
+  assert.equal(Object.keys(W.notes).length, Object.keys(W.inbox).length, 'every reply stored once');
+  const last = userOf(W);
+  assert.deepEqual(last.historial.map((h) => h.usuario), ['pagué 25 lucas de alimento', 'por transferencia', 'la de patagonia']);
+  CUR = CATALOG;
 });

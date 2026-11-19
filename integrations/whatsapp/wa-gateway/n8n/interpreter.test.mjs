@@ -91,9 +91,9 @@ test('I-8 deterministic commands use the DATABASE context (no GPT): cancelar, mp
 test('I-9 request to OpenAI: minimal data (no phone, no uuid, no account), store:false, strict schema with the DB catalog as enum', () => {
   const { body, sent } = WAI.buildRequest({ text: 'corregi el importe a 18000', today: '2026-10-22', context: ctxOpen, model: 'm', effort: 'low', maxOutputTokens: 600 });
   const s = JSON.stringify(body);
-  assert.ok(!/[0-9a-f]{8}-[0-9a-f]{4}-/.test(s), 'uuid sent'); assert.ok(!/\+?549\d{8}/.test(s)); assert.ok(!/acc-cash|Caja chica|BNA/.test(s));
+  assert.ok(!/[0-9a-f]{8}-[0-9a-f]{4}-/.test(s), 'uuid sent'); assert.ok(!/\+?549\d{8}/.test(s)); assert.ok(!/acc-cash|acc-bna/.test(s), 'account id sent');   // owner 2026-11-18: account NAMES go (with an opaque code), never ids
   assert.equal(body.store, false); assert.equal(body.reasoning.effort, 'low');
-  assert.deepEqual(sent.borrador_abierto, { codigo: 'W-0009', estado: 'DRAFT', importe: 18, concepto: 'Combustible', categoria: 'Combustible', medio: 'CASH', fecha: '2026-10-22', pendiente: [] });
+  assert.deepEqual(sent.borrador_abierto, { codigo: 'W-0009', estado: 'DRAFT', importe: 18, concepto: 'Combustible', categoria: 'Combustible', medio: 'CASH', cuenta: sent.borrador_abierto.cuenta, fecha: '2026-10-22', pendiente: [] });
   const sch = body.text.format.schema;
   assert.equal(body.text.format.strict, true); assert.equal(sch.additionalProperties, false);
   assert.deepEqual([...sch.required].sort(), Object.keys(sch.properties).sort());
@@ -201,12 +201,16 @@ test('I-16 transfer with several enabled bank accounts and none named → draft 
   assert.equal(tr('transferí 5000', [CAJA, MP]).outcome, 'no_account');
 });
 
-test('I-17 accounts are live: added, renamed and removed accounts change the behaviour without redeploy; names never reach OpenAI', () => {
+test('I-17 accounts are live: added, renamed and removed accounts change the behaviour without redeploy; only names + opaque codes reach OpenAI', () => {
   assert.equal(tr('transferí 5000 desde Banco Nuevo', [CAJA, BNA, PAT, { id: 'acc-new', nombre: 'Banco Nuevo', account_type: 'BANK_ACCOUNT', method: 'TRANSFER' }]).request.payload.account_id, 'acc-new');
   assert.equal(tr('transferí 5000 desde Patagonia SA', [CAJA, BNA, { ...PAT, nombre: 'Patagonia SA' }]).request.payload.account_id, 'acc-pat');
   assert.equal(tr('transferí 5000 desde patagonia', [CAJA, BNA]).request.payload.account_id, 'acc-bna', 'Patagonia disabled: the only bank left');
   const body = WAI.buildRequest({ text: 'transferí 5000', today: '2026-10-22', context: A([CAJA, BNA, PAT, MP]), model: 'm' }).body;
-  assert.ok(!/acc-|Caja chica|BNA|Patagonia/.test(JSON.stringify(body)), 'no account id or name in the OpenAI request');
+  assert.ok(!/acc-/.test(JSON.stringify(body)), 'no account id in the OpenAI request');
+  assert.deepEqual(JSON.parse(body.input[1].content).cuentas.map((c) => [c.codigo, c.nombre, c.medio]).sort((a, b) => a[1].localeCompare(b[1])),
+    [['BNA', 'TRANSFER'], ['Caja chica', 'CASH'], ['Mercado Pago', 'MERCADOPAGO'], ['Patagonia', 'TRANSFER']].map(([n, m]) => [JSON.parse(body.input[1].content).cuentas.find((c) => c.nombre === n).codigo, n, m]));
+  assert.ok(JSON.parse(body.input[1].content).cuentas.every((c) => /^C[0-9]+$/.test(c.codigo)));
+  assert.deepEqual(body.text.format.schema.properties.account.enum, [...JSON.parse(body.input[1].content).cuentas.map((c) => c.codigo), null]);
   // older context without the method field (staging before upgrade-004): the method comes from the account TYPE, never from a name
   assert.equal(tr('transferí 5000 desde patagonia', [{ ...BNA, method: undefined }, { ...PAT, method: undefined }]).request.payload.account_id, 'acc-pat');
 });
@@ -364,4 +368,54 @@ test('I-P2 ADR-026 corrections paid ⇄ to pay; "a pagar" answering "¿Cómo lo 
   const asked = { ...open, payload: { date: '2026-10-22', total: 18, concept: 'Combustible', category_id: C4, nature: 'OPERATING', method_pending: true, account_pending: true } };
   const r = WAI.preRoute('a pagar', { ...ctxOpen, open: asked });
   assert.deepEqual([r.request.action, r.request.payload.pending_payment, 'method_pending' in r.request.payload], ['correct', true, false]);
+});
+
+// ── 0134: the amount must be what its evidence says (never only "a number exists somewhere") ──
+test('I-A1 accepted formats: the amount equals the reading of its evidence', () => {
+  const ok = [['18000', 18000], ['18.000', 18000], ['$ 18.000', 18000], ['$18.000', 18000], ['18.000,50', 18000.5], ['18000,50', 18000.5], ['12.500', 12500],
+    ['18mil', 18000], ['18 mil', 18000], ['18k', 18000], ['18 lucas', 18000], ['35 lucas', 35000], ['1 luca', 1000], ['1,5 palos', 1500000], ['1.5 millones', 1500000],
+    ['2 palos', 2000000], ['18 mil 500', 18500], ['24.500', 24500], ['2.300', 2300], ['500', 500], ['dieciocho mil', 18000], ['un palo', 1000000],
+    ['veintidós mil', 22000], ['doscientos cincuenta mil', 250000], ['un millón doscientos mil', 1200000], ['mil quinientos', 1500], ['18.500,75', 18500.75], ['1.234.567', 1234567], ['1.234.567,50', 1234567.5]];
+  for (const [ev, v] of ok) assert.ok([...WAI.evidenceValues(ev)].includes(v), `${ev} → ${v} (got ${[...WAI.evidenceValues(ev)]})`);
+  for (const [ev, v] of ok) {
+    const d = decide(G({ amount: v, amount_evidence: ev, concept: 'Gasoil', category: 'Combustible', method: 'CASH' }), `gasté ${ev} de gasoil en efectivo`, ctxNone);
+    assert.equal(d.request?.payload.total, v, `decide ${ev}`);
+  }
+});
+
+test('I-A2 refused: an amount other than its evidence → asked, no draft (wrong multiplier, wrong digits, invented, words that say another number)', () => {
+  const bad = [['12.500', 13800], ['18 mil', 1800], ['18 mil', 180000], ['35 lucas', 3500], ['1,5 palos', 150000], ['18k', 18], ['dieciocho mil', 19000],
+    ['500', 5000], ['18.000', 1800], ['2 palos', 2000]];
+  for (const [ev, v] of bad) {
+    const d = decide(G({ amount: v, amount_evidence: ev, concept: 'Gasoil', category: 'Combustible', method: 'CASH' }), `gasté ${ev} de gasoil en efectivo`, ctxNone);
+    assert.equal(d.request, undefined, `${ev} as ${v} must not propose`); assert.equal(d.outcome, 'amount_unverified');
+  }
+  // a correction too: "eran 15mil" read as 1500 is refused, the draft keeps its amount
+  const c = decide(G({ intent: 'correct_draft', changed_fields: ['amount'], amount: 1500, amount_evidence: '15mil' }), 'perdón eran 15mil', ctxOpen);
+  assert.equal(c.request, undefined); assert.equal(c.outcome, 'amount_unverified');
+});
+
+// ── 0134: "¿qué me falta?" lists the pending data; ultima_pregunta is only the bot's last question ──
+test('I-S1 status lists what the draft still needs (from its database flags); complete → points to Confirmar', () => {
+  const st = (payload, state = 'DRAFT') => WAI.statusText({ open: { ...open, state, payload: { ...open.payload, ...payload } }, waiting: [] });
+  assert.match(st({ method: undefined, account_id: undefined, method_pending: true, account_pending: true }), /Te falta: cómo lo pagaste \(efectivo, transferencia o Mercado Pago\)\.$/);
+  assert.match(st({ account_id: undefined, account_pending: true }), /Te falta: desde qué cuenta lo pagaste\.$/);
+  assert.match(st({ category_id: undefined, category_pending: true, account_pending: true, account_id: undefined }), /Te falta: el tipo de gasto \(subcategoría\); desde qué cuenta lo pagaste\.$/);
+  assert.match(st({ concept_pending: true, vat_receiver_pending: true, issuer_cuit_pending: true }), /Te falta: qué compraste \(el concepto\); si la factura está a nombre de Santo Tomás; el CUIT de quien emitió la factura\.$/);
+  assert.match(st({}), /Tiene todos los datos: tocá Confirmar en el último resumen\.$/);
+  assert.doesNotMatch(st({}, 'FAILED'), /Te falta|Tiene todos/);
+  assert.equal(WAI.statusText({ open: null, waiting: [] }), 'No tenés borradores abiertos.');
+  // the GPT status intent answers with it (deterministic, never GPT's text)
+  const d = WAI.decide({ gpt: G({ intent: 'status_query', reply: 'Ya está todo.' }), text: '¿qué me falta?', ctx: { ...ctxOpen, open: { ...open, payload: { ...open.payload, account_id: undefined, account_pending: true } } }, today: '2026-10-22', amountCap: 1e7 });
+  assert.match(d.reply, /Te falta: desde qué cuenta lo pagaste\./);
+});
+
+test('I-S2 ultima_pregunta = only the last question of the bot reply (not the whole summary); none → null', () => {
+  const sum = 'Borrador W-0042 (v1)\nTotal: $ 12.500,00\nConcepto: luz\n\n¿Confirmás? Si algo está mal decime solo lo que cambia (por ejemplo "eran 15 mil"). "cancelar" lo descarta.\n[Confirmar] [Cancelar]';
+  const q = (bot) => JSON.parse(WAI.buildRequest({ text: 'x', today: '2026-10-22', context: { ...ctxNone, history: [{ at: new Date().toISOString(), kind: 'text', text: 'hola', bot }] }, model: 'm' }).body.input[1].content).ultima_pregunta;
+  assert.equal(q(sum), '¿Confirmás?');
+  assert.equal(q('Me faltan dos datos:\n• ¿Qué tipo de Combustible? Nafta o Gasoil.\n• ¿Desde qué cuenta lo pagaste? BNA o Patagonia.'), '¿Desde qué cuenta lo pagaste?');
+  assert.equal(q('¿Cuánto fue?'), '¿Cuánto fue?');
+  assert.equal(q('✅ Registrado W-0010 en el ERP.'), null);
+  assert.equal(q(null), null);
 });

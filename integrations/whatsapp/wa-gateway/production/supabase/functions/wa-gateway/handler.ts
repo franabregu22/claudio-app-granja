@@ -84,6 +84,9 @@ const ACTIONS: Record<string, { fn: string; inbound: boolean; args: (b: Record<s
   expire: { fn: 'wa_expire', inbound: false, args: () => ({}) },
   // read-only: the sender's live drafts (current version + payload) and the catalog, for the interpreter
   context: { fn: 'wa_context', inbound: true, args: (b) => isId(b.inbound_id) ? { p_inbound_id: b.inbound_id } : null },
+  // 0134: the bot's reply to THAT message, kept as the conversation's short memory (not an action: no draft, nothing financial)
+  note_reply: { fn: 'wa_note_reply', inbound: true, args: (b) => isId(b.inbound_id) && typeof b.reply === 'string' && b.reply.trim().length >= 1 && b.reply.length <= 1000
+    ? { p_inbound_id: b.inbound_id, p_reply: b.reply } : null },
 };
 const isId = (v: unknown) => Number.isSafeInteger(v) && (v as number) > 0;
 const isVer = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 1 && (v as number) <= 10000;
