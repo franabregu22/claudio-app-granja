@@ -82,6 +82,8 @@ const WAI = (() => {
     return ok(y) ? iso(y) : null;
   }
   /** the same due date as written once the text is reduced to words (bareAnswer: "vence el 10/12" → "vence el 10 12") */
+  /** what a message about the invoice alone says (a CUIT, the receiver, "sin factura"): anything else left → GPT reads it all */
+  const INVOICE_TALK = /\b\d{2} ?\d{8} ?\d\b|\b(cuit|emisor|receptor|vendedor|proveedor|comercio|factura|nombre|santo|tomas|granja|nosotros|nuestra|nuestro|empresa|otro|otra|iva|computable|computa|computar|credito|fiscal|sin|si|sip|correcto|exacto|asi|sale|va|esta|hay|tiene|registralo)\b/;
   const DUE_WORDS = /\b(?:vence|vencimiento|pagar|pago|para)\s+(?:el\s+)?\d{1,2}\s\d{1,2}(?:\s(?:\d{2}|\d{4}))?\b/;
   const saidMethods = (text) => { const t = norm(text); return METHODS.filter((m) => METHOD_WORDS[m].test(t)); };
   const METHOD_WORD = { CASH: 'efectivo', TRANSFER: 'transferencia', MERCADOPAGO: 'mercado pago' };
@@ -253,7 +255,9 @@ const WAI = (() => {
     if (o && !pick && typeof WAR !== 'undefined') {
       const ia = WAR.invoiceAnswer(text, o, (opts && opts.ownCuits) || [], opts && opts.amountCap);
       if (ia && ia.reply) return { reply: ia.reply };
-      if (ia) return { request: { action: 'correct', draft_id: o.draft_id, expected_version: o.version, payload: ia.payload }, changes: ia.changes };
+      // only a message that says nothing but the invoice datum is resolved here; "concepto gasoil, con mercadopago, cuit 30-…"
+      // goes to GPT and decide() applies the invoice datum TOGETHER with the rest (nothing of the message is lost)
+      if (ia && bareAnswer(text, [], [INVOICE_TALK])) return { request: { action: 'correct', draft_id: o.draft_id, expected_version: o.version, payload: ia.payload }, changes: ia.changes };
     }
     // ADR-026: the answer to "¿Cómo lo pagaste?" is "a pagar" → the same draft becomes a PENDING expense (deterministic, no GPT);
     // only as a SHORT answer (0134) — "a pagar, y eran 20 mil" goes to GPT, which handles both
@@ -361,13 +365,20 @@ const WAI = (() => {
   const CANCEL_WORDS = /\b(cancel\w*|anul\w*|borr\w*|descart\w*|olvida\w*|elimin\w*|sacalo|no lo cargues|no va)\b/;
 
   /** GPT interpretation → ONE allowed proposal (propose / correct / cancel) or a reply. Nothing else is possible. */
-  function decide({ gpt, text, ctx, today, amountCap, nowMs }) {
+  function decide({ gpt, text, ctx, today, amountCap, nowMs, ownCuits }) {
     const cap = amountCap || 10000000;
     const g = gpt || {};
     if (!INTENTS.includes(g.intent)) return clar('No pude interpretar el mensaje. ¿Me lo escribís de nuevo?', 'invalid_intent');
     const opts = options(ctx.catalog);
     const accs = accountOptions(ctx.catalog);
-    const o = ctx.open;
+    // an invoice datum in a longer message (preRoute left it to GPT): applied deterministically TOGETHER with what GPT reads
+    // (the draft's payload already carries it); with nothing else to apply it is the whole correction
+    const o0 = ctx.open;
+    const ia = o0 && typeof WAR !== 'undefined' ? WAR.invoiceAnswer(text, o0, ownCuits || [], cap) : null;
+    const inv = ia && ia.payload ? ia : null;
+    const o = inv ? { ...o0, payload: inv.payload } : o0;
+    const invRequest = () => ({ request: { action: 'correct', draft_id: o0.draft_id, expected_version: o0.version, payload: inv.payload },
+                                outcome: 'correct_invoice', changes: inv.changes });
     // 0134: the evidence of a NEW expense may include what the user already said about it (no draft yet, last 30 minutes);
     // corrections use only the current message (the draft holds the rest)
     const ev = g.intent === 'new_expense' && !o ? [...openTurns(ctx, nowMs ?? Date.now()).map((h) => String(h.text)), String(text)].join('\n') : String(text);
@@ -379,8 +390,10 @@ const WAI = (() => {
     const byId = (id) => opts.find((o) => o.id === id) || null;
     // a receipt waiting for its concept: the answer IS the concept (and its subcategory), not a new expense
     if (g.intent === 'new_expense' && o && o.payload?.concept_pending && typeof g.amount !== 'number' && g.concept) {
-      return decide({ gpt: { ...g, intent: 'correct_draft', changed_fields: ['concept', ...(g.category ? ['category'] : [])] }, text, ctx, today, amountCap, nowMs });
+      return decide({ gpt: { ...g, intent: 'correct_draft', changed_fields: ['concept', ...(g.category ? ['category'] : []),
+        ...(saidMethods(text).length ? ['method'] : []), ...(named.length ? ['account'] : [])] }, text, ctx, today, amountCap, nowMs, ownCuits });
     }
+    if (inv && !['correct_draft', 'cancel_request'].includes(g.intent)) return invRequest();
     switch (g.intent) {
       case 'confirm_request': return { reply: o ? `Para registrar ${o.short_code} tocá el botón del último resumen (Confirmar, o "Registrar sin clasif" si falta solo la subcategoría).` : 'No tenés un borrador para confirmar.', outcome: 'confirm_by_button_only' };
       case 'cancel_request': {
@@ -474,7 +487,9 @@ const WAI = (() => {
           const cw = words(g.concept, 3);
           if ((ch.includes('category') && !o.payload?.concept_pending) || !cw.length || !cw.every((w) => rest.includes(' ' + w + ' '))) ch = ch.filter((f) => f !== 'concept');
         }
-        if (!ch.length) return clar(`¿Qué dato de ${o.short_code} querés corregir?`, 'nothing_to_correct');
+        // the message states a payment method other than the draft's and GPT did not list it ("…lo pagué con mercadopago")
+        if (!ch.includes('account') && !ch.includes('method')) { const sm = saidMethods(text); if (sm.length === 1 && sm[0] !== o.payload?.method) ch.push('method'); }
+        if (!ch.length) return inv ? invRequest() : clar(`¿Qué dato de ${o.short_code} querés corregir?`, 'nothing_to_correct');
         if (ch.includes('amount') && ch.includes('concept')) return clar(`¿Es una corrección de ${o.short_code} o un gasto nuevo?`, 'ambiguous_new_vs_correct');
         const p = { ...o.payload }; delete p.needs_mp;
         if (ch.includes('amount')) { const v = validAmount(g, text, cap); if (v === null) return clar('¿Cuál es el importe correcto?', 'amount_unverified'); p.total = v; delete p.net; }
@@ -488,8 +503,12 @@ const WAI = (() => {
           if (prev && prev.id !== c.id && norm(p.concept) === norm(prev.nombre)) p.concept = c.nombre;
           p.category_id = c.id; delete p.category_pending; delete p.category_options; }
         if (ch.includes('account')) {   // only the paying account (and its method) changes; amount, concept, category stay
-          const a = named.length === 1 ? named[0] : null;
-          if (!a) { const sm = saidMethods(text), mm = sm.length === 1 ? sm[0] : p.method; return mm ? clar(askAccount(accs, mm), 'ask_account') : clar(askMethod, 'ask_method'); }
+          let a = named.length === 1 ? named[0] : null;
+          if (!a) {   // no account named: the method's ONLY enabled account is taken; with several, asked
+            const sm = saidMethods(text), mm = sm.length === 1 ? sm[0] : p.method, fit = mm ? accs.filter((x) => x.method === mm) : [];
+            if (fit.length === 1) a = fit[0];
+            else return mm && fit.length ? clar(askAccount(accs, mm), 'ask_account') : clar(askMethod, 'ask_method');
+          }
           if (a.method !== p.method) delete p.mp_source_id;
           p.method = a.method; p.account_id = a.id; delete p.account_pending; delete p.method_pending;
         } else if (ch.includes('method')) {   // never GPT's guess: the message must state exactly one method
@@ -504,9 +523,9 @@ const WAI = (() => {
         }
         if (ch.includes('date')) { if (g.date === null) return clar('¿Cuál es la fecha correcta?', 'bad_date'); const d = validDate(g.date, today); if (!d) return clar('¿Cuál es la fecha correcta? (hasta 60 días atrás)', 'bad_date'); p.date = d; }
         const before = { ...o.payload }; delete before.needs_mp;
-        if (JSON.stringify(p) === JSON.stringify(before)) return { reply: `${o.short_code} ya tiene esos datos; no hay cambios.`, outcome: 'no_change' };
-        const changes = ['total', 'concept', 'category_id', 'method', 'account_id', 'date']
-          .map((k) => ({ field: k, from: before[k] ?? null, to: p[k] ?? null })).filter((c) => c.from !== c.to);
+        if (JSON.stringify(p) === JSON.stringify(before)) return inv ? invRequest() : { reply: `${o.short_code} ya tiene esos datos; no hay cambios.`, outcome: 'no_change' };
+        const changes = [...(inv ? inv.changes : []), ...['total', 'concept', 'category_id', 'method', 'account_id', 'date']
+          .map((k) => ({ field: k, from: before[k] ?? null, to: p[k] ?? null })).filter((c) => c.from !== c.to)];
         return { request: { action: 'correct', draft_id: o.draft_id, expected_version: o.version, payload: p }, outcome: 'correct', changed: ch, changes };
       }
     }

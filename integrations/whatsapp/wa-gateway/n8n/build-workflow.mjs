@@ -66,8 +66,13 @@ const CFG = JSON.stringify({ ar_strip_9: !!catalog.ar_strip_9 });
 // Factura A with IVA asks "¿está a nombre de Santo Tomás?" (never assumed computable nor foreign)
 const OWN_CUITS = Array.isArray(conf.santo_tomas_cuits) ? conf.santo_tomas_cuits.map(String) : [];
 if (OWN_CUITS.some((c) => !/^[0-9]{11}$/.test(c))) throw new Error('interpreter-config.json: santo_tomas_cuits must be 11-digit CUITs');
+// owner decision (2026-11-19): an unread issuer CUIT comes from earlier invoices of the same business — seed (gitignored, from the ERP:
+// fiscal documents, suppliers, bot drafts) + what the workflow learns (static data, see Compose follow-up); missing seed → empty
+const issuersPath = join(HERE, TARGET === 'production' ? 'production-issuers.json' : 'staging-issuers.json');
+const ISSUERS = existsSync(issuersPath) ? JSON.parse(readFileSync(issuersPath, 'utf8')) : {};
+if (Object.values(ISSUERS).some((c) => !/^[0-9]{11}$/.test(String(c)))) throw new Error('issuers seed: every CUIT must have 11 digits');
 const ICONF = JSON.stringify({ model: conf.model, effort: conf.reasoning_effort, maxOutputTokens: conf.max_output_tokens, amountCap: conf.amount_cap,
-  perHour: conf.gpt_calls_per_hour_per_sender, rModel: conf.receipt_model || conf.model, rMax: conf.receipt_max_output_tokens || 900, ownCuits: OWN_CUITS });   // paying accounts come live from the ERP (wa_context), never from config
+  perHour: conf.gpt_calls_per_hour_per_sender, rModel: conf.receipt_model || conf.model, rMax: conf.receipt_max_output_tokens || 900, ownCuits: OWN_CUITS, issuers: ISSUERS });   // paying accounts come live from the ERP (wa_context), never from config
 const PNID = JSON.stringify(String(catalog.phone_number_id));
 const TEXT = `const PNID = ${PNID};
 const textMsg = (to, body) => ({ messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: String(body).slice(0, 4000) } });`;
@@ -158,8 +163,9 @@ if (!p.ok) {
 const d = a.receipt
   ? WAR.decide({ gpt: p.data, caption: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap, document: a.media,
                  saidMethods: WAI.saidMethods, namedAccounts: WAI.namedAccounts, accountOptions: WAI.accountOptions,
-                 pendingPayment: WAI.pendingPayment, dueDate: WAI.dueDate, ownCuits: IC.ownCuits })
-  : WAI.decide({ gpt: p.data, text: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap });
+                 pendingPayment: WAI.pendingPayment, dueDate: WAI.dueDate, ownCuits: IC.ownCuits,
+                 knownIssuers: { ...IC.issuers, ...($getWorkflowStaticData('global').issuers || {}) } })
+  : WAI.decide({ gpt: p.data, text: a.text, ctx: a.context, today: WA.today(Date.now()), amountCap: IC.amountCap, ownCuits: IC.ownCuits });
 console.log(JSON.stringify({ evt: 'gpt', inbound_id: a.inbound_id, model: IC.model, intent: p.data.intent, outcome: d.outcome, changed: d.changed || null,
   tokens_in: p.usage ? p.usage.input : null, tokens_out: p.usage ? p.usage.output : null }));
 return { json: d.request
@@ -174,6 +180,10 @@ const PNID = ${PNID};
 const ctx = $('Prepare follow-up').item.json;
 const res = $json;
 const c = WA.compose(ctx, res.statusCode, res.body, null, WAI.cfgFromContext(ctx.context));
+// learns the issuer name → CUIT of a saved draft whose CUIT is known (read, typed by the user, or taken from history); at most 500
+const li = res.statusCode === 200 && res.body && res.body.result ? WAR.learnIssuer(res.body.result.payload) : null;
+if (li) { const sdi = $getWorkflowStaticData('global'); sdi.issuers = sdi.issuers || {};
+  if (sdi.issuers[li[0]] !== li[1]) { delete sdi.issuers[li[0]]; sdi.issuers[li[0]] = li[1]; const ks = Object.keys(sdi.issuers); if (ks.length > 500) delete sdi.issuers[ks[0]]; } }
 console.log(JSON.stringify({ evt: 'n8n_action', action: ctx.request.action, status: res.statusCode, code: (res.body && res.body.error && res.body.error.code) || null,
   state: (res.body && res.body.result && res.body.result.state) || null }));
 return { json: { graph: c.graph, phone_number_id: PNID } };`;

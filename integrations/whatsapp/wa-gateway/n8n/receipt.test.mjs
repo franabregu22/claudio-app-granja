@@ -45,8 +45,13 @@ test('RC-3 only a photo: concept pending (asked), no category; a concept the use
 test('RC-4 unreadable / no total → ask for another photo; contradictory amounts → ask; nothing proposed', () => {
   assert.equal(go(R({ readable: false }), 'x').outcome, 'unreadable');
   assert.equal(go(R({ total: null }), 'x').outcome, 'unreadable');
+  // the net misread: the total is kept, net = total − taxes, flagged in the summary (W-0015: neto 66.452,97 read for 65.452,97)
   const d = go(R({ document_type: 'INVOICE_A', issuer_cuit: '20123456786', net: 1000, total: 2000, iva: [{ rate: 21, base: 1000, amount: 210 }] }), 'repuestos');
-  assert.equal(d.outcome, 'contradictory'); assert.equal(d.request, undefined);
+  assert.equal(d.request.payload.total, 2000); assert.equal(d.request.payload.receipt.net, 1790);
+  assert.match(WAR.line(d.request.payload), /El neto que leí no cerraba con el total: lo tomé como total − impuestos \(\$ 1\.790,00\)/);
+  // a breakdown that cannot close (taxes above the total) still stops
+  const x = go(R({ document_type: 'INVOICE_A', issuer_cuit: '20123456786', net: 1000, total: 2000, iva: [{ rate: 21, base: 10000, amount: 2100 }] }), 'repuestos');
+  assert.equal(x.outcome, 'contradictory'); assert.equal(x.request, undefined);
 });
 
 test('RC-5 invoice A to Santo Tomás with IVA discriminated: CASUAL_WITH_INVOICE, total once, IVA component (computable), percepción kept', () => {
@@ -167,4 +172,24 @@ test('L4-5 "solo IVA" with the receiver not identified → proposed with the rec
 test('L4-6 the reader is told to find each party by its label, not by position; the schema asks the receiver CUIT', () => {
   assert.match(WAR.SYSTEM, /por su rótulo, no por su posición/);
   assert.ok(WAR.schema([]).required.includes('receiver_cuit'));
+});
+
+test('RC-H1 owner decision 2026-11-19: an unread issuer CUIT comes from earlier invoices of the same business; a new one is asked', () => {
+  const known = { 'POZZO ARDIZZI S.A.': '30708086831', 'YPF S.A.': '30546689979', 'Ferretería del Centro SRL': '20123456786' };
+  assert.equal(WAR.knownIssuerCuit('EESS RUTA 3 de POZZO ARDIZZI S.A.', known), '30708086831');
+  assert.equal(WAR.knownIssuerCuit('Pozzo Ardizzi SA', known), '30708086831');
+  assert.equal(WAR.knownIssuerCuit('Pozzo Hnos', known), null);                 // not every word of a known name
+  assert.equal(WAR.knownIssuerCuit('Estación YPF Ruta 5', known), null);         // a single short word is not enough
+  assert.equal(WAR.knownIssuerCuit('Pozzo Ardizzi', { ...known, 'Pozzo Ardizzi SRL': '20123456786' }), null);   // two CUITs → asked
+  const inv = { document_type: 'INVOICE_A', issuer_name: 'EESS RUTA 3 de POZZO ARDIZZI S.A.', issuer_cuit: null, net: 1000, total: 1210,
+    iva: [{ rate: 21, base: 1000, amount: 210 }], receiver_cuit: OWN };
+  const d = go(R(inv), 'gasoil', { knownIssuers: known });
+  const p = d.request.payload;
+  assert.deepEqual([d.request.type, p.fiscal.issuer_tax_id, p.issuer_cuit_pending, p.receipt.issuer_cuit_source], ['CASUAL_WITH_INVOICE', '30708086831', undefined, 'HISTORY']);
+  assert.match(WAR.line(p), /CUIT 30708086831 \(de facturas anteriores de este comercio\)/);
+  const n = go(R({ ...inv, issuer_name: 'Comercio Nuevo SRL' }), 'gasoil', { knownIssuers: known }).request.payload;
+  assert.equal(n.issuer_cuit_pending, true);
+  // learning: a draft whose CUIT is known (typed by the user) → its name and CUIT
+  assert.deepEqual(WAR.learnIssuer({ receipt: { issuer_name: 'Comercio Nuevo SRL' }, fiscal: { issuer_tax_id: '20123456786' } }), ['Comercio Nuevo SRL', '20123456786']);
+  assert.equal(WAR.learnIssuer({ receipt: { issuer_name: 'X' }, fiscal_pending: {} }), null);
 });

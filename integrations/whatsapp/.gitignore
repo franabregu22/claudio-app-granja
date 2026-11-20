@@ -15,6 +15,8 @@ wa-staging/hosted/rollback-005-*.sql
 build.bak-*/
 wa-gateway/n8n/staging-catalog.json
 wa-gateway/n8n/production-catalog.json
+wa-gateway/n8n/production-issuers.json
+wa-gateway/n8n/staging-issuers.json
 wa-gateway/n8n/build/
 wa-gateway/n8n/preflight/*.json
 wa-gateway/n8n/preflight/v2*.js

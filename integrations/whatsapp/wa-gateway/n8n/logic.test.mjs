@@ -84,7 +84,7 @@ test('L-7 correction header + marked fields; duplicate references (same category
     payload: { total: 15000, concept: 'combustible', category_id: 'c9', account_id: 'acc-cash', method: 'CASH', date: '2026-10-22' } };
   const t = WA.compose(ctx, 200, { ok: true, result: r }, null, CFG).graph;
   const b = t.interactive.body.text;
-  assert.ok(b.startsWith('✏️ Corregí W-0011 (v2): Importe $ 18.000,00 → $ 15.000,00\n\nBorrador W-0011 (v2)'), b);
+  assert.ok(b.startsWith('✏️ Anoté importe $ 18.000,00 → $ 15.000,00.\n\nBorrador W-0011 (v2)'), b);
   assert.match(b, /Total: \$ 15\.000,00 ✏️\n/); assert.match(b, /Concepto: combustible\n/);        // only the corrected line is marked
   assert.match(b, /ℹ Mismo importe y fecha cercana: W-0007 · Alimento y · \$ 15\.000,00 · 22\/10 \(Insumos\)\. Si es otro gasto, confirmá igual\./);
   assert.doesNotMatch(b, /⚠|mandá el gasto de nuevo|parecido/); assert.match(b, /decime solo lo que cambia/);
@@ -98,7 +98,7 @@ test('L-7 correction header + marked fields; duplicate references (same category
   // method + category corrections are labelled with names, not ids
   const mc = WA.compose({ to: '1', request: { action: 'correct' }, changes: [{ field: 'method', from: 'CASH', to: 'TRANSFER' }, { field: 'category_id', from: 'c1', to: 'c9' }] },
     200, { ok: true, result: { ...r, duplicates: [], possible_duplicates: 0 } }, null, CFG).graph.interactive.body.text;
-  assert.match(mc, /Pago Efectivo → Transferencia; Categoría Insumos → Combustible/); assert.doesNotMatch(mc, /c1|c9 /);
+  assert.match(mc, /pago Efectivo → Transferencia, categoría Insumos → Combustible/); assert.doesNotMatch(mc, /c1|c9 /);
   const failed = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 2 } }, 200, { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0011', error: 'X' } }, null, CFG);
   assert.match(failed.graph.text.body, /Decime qué corregir o escribí "cancelar"/);
 });
@@ -108,7 +108,7 @@ test('L-8 live hierarchy in texts; a subcategory deactivated before confirming �
   const r = { ok: true, draft_id: D, short_code: 'W-0020', state: 'DRAFT', version: 2, possible_duplicates: 0, duplicates: [],
     payload: { total: 5000, concept: 'nafta', category_id: 'id-gasoil', account_id: 'acc-cash', method: 'CASH', date: '2026-10-22' } };
   const b = WA.compose({ to: '1', request: { action: 'correct' }, changes: [{ field: 'category_id', from: 'id-nafta', to: 'id-gasoil' }] }, 200, { ok: true, result: r }, null, cfg).graph.interactive.body.text;
-  assert.match(b, /Categoría Combustible › Nafta → Combustible › Gasoil/); assert.match(b, /Categoría: Combustible › Gasoil ✏️/);
+  assert.match(b, /categoría Combustible › Nafta → Combustible › Gasoil/); assert.match(b, /Categoría: Combustible › Gasoil ✏️/);
   const gone = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 2 } }, 200,
     { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0020', error: 'WA_CATEGORY_NOT_SELECTABLE: subcategory Gasoil is inactive' } }, null, cfg);
   assert.match(gone.graph.text.body, /W-0020: la subcategoría elegida ya no está disponible.*el resto del gasto se mantiene/s);
@@ -127,7 +127,7 @@ test('L-9 a draft whose account is pending has NO confirm button and asks which 
   assert.match(g.text.body, /Pago: Transferencia \(cuenta a elegir\)/); assert.match(g.text.body, /¿Desde qué cuenta lo pagaste\? BNA o Patagonia\./);
   const set = WA.compose({ to: '1', request: { action: 'correct' }, changes: [{ field: 'account_id', from: null, to: 'acc-pat' }] }, 200,
     { ok: true, result: { ...r, version: 2, payload: { ...r.payload, account_pending: undefined, account_id: 'acc-pat' } } }, null, cfg).graph;
-  assert.equal(set.type, 'interactive'); assert.match(set.interactive.body.text, /Cuenta \(sin elegir\) → Patagonia/); assert.match(set.interactive.body.text, /Transferencia \(Patagonia\) ✏️/);
+  assert.equal(set.type, 'interactive'); assert.match(set.interactive.body.text, /Anoté pago Transferencia \(Patagonia\)\./); assert.match(set.interactive.body.text, /Transferencia \(Patagonia\) ✏️/);
   assert.match(WA.compose({ to: '1', request: { action: 'confirm' } }, 422, { ok: false, error: { code: 'WA_ACCOUNT_REQUIRED' } }, null, cfg).graph.text.body, /desde qué cuenta/);
   const gone = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 2 } }, 200,
     { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0030', error: 'WA_ACCOUNT_NOT_SELECTABLE: account Patagonia is inactive' } }, null, cfg);
@@ -200,4 +200,30 @@ test('L4-L4 "es de Santo Tomás" on the open draft → a correction of THAT draf
     ['correct', D, 3, 1, undefined]);
   assert.equal(r.changes[0].field, 'receiver');
   assert.doesNotMatch(WAI4.preRoute('ayuda', ctx).reply, /mp <número>/);
+});
+
+test('L4-L5 the real W-0015 conversation: a CUIT inside a longer message keeps the rest; "era con mercadopago" takes the only MP account; a bare "Si" is not an invoice answer', () => {
+  const catalog = { categories: [{ id: 'id-gasoil', nombre: 'Gasoil', grupo: 'Combustible' }, { id: 'id-nafta', nombre: 'Nafta', grupo: 'Combustible' }],
+    accounts: [{ id: 'acc-cash', nombre: 'Caja chica', method: 'CASH' }, { id: 'acc-mp', nombre: 'Mercado Pago', method: 'MERCADOPAGO' }] };
+  const p = { total: 80668.61, date: '2026-11-14', nature: 'OPERATING', concept_pending: true, category_options: [], issuer_cuit_pending: true,
+    fiscal_pending: { document_type: 'INVOICE_A', components: [] }, receipt: { document_type: 'INVOICE_A', iva: [{ rate: 21, amount: 13745.12 }], other_taxes: [] } };
+  const ctx = { open: { draft_id: D, version: 1, state: 'DRAFT', short_code: 'W-0015', payload: p }, waiting: [], catalog };
+  const msg = 'Concepto es gasoil cateogoria combustible gasoil.\nLo pague con mercadopago\nCuit 30708086831';
+  assert.equal(WAI4.preRoute(msg, ctx, null, { ownCuits: [] }), null, 'the whole message goes to GPT');
+  const d = WAI4.decide({ gpt: { intent: 'correct_draft', changed_fields: ['concept', 'category'], concept: 'Gasoil', category: 'S1' }, text: msg, ctx, today: '2026-11-19', ownCuits: [] });
+  const q = d.request.payload;
+  assert.deepEqual([q.concept, q.category_id, q.method, q.account_id, q.fiscal?.issuer_tax_id, q.issuer_cuit_pending], ['Gasoil', 'id-gasoil', 'MERCADOPAGO', 'acc-mp', '30708086831', undefined]);
+  assert.deepEqual(d.changes.map((c) => c.field), ['issuer_cuit', 'concept', 'category_id', 'method', 'account_id']);
+  // "Perdon me equivoque era con mercadopago" on a cash draft: GPT says account → the only Mercado Pago account, no question
+  const cash = { ...ctx, open: { ...ctx.open, payload: { ...q, method: 'CASH', account_id: 'acc-cash' } } };
+  const m = WAI4.decide({ gpt: { intent: 'correct_draft', changed_fields: ['account'] }, text: 'Perdon me equivoque era con mercadopago', ctx: cash, today: '2026-11-19', ownCuits: [] });
+  assert.deepEqual([m.request.payload.method, m.request.payload.account_id], ['MERCADOPAGO', 'acc-mp']);
+  // "Si" with no receiver question pending → not an invoice answer (GPT reads it)
+  const rcv = { ...ctx, open: { ...ctx.open, payload: { ...q } } };
+  assert.equal(WAI4.preRoute('Si', rcv, null, { ownCuits: [] }), null);
+  // the reply: one short line + what is missing, no full summary
+  const c = WA.compose({ to: '1', request: { action: 'correct' }, changes: [{ field: 'method', from: null, to: 'CASH' }, { field: 'account_id', from: null, to: 'acc-cash' }] }, 200,
+    { result: { ok: true, draft_id: D, short_code: 'W-0015', version: 3, state: 'DRAFT', payload: { ...p, method: 'CASH', account_id: 'acc-cash' } } }, null, { ...CFG, accounts: { 'acc-cash': { id: 'acc-cash', nombre: 'Caja chica', method: 'CASH' } } });
+  assert.match(c.graph.text.body, /^✏️ Anoté pago Efectivo \(Caja chica\)\.\n\nMe falta:\n• ¿Con qué concepto/);
+  assert.doesNotMatch(c.graph.text.body, /Borrador W-0015/);
 });

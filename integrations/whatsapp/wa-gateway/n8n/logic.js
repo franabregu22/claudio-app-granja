@@ -154,8 +154,15 @@ const WA = (() => {
     : f === 'receiver' ? RECEIVER[v] || '(sin identificar)' : f === 'issuer_cuit' ? (v === 'SIN_FACTURA' ? 'sin factura' : v || '(no legible)')
     : f === 'category_id' ? catLabel(cfg, v) : f === 'account_id' ? accName(cfg, v) : `"${String(v ?? '').slice(0, 60)}"`;
   const changeLine = (r, changes, cfg) => {
-    const ch = (changes || []).filter((c) => c && FIELD[c.field]);
-    return ch.length ? `✏️ Corregí ${r.short_code} (v${r.version}): ${ch.map((c) => `${FIELD[c.field]} ${fmtField(c.field, c.from, cfg)} → ${fmtField(c.field, c.to, cfg)}`).join('; ')}\n\n` : '';
+    // what the DATABASE now holds (this line is composed from the saved draft, never from GPT): a datum given for the first time
+    // reads "concepto «Gasoil»", a changed one "pago Efectivo → Mercado Pago"; the account goes with its method ("pago Mercado Pago (Cuenta)")
+    let ch = (changes || []).filter((c) => c && FIELD[c.field]);
+    if (ch.some((c) => c.field === 'account_id')) ch = ch.filter((c) => c.field !== 'method');
+    const label = (c) => c.field === 'account_id' ? 'pago' : FIELD[c.field].toLowerCase();
+    const val = (c, v) => c.field === 'account_id' ? `${METHOD[(r.payload || {}).method] || ''} (${accName(cfg, v)})`.trim()
+      : c.field === 'concept' ? `«${String(v ?? '').slice(0, 60)}»` : fmtField(c.field, v, cfg);
+    const fresh = (c) => c.from === null || c.from === undefined || c.from === '' || c.from === 'UNKNOWN';
+    return ch.length ? `✏️ Anoté ${ch.map((c) => fresh(c) ? `${label(c)} ${val(c, c.to)}` : `${label(c)} ${c.field === 'account_id' ? accName(cfg, c.from) : val(c, c.from)} → ${val(c, c.to)}`).join(', ')}.\n\n` : '';
   };
   // the recorded purchases behind the duplicate hint (database: same total, date ±2 days; details only for an ADMIN viewer)
   const dupLines = (r) => {
@@ -253,19 +260,21 @@ const WA = (() => {
         && p.account_id && p.method && !(p.method === 'MERCADOPAGO' && !p.mp_source_id);
       if (p.vat_only) return { graph: buttons(ctx.to, vatSummary(r) + '\n\n¿Confirmás? "cancelar" lo descarta.', r.draft_id, r.version),
                                state: { open: { draft_id: r.draft_id, version: r.version, state: 'DRAFT', code: r.short_code }, waiting: s.waiting } };
+      // a correction while data are still missing: one short line (what was saved) + what is missing — the whole summary only on
+      // the first proposal and once it is complete (before the Confirmar button)
+      const head = (q.length && changeLine(r, ctx.changes, cfg)) || summary(r, cfg, ctx.changes) + '\n\n';
+      const missing = q.length > 1 ? 'Me falta:\n• ' + q.join('\n• ') : q[0];
       const graph = p.method_pending
-        ? methodButtons(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + (q.length > 1 ? 'Me faltan datos:\n• ' + q.join('\n• ') : q[0])
-                        + '\nTocá cómo lo pagaste (o escribilo); "cancelar" lo descarta.', r.draft_id, r.version)
+        ? methodButtons(ctx.to, head + missing + '\nTocá cómo lo pagaste (o escribilo).', r.draft_id, r.version)
         : !q.length
         ? buttons(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + ASK, r.draft_id, r.version)
         : onlyCategory
-          ? buttons(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + q[0] + `\nRespondé con el nombre, o tocá "${UNCLASSIFIED_TITLE}": `
+          ? buttons(ctx.to, head + q[0] + `\nRespondé con el nombre, o tocá "${UNCLASSIFIED_TITLE}": `
                             + (p.method === 'MERCADOPAGO'
                               ? 'el egreso de Mercado Pago ya está en el ERP y queda pendiente de clasificar (no se registra otro movimiento).'
-                              : 'registro el egreso ahora (descuenta de la cuenta) y la subcategoría se elige después en el ERP.')
-                            + ' "cancelar" lo descarta.', r.draft_id, r.version, 'UNCLASSIFIED')
-          : text(ctx.to, summary(r, cfg, ctx.changes) + '\n\n' + (q.length > 1 ? 'Me faltan dos datos:\n• ' + q.join('\n• ') : q[0])
-                         + '\nRespondé con el nombre; "cancelar" lo descarta.');
+                              : 'registro el egreso ahora (descuenta de la cuenta) y la subcategoría se elige después en el ERP.'),
+                    r.draft_id, r.version, 'UNCLASSIFIED')
+          : text(ctx.to, head + missing);
       return { graph,
                state: { open: { draft_id: r.draft_id, version: r.version, state: 'DRAFT', code: r.short_code }, waiting: s.waiting } };
     }

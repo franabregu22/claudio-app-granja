@@ -91,8 +91,27 @@ const WAR = (() => {
     return 'UNKNOWN';
   }
 
+  /** owner decision (2026-11-19): an unread issuer CUIT is taken from earlier invoices of the SAME business (seed from the ERP +
+   *  what the bot learnt); a new business is asked once. Match: every word of a known name is in the read name (legal suffixes and
+   *  articles out, at least 2 words or 6 letters); two known CUITs for the read name → none (asked). Shown in the summary to review. */
+  const ISSUER_STOP = new Set(['sa', 'srl', 'sas', 'sau', 'sca', 'sh', 'de', 'del', 'la', 'el', 'los', 'las', 'y', 'e']);
+  const issuerWords = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\b(s)\.(a|r\.?l|a\.?s|a\.?u|c\.?a|h)\.?/g, (m) => m.replace(/\./g, ''))
+    .split(/[^a-z0-9ñ]+/).filter((w) => w && !ISSUER_STOP.has(w));
+  function knownIssuerCuit(name, known) {
+    const read = new Set(issuerWords(name)); if (!read.size) return null;
+    const hits = new Set();
+    for (const [k, c] of Object.entries(known || {})) {
+      const kw = issuerWords(k), cv = cuitValid(c);
+      if (cv && (kw.length >= 2 || kw.join('').length >= 6) && kw.every((w) => read.has(w))) hits.add(cv);
+    }
+    return hits.size === 1 ? [...hits][0] : null;
+  }
+  /** what the bot learns: the issuer name → CUIT of a draft whose CUIT is now known (read, typed, or confirmed) */
+  const learnIssuer = (p) => { const n = p?.receipt?.issuer_name, c = cuitValid(p?.fiscal?.issuer_tax_id || p?.receipt?.issuer_cuit);
+    return n && c && issuerWords(n).length ? [n.slice(0, 120), c] : null; };
+
   /** the AI reading → ONE proposal or a reply. Everything is re-checked here; nothing is ever recorded without the buttons. */
-  function decide({ gpt, caption, ctx, today, amountCap, document, saidMethods, namedAccounts, accountOptions, pendingPayment, dueDate, ownCuits }) {
+  function decide({ gpt, caption, ctx, today, amountCap, document, saidMethods, namedAccounts, accountOptions, pendingPayment, dueDate, ownCuits, knownIssuers }) {
     const cap = amountCap || 10000000;
     const g = gpt || {};
     if (ctx.open) return { reply: `Tenés el borrador ${ctx.open.short_code} abierto. Confirmalo, corregilo o escribí "cancelar" antes de mandar otro comprobante.`, outcome: 'open_draft' };
@@ -102,8 +121,12 @@ const WAR = (() => {
     const total = round2(g.total);
     const iva = (Array.isArray(g.iva) ? g.iva : []).filter((x) => x && isMoney(x.amount, cap) && typeof x.rate === 'number' && x.rate > 0 && x.rate <= 27);
     const other = (Array.isArray(g.other_taxes) ? g.other_taxes : []).filter((x) => x && isMoney(x.amount, cap) && TAX_KINDS.includes(x.kind));
-    const net = isMoney(g.net, cap) ? round2(g.net) : null;
+    let net = isMoney(g.net, cap) ? round2(g.net) : null;
     const taxes = round2(iva.reduce((s, x) => s + x.amount, 0) + other.reduce((s, x) => s + x.amount, 0));
+    // the net misread (one digit, the usual case): the TOTAL is kept and the net is taken as total − taxes, flagged in the summary
+    // for the user to check before confirming; only a breakdown that cannot close (taxes ≥ total) still stops
+    let netAdjusted = false;
+    if (net !== null && iva.length && Math.abs(net + taxes - total) > 1 && total - taxes > 0) { net = round2(total - taxes); netAdjusted = true; }
     if (net !== null && iva.length && Math.abs(net + taxes - total) > 1) {
       return { reply: `Leí un total de ${fmt(total)}, pero neto ${fmt(net)} + impuestos ${fmt(taxes)} da ${fmt(net + taxes)}. Mandá una foto más clara o escribime el total correcto.`, outcome: 'contradictory' };
     }
@@ -115,14 +138,16 @@ const WAR = (() => {
     const date = validDate(g.date, today) || today;
     const number = typeof g.number === 'string' && /^[0-9A-Za-z -]{1,40}$/.test(g.number.trim()) ? g.number.trim() : null;
     const issuer = typeof g.issuer_name === 'string' ? g.issuer_name.trim().slice(0, 120) || null : null;
+    let cuitSource = cuit ? 'READ' : null;
+    if (!cuit && issuer) { const k = knownIssuerCuit(issuer, knownIssuers); if (k && receiverStatus(k, ownCuits) !== 'OWN') { cuit = k; cuitSource = 'HISTORY'; } }
     const discriminated = ['INVOICE_A', 'INVOICE_M'].includes(type) && iva.length > 0 && net !== null;
     const receiver = discriminated ? receiverStatus(receiverCuit, ownCuits) : null;
     const computable = receiver === 'OWN';
     const receiverName = typeof g.receiver_name === 'string' ? g.receiver_name.trim().slice(0, 120) || null : null;
-    const receipt = { document_type: type, issuer_name: issuer, issuer_cuit: cuit, receiver_name: receiverName, receiver_cuit: cuitValid(receiverCuit),
+    const receipt = { document_type: type, issuer_name: issuer, issuer_cuit: cuit, ...(cuitSource === 'HISTORY' ? { issuer_cuit_source: 'HISTORY' } : {}), receiver_name: receiverName, receiver_cuit: cuitValid(receiverCuit),
                       receiver_status: receiver, receiver_source: receiver && receiver !== 'UNKNOWN' ? 'CUIT' : null,
                       number, date: g.date || null, total, net, iva, other_taxes: other,
-                      addressed_to_santo_tomas: g.addressed_to_santo_tomas ?? null, issues: (g.issues || []).slice(0, 5).map((s) => String(s).slice(0, 120)) };
+                      addressed_to_santo_tomas: g.addressed_to_santo_tomas ?? null, issues: [...(netAdjusted ? [NET_ADJUSTED] : []), ...(g.issues || []).slice(0, 4).map((s) => String(s).slice(0, 120))] };
     const fiscalPeriod = date.slice(0, 8) + '01';
     const components = computable ? componentsFor(receipt, cap) : [];
     const fiscal = (kind) => ({ document_type: kind, document_date: date, fiscal_period: fiscalPeriod, net_amount: discriminated ? net : total, total_amount: total,
@@ -171,6 +196,7 @@ const WAR = (() => {
     return { request: { action: 'propose', type: withInvoice ? 'CASUAL_WITH_INVOICE' : 'CASUAL_EXPENSE', payload }, outcome: pending.length ? 'propose_pending' : 'propose', pending };
   }
 
+  const NET_ADJUSTED = 'NETO_AJUSTADO: el neto leído no cerraba con el total; se tomó total − impuestos';
   /** the receipt line of a summary (what was READ, not confirmed) */
   const TYPE_ES = { INVOICE_A: 'Factura A', INVOICE_B: 'Factura B', INVOICE_C: 'Factura C', INVOICE_M: 'Factura M', TICKET: 'Ticket', RECEIPT: 'Recibo', OTHER: 'Comprobante' };
   function line(p) {
@@ -182,14 +208,17 @@ const WAR = (() => {
         : r.receiver_status === 'OTHER' ? ` (no computable: ${r.receiver_source === 'USER' ? 'indicaste que no está a nombre de Santo Tomás' : 'CUIT receptor ' + (r.receiver_cuit || '') + ' distinto de Santo Tomás'})`
           : ' (no computable)';
     return `\n📎 ${TYPE_ES[r.document_type] || 'Comprobante'}${r.number ? ' ' + r.number : ''}${r.issuer_name ? ' · ' + r.issuer_name : ''}`
-      + (p.issuer_cuit_pending ? ' · CUIT emisor: no legible' : r.issuer_cuit ? ' · CUIT ' + r.issuer_cuit : '')
+      + (p.issuer_cuit_pending ? ' · CUIT emisor: no legible' : r.issuer_cuit ? ' · CUIT ' + r.issuer_cuit + (r.issuer_cuit_source === 'HISTORY' ? ' (de facturas anteriores de este comercio)' : '') : '')
       + (iva ? `\n   ${iva}${why}` : '')
+      + ((r.issues || []).includes(NET_ADJUSTED) ? `\n   ⚠ El neto que leí no cerraba con el total: lo tomé como total − impuestos (${fmt(r.net)}). Revisalo.` : '')
       + '\n   (datos leídos del comprobante: revisalos antes de confirmar)';
   }
 
   // natural-language answers about the open draft's invoice (deterministic; always a correction of the SAME draft, never a confirmation)
-  const OWN_SAID = /\b(es|esta|va|sale)\s+(a nombre\s+)?de\s+(santo tomas|la granja|nosotros|la empresa)\b|\ba nombre de (santo tomas|la granja|nosotros)\b|\b(es|son)\s+(nuestra|nuestro)\b|^si\b[,.!]?\s*(es\s+)?((de|a nombre de)\s+)?(santo tomas|nosotros)?[.!]?$|\biva\s+computable\b|\bcomputa(r|ble)?\s+(el\s+)?iva\b/;
+  const OWN_SAID = /\b(es|esta|va|sale)\s+(a nombre\s+)?de\s+(santo tomas|la granja|nosotros|la empresa)\b|\ba nombre de (santo tomas|la granja|nosotros)\b|\b(es|son)\s+(nuestra|nuestro)\b|^si\b[,.!]?\s*(es\s+)?((de|a nombre de)\s+)?(santo tomas|nosotros)[.!]?$|\biva\s+computable\b|\bcomputa(r|ble)?\s+(el\s+)?iva\b/;
   const OTHER_SAID = /\bno\s+(es|esta|va)\s+(a nombre\s+)?de\s+(santo tomas|la granja|nosotros)\b|\b(es|esta)\s+(a nombre\s+)?de\s+otr[oa]\b|\ba nombre de otr[oa]\b|\bno\s+(es\s+)?computable\b|\bsin\s+credito\s+fiscal\b|\bno\s+(se\s+)?computa\b/;
+  /** a bare "sí" answers the receiver question only while it is the pending one (not the account / anything else) */
+  const BARE_YES = /^(si|sip|si si|correcto|exacto|asi es)[.!]?$/;
   const NO_INVOICE = /^(sin factura|no tiene cuit|no hay cuit|sin cuit|registralo sin factura)[.!]?$/;
   /** an answer / correction about the invoice of the open draft → { payload, changes } | { reply } | null (not about the invoice).
    *  Receiver: in words ("es de Santo Tomás" / "no, es de otro") or by its CUIT ("receptor 30-…"). Issuer CUIT: "cuit 30-…" or
@@ -209,7 +238,7 @@ const WAR = (() => {
       receiver = receiverStatus(cuits[0], ownCuits); byCuit = true;
       if (receiver === 'UNKNOWN') return { reply: 'Todavía no tengo cargado el CUIT de Santo Tomás para compararlo. Respondé "es de Santo Tomás" o "es de otro".' };
     } else if (OTHER_SAID.test(n)) receiver = 'OTHER';
-    else if (OWN_SAID.test(n)) receiver = 'OWN';
+    else if (OWN_SAID.test(n) || (p0.vat_receiver_pending && BARE_YES.test(n))) receiver = 'OWN';
     if (receiver) {
       if (!hasIva || !fkey) return { reply: 'Ese comprobante no tiene IVA discriminado de factura A: no hay crédito fiscal para computar.' };
       if (p.vat_only && receiver === 'OTHER') return { reply: 'Si no está a nombre de Santo Tomás su IVA no es computable y no hay nada para registrar en Fiscal. Escribí "cancelar".' };
@@ -232,5 +261,5 @@ const WAR = (() => {
     }
     return changes.length ? { payload: p, changes } : null;
   }
-  return { isVatOnly, cuitValid, schema, SYSTEM, buildRequest, decide, line, DOC_TYPES, componentsFor, receiverStatus, invoiceAnswer };
+  return { isVatOnly, cuitValid, schema, SYSTEM, buildRequest, decide, line, DOC_TYPES, componentsFor, receiverStatus, invoiceAnswer, knownIssuerCuit, learnIssuer };
 })();
