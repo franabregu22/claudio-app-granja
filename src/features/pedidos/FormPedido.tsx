@@ -38,7 +38,11 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
   const [motivo, setMotivo] = useState('');
   const [facturaA, setFacturaA] = useState(pedido?.factura_a ?? false);
   const cliente = catalog.clients.find((c) => c.id === clienteId);
-  const sinCuit = facturaA && clienteId !== '' && clientCuit(cliente?.fiscal_id) === null;
+  // 0136: on a delivered order the box can change too (the price is read as the net: correct it first if it included the IVA)
+  const cambiaFactura = modo === 'rectificar' && facturaA !== (pedido?.factura_a ?? false);
+  const sinCuit = facturaA && (modo !== 'rectificar' || cambiaFactura) && clienteId !== '' && clientCuit(cliente?.fiscal_id) === null;
+  const lineasCambiaron = modo === 'rectificar' && JSON.stringify((pedido?.lineas ?? []).map((l) => [l.producto_id, l.cantidad, l.precio_unitario]))
+    !== JSON.stringify(lineas.map((l) => [l.producto_id, l.cantidad, l.precio_unitario]));
 
   const precioDe = (productoId: string, l: PriceList) => currentPrice(catalog.prices, productoId, l);
   const sinPrecio = (l: LineInput) => precioDe(l.producto_id, lista) === null;
@@ -68,7 +72,9 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
     if (modo === 'nuevo') m.create.mutate({ clienteId, lines: lineas, userId: user?.id ?? null, facturaA }, opts);
     else if (modo === 'editar' && pedido) {
       m.updatePending.mutate({ orderId: pedido.id, clienteId, lines: lineas, previousLineIds: pedido.lineas.map((l) => l.id), userId: user?.id ?? null, facturaA }, opts);
-    } else if (modo === 'rectificar' && pedido) m.rectify.mutate({ orderId: pedido.id, lines: lineas, reason: motivo }, opts);
+    } else if (modo === 'rectificar' && pedido) {
+      m.rectify.mutate({ orderId: pedido.id, lines: lineas, reason: motivo, linesChanged: lineasCambiaron || !cambiaFactura, facturaA: cambiaFactura ? facturaA : undefined }, opts);
+    }
   }
 
   const campo = 'w-full border border-[#D8CDB0] rounded-lg px-3 py-2.5 bg-white text-[#2C2419] disabled:opacity-50';
@@ -89,12 +95,14 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
       </select>
 
       <label className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 mb-5 ${facturaA ? 'border-[#A8552E] bg-[#FBF3EC]' : 'border-[#D8CDB0] bg-white'}`}>
-        <input type="checkbox" checked={facturaA} onChange={(e) => setFacturaA(e.target.checked)} disabled={mutation.isPending || modo === 'rectificar'}
+        <input type="checkbox" checked={facturaA} onChange={(e) => setFacturaA(e.target.checked)} disabled={mutation.isPending}
           className="mt-1 w-4 h-4 accent-[#A8552E]" aria-describedby="factura-a-ayuda" />
         <span>
           <span className="block font-semibold text-[#2C2419]">Factura A</span>
           <span id="factura-a-ayuda" className="block text-xs text-[#6B5D45]">
-            {modo === 'rectificar' ? (facturaA ? 'Pedido con Factura A: los precios son sin IVA y el IVA se recalcula con la corrección.' : 'Pedido sin Factura A.')
+            {modo === 'rectificar' && cambiaFactura
+              ? (facturaA ? 'Se agrega la Factura A: el precio cargado se toma SIN IVA y al cliente se le suma el IVA 21 %. Si el precio ya incluía el IVA, corregilo antes.'
+                : 'Se quita la Factura A: el cliente pasa a deber solo el neto y la factura sin número se borra de Fiscal.')
               : 'Los precios se cargan sin IVA; al total se le suma el IVA 21 %.'}
           </span>
           {sinCuit && <span className="block text-xs text-[#A32D2D] mt-1">El cliente no tiene CUIT cargado. Cargalo en Admin → Clientes para poder hacerle Factura A.</span>}

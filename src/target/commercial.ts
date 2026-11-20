@@ -268,6 +268,12 @@ export function setSaleInvoiceNumber(client: SupabaseClient, orderId: string, nu
   return callRpc<{ fiscal_document_id: string; number: string | null; changed: boolean }>(client, 'set_sale_invoice_number', { p_order_id: orderId, p_number: number });
 }
 
+/** 0136: tick / untick Factura A on a DELIVERED order (ADMIN, reason; the client ledger is re-booked; an unnumbered invoice is removed). */
+export function setOrderInvoiceA(client: SupabaseClient, orderId: string, facturaA: boolean, reason: string) {
+  return callRpc<{ id: string; factura_a: boolean; changed: boolean; previous_total?: number; new_total?: number }>(client, 'set_order_invoice_a',
+    { p_order_id: orderId, p_factura_a: facturaA, p_reason: reason });
+}
+
 export function cancelOrder(client: SupabaseClient, orderId: string, reason: string | null, cancelledAt = new Date().toISOString()) {
   return callRpc<{ id: string; estado: 'CANCELLED' }>(client, 'cancel_order', { p_order_id: orderId, p_cancelled_at: cancelledAt, p_reason: reason });
 }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
   cancelOrder, createPendingOrder, deliverOrder, listClientBalances, listOrders, listSalesLines,
-  rectifyCollection, rectifyDeclaredCollection, rectifyDeliveredOrder, registerCollection, registerDeclaredCollection, reverseCollection, reverseDeclaredCollection, updatePendingOrder, setSaleInvoiceNumber, type LineInput, type OrderEstado,
+  rectifyCollection, rectifyDeclaredCollection, rectifyDeliveredOrder, registerCollection, registerDeclaredCollection, reverseCollection, reverseDeclaredCollection, updatePendingOrder, setOrderInvoiceA, setSaleInvoiceNumber, type LineInput, type OrderEstado,
 } from '../../target/commercial';
 import { listClientCollections } from '../../target/customerCollections';
 import { listCurrentPrices, listMaster, listProfileDisplayNames, type ClientRow, type FinancialAccountRow, type ProductRow } from '../../target/masters';
@@ -46,8 +46,12 @@ export function useOrderMutations() {
     deliver: useMutation({ mutationFn: (orderId: string) => deliverOrder(supabase, orderId), onSuccess: refresh }),
     cancel: useMutation({ mutationFn: (p: { orderId: string; reason: string | null }) => cancelOrder(supabase, p.orderId, p.reason), onSuccess: refresh }),
     rectify: useMutation({
-      mutationFn: (p: { orderId: string; lines: LineInput[]; reason: string }) => rectifyDeliveredOrder(supabase, p.orderId, p.lines, p.reason),
-      onSuccess: refresh,
+      // 0136: the lines first (when they changed), then the Factura A box (when it changed) — the IVA is computed on the corrected net
+      mutationFn: async (p: { orderId: string; lines: LineInput[]; reason: string; linesChanged?: boolean; facturaA?: boolean }) => {
+        if (p.linesChanged !== false) await rectifyDeliveredOrder(supabase, p.orderId, p.lines, p.reason);
+        if (p.facturaA !== undefined) await setOrderInvoiceA(supabase, p.orderId, p.facturaA, p.reason);
+      },
+      onSettled: refresh,
     }),
     // 0135: the number of the order's Factura A (Fiscal reads the same document)
     invoiceNumber: useMutation({

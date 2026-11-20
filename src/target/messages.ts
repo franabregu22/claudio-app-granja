@@ -250,6 +250,8 @@ const MESSAGES: Record<string, string> = {
   CLIENT_CUIT_REQUIRED: 'Para hacer Factura A el cliente tiene que tener el CUIT cargado (Admin → Clientes).',   // 0135
   INVOICE_A_NOT_FOR_RETAIL: 'Una venta minorista de feria no lleva Factura A.',   // 0135
   SALE_INVOICE_NOT_FOUND: 'Ese pedido no tiene Factura A.',   // 0135
+  SALE_INVOICE_ISSUED: 'La Factura A ya tiene número (se emitió en ARCA): se corrige con una nota de crédito en Fiscal.',   // 0136
+  INVALID_INVOICE_FLAG: 'Falta indicar si el pedido lleva Factura A.',   // 0136
   DUPLICATE_INVOICE_NUMBER: 'Ya hay otra Factura A con ese número.',   // 0135
   SOCIO_NOT_ALLOWED: 'Solo un retiro de socios lleva socio.',   // ADR-024
   COUNTERPARTY_NOT_ALLOWED: 'Esta clasificación no lleva nombre de comercio.',

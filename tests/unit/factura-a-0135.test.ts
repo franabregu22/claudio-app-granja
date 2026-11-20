@@ -68,10 +68,10 @@ describe('0135 — Factura A: the screens', () => {
   it('the order form: «Factura A» checkbox, prices without IVA, net / IVA 21 % / total; no CUIT → cannot save', () => {
     expect(form).toMatch(/<span className="block font-semibold text-\[#2C2419\]">Factura A<\/span>/);
     expect(form).toMatch(/Los precios se cargan sin IVA; al total se le suma el IVA 21 %\./);
-    expect(form).toMatch(/const sinCuit = facturaA && clienteId !== '' && clientCuit\(cliente\?\.fiscal_id\) === null;/);
+    expect(form).toMatch(/const sinCuit = facturaA && \(modo !== 'rectificar' \|\| cambiaFactura\) && clienteId !== '' && clientCuit\(cliente\?\.fiscal_id\) === null;/);
     expect(form).toMatch(/&& !sinCuit && !mutation\.isPending;/);
     expect(form).toMatch(/<span>IVA 21 %<\/span>/);
-    expect(form).toMatch(/disabled=\{mutation\.isPending \|\| modo === 'rectificar'\}/);   // a delivered order keeps it
+    expect(form).toMatch(/disabled=\{mutation\.isPending\}\s*className="mt-1 w-4 h-4 accent-\[#A8552E\]"/);   // 0136: also on a delivered order
   });
   it('the order lists: the Factura A chip and, once delivered, its number typed in place', () => {
     expect(app.split('<FacturaA p={p} />').length - 1).toBe(4);
@@ -87,5 +87,25 @@ describe('0135 — the Mercado Pago débitos y créditos tax', () => {
   it('named «Imp. débitos y créditos MP» in Todas las operaciones and added to the period report next to the bank one', () => {
     expect(MIGRATION).toMatch(/OR o2\.reason ILIKE 'Impuesto débitos y créditos%' OR tax_is_debcred_mp\(o2\.external_ref\)/);
     expect(MIGRATION).toMatch(/AND \(o\.external_ref LIKE 'MP-OUTFLOW-TAX:%' OR \(o\.external_ref LIKE 'MP:MPA:%:TAX' AND tax_is_debcred_mp\(o\.external_ref\)\)\)/);
+  });
+});
+
+describe('0136 — Factura A on an order already delivered', () => {
+  const M36 = SRC('supabase/target-migrations/0136_factura_a_pedido_entregado.sql');
+  const form = SRC('src/features/pedidos/FormPedido.tsx');
+  const hooks = SRC('src/features/pedidos/useCommercial.ts');
+  it('the database: ADMIN, reason, delivered order, open period; ON needs the CUIT; OFF only while the invoice has no number', () => {
+    expect(M36).toMatch(/CREATE FUNCTION set_order_invoice_a\(p_order_id UUID, p_factura_a BOOLEAN, p_reason TEXT\)/);
+    expect(M36).toMatch(/PERFORM assert_period_open\(v_order\.delivered_date\);/);
+    expect(M36).toMatch(/RAISE EXCEPTION 'SALE_INVOICE_ISSUED:/);
+    expect(M36).toMatch(/VALUES \(v_order\.cliente_id, 'REVERSAL', -v_old_total, v_order\.delivered_date,/);
+    expect(TARGET_RPCS).toContain('set_order_invoice_a');
+    expect(messageFor('SALE_INVOICE_ISSUED')).not.toBe('SALE_INVOICE_ISSUED');
+  });
+  it('the screen: the box is enabled when correcting a delivered order; the lines first, then the box (the IVA on the corrected net)', () => {
+    expect(form).toMatch(/const cambiaFactura = modo === 'rectificar' && facturaA !== \(pedido\?\.factura_a \?\? false\);/);
+    expect(form).toMatch(/linesChanged: lineasCambiaron \|\| !cambiaFactura, facturaA: cambiaFactura \? facturaA : undefined/);
+    expect(form).toMatch(/Si el precio ya incluía el IVA, corregilo antes\./);
+    expect(hooks).toMatch(/if \(p\.linesChanged !== false\) await rectifyDeliveredOrder\(supabase, p\.orderId, p\.lines, p\.reason\);\n\s*if \(p\.facturaA !== undefined\) await setOrderInvoiceA\(supabase, p\.orderId, p\.facturaA, p\.reason\);/);
   });
 });
