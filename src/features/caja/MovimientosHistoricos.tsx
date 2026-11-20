@@ -10,7 +10,8 @@ import {
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { AccionEntrada, IngresosSinAplicar } from './EntradasSinVincular';
 import { AccionGastoSinClasificar } from './GastosSinClasificar';
-import { AccionPendienteMp, AvisosPendientesMp, Paginador } from './PendientesClasificar';
+import { BandejaPendientesMp } from './BandejaPendientesMp';
+import { Paginador } from './PendientesClasificar';
 import { useProfileEmails } from './useUnclassified';
 import { useMovementList } from './useTreasury';
 
@@ -78,7 +79,7 @@ export function MovimientosHistoricos({ cuentas, cuentaId, onCuenta, pendiente, 
               {PENDING_FILTER_LABEL[pendiente]} · {PENDING_FILTER_REQUIRED[pendiente] ? 'requiere acción' : 'opcional'} <X className="w-3 h-3" />
             </button>
           )}
-          {pendiente && pendingHasScope(pendiente) && (
+          {pendiente && pendiente !== 'MP_CLASIFICAR' && pendingHasScope(pendiente) && (
             <div className="flex gap-1" role="group" aria-label="Alcance">
               {ALCANCES.map((a) => (
                 <button key={a.id || 'all'} type="button" aria-pressed={alcance === a.id} onClick={() => setAlcances((s) => ({ ...s, [pendiente]: a.id }))}
@@ -89,7 +90,8 @@ export function MovimientosHistoricos({ cuentas, cuentaId, onCuenta, pendiente, 
           {cuentaId && <button type="button" onClick={() => onCuenta('')} className="text-xs text-[#A8552E] hover:underline">Todas las cuentas</button>}
         </div>
       )}
-      {pendiente === 'MP_CLASIFICAR' && <AvisosPendientesMp />}
+      {/* owner 2026-11-20: Pendientes de clasificar is its own tray (one card per payment, «¿Qué fue este pago?»), not the movement list */}
+      {pendiente === 'MP_CLASIFICAR' ? <BandejaPendientesMp /> : (<>
       {pendiente === 'ENTRADA_SIN_VINCULAR' && <IngresosSinAplicar />}
       <form className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end bg-white rounded-lg border border-[#E4DCC8] p-3" aria-label="Filtros del historial"
         onSubmit={(e) => { e.preventDefault(); if (!rango) setAplicado(borrador); }}>
@@ -128,11 +130,13 @@ export function MovimientosHistoricos({ cuentas, cuentaId, onCuenta, pendiente, 
             <ul className="bg-white rounded-lg border border-[#E4DCC8] divide-y divide-stone-100" aria-label="Movimientos">
               {filas.map((r) => {
                 const k = rowKey(r);
-                return <Fila key={k} r={r} abierta={abierta === k} onToggle={() => setPag({ firma, n: pagina, abierta: abierta === k ? null : k })} onIrAExtractos={onIrAExtractos} />;
+                return <Fila key={k} r={r} abierta={abierta === k} onToggle={() => setPag({ firma, n: pagina, abierta: abierta === k ? null : k })} onIrAExtractos={onIrAExtractos}
+                  onClasificar={() => onPendiente('MP_CLASIFICAR')} />;
               })}
             </ul>
           )}
       {filas.length > 0 && <Paginador pagina={pagina} paginas={Math.max(1, Math.ceil(total / MOVEMENT_PAGE))} total={total} onCambiar={(p) => setPag({ firma, n: p, abierta: null })} />}
+      </>)}
     </div>
   );
 }
@@ -141,7 +145,7 @@ function Estado({ r }: { r: ListRow }) {
   return <span className={`text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap ${ESTADO[rowStatusTone(r.status)]}`}>{rowStatusLabel(r)}</span>;
 }
 
-function Fila({ r, abierta, onToggle, onIrAExtractos }: { r: ListRow; abierta: boolean; onToggle: () => void; onIrAExtractos?: () => void }) {
+function Fila({ r, abierta, onToggle, onIrAExtractos, onClasificar }: { r: ListRow; abierta: boolean; onToggle: () => void; onIrAExtractos?: () => void; onClasificar: () => void }) {
   const linea = r.row_type === 'LINE';
   const signo = linea ? (r.signed_amount < 0 ? 'OUT' : 'IN') : movementSign(r);
   const nota = linea ? r.description_raw : movementNote(r);
@@ -160,20 +164,25 @@ function Fila({ r, abierta, onToggle, onIrAExtractos }: { r: ListRow; abierta: b
         </span>
         <span className={`shrink-0 md:w-36 text-right text-sm font-semibold whitespace-nowrap ${TONO[signo]}`}>{linea ? importe(r.signed_amount, true) : movementAmount(r)}</span>
       </button>
-      {abierta && (linea ? <DetalleLinea r={r} onIrAExtractos={onIrAExtractos} /> : <Detalle r={r} />)}
+      {abierta && (linea ? <DetalleLinea r={r} onIrAExtractos={onIrAExtractos} /> : <Detalle r={r} onClasificar={onClasificar} />)}
     </li>
   );
 }
 
 const dato = (titulo: string, valor: string) => <div className="min-w-0"><dt className="text-xs text-[#8A7A5C]">{titulo}</dt><dd className="break-words">{valor}</dd></div>;
 
-function Detalle({ r }: { r: MovementRow }) {
+function Detalle({ r, onClasificar }: { r: MovementRow; onClasificar: () => void }) {
   const emails = useProfileEmails();
   const autor = r.created_by ? emails.data?.get(r.created_by) ?? '—' : 'Automático';
   const fuenteMp = r.pending?.type === 'MP_CLASIFICAR' ? r.pending.source_id : r.status === 'PENDIENTE_CLASIFICAR' ? pendingMpSource(r) : null;
   return (
     <div className="px-3 pb-3 pt-1 bg-[#FAF6EE] text-sm space-y-3" aria-label={`Operación ${r.operation_id}`}>
-      {fuenteMp && <Bloque titulo="Requiere acción"><AccionPendienteMp sourceId={fuenteMp} /></Bloque>}
+      {/* owner 2026-11-20: a payment is classified only in its tray (Por resolver → Pendientes de clasificar), never from this list */}
+      {fuenteMp && (
+        <Bloque titulo="Requiere acción">
+          <p className="text-sm">Pago de Mercado Pago sin clasificar. <button type="button" onClick={onClasificar} className="text-[#A8552E] font-medium hover:underline">Clasificarlo en Pendientes de clasificar</button></p>
+        </Bloque>
+      )}
       {(r.pending?.type === 'GASTO_SIN_CLASIFICAR' || r.status === 'SIN_CLASIFICAR') && (
         <Bloque titulo="Requiere acción">
           {r.pending?.type === 'GASTO_SIN_CLASIFICAR' ? <AccionGastoSinClasificar pendingId={r.pending.pending_id} /> : <AccionGastoSinClasificar paymentOperationId={r.operation_id} />}

@@ -138,7 +138,7 @@ describe('0116 — the screen', () => {
     expect(h).not.toMatch(/\.mutate\(|useMutation|\.rpc\(|callRpc/);
     expect(h).toContain('Cuentas involucradas');
     expect(h).toMatch(/r\.postings\.map/);
-    expect(h).toMatch(/<AccionPendienteMp sourceId=\{fuenteMp\} \/>/);
+    expect(h).toMatch(/<button type="button" onClick=\{onClasificar\}[^>]*>Clasificarlo en Pendientes de clasificar<\/button>/);   // owner 2026-11-20
     expect(h).toMatch(/<AccionGastoSinClasificar pendingId=\{r\.pending\.pending_id\} \/>/);
     expect(h).toMatch(/<AccionEntrada movementId=\{r\.pending\.movement_id\} \/>/);
   });

@@ -247,6 +247,10 @@ const MESSAGES: Record<string, string> = {
   CATEGORY_NOT_SELECTABLE: 'Esa subcategoría no se usa para compras ni gastos: los retiros van por «Retiro de socios» y el IVA / Ganancias por Fiscal.',   // ADR-024
   INVALID_SOCIO: 'El socio elegido no es válido.',   // ADR-024
   WITHDRAWAL_NOT_FOUND: 'Ese movimiento no es un retiro de socios.',   // 0133
+  CLIENT_CUIT_REQUIRED: 'Para hacer Factura A el cliente tiene que tener el CUIT cargado (Admin → Clientes).',   // 0135
+  INVOICE_A_NOT_FOR_RETAIL: 'Una venta minorista de feria no lleva Factura A.',   // 0135
+  SALE_INVOICE_NOT_FOUND: 'Ese pedido no tiene Factura A.',   // 0135
+  DUPLICATE_INVOICE_NUMBER: 'Ya hay otra Factura A con ese número.',   // 0135
   SOCIO_NOT_ALLOWED: 'Solo un retiro de socios lleva socio.',   // ADR-024
   COUNTERPARTY_NOT_ALLOWED: 'Esta clasificación no lleva nombre de comercio.',
   RESERVED_IDEMPOTENCY_KEY: 'La clave de la operación está reservada. Volvé a abrir el formulario.',
@@ -305,7 +309,7 @@ const MESSAGES: Record<string, string> = {
   PAYABLE_AMOUNT_MISMATCH: 'El importe del gasto no coincide con su obligación: revisalo antes de vincularlo.',
   DUPLICATE_INVOICE: 'Ese proveedor ya tiene una factura con ese número.',
   INVOICE_NUMBER_MISMATCH: 'El gasto ya tiene otro número de factura: dejá el campo vacío para conservarlo.',
-  INVALID_INVOICE_NUMBER: 'El número de factura admite hasta 100 caracteres.',
+  INVALID_INVOICE_NUMBER: 'El número de factura no es válido: hasta 100 caracteres (en una Factura A emitida, solo números, letras, espacios y guiones, hasta 30).',   // 0135 too
   INVALID_DATE_KIND: 'Tipo de fecha no válido.',
   NOT_AN_OBLIGATION: 'Solo una factura de proveedor o un gasto a pagar tiene fechas de pago.',
   INVALID_PAYMENT_DATE: 'La fecha no puede ser anterior a la del gasto, y el vencimiento no se puede borrar.',

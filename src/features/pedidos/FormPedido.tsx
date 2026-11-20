@@ -1,7 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
-import { currentPrice, type LineInput, type OrderRow } from '../../target/commercial';
+import { clientCuit, currentPrice, IVA_FACTURA_A, type LineInput, type OrderRow } from '../../target/commercial';
 import { PRICE_LISTS, type PriceList } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
 import { formatoPesos } from './helpers';
@@ -22,6 +22,8 @@ interface FormPedidoProps {
  * "rectificar" corrects a DELIVERED order through rectify_delivered_order with a mandatory reason. Each line's
  * price starts at the current price of the chosen list (price_history) and is snapshotted on the line; the total
  * shown is a preview — the saved total is the sum of the database-generated subtotals.
+ * 0135 (owner 2026-11-20): «Factura A» — the prices are WITHOUT IVA; the client owes net + IVA 21 % (deliver_order books it and records
+ * the issued invoice in Fiscal). It needs the client's CUIT; it is chosen while the order is pending (a delivered order keeps it).
  */
 export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
   const { user } = useAuth();
@@ -34,13 +36,17 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
   })));
   const [productoSelId, setProductoSelId] = useState('');
   const [motivo, setMotivo] = useState('');
+  const [facturaA, setFacturaA] = useState(pedido?.factura_a ?? false);
+  const cliente = catalog.clients.find((c) => c.id === clienteId);
+  const sinCuit = facturaA && clienteId !== '' && clientCuit(cliente?.fiscal_id) === null;
 
   const precioDe = (productoId: string, l: PriceList) => currentPrice(catalog.prices, productoId, l);
   const sinPrecio = (l: LineInput) => precioDe(l.producto_id, lista) === null;
   const estimado = lineas.reduce((s, l) => s + l.cantidad * l.precio_unitario, 0);
+  const iva = facturaA ? Math.round(estimado * IVA_FACTURA_A * 100) / 100 : 0;
   const mutation = modo === 'nuevo' ? m.create : modo === 'editar' ? m.updatePending : m.rectify;
   const lineasOk = lineas.length > 0 && lineas.every((l) => l.cantidad > 0 && l.precio_unitario >= 0);
-  const puedeGuardar = clienteId !== '' && lineasOk && (modo !== 'rectificar' || motivo.trim() !== '') && !mutation.isPending;
+  const puedeGuardar = clienteId !== '' && lineasOk && (modo !== 'rectificar' || motivo.trim() !== '') && !sinCuit && !mutation.isPending;
 
   function agregarProducto() {
     const producto = catalog.products.find((p) => p.id === productoSelId);
@@ -59,9 +65,9 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
   function guardar() {
     if (!puedeGuardar) return;
     const opts = { onSuccess: onDone };
-    if (modo === 'nuevo') m.create.mutate({ clienteId, lines: lineas, userId: user?.id ?? null }, opts);
+    if (modo === 'nuevo') m.create.mutate({ clienteId, lines: lineas, userId: user?.id ?? null, facturaA }, opts);
     else if (modo === 'editar' && pedido) {
-      m.updatePending.mutate({ orderId: pedido.id, clienteId, lines: lineas, previousLineIds: pedido.lineas.map((l) => l.id), userId: user?.id ?? null }, opts);
+      m.updatePending.mutate({ orderId: pedido.id, clienteId, lines: lineas, previousLineIds: pedido.lineas.map((l) => l.id), userId: user?.id ?? null, facturaA }, opts);
     } else if (modo === 'rectificar' && pedido) m.rectify.mutate({ orderId: pedido.id, lines: lineas, reason: motivo }, opts);
   }
 
@@ -81,6 +87,19 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
         <option value="">Elegir cliente…</option>
         {catalog.clients.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
       </select>
+
+      <label className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 mb-5 ${facturaA ? 'border-[#A8552E] bg-[#FBF3EC]' : 'border-[#D8CDB0] bg-white'}`}>
+        <input type="checkbox" checked={facturaA} onChange={(e) => setFacturaA(e.target.checked)} disabled={mutation.isPending || modo === 'rectificar'}
+          className="mt-1 w-4 h-4 accent-[#A8552E]" aria-describedby="factura-a-ayuda" />
+        <span>
+          <span className="block font-semibold text-[#2C2419]">Factura A</span>
+          <span id="factura-a-ayuda" className="block text-xs text-[#6B5D45]">
+            {modo === 'rectificar' ? (facturaA ? 'Pedido con Factura A: los precios son sin IVA y el IVA se recalcula con la corrección.' : 'Pedido sin Factura A.')
+              : 'Los precios se cargan sin IVA; al total se le suma el IVA 21 %.'}
+          </span>
+          {sinCuit && <span className="block text-xs text-[#A32D2D] mt-1">El cliente no tiene CUIT cargado. Cargalo en Admin → Clientes para poder hacerle Factura A.</span>}
+        </span>
+      </label>
 
       <label className={etiqueta}>Lista de precios</label>
       <div className="flex gap-2 mb-5">
@@ -153,9 +172,15 @@ export function FormPedido({ modo, pedido, onDone }: FormPedidoProps) {
         </>
       )}
 
+      {facturaA && (
+        <div className="px-1 mb-1 space-y-0.5 text-sm text-[#6B5D45]">
+          <p className="flex justify-between"><span>Neto (sin IVA)</span><span className="tabular-nums">{formatoPesos(estimado)}</span></p>
+          <p className="flex justify-between"><span>IVA 21 %</span><span className="tabular-nums">{formatoPesos(iva)}</span></p>
+        </div>
+      )}
       <div className="flex items-center justify-between px-1 mb-4">
-        <span className="text-sm text-[#6B5D45]">Total estimado</span>
-        <span className="text-2xl font-bold text-[#A8552E] tabular-nums">{formatoPesos(estimado)}</span>
+        <span className="text-sm text-[#6B5D45]">{facturaA ? 'Total con IVA' : 'Total estimado'}</span>
+        <span className="text-2xl font-bold text-[#A8552E] tabular-nums">{formatoPesos(estimado + iva)}</span>
       </div>
       <p className="text-xs text-[#8A7A5C] mb-4">El total definitivo lo calcula el sistema a partir de las líneas guardadas.</p>
 

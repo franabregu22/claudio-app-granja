@@ -24,7 +24,10 @@ import { useExpenseCategories, useExpenseGroups, useLedgerBalances, useMovementL
 export type CampoFila = 'fecha' | 'concepto' | 'categoria' | 'naturaleza' | 'etiqueta' | 'importe';
 export const MOTIVO_TABLA = 'Edición en la tabla';
 /** Only an expense row is edited in place; income, transfers, cheques and the automatic Mercado Pago / bank rows are not. */
-export const editableEnFila = (r: OperationRow) => r.purchase_id !== null && r.tipo === 'EGRESO' && !r.informativo && r.row_kind !== 'CHEQUE';
+export const editableEnFila = (r: OperationRow) => r.purchase_id !== null && r.tipo === 'EGRESO' && r.row_kind !== 'CHEQUE';
+/** Owner 2026-11-20: a Mercado Pago expense still waiting for its movement (informativo) is edited in its row too — concept, category,
+ * nature and tag; its date and amount stay, because they are what its movement is matched by (it is linked in Pendientes de clasificar). */
+export const campoEditableEnFila = (r: OperationRow, campo: CampoFila) => editableEnFila(r) && !(r.informativo && (campo === 'fecha' || campo === 'importe'));
 /** Owner 2026-11-17: a Mercado Pago outflow still unclassified is classified from its Categoría / Subcategoría cell (a gasto without
  * supplier in the chosen subcategory), a transfer to an own account, a supplier debt payment or a partner withdrawal — one choice. */
 export const clasificableEnFila = (r: OperationRow) => r.clasificacion === 'MP_SIN_CLASIFICAR' && r.operation_id !== null && r.tipo === 'EGRESO';

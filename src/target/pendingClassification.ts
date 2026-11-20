@@ -38,9 +38,10 @@ const toPending = (r: PendingRow): PendingRow => ({ ...r, amount: num(r.amount),
   financial_operation_id: r.financial_operation_id === null ? null : Number(r.financial_operation_id) });
 
 /** One page of the mandatory pendings of a scope, oldest first (deterministic: date, then SOURCE_ID). */
-export async function listPendingPage(client: SupabaseClient, scope: PendingScope, page = 0, pageSize = PAGE_SIZE): Promise<Page<PendingRow>> {
+export async function listPendingPage(client: SupabaseClient, scope: PendingScope, page = 0, pageSize = PAGE_SIZE, newestFirst = false): Promise<Page<PendingRow>> {
   const r = await readViewPage<PendingRow>(client, 'fin_mp_pending_classification',
-    (q) => q.eq('is_historical', scope === 'historical').order('business_date', { ascending: true }).order('source_id', { ascending: true }),
+    (q) => q.eq('is_historical', scope === 'historical').order('business_date', { ascending: !newestFirst }).order('occurred_at', { ascending: !newestFirst, nullsFirst: false })
+      .order('source_id', { ascending: !newestFirst }),
     PENDING_COLUMNS, page, pageSize);
   return { rows: r.rows.map(toPending), total: r.total, page, pageSize };
 }

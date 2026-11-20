@@ -36,6 +36,10 @@ export interface OrderRow {
    * e-mail, never updated_by / created_by. */
   entregado_por_nombre: string | null;
   cliente_nombre: string; lineas: OrderLineRow[];
+  /** 0135: a Factura A order — its lines are the NET price; the client owes net + IVA 21 % (computed by deliver_order). */
+  factura_a: boolean;
+  /** 0135: the issued Factura A of a delivered order (fiscal_document.pedido_id): its number, loaded later; null = none. */
+  factura: { id: string; external_number: string | null; net_amount: number; total_amount: number } | null;
   /** Rectifications of a delivered order, oldest first (display only; built from the stored line versions). */
   rectificaciones: OrderRectification[];
 }
@@ -82,8 +86,8 @@ export interface SalesLineRow {
 
 /** A stored line of any version, with its author's name (perfiles is ADMIN-readable; null when not visible). */
 export type VersionedLine = OrderLineRow & { created_at?: string | null; created_by?: string | null; perfiles?: { nombre: string | null; apellido: string | null } | null };
-type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas' | 'rectificaciones' | 'entregado_por_nombre' | 'delivered_by'>
-  & { delivered_by?: string | null; clients: { nombre: string } | null; entrego?: { nombre: string | null; apellido: string | null } | null; pedido_lineas: VersionedLine[] };
+type RawOrder = Omit<OrderRow, 'cliente_nombre' | 'lineas' | 'rectificaciones' | 'entregado_por_nombre' | 'delivered_by' | 'factura_a' | 'factura'>
+  & { factura_a?: boolean | null; fiscal_document?: { id: string; external_number: string | null; net_amount: number | string; total_amount: number | string }[] | null; delivered_by?: string | null; clients: { nombre: string } | null; entrego?: { nombre: string | null; apellido: string | null } | null; pedido_lineas: VersionedLine[] };
 const num = (v: unknown) => Number(v ?? 0);
 
 /**
@@ -148,9 +152,11 @@ export function buildRectifications(lines: VersionedLine[]): OrderRectification[
 /** Orders in the given states, with their CURRENT line version and the history of rectified-away versions. */
 export async function listOrders(client: SupabaseClient, estados: OrderEstado[]): Promise<OrderRow[]> {
   const rows = await readTable<RawOrder>(client, 'pedidos',
-    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), entrego:perfiles!pedidos_delivered_by_fkey(nombre, apellido), pedido_lineas(*, perfiles(nombre, apellido))');
-  return rows.map(({ clients, entrego, pedido_lineas, ...o }) => ({
+    (q) => q.in('estado', estados).order('created_at', { ascending: false }), '*, clients(nombre), entrego:perfiles!pedidos_delivered_by_fkey(nombre, apellido), pedido_lineas(*, perfiles(nombre, apellido)), fiscal_document(id, external_number, net_amount, total_amount)');
+  return rows.map(({ clients, entrego, pedido_lineas, fiscal_document, ...o }) => ({
     ...o,
+    factura_a: o.factura_a === true,
+    factura: fiscal_document?.[0] ? { ...fiscal_document[0], net_amount: num(fiscal_document[0].net_amount), total_amount: num(fiscal_document[0].total_amount) } : null,
     delivered_by: o.delivered_by ?? null,
     entregado_por_nombre: o.delivered_by ? profileDisplayName(entrego) : null,
     cliente_nombre: clients?.nombre ?? '—',
@@ -160,10 +166,25 @@ export async function listOrders(client: SupabaseClient, estados: OrderEstado[])
   }));
 }
 
-/** Display total of an order: the sum of the database-generated subtotals of its current lines (the contract's
- * definition of the order total; presentation only, never sent back). */
-export function orderTotal(order: Pick<OrderRow, 'lineas'>): number {
+/** 0135: the IVA rate of a Factura A (the snapshot deliver_order records on the fiscal document). */
+export const IVA_FACTURA_A = 0.21;
+const round2 = (x: number) => Math.round(x * 100) / 100;
+/** The net of an order: the sum of the database-generated subtotals of its current lines (presentation only). */
+export function orderNet(order: Pick<OrderRow, 'lineas'>): number {
   return order.lineas.reduce((s, l) => s + num(l.subtotal), 0);
+}
+/** The IVA of a Factura A order (round(net × 21 %, 2), as deliver_order books it); 0 otherwise. */
+export function orderIva(order: Pick<OrderRow, 'lineas'> & { factura_a?: boolean }): number {
+  return order.factura_a ? round2(orderNet(order) * IVA_FACTURA_A) : 0;
+}
+/** Display total of an order: what the client owes for it — the net, plus its IVA on a Factura A (presentation only). */
+export function orderTotal(order: Pick<OrderRow, 'lineas'> & { factura_a?: boolean }): number {
+  return round2(orderNet(order) + orderIva(order));
+}
+/** A client's CUIT as 11 digits, or null (clients.fiscal_id is free text «CUIT / DNI»; the same rule as client_cuit, 0135). */
+export function clientCuit(fiscalId: string | null | undefined): string | null {
+  const d = String(fiscalId ?? '').replace(/[^0-9]/g, '');
+  return d.length === 11 ? d : null;
 }
 
 /** The current price of a product in a price list (the price_history row with no end date), if any. */
@@ -208,10 +229,10 @@ function lineRows(orderId: string, lines: LineInput[], userId: string | null) {
  * Create a PENDING order and its lines. The target has no order-creation RPC, so if the lines are refused the
  * just-created empty order is cancelled through RPC 3 (it can never be delivered: ORDER_HAS_NO_LINES).
  */
-export async function createPendingOrder(client: SupabaseClient, p: { clienteId: string; lines: LineInput[]; userId: string | null }):
+export async function createPendingOrder(client: SupabaseClient, p: { clienteId: string; lines: LineInput[]; userId: string | null; facturaA?: boolean }):
   Promise<{ id: string }> {
   if (p.lines.length === 0) throw new TargetDbError('EMPTY_LINE_SET', 'an order needs at least one line');
-  const [order] = await writeTable(client, 'pedidos', 'insert', { cliente_id: p.clienteId, estado: 'PENDING', created_by: p.userId }) as { id: string }[];
+  const [order] = await writeTable(client, 'pedidos', 'insert', { cliente_id: p.clienteId, estado: 'PENDING', created_by: p.userId, factura_a: p.facturaA === true }) as { id: string }[];
   try {
     await writeTable(client, 'pedido_lineas', 'insert', lineRows(order.id, p.lines, p.userId));
   } catch (err) {
@@ -226,10 +247,10 @@ export async function createPendingOrder(client: SupabaseClient, p: { clienteId:
  * the order never passes through an empty state; RLS refuses every write once the order is no longer PENDING.
  */
 export async function updatePendingOrder(client: SupabaseClient, p: {
-  orderId: string; clienteId: string; lines: LineInput[]; previousLineIds: string[]; userId: string | null;
+  orderId: string; clienteId: string; lines: LineInput[]; previousLineIds: string[]; userId: string | null; facturaA?: boolean;
 }): Promise<void> {
   const updated = await writeTable(client, 'pedidos', 'update',
-    { cliente_id: p.clienteId, updated_at: new Date().toISOString(), updated_by: p.userId }, { id: p.orderId });
+    { cliente_id: p.clienteId, factura_a: p.facturaA === true, updated_at: new Date().toISOString(), updated_by: p.userId }, { id: p.orderId });
   if (updated.length === 0) throw new TargetDbError('NOT_UPDATED', `pedido ${p.orderId}`);
   await writeTable(client, 'pedido_lineas', 'insert', lineRows(p.orderId, p.lines, p.userId));
   for (const id of p.previousLineIds) await writeTable(client, 'pedido_lineas', 'delete', null, { id });
@@ -240,6 +261,11 @@ export async function updatePendingOrder(client: SupabaseClient, p: {
 export function deliverOrder(client: SupabaseClient, orderId: string, deliveredAt = new Date().toISOString(), reason: string | null = null) {
   return callRpc<{ id: string; estado: 'DELIVERED'; delivered_date: string; order_total: number }>(client, 'deliver_order',
     { p_order_id: orderId, p_delivered_at: deliveredAt, p_reason: reason });
+}
+
+/** 0135: the number of the order's Factura A as issued in ARCA (ADMIN; unique among issued invoices; null / '' clears it). */
+export function setSaleInvoiceNumber(client: SupabaseClient, orderId: string, number: string | null) {
+  return callRpc<{ fiscal_document_id: string; number: string | null; changed: boolean }>(client, 'set_sale_invoice_number', { p_order_id: orderId, p_number: number });
 }
 
 export function cancelOrder(client: SupabaseClient, orderId: string, reason: string | null, cancelledAt = new Date().toISOString()) {

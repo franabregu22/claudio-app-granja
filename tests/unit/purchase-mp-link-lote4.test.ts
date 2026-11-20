@@ -58,16 +58,17 @@ describe('Lote 4 — backend contract', () => {
 
 describe('Lote 4 — screens', () => {
   it('Pendientes de clasificar: the recorded MP purchases to link, the movement chosen by the user (one key per opened row)', () => {
-    const v = SRC('src/features/caja/PendientesClasificar.tsx');
-    expect(v).toMatch(/<GastosMpPendientes \/>/);
+    // owner 2026-11-20: in the payment's card, «Es el gasto ya cargado …» (same amount, listed, never pre-chosen) links it in one click
+    const v = SRC('src/features/caja/BandejaPendientesMp.tsx');
+    expect(v).toMatch(/gastos=\{samePendingAmount\(gastosMp\.data \?\? \[\], r\.economic_amount\)\}/);
+    expect(v).toMatch(/useState<string \| null>\(null\)/);   // nothing chosen until the user picks
     expect(v).toMatch(/useState\(\(\) => `PURCHASE-MP-\$\{crypto\.randomUUID\(\)\}`\)/);
-    expect(v).toMatch(/disabled=\{!origen \|\| vincular\.isPending\}/);
-    expect(v).toMatch(/gastosMpPendientes=\{posibles\}/);
+    expect(v).toMatch(/vincular\.mutateAsync\(\{ purchaseId: o\.gasto\.purchase_id, sourceId: r\.source_id, idempotencyKey: clave/);
   });
-  it('classifying an outflow as a NEW purchase while a recorded MP purchase has that amount needs an explicit confirmation (warn, never block)', () => {
-    const c = SRC('src/features/caja/AccionesMp.tsx');
-    expect(c).toMatch(/Posible duplicado/);
-    expect(c).toMatch(/&& \(!posibleDuplicado \|\| esOtroGasto\)/);
-    expect(c).toMatch(/Confirmo que es un gasto distinto/);
+  it('classifying an outflow as a NEW purchase while a recorded MP purchase has that amount needs an explicit choice (warn, never block)', () => {
+    const c = SRC('src/features/caja/BandejaPendientesMp.tsx');
+    expect(c).toMatch(/titulo: gastos\.length \? 'Es otro gasto, nuevo' : 'Un gasto'/);
+    expect(c).toMatch(/texto = hayGastoCargado \? 'Registrar como otro gasto' : 'Registrar gasto';/);
+    expect(c).toMatch(/Ya hay un gasto cargado por este importe \(arriba\)\. Elegí esta opción solo si es un gasto distinto\./);
   });
 });

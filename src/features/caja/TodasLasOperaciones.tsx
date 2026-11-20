@@ -13,7 +13,7 @@ import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import type { FinancialAccountRow } from '../../target/masters';
 import { Comprobantes } from './Comprobantes';
-import { clasificableEnFila, EditorCelda, editableEnFila, socioEditableEnFila, type CampoFila } from './EdicionEnFila';
+import { campoEditableEnFila, clasificableEnFila, EditorCelda, socioEditableEnFila, type CampoFila } from './EdicionEnFila';
 import { ChipEtiqueta } from './Etiquetas';
 import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos';
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
@@ -272,11 +272,10 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
   onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
-  const editable = editableEnFila(r);
   const clasificable = clasificableEnFila(r);
   const retiro = socioEditableEnFila(r);   // 0133: a partner withdrawal — its socio from the Categoría / Subcategoría cell
   const celda = (campo: CampoFila, contenido: React.ReactNode) => (editando === campo ? <EditorCelda r={r} campo={campo} onFin={() => onEditar(null)} /> : contenido);
-  const puede = (campo: CampoFila) => editable || ((clasificable || retiro) && campo === 'categoria');
+  const puede = (campo: CampoFila) => campoEditableEnFila(r, campo) || ((clasificable || retiro) && campo === 'categoria');
   const alDoble = (campo: CampoFila) => (puede(campo)
     ? { onDoubleClick: () => onEditar(campo), title: clasificable ? 'Doble clic para clasificar el egreso' : retiro ? 'Doble clic para elegir el socio' : 'Doble clic para editar' } : {});
   const cls = (campo: CampoFila) => (puede(campo) ? ' cursor-text hover:bg-amber-100/50' : '');

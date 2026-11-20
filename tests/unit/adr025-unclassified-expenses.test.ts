@@ -147,12 +147,12 @@ describe('ADR-025 stage 3 — WhatsApp notes on the Mercado Pago pending outflow
   });
 
   it('the pending screen only reads the notes (no write, no MP classification RPC added) and pre-fills the existing route with the concept', () => {
-    const code = SRC('features/caja/PendientesClasificar.tsx');
-    expect(code).toMatch(/const actual = r && !r\.is_historical \? \[r\.source_id\] : \[\];/);
-    expect(code).toMatch(/useMpWhatsappNotes\(actual\)/);
-    expect(code).toMatch(/<ClasificarSalida sourceId=\{r\.source_id\} conceptoInicial=\{nota\?\.concept\}( gastosMpPendientes=\{posibles\})? \/>/);
+    // owner 2026-11-20: the tray reads the notes of its current page; the form opens with the WhatsApp concept (mounted on choosing)
+    const code = SRC('features/caja/BandejaPendientesMp.tsx');
+    expect(code).toMatch(/const q = usePendingPage\('current', pagina\);/);
+    expect(code).toMatch(/useMpWhatsappNotes\(ids\)/);
+    expect(code).toMatch(/<Formulario key=\{elegida \?\? ''\} r=\{r\} o=\{actual\} conceptoInicial=\{nota\?\.concept \?\? ''\}/);
+    expect(code).toMatch(/const \[concepto, setConcepto\] = useState\(conceptoInicial\);/);
     expect(SRC('target/pendingClassification.ts')).not.toMatch(/\.(insert|update|upsert|delete)\(/);
-    // applied when the form opens (the note arrives after the row is mounted — found in the browser walkthrough)
-    expect(SRC('features/caja/AccionesMp.tsx')).toMatch(/if \(concepto === '' && conceptoInicial\) setConcepto\(conceptoInicial\); setAbierto\(true\);/);
   });
 });

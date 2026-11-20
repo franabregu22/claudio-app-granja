@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import {
   cancelOrder, createPendingOrder, deliverOrder, listClientBalances, listOrders, listSalesLines,
-  rectifyCollection, rectifyDeclaredCollection, rectifyDeliveredOrder, registerCollection, registerDeclaredCollection, reverseCollection, reverseDeclaredCollection, updatePendingOrder, type LineInput, type OrderEstado,
+  rectifyCollection, rectifyDeclaredCollection, rectifyDeliveredOrder, registerCollection, registerDeclaredCollection, reverseCollection, reverseDeclaredCollection, updatePendingOrder, setSaleInvoiceNumber, type LineInput, type OrderEstado,
 } from '../../target/commercial';
 import { listClientCollections } from '../../target/customerCollections';
 import { listCurrentPrices, listMaster, listProfileDisplayNames, type ClientRow, type FinancialAccountRow, type ProductRow } from '../../target/masters';
@@ -32,13 +32,14 @@ export function useOrderCatalog() {
 
 export function useOrderMutations() {
   const qc = useQueryClient();
-  const refresh = () => Promise.all([ORDERS, BALANCES, SALES].map((queryKey) => qc.invalidateQueries({ queryKey })));
+  // 0135: a delivered / rectified Factura A writes its fiscal document too
+  const refresh = () => Promise.all([ORDERS, BALANCES, SALES, ['fiscal']].map((queryKey) => qc.invalidateQueries({ queryKey })));
   return {
     create: useMutation({
-      mutationFn: (p: { clienteId: string; lines: LineInput[]; userId: string | null }) => createPendingOrder(supabase, p), onSuccess: refresh,
+      mutationFn: (p: { clienteId: string; lines: LineInput[]; userId: string | null; facturaA?: boolean }) => createPendingOrder(supabase, p), onSuccess: refresh,
     }),
     updatePending: useMutation({
-      mutationFn: (p: { orderId: string; clienteId: string; lines: LineInput[]; previousLineIds: string[]; userId: string | null }) =>
+      mutationFn: (p: { orderId: string; clienteId: string; lines: LineInput[]; previousLineIds: string[]; userId: string | null; facturaA?: boolean }) =>
         updatePendingOrder(supabase, p),
       onSuccess: refresh,
     }),
@@ -46,6 +47,11 @@ export function useOrderMutations() {
     cancel: useMutation({ mutationFn: (p: { orderId: string; reason: string | null }) => cancelOrder(supabase, p.orderId, p.reason), onSuccess: refresh }),
     rectify: useMutation({
       mutationFn: (p: { orderId: string; lines: LineInput[]; reason: string }) => rectifyDeliveredOrder(supabase, p.orderId, p.lines, p.reason),
+      onSuccess: refresh,
+    }),
+    // 0135: the number of the order's Factura A (Fiscal reads the same document)
+    invoiceNumber: useMutation({
+      mutationFn: (p: { orderId: string; number: string | null }) => setSaleInvoiceNumber(supabase, p.orderId, p.number),
       onSuccess: refresh,
     }),
   };

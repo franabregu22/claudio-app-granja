@@ -154,12 +154,12 @@ describe('ADR-018 MP activity — payout own-account match (0084, read-only)', (
     expect(payoutMatchLabel({ description: 'payout', source_id: null }, map)).toBeNull();
   });
   it('the screen shows the proposal under the Retiro status; the only button is the guarded confirmation; no identifier value', () => {
-    const s = SRC('features/caja/AccionesMp.tsx');
-    expect(SRC('features/caja/PendientesClasificar.tsx')).toMatch(/<DestinoRetiro r=\{actividad\} matches=\{matches\} \/>/);
-    const comp = s.slice(s.indexOf('function DestinoRetiro'), s.indexOf('const SELECT_CLS'));
-    expect(comp.match(/<button/g) ?? []).toHaveLength(1);
-    expect(comp).toMatch(/\{m\.canConfirm && r\.source_id && \(/);
-    expect(comp).toMatch(/confirmar\.mutate\(r\.source_id as string\)/);
+    // owner 2026-11-20: in the Pendientes de clasificar tray an OWN_ACCOUNT_EXACT payout offers ONLY «Transferencia a <cuenta>»,
+    // whose button confirms it by SOURCE_ID (the server resolves amount, date and destination)
+    const s = SRC('features/caja/BandejaPendientesMp.tsx');
+    expect(s).toMatch(/const propia = r\.kind === 'PAYOUT' && destino\?\.match_status === 'OWN_ACCOUNT_EXACT' && destino\.matched_account_name/);
+    expect(s).toMatch(/opciones[^=]*= propia\s*\? \[\{ o: \{ tipo: 'TRANSFERENCIA' \}/);
+    expect(s).toMatch(/accion = \(\) => transferir\.mutateAsync\(r\.source_id\);/);
     const all = SRC('target/mpActivity.ts') + s;
     expect(all).not.toMatch(/normalized_value|identifier_value|original_value|expected_cbu|PAYOUT_BANK_ACCOUNT_NUMBER/);
     expect(JSON.stringify(MATCHES)).not.toMatch(/\d{22}/);
@@ -284,24 +284,25 @@ describe('MP activity — classification (0088)', () => {
   });
   it('the screen: "Clasificar salida" only under a classifiable payout ("Compra / gasto" or "Retiro de socios" only; no own transfer, no "Otra salida"); "Clasificar ingreso" only on CLASSIFY_INFLOW rows (own account / client receipt without a client, ADR-027; no "Otro ingreso")', () => {
     const s = SRC('features/caja/AccionesMp.tsx');
-    expect(s).toMatch(/\{m\.canClassify && r\.source_id && <ClasificarSalida sourceId=\{r\.source_id\} \/>\}/);
+    const bandeja = SRC('features/caja/BandejaPendientesMp.tsx');
+    expect(bandeja).toMatch(/r\.kind === 'PAYOUT' && destino\?\.match_status === 'NO_OWN_ACCOUNT_MATCH'/);
     const entradas = SRC('features/caja/EntradasSinVincular.tsx');
     expect(entradas).toMatch(/r\.coverage_status === 'CLASSIFY_INFLOW' && r\.source_id/);
     expect(entradas).toMatch(/<ClasificarIngreso paymentId=\{r\.source_id as string\} \/>/);
     expect(Object.values(MP_OUTFLOW_CHOICE_LABEL)).toEqual(['Compra / gasto', 'Retiro de socios']);
     expect(Object.values(MP_OUTFLOW_LABEL)).toEqual(['Compra / gasto', 'Compra / gasto', 'Compra / gasto', 'Retiro de socios']);
-    const salida = s.slice(s.indexOf('function ClasificarSalida'), s.indexOf('type TipoIngreso'));
-    expect(salida).not.toMatch(/Transferencia a cuenta propia<\/option>|Otra salida|>Pago a proveedor<|>Gasto</);
-    expect(salida).toMatch(/<option value=\{SIN_PROVEEDOR\}>Sin proveedor registrado<\/option>/);   // ADR-019 casual purchase
-    expect(salida).toMatch(/sinProveedor \? \{ sourceId, classification: 'CASUAL_PURCHASE'/);
+    const salida = bandeja.slice(bandeja.indexOf('function Formulario'));
+    expect(salida).not.toMatch(/Otra salida/);
+    expect(salida).toMatch(/<option value="">Sin proveedor<\/option>/);   // ADR-019 casual purchase
+    expect(salida).toMatch(/: \{ sourceId: r\.source_id, classification: 'CASUAL_PURCHASE'/);
     expect(salida).toMatch(/aria-label="Comercio \/ nombre \(opcional\)"/);
-    expect(salida).toMatch(/aria-label="Concepto"/);
-    expect(salida).toMatch(/\{deuda > 0 && \(/);   // "apply to the existing debt" only when the supplier owes
+    expect(salida).toMatch(/placeholder="Ej\.: flete de alimento"/);
+    expect(salida).toMatch(/const conDeuda = \(proveedores\.data \?\? \[\]\)\.filter\(\(p\) => saldo\(p\.id\) > 0\);/);   // a debt payment only to a supplier that owes
     const ingreso = s.slice(s.indexOf('function ClasificarIngreso'));
     expect(ingreso).toMatch(/>Transferencia desde cuenta propia<\/option><option value="COLLECTION">Cobro de cliente \(sin asignar\)<\/option>/);
     expect(ingreso).not.toMatch(/Otro ingreso<\/option>/);
     const lib = SRC('target/mpActivity.ts');
-    expect(s.slice(s.indexOf('function ClasificarSalida')) + lib.slice(lib.indexOf('export interface MpOutflowInput'))).not.toMatch(/p_amount|p_financial_account_id|p_effective_date|p_signed/);
+    expect(salida + lib.slice(lib.indexOf('export interface MpOutflowInput'))).not.toMatch(/p_amount|p_financial_account_id|p_effective_date|p_signed/);
   });
 });
 

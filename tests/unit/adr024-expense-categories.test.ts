@@ -45,7 +45,10 @@ describe('ADR-024 — category → subcategory', () => {
     // Nuevo gasto (0117): category, then its own Naturaleza selector pre-filled from the subcategory default, editable for this operation
     expect(SRC('features/caja/Compras.tsx')).toMatch(/<SelectorCategoria subcategoriaId=\{categoriaId\} onSubcategoria=\{elegirSub\}/);
     expect(SRC('features/caja/Compras.tsx')).toMatch(/if \(id\) setNaturaleza\(defaultNatureOf\(categorias\.data \?\? \[\], id\)\)/);
-    expect(SRC('features/caja/AccionesMp.tsx')).toMatch(/<SelectorCategoria compacto campo=\{SELECT_CLS\} subcategoriaId=\{categoria\} onSubcategoria=\{setCategoria\} naturaleza=\{naturaleza\} onNaturaleza=\{setNaturaleza\} \/>/);
+    // Pendientes de clasificar (owner 2026-11-20): the nature is pre-filled from the subcategory and stays editable for this payment
+    const bandeja = SRC('features/caja/BandejaPendientesMp.tsx');
+    expect(bandeja).toMatch(/if \(v\) \{ setNaturaleza\(defaultNatureOf\(s, v\)\);/);
+    expect(bandeja).toMatch(/onChange=\{\(e\) => setNaturaleza\(e\.target\.value as OperationNature\)\}/);
   });
   it('M: the socios of a Retiro de socios; the withdrawal form sends the optional socio', () => {
     expect(socios(GROUPS, SUBS).map((s) => s.nombre)).toEqual(['Fran', 'Santi']);

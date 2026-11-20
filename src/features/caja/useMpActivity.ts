@@ -7,7 +7,7 @@ import {
 } from '../../target/mpActivity';
 import { listPurchaseMpLinks, settlePurchaseMp } from '../../target/purchaseMpLink';
 import {
-  getPendingBySource, getUnlinkedByMovement, listMpWhatsappNotes, listTechnicalReview, postPendingOutflow, readPendingSummary,
+  getPendingBySource, getUnlinkedByMovement, listMpWhatsappNotes, listPendingPage, listTechnicalReview, type PendingScope, postPendingOutflow, readPendingSummary,
 } from '../../target/pendingClassification';
 
 export function useMpActivity(accountId: string) {
@@ -54,6 +54,10 @@ export function useOwnBankAccounts() {
 /** ADR-025 stage 3: the WhatsApp notes of the listed pending outflows (read-only). */
 export function useMpWhatsappNotes(sourceIds: readonly string[]) {
   return useQuery({ queryKey: ['mp-pending', 'wa-notes', [...sourceIds].sort()], queryFn: () => listMpWhatsappNotes(supabase, sourceIds), enabled: sourceIds.length > 0 });
+}
+/** Owner 2026-11-20: one page of the current pending outflows, the most recent first (the Pendientes de clasificar tray). */
+export function usePendingPage(scope: PendingScope, page: number) {
+  return useQuery({ queryKey: ['mp-pending', 'page', scope, page], queryFn: () => listPendingPage(supabase, scope, page, undefined, true) });
 }
 /** 0116: one pending outflow by SOURCE_ID (the action in a Caja → Movimientos row). */
 export function usePendingBySource(sourceId: string | null) {

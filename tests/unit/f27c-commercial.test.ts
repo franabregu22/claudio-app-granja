@@ -65,7 +65,7 @@ describe('F27-C commercial data layer', () => {
     const { client, calls } = stub([{ data: [{ id: 'o1' }], error: null }, { data: [{}], error: null }]);
     await createPendingOrder(client, { clienteId: 'c1', lines: [L], userId: 'u' });
     expect(calls).toEqual([
-      { kind: 'insert', table: 'pedidos', payload: { cliente_id: 'c1', estado: 'PENDING', created_by: 'u' } },
+      { kind: 'insert', table: 'pedidos', payload: { cliente_id: 'c1', estado: 'PENDING', created_by: 'u', factura_a: false } },   // 0135: factura_a, false by default
       { kind: 'insert', table: 'pedido_lineas', payload: [{ pedido_id: 'o1', producto_id: 'p1', producto_nombre: 'Maple N1', cantidad: 2, precio_unitario: 1000, created_by: 'u' }] },
     ]);
   });

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, Package, Pencil, Plus, X } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
-import { orderTotal, type LineChange, type OrderRow } from '../../target/commercial';
+import { orderIva, orderNet, orderTotal, type LineChange, type OrderRow } from '../../target/commercial';
 import { RESPONSABLE_NO_DISPONIBLE } from '../../target/masters';
 import { errorMessage } from '../../target/messages';
 import { formatearFechaLocal } from '../../utils/dateUtils';
@@ -75,6 +75,38 @@ function HistorialRectificaciones({ p }: { p: OrderRow }) {
   );
 }
 
+/**
+ * 0135 — the Factura A of an order: a chip; once delivered, its number as issued in ARCA, typed in place (set_sale_invoice_number,
+ * ADMIN, audited; Fiscal shows the same document). Nothing else of the order changes here.
+ */
+function FacturaA({ p }: { p: OrderRow }) {
+  const m = useOrderMutations();
+  const [editando, setEditando] = useState(false);
+  const [numero, setNumero] = useState(p.factura?.external_number ?? '');
+  if (!p.factura_a) return null;
+  const chip = 'inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide bg-sky-100 text-sky-900 px-1.5 py-0.5 rounded';
+  if (p.estado !== 'DELIVERED' || !p.factura) return <span className={chip} title="Precios sin IVA; se suma el IVA 21 %">Factura A</span>;
+  const guardar = () => m.invoiceNumber.mutate({ orderId: p.id, number: numero.trim() || null }, { onSuccess: () => setEditando(false) });
+  if (!editando) {
+    return (
+      <button type="button" onClick={(e) => { e.stopPropagation(); setNumero(p.factura?.external_number ?? ''); setEditando(true); }} className={chip}
+        title="Número de la Factura A (como la emitiste en ARCA)">
+        Factura A {p.factura.external_number ? `Nº ${p.factura.external_number}` : '· cargar número'} <Pencil className="w-3 h-3" aria-hidden />
+      </button>
+    );
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <input autoFocus value={numero} maxLength={30} placeholder="00001-00000123" aria-label="Número de la Factura A"
+        onChange={(e) => setNumero(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEditando(false); }}
+        className="w-36 text-xs border border-sky-300 rounded px-1.5 py-0.5" />
+      <button type="button" onClick={guardar} disabled={m.invoiceNumber.isPending} aria-label="Guardar número" className="p-1 text-sky-900 disabled:opacity-50"><Check className="w-4 h-4" /></button>
+      <button type="button" onClick={() => setEditando(false)} aria-label="Cancelar" className="p-1 text-[#8A7A5C]"><X className="w-4 h-4" /></button>
+      {m.invoiceNumber.error && <span className="w-full text-[11px] text-red-700">{errorMessage(m.invoiceNumber.error)}</span>}
+    </span>
+  );
+}
+
 const ESTADO_LABEL: Record<OrderRow['estado'], string> = { PENDING: 'Pendiente', DELIVERED: 'Entregado', CANCELLED: 'Cancelado' };
 
 /** Mobile detail of a delivered order (display only: the same OrderRow data, the same rectification history). */
@@ -120,7 +152,14 @@ function DetallePedido({ p, onClose }: { p: OrderRow; onClose: () => void }) {
                 ))}
               </ul>
             )}
-            <p className="flex justify-between mt-2 text-sm font-bold text-amber-900"><span>Total</span><span>{formatoPesos(orderTotal(p))}</span></p>
+            {p.factura_a && (
+              <div className="mt-2 text-sm text-gray-700 space-y-0.5">
+                <p className="flex justify-between"><span>Neto (sin IVA)</span><span>{formatoPesos(orderNet(p))}</span></p>
+                <p className="flex justify-between"><span>IVA 21 %</span><span>{formatoPesos(orderIva(p))}</span></p>
+              </div>
+            )}
+            <p className="flex justify-between mt-2 text-sm font-bold text-amber-900"><span>{p.factura_a ? 'Total con IVA' : 'Total'}</span><span>{formatoPesos(orderTotal(p))}</span></p>
+            {p.factura_a && <div className="mt-2"><FacturaA p={p} /></div>}
           </div>
           {p.rectification_seq > 0 && (
             <div>
@@ -235,6 +274,7 @@ export function PedidosApp() {
                       {p.lineas.length > 0 && (
                         <p className="text-xs text-[#8A7A5C] mt-1 break-words">{p.lineas.map((l) => `${l.cantidad} ${l.producto_nombre}`).join(', ')}</p>
                       )}
+                      {p.factura_a && <div className="mt-1"><FacturaA p={p} /></div>}
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-xs text-[#A89878]">Cargado: {formatearFechaLocal(p.created_at)}</p>
                         <div className="flex items-center gap-2 ml-auto">
@@ -280,6 +320,7 @@ export function PedidosApp() {
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">Entregado {p.delivered_date ? formatearFechaLocal(p.delivered_date) : '—'}</p>
                         <p className="text-xs text-gray-500 break-all">Entregado por: {entregadoPor(p)}</p>
+                        {p.factura_a && <div className="mt-1"><FacturaA p={p} /></div>}
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
                         <span className="text-sm font-semibold text-amber-900">{formatoPesos(orderTotal(p))}</span>
@@ -325,7 +366,7 @@ export function PedidosApp() {
                             <span className="ml-1.5"><EtiquetaRectificado seq={p.rectification_seq} abierto={historialAbierto === p.id} onToggle={() => toggleHistorial(p.id)} /></span>
                           )}
                         </td>
-                        <td className="px-4 py-2 text-gray-700 font-medium">{p.cliente_nombre}</td>
+                        <td className="px-4 py-2 text-gray-700 font-medium">{p.cliente_nombre}{p.factura_a && <div className="mt-0.5"><FacturaA p={p} /></div>}</td>
                         <td className="hidden md:table-cell px-4 py-2 text-gray-700 text-xs">
                           {p.lineas.map((l) => `${l.producto_nombre}: ${l.cantidad}`).join(' | ') || '—'}
                         </td>

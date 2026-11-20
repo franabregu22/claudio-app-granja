@@ -51,11 +51,14 @@ describe('ADR-021 — pending classification data', () => {
     expect([r.rows[0].amount, r.rows[0].financial_operation_id, r.total, r.page]).toEqual([-68043.27, 7, 1203, 2]);
     expect(seen.map((x) => x.url.pathname)).toEqual(['/rest/v1/fin_mp_pending_classification']);
     const q = seen[0].url.searchParams;
-    expect([q.get('is_historical'), q.get('order'), q.get('offset'), q.get('limit')]).toEqual(['eq.false', 'business_date.asc,source_id.asc', '100', '50']);
+    expect([q.get('is_historical'), q.get('order'), q.get('offset'), q.get('limit')]).toEqual(['eq.false', 'business_date.asc,occurred_at.asc.nullslast,source_id.asc', '100', '50']);
     expect(seen[0].headers.get('prefer')).toMatch(/count=exact/);
     expect(q.get('select')).not.toMatch(/balance|saldo|cbu|cvu|raw_row/i);
     await listPendingPage(client, 'historical', 0);
     expect(seen[1].url.searchParams.get('is_historical')).toBe('eq.true');
+    // owner 2026-11-20: the tray shows the most recent first
+    await listPendingPage(client, 'current', 0, undefined, true);
+    expect(seen[2].url.searchParams.get('order')).toBe('business_date.desc,occurred_at.desc.nullslast,source_id.desc');
     expect(TARGET_VIEWS).toEqual(expect.arrayContaining(['fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status', 'fin_mp_unlinked_inflows', 'fin_mp_pending_summary']));
   });
   it('technical exceptions come from their own view', async () => {
@@ -149,13 +152,18 @@ describe('ADR-021 — activity and classification routes', () => {
     // the filter counts what the indicator counts: Pendientes current + historical, Entradas the current ones; both switchable
     expect(lista).toMatch(/const ALCANCE_INICIAL: Record<PendingFilter, PendingScopeFilter \| ''> = \{ MP_CLASIFICAR: '', GASTO_SIN_CLASIFICAR: '', ENTRADA_SIN_VINCULAR: 'CURRENT' \};/);
     expect(lista).toMatch(/\{ id: 'CURRENT', label: 'Actuales' \}, \{ id: 'HISTORICAL', label: 'Históricos' \}/);
-    const v = SRC('features/caja/PendientesClasificar.tsx');
-    expect(v).toMatch(/\{r\.is_historical \? <p className="text-xs text-\[#8A7A5C\]">\{HISTORICAL_ACTION\}<\/p> : \(/);   // no unsupported action on history
-    // ADR-025 stage 3: the same route, with the WhatsApp concept (when there is one) pre-filled
-    expect(v).toMatch(/\{r\.kind === 'OUTBOUND' && <ClasificarSalida sourceId=\{r\.source_id\} conceptoInicial=\{nota\?\.concept\} gastosMpPendientes=\{posibles\} \/>\}/);
-    expect(v).toMatch(/\{r\.kind === 'PAYOUT' && <DestinoRetiro r=\{actividad\} matches=\{matches\} \/>\}/);
+    // owner 2026-11-20: Pendientes de clasificar is a tray of the CURRENT outflows (history has no action; it is only counted)
+    const v = SRC('features/caja/BandejaPendientesMp.tsx');
+    expect(lista).toMatch(/pendiente === 'MP_CLASIFICAR' \? <BandejaPendientesMp \/> : /);
+    expect(v).toMatch(/usePendingPage\('current', pagina\)/);
+    expect(v).toMatch(/pago\(s\) históricos \(anteriores al corte\), sin acción por ahora/);
+    // ADR-025 stage 3: the WhatsApp concept (when there is one) pre-fills the new-expense concept
+    expect(v).toMatch(/conceptoInicial=\{nota\?\.concept \?\? ''\}/);
+    // a payout: its own-account transfer (then the only option), classifiable only without own-account match, else no action
+    expect(v).toMatch(/const clasificable = r\.kind === 'OUTBOUND' \|\| \(r\.kind === 'PAYOUT' && destino\?\.match_status === 'NO_OWN_ACCOUNT_MATCH'\);/);
     expect(v).not.toMatch(/CLASSIFY_INFLOW|ClasificarIngreso|summarizePending/);   // inflows are never a mandatory classification (ADR-023)
-    expect(v).toMatch(/aria-label="Revisión técnica"/);
+    expect(SRC('features/caja/PendientesClasificar.tsx')).toMatch(/aria-label="Revisión técnica"/);
+    expect(v).toMatch(/<RevisionTecnicaMp \/>/);
     const e = SRC('features/caja/EntradasSinVincular.tsx');
     expect(e).not.toMatch(/Vincular a cliente/);   // ADR-027: a collection is declared, never linked
     expect(e).not.toMatch(/raw_row|destination_value|PAYOUT_BANK_ACCOUNT_NUMBER/);
