@@ -7,6 +7,7 @@ import { MovimientosHistoricos } from './MovimientosHistoricos';
 import { TodasLasOperaciones } from './TodasLasOperaciones';
 import { TarjetasPorResolver } from './PorResolver';
 import { useLedgerBalances } from './useTreasury';
+import { useEstadoGuardado } from './useEstadoGuardado';
 
 const TIPO: Record<string, string> = { CASH: 'Efectivo', BANK_ACCOUNT: 'Banco', EXTERNAL_SERVICE: 'Servicio externo' };
 
@@ -22,7 +23,7 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
 }) {
   const cuentas = useFinancialAccounts();
   const saldos = useLedgerBalances('ACCOUNT');
-  const [cuentaId, setCuentaId] = useState('');
+  const [cuentaId, setCuentaId] = useEstadoGuardado('caja.operaciones.cuenta', '');   // owner 2026-11-24: kept across tabs / sections
   const [pendiente, setPendiente] = useState<PendingFilter | null>(null);
 
   if (cuentas.isLoading || saldos.isLoading) return <p className="text-sm text-gray-500">Cargando saldos...</p>;

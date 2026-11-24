@@ -79,9 +79,9 @@ describe('Caja — Todas las operaciones 0120: filters and Limpiar filtros', () 
     const t = readFileSync('src/features/caja/TodasLasOperaciones.tsx', 'utf8');
     // owner 2026-11-17: Excel-like column filters — every title but Importe / Acciones carries its drop-down
     expect([...t.matchAll(/(?:[^b]titulo="|opcion\(')([^"']+)|>(Importe|Acciones)<\/th>/g)].map((m) => m[1] ?? m[2]))
-      .toEqual(['Fecha', 'Tipo', 'Concepto', 'Categoría', 'Subcategoría', 'Naturaleza', 'Cuenta', 'Importe', 'Estado', 'Etiqueta', 'Acciones']);
+      .toEqual(['Fecha', 'Tipo', 'Concepto', 'Categoría', 'Subcategoría', 'Naturaleza', 'Cuenta', 'Importe', 'Estado', 'Etiqueta', 'Factura / comprobante', 'Acciones']);
     expect(t).not.toMatch(/grid-cols-2 md:grid-cols-4 xl:grid-cols-6/);   // the old filter panel is gone
-    expect(t).toMatch(/colSpan=\{11\}/);
+    expect(t).toMatch(/colSpan=\{12\}/);   // owner 2026-11-24: + Factura / comprobante
     expect(t).toMatch(/\.filter\(\(s\) => !filtros\.grupo \|\| s\.group_id === filtros\.grupo\)/);
     expect(t).toMatch(/'grupo' in cambio \? \{ subcategoria: '' \}/);
   });

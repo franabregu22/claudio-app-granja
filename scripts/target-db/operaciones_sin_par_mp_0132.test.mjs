@@ -154,9 +154,10 @@ expect('E5 no release («salida clasificada») is listed at all',
 expect('E6 the provisional rows listed are exactly the outflows still to classify',
   `(SELECT ((${LIST("p_search => 'MP-PENDING:', p_limit => 1")})->>'total')::int = (SELECT count(*) FROM mp_pending_outflow p WHERE NOT EXISTS (SELECT 1 FROM mp_pending_outflow_resolution r WHERE r.pending_id = p.id)))::text`, 'true');
 expect('E7 an OPERATOR is still refused', as('authenticated', OPER, 'SELECT fin_operation_list()::text'), 'ERR:FORBIDDEN%');
-expect('E8 identity and rights unchanged: definer, owner postgres, EXECUTE authenticated only',
-  `(SELECT p.prosecdef || '|' || pg_get_userbyid(p.proowner) || '|' || has_function_privilege('anon', p.oid, 'EXECUTE') || has_function_privilege('authenticated', p.oid, 'EXECUTE') || has_function_privilege('service_role', p.oid, 'EXECUTE') FROM pg_proc p WHERE p.oid = to_regprocedure('public.fin_operation_list(date,date,text,uuid,boolean,text,uuid,uuid,text,uuid,text,numeric,text,text,integer,integer,uuid,boolean)'))`,
-  'true|postgres|falsetruefalse');
+// one overload (0137 widened the identity with p_comprobante): rights as always
+expect('E8 one overload; rights unchanged: definer, owner postgres, EXECUTE authenticated only',
+  `(SELECT count(*) || '|' || bool_and(p.prosecdef) || '|' || min(pg_get_userbyid(p.proowner)) || '|' || bool_and(NOT has_function_privilege('anon', p.oid, 'EXECUTE')) || bool_and(has_function_privilege('authenticated', p.oid, 'EXECUTE')) || bool_and(NOT has_function_privilege('service_role', p.oid, 'EXECUTE')) FROM pg_proc p WHERE p.proname = 'fin_operation_list' AND p.pronamespace = 'public'::regnamespace)`,
+  '1|true|postgres|truetruetrue');
 add('ROLLBACK;');
 
 // ── run (rolled back) on the container behind the guarded local URL ─────────

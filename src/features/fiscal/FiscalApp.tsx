@@ -16,6 +16,7 @@ import type { FiscalPeriodRow } from '../../target/fiscal';
 import { Comprobantes } from '../caja/Comprobantes';
 import { useDocumentLinks } from '../caja/useInvoicePayments';
 import { NumeroInput } from '../../components/NumeroInput';
+import { repartirEnCuotas, sumarCuotas } from './cuotas';
 
 const TIPO: Record<FiscalDocumentType, string> = {
   INVOICE_A: 'Factura A', INVOICE_B: 'Factura B', INVOICE_C: 'Factura C', CREDIT_NOTE: 'Nota de crédito', DEBIT_NOTE: 'Nota de débito', RECEIPT: 'Recibo', OTHER: 'Otro',
@@ -245,14 +246,28 @@ function ObligacionModal({ onClose }: { onClose: () => void }) {
   const { obligation } = useFiscalMutations();
   const [impuesto, setImpuesto] = useState<TaxKind>('IVA');
   const [periodo, setPeriodo] = useState(getTodayDate().slice(0, 7));
-  const [monto, setMonto] = useState('');
+  const [montoEscrito, setMonto] = useState('');
   const [vence, setVence] = useState('');
-  const [cuotas, setCuotas] = useState<InstallmentInput[]>([]);
-  const setCuota = (i: number, patch: Partial<InstallmentInput>) => setCuotas((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
-  const puede = periodo !== '' && Number(monto) > 0 && cuotas.every((c) => c.amount > 0 && !!c.due_date);
+  // owner 2026-11-24: the amount of each instalment as typed (a string: «85550,25» keeps its comma while typing)
+  const [cuotas, setCuotas] = useState<{ monto: string; due_date: string }[]>([]);
+  // REPARTIR: the total split into equal instalments; SUMAR: the instalments typed one by one make the total
+  const [modo, setModo] = useState<'REPARTIR' | 'SUMAR'>('REPARTIR');
+  const setCuota = (i: number, patch: Partial<{ monto: string; due_date: string }>) => setCuotas((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const conCuotas = cuotas.length > 0;
+  const montosCuotas = !conCuotas ? [] : modo === 'REPARTIR' ? repartirEnCuotas(Number(montoEscrito), cuotas.length) : cuotas.map((c) => Number(c.monto) || 0);
+  const monto = conCuotas && modo === 'SUMAR' ? sumarCuotas(montosCuotas) : Number(montoEscrito);
+  const instalments: InstallmentInput[] = cuotas.map((c, i) => ({ installment_number: i + 1, amount: montosCuotas[i], due_date: c.due_date || null }));
+  const puede = periodo !== '' && monto > 0 && instalments.every((c) => c.amount > 0 && !!c.due_date);
+  // switching mode keeps the amounts on screen: into SUMAR the split parts become editable; into REPARTIR the sum becomes the total
+  const cambiarModo = (m: 'REPARTIR' | 'SUMAR') => {
+    if (m === modo) return;
+    if (m === 'SUMAR') setCuotas((cs) => cs.map((c, i) => ({ ...c, monto: montosCuotas[i] ? String(montosCuotas[i]) : '' })));
+    else if (monto > 0) setMonto(String(monto));
+    setModo(m);
+  };
   return (
     <Modal titulo="Registrar obligación fiscal" onClose={onClose} puedeGuardar={puede} guardando={obligation.isPending} error={obligation.error} textoGuardar="Registrar"
-      onSubmit={() => obligation.mutate({ taxKind: impuesto, fiscalPeriod: firstOfMonth(`${periodo}-01`), amount: Number(monto), dueDate: vence || null, installments: cuotas },
+      onSubmit={() => obligation.mutate({ taxKind: impuesto, fiscalPeriod: firstOfMonth(`${periodo}-01`), amount: monto, dueDate: vence || null, installments: instalments },
         { onSuccess: onClose })}>
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Impuesto
@@ -263,23 +278,46 @@ function ObligacionModal({ onClose }: { onClose: () => void }) {
         <label className={etiqueta}>Período<input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={campo} /></label>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Monto<NumeroInput min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>
+        <label className={etiqueta}>{conCuotas && modo === 'SUMAR' ? 'Monto (suma de las cuotas)' : 'Monto'}
+          {conCuotas && modo === 'SUMAR'
+            ? <input type="text" readOnly value={formatoPesos(monto)} className={`${campo} bg-stone-100`} aria-label="Monto total" />
+            : <NumeroInput min="0" step="0.01" value={montoEscrito} onChange={(e) => setMonto(e.target.value)} className={campo} />}
+        </label>
         <label className={etiqueta}>Vencimiento (opcional)<input type="date" value={vence} onChange={(e) => setVence(e.target.value)} className={campo} /></label>
       </div>
       <div>
         <div className="flex items-center justify-between">
           <p className={etiqueta}>Cuotas (opcional)</p>
-          <button type="button" onClick={() => setCuotas((cs) => [...cs, { installment_number: cs.length + 1, amount: 0, due_date: getTodayDate() }])}
-            className="text-xs text-[#A8552E] hover:underline">+ Agregar cuota</button>
+          <span className="flex items-center gap-3">
+            {conCuotas && <button type="button" onClick={() => setCuotas((cs) => cs.slice(0, -1))} className="text-xs text-[#8A7A5C] hover:underline">− Quitar cuota</button>}
+            <button type="button" onClick={() => setCuotas((cs) => [...cs, { monto: '', due_date: getTodayDate() }])}
+              className="text-xs text-[#A8552E] hover:underline">+ Agregar cuota</button>
+          </span>
         </div>
+        {conCuotas && (
+          <div className="flex gap-1 mt-2" role="group" aria-label="Cómo se cargan las cuotas">
+            {([['REPARTIR', 'Repartir el monto en cuotas iguales'], ['SUMAR', 'Cargar cada cuota y sumarlas']] as const).map(([m, t]) => (
+              <button key={m} type="button" aria-pressed={modo === m} onClick={() => cambiarModo(m)}
+                className={`flex-1 text-xs px-2 py-1.5 rounded border ${modo === m ? 'bg-[#3D3424] text-white border-[#3D3424]' : 'bg-white border-[#E4DCC8] text-[#6B5D45]'}`}>{t}</button>
+            ))}
+          </div>
+        )}
         {cuotas.map((c, i) => (
           <div key={i} className="grid grid-cols-3 gap-2 mt-2 items-end">
-            <p className="text-sm text-gray-700 pb-2">Cuota {c.installment_number}</p>
-            <label className="text-xs text-gray-600">Monto<NumeroInput min="0" step="0.01" value={c.amount} onChange={(e) => setCuota(i, { amount: Number(e.target.value) })} className={campo} /></label>
-            <label className="text-xs text-gray-600">Vence<input type="date" value={c.due_date ?? ''} onChange={(e) => setCuota(i, { due_date: e.target.value })} className={campo} /></label>
+            <p className="text-sm text-gray-700 pb-2">Cuota {i + 1}</p>
+            <label className="text-xs text-gray-600">Monto
+              {modo === 'REPARTIR'
+                ? <input type="text" readOnly value={montosCuotas[i] > 0 ? formatoPesos(montosCuotas[i]) : ''} className={`${campo} bg-stone-100`} />
+                : <NumeroInput min="0" step="0.01" value={c.monto} onChange={(e) => setCuota(i, { monto: e.target.value })} className={campo} />}
+            </label>
+            <label className="text-xs text-gray-600">Vence<input type="date" value={c.due_date} onChange={(e) => setCuota(i, { due_date: e.target.value })} className={campo} /></label>
           </div>
         ))}
-        {cuotas.length > 0 && <p className="text-xs text-gray-500 mt-1">Las cuotas deben sumar el monto de la obligación (lo verifica el sistema).</p>}
+        {conCuotas && (
+          <p className="text-xs text-gray-500 mt-1">
+            {modo === 'REPARTIR' ? 'El monto se reparte en partes iguales; los centavos que sobran van a la última cuota.' : 'El monto total es la suma de las cuotas.'}
+          </p>
+        )}
       </div>
     </Modal>
   );

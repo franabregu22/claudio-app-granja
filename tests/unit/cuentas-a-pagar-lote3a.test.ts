@@ -64,7 +64,6 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
     for (const s of ['Proveedores con deuda', 'Proveedores al día', 'Saldos a favor / anticipos']) expect(t).toContain(`titulo: '${s}'`);
     expect(t).toMatch(/useState<Tarjeta>\('DEUDA'\)/);
     expect(t).not.toMatch(/GastosAPagar titulo/);
-    expect(SRC('features/caja/SolapaPagar.tsx')).toMatch(/\{sub === 'proveedores' && <CuentasAPagar \/>\}/);   // 2026-11-17: the old freight list is gone
   });
   it('each supplier opens its ficha; paying more than the debt is an advance (credit), never an expense', () => {
     expect(t).toMatch(/\{open && <FichaProveedor cuenta=\{c\} \/>\}/);

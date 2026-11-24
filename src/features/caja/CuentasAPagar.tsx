@@ -53,14 +53,16 @@ export function CuentasAPagar() {
   const chequesPor = supplierChequeSummary(instrumentos.data ?? []);
   const chequesDe = (id: string) => chequesPor.get(id) ?? NO_CHEQUES;
   const de = (s: SupplierAccount['situation']) => cuentas.filter((c) => c.situation === s);
-  const deuda = de('DEUDA').sort((a, b) => b.balance - a.balance);
-  const alDia = de('AL_DIA');
+  // owner 2026-11-24: a supplier with own cheques / eCheqs still to be debited is not «al día»: it is listed with the debts
+  const conCheques = de('AL_DIA').filter((c) => chequesDe(c.supplier_id).pending > 0);
+  const deuda = [...de('DEUDA').sort((a, b) => b.balance - a.balance), ...conCheques];
+  const alDia = de('AL_DIA').filter((c) => chequesDe(c.supplier_id).pending <= 0);
   const aFavor = de('A_FAVOR').sort((a, b) => a.balance - b.balance);
   const suma = (xs: number[]) => xs.reduce((t, x) => t + x, 0);
-  const conCheques = alDia.filter((c) => chequesDe(c.supplier_id).pending > 0);
   const tarjetas: { id: Tarjeta; titulo: string; cantidad: number; detalle: string; tono: string }[] = [
-    { id: 'DEUDA', titulo: 'Proveedores con deuda', cantidad: deuda.length, detalle: `${formatoPesos(suma(deuda.map((c) => c.balance)))} a pagar`, tono: 'text-red-600' },
-    { id: 'AL_DIA', titulo: 'Proveedores al día', cantidad: alDia.length, detalle: conCheques.length > 0 ? `${conCheques.length} con cheques pendientes` : 'Saldo cero', tono: conCheques.length > 0 ? 'text-sky-800' : 'text-[#6B7A4E]' },
+    { id: 'DEUDA', titulo: 'Proveedores con deuda', cantidad: deuda.length,
+      detalle: `${formatoPesos(suma(de('DEUDA').map((c) => c.balance)))} a pagar${conCheques.length > 0 ? ` · ${conCheques.length} con cheques pendientes` : ''}`, tono: 'text-red-600' },
+    { id: 'AL_DIA', titulo: 'Proveedores al día', cantidad: alDia.length, detalle: 'Saldo cero, sin cheques pendientes', tono: 'text-[#6B7A4E]' },
     { id: 'A_FAVOR', titulo: 'Saldos a favor / anticipos', cantidad: aFavor.length, detalle: `${formatoPesos(suma(aFavor.map((c) => -c.balance)))} a favor`, tono: 'text-green-700' },
   ];
   const lista = tarjeta === 'DEUDA' ? deuda : tarjeta === 'AL_DIA' ? alDia : aFavor;

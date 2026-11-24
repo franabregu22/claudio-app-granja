@@ -38,7 +38,7 @@ const gastoDe = (todos: GastoItem[], root: string | null) => (root ? todos.find(
  * Pagar pays THAT item (cash / transfer, or own cheques / eCheqs when it has a supplier); "Cambiar forma de pago" replans what is open.
  * Every figure is the backend's; every action is its RPC with one idempotency key per opened form.
  */
-export function PendientesPagar() {
+export function PendientesPagar({ onProveedores, onCheques }: { onProveedores?: () => void; onCheques?: () => void } = {}) {
   const hoy = getTodayDate();
   const due = usePayablesDue();
   const gastos = useGastoItems();
@@ -74,7 +74,7 @@ export function PendientesPagar() {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2" role="group" aria-label="Totales (tocá una tarjeta para filtrar)">
+      <div className={`grid grid-cols-2 ${onProveedores ? 'sm:grid-cols-4 lg:grid-cols-7' : 'sm:grid-cols-5'} gap-2`} role="group" aria-label="Totales (tocá una tarjeta para filtrar)">
         {TARJETAS.map((x) => {
           const activa = tarjeta === x.id;
           const rojo = x.id === 'VENCIDO' && t.VENCIDO > 0;
@@ -86,6 +86,21 @@ export function PendientesPagar() {
             </button>
           );
         })}
+        {/* owner 2026-11-24: the supplier accounts (debt, advances, ficha) open from here (was «Ver también») */}
+        {onProveedores && (
+          <button type="button" onClick={onProveedores} title="Deuda, anticipos y ficha de cada proveedor"
+            className="text-left rounded-lg border px-3 py-2 bg-white border-[#E4DCC8] hover:border-[#A8552E]">
+            <p className="text-xs text-[#8A7A5C]">Proveedores</p>
+            <p className="font-bold text-[#A8552E]">Ver cuentas ›</p>
+          </button>
+        )}
+        {onCheques && (
+          <button type="button" onClick={onCheques} title="Cheques y eCheqs propios: anular, rechazar, reemplazar"
+            className="text-left rounded-lg border px-3 py-2 bg-white border-[#E4DCC8] hover:border-[#A8552E]">
+            <p className="text-xs text-[#8A7A5C]">Cheques emitidos</p>
+            <p className="font-bold text-[#A8552E]">Ver cheques ›</p>
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <select value={prov} onChange={(e) => setProv(e.target.value)} className="border border-[#E4DCC8] rounded-lg px-2 py-1 bg-white" aria-label="Proveedor">

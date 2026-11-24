@@ -19,9 +19,11 @@ import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
 import { campo, etiqueta, Modal } from './Modal';
 import { ImpuestoModal, ImpuestoPorPeriodo, TransferenciaModal, TransferenciasAnticipadas, VincularAnticipada } from './Transferencias';
-import { usePurchaseAttachments } from './useInvoicePayments';
+import { useComprobantesDeGastos, usePurchaseAttachments } from './useInvoicePayments';
+import type { FeedPurchaseExtra } from '../../target/alimento';
 import { useOperationList, useOperationTimeline, usePayFromRow } from './useOperations';
 import { usePagosRevertidos, useRevertirPago } from './useExpenses';
+import { useEstadoGuardado } from './useEstadoGuardado';
 import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, useSuppliers, useTransferIntents } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
 import { NumeroInput } from '../../components/NumeroInput';
@@ -46,9 +48,10 @@ interface Filtros {
   desde: string; hasta: string; tipo: OperationTipo | ''; cuenta: string; estado: OperationEstado | 'POR_REVISAR' | ''; grupo: string; subcategoria: string;
   naturaleza: OperationNature | ''; proveedor: string; buscar: string; orden: 'FECHA' | 'CARGA';
   etiqueta: string;   // 0127: '' todas, 'SIN' sin etiqueta, else a tag id
+  comprobante: 'CON' | 'SIN' | '';   // 0137: expenses with / without an invoice number or file
 }
 export const FILTROS_VACIOS: Filtros = {
-  desde: '', hasta: '', tipo: '', cuenta: '', estado: '', grupo: '', subcategoria: '', naturaleza: '', proveedor: '', buscar: '', orden: 'FECHA', etiqueta: '',
+  desde: '', hasta: '', tipo: '', cuenta: '', estado: '', grupo: '', subcategoria: '', naturaleza: '', proveedor: '', buscar: '', orden: 'FECHA', etiqueta: '', comprobante: '',
 };
 /** The server filter of a set of owner filters ("SIN" = Sin asignar). */
 export function filtroServidor(f: Filtros, recientes: boolean): OperationFilter {
@@ -57,6 +60,7 @@ export function filtroServidor(f: Filtros, recientes: boolean): OperationFilter 
     sinCuenta: f.cuenta === 'SIN', estado: f.estado || undefined, groupId: f.grupo || undefined, categoryId: f.subcategoria || undefined,
     nature: f.naturaleza || undefined, supplierId: f.proveedor || undefined, search: f.buscar || undefined, order: recientes ? 'CARGA' : f.orden,
     tagId: f.etiqueta && f.etiqueta !== 'SIN' ? f.etiqueta : undefined, sinEtiqueta: f.etiqueta === 'SIN',
+    comprobante: f.comprobante || undefined,
   };
 }
 export const hayFiltros = (f: Filtros) => JSON.stringify(f) !== JSON.stringify(FILTROS_VACIOS);
@@ -71,10 +75,11 @@ export const hayFiltros = (f: Filtros) => JSON.stringify(f) !== JSON.stringify(F
 export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, onFocus }: {
   cuentas: FinancialAccountRow[]; cuentaId: string; onCuenta: (id: string) => void; focus: string | null; onFocus: (key: string | null) => void;
 }) {
-  const [f, setF] = useState<Filtros>({ ...FILTROS_VACIOS, cuenta: cuentaId });
-  const [texto, setTexto] = useState('');
+  // owner 2026-11-24: the filters, the search and the page survive a change of tab or section (a saved set gains any newer filter empty)
+  const [f, setF] = useEstadoGuardado<Filtros>('caja.operaciones.filtros', () => ({ ...FILTROS_VACIOS, cuenta: cuentaId }), (g) => ({ ...FILTROS_VACIOS, ...g }));
+  const [texto, setTexto] = useEstadoGuardado('caja.operaciones.texto', '');
   const tags = useEtiquetasDeGastos();   // 0127: purchase id → its tag (the column «Etiqueta»)
-  const [pagina, setPagina] = useState(0);
+  const [pagina, setPagina] = useEstadoGuardado('caja.operaciones.pagina', 0);
   const [detalle, setDetalle] = useState<OperationRow | null>(null);
   const [revertir, setRevertir] = useState<OperationRow | null>(null);   // 0130
   const revertidos = usePagosRevertidos();
@@ -95,7 +100,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const focus = recientes ? null : foco;
   const lista = useOperationList(filtroServidor(filtros, recientes), pagina, focus);
   const filas = lista.data?.rows ?? [];
-  const adjuntos = usePurchaseAttachments(filas.flatMap((r) => (r.purchase_id ? [r.purchase_id] : [])));
+  const comprobantes = useComprobantesDeGastos(filas.flatMap((r) => (r.purchase_id ? [{ purchase_id: r.purchase_id, purchase_root_id: r.purchase_root_id ?? r.purchase_id }] : [])));
   const total = lista.data?.total ?? 0;
   const poner = (cambio: Partial<Filtros>) => {
     setF((x) => ({ ...x, ...cambio, ...('grupo' in cambio ? { subcategoria: '' } : {}) }));
@@ -156,6 +161,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
         [{ v: 'PENDIENTE', t: 'Pendientes' }, { v: 'COMPLETADA', t: 'Pagadas / cobradas / realizadas' }, { v: 'POR_REVISAR', t: 'Por revisar' }])}</th>
       {/* owner 2026-11-18: Etiqueta between Estado and Acciones */}
       <th className={TH}>{opcion('Etiqueta', filtros.etiqueta, (v) => poner({ etiqueta: v }), [{ v: 'SIN', t: 'Sin etiqueta' }, ...(etiquetas.data ?? []).map((e) => ({ v: e.id, t: e.nombre }))], 'Todas')}</th>
+      {/* owner 2026-11-24: the invoice number and the uploaded invoice / receipt of each expense, in its own column */}
+      <th className={TH}>{opcion('Factura / comprobante', filtros.comprobante, (v) => poner({ comprobante: v as Filtros['comprobante'] }),
+        [{ v: 'CON', t: 'Con comprobante' }, { v: 'SIN', t: 'Sin comprobante' }])}</th>
       <th className={TH}>Acciones</th>
     </tr></thead>
   );
@@ -210,13 +218,13 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
               {encabezado}
               <tbody>
                 {filas.length === 0 && (
-                  <tr><td colSpan={11} className="px-3 py-4 text-sm text-[#8A7A5C]">
+                  <tr><td colSpan={12}className="px-3 py-4 text-sm text-[#8A7A5C]">
                     {focus ? 'La operación todavía no aparece. Probá con “Cargadas recientemente”.' : 'No hay operaciones con estos filtros.'}
                   </td></tr>
                 )}
                 {filas.map((r) => (
                   <Fila key={r.row_key} r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
-                    docs={r.purchase_id ? adjuntos.data?.get(r.purchase_id) : undefined}
+                    comprobante={r.purchase_id ? comprobantes.data?.get(r.purchase_root_id ?? r.purchase_id) : undefined}
                     onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onDetalle={() => setDetalle(r)}
                     revertido={r.retiro ? retiroAnulado(r, compensados.data) : r.operation_id !== null && !!revertidos.data?.has(r.operation_id)}
                     revertible={r.retiro ? retiroAnulable(r, cuentas, compensados.data)
@@ -263,12 +271,12 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   );
 }
 
-/** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Naturaleza | Etiqueta | Cuenta | Importe | Estado | Acciones. No drop-down
+/** ONE line: Fecha | Tipo | Concepto | Categoría | Subcategoría | Naturaleza | Cuenta | Importe | Estado | Etiqueta | Factura / comprobante | Acciones. No drop-down
  * (owner 2026-11-17): an expense is corrected in its cells (double click), an unclassified Mercado Pago outflow is classified from its
  * subcategory cell; Acciones: Registrar pago, the invoice, the history and «⋯» (the full detail: supplier / invoice number, rectify
  * items, annul, payments, cheques, transfer, transfer). An unclassified Mercado Pago outflow is classified only from its cell. */
-function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
-  r: OperationRow; etiqueta?: string; destacada: boolean; docs: Parameters<typeof Comprobantes>[0]['docs']; onPagar: () => void; onHistorial: () => void;
+function Fila({ r, etiqueta, destacada, comprobante, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
+  r: OperationRow; etiqueta?: string; destacada: boolean; comprobante: FeedPurchaseExtra | undefined; onPagar: () => void; onHistorial: () => void;
   onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
@@ -309,12 +317,19 @@ function Fila({ r, etiqueta, destacada, docs, onPagar, onHistorial, onDetalle, e
       <td className={`${TD}${cls('etiqueta')}`} {...alDoble('etiqueta')}>
         {celda('etiqueta', r.purchase_id ? (etiqueta ? <ChipEtiqueta nombre={etiqueta} /> : <span className="text-xs text-[#8A7A5C]">Sin etiqueta</span>) : NADA)}</td>
       <td className={TD}>
+        {comprobante && (comprobante.numero || comprobante.docs.length > 0) ? (
+          <span className="flex items-center gap-1">
+            {comprobante.numero && <span className="text-xs text-[#2C2419] max-w-[8rem] truncate" title={`Factura ${comprobante.numero}`}>{comprobante.numero}</span>}
+            <Comprobantes docs={comprobante.docs} compacto />
+          </span>
+        ) : r.purchase_id ? <span className="text-xs text-[#8A7A5C]">Sin comprobante</span> : NADA}
+      </td>
+      <td className={TD}>
         <span className="flex items-center gap-1">
           {revertible && (r.retiro
             ? <button type="button" onClick={onRevertir} title="Anular retiro (el dinero vuelve a la cuenta)" aria-label="Anular retiro" className={icono}><Undo2 className="w-4 h-4" /></button>
             : <button type="button" onClick={onRevertir} title="Revertir pago (vuelve a pendiente)" aria-label="Revertir pago" className={icono}><Undo2 className="w-4 h-4" /></button>)}
           {pagable !== null && <button type="button" onClick={onPagar} className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar pago</button>}
-          <Comprobantes docs={docs} compacto />
           <button type="button" onClick={onHistorial} title="Historial de cambios" aria-label="Historial de cambios" className={icono}><History className="w-4 h-4" /></button>
           <button type="button" onClick={onDetalle} title="Más: proveedor y factura, anular, pagos, cheques…" aria-label="Más" className={icono}><MoreHorizontal className="w-4 h-4" /></button>
         </span>

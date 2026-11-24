@@ -20,6 +20,7 @@ export interface OperationFilter {
   from?: string; to?: string; tipo?: OperationTipo; accountId?: string; sinCuenta?: boolean; estado?: OperationEstado | 'POR_REVISAR'; search?: string;
   order?: 'FECHA' | 'CARGA'; groupId?: string; categoryId?: string; nature?: OperationNature; supplierId?: string;
   tagId?: string; sinEtiqueta?: boolean;   // 0127: rows of expenses with that tag / without a tag
+  comprobante?: 'CON' | 'SIN';   // 0137: rows of expenses with / without an invoice number or file
 }
 export interface OperationAccount { account_id: string; account_name: string; signed_amount: number | null }
 export interface PendienteGasto { total: number; pagado: number; pendiente: number; vence: string | null; estimada: string | null }
@@ -90,6 +91,8 @@ export async function listOperations(client: SupabaseClient, f: OperationFilter,
     p_estado: f.estado || null, p_group_id: f.groupId || null, p_category_id: f.categoryId || null, p_nature: f.nature || null, p_supplier_id: f.supplierId || null,
     p_search: search, p_amount: search ? parseAmountSearch(search) : null, p_order: f.order ?? 'FECHA',
     p_focus: focus, p_limit: pageSize, p_offset: page * pageSize, p_tag_id: f.tagId || null, p_sin_etiqueta: !!f.sinEtiqueta,
+    // 0137: sent only when set, so the list keeps working against a database still before 0137
+    ...(f.comprobante ? { p_comprobante: f.comprobante } : {}),
   });
   const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {

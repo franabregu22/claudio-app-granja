@@ -24,12 +24,12 @@ describe('Caja — the five tabs', () => {
   it('every old screen has one door: the tabs, Todas las operaciones (transfers and expenses), a Por resolver filter, or Cuentas corrientes', () => {
     const tlo = SRC('features/caja/TodasLasOperaciones.tsx');
     for (const [src, tag] of [
-      [app, '<Movimientos '], [app, '<SolapaPagar '], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
+      [app, '<Movimientos '], [app, '<SolapaPagar />'], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
       [tlo, '<TransferenciaModal '], [tlo, '<ImpuestoModal '], [tlo, '<VincularAnticipada '], [tlo, '<TransferenciasAnticipadas />'], [tlo, '<ImpuestoPorPeriodo />'],
       [tlo, '<DetalleGasto '], [tlo, '<ModalesGasto '],
       [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "id: 'ENTRADA_SIN_VINCULAR'"],
       [lista, '<BandejaPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionEntrada '],
-      [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],
+      [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],   // owner 2026-11-24: from their cards (no «Ver también»)
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
     ] as const) expect(src.split(tag).length - 1, tag).toBe(1);
   });

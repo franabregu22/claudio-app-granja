@@ -95,10 +95,11 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
   const pagar = SRC('features/caja/SolapaPagar.tsx');
   const gastos = SRC('features/caja/Gastos.tsx');
   const compras = SRC('features/caja/Compras.tsx');
-  it('caja-mejoras-v2 (0121): Pendientes by default; supplier accounts and issued cheques stay reachable under "Ver también"', () => {
-    expect([...pagar.matchAll(/\{ id: '[\w-]+', label: '([^']+)' \}/g)].map((m) => m[1])).toEqual(['Proveedores', 'Cheques emitidos']);
-    expect(pagar).toContain("{sub === 'pendientes' && <PendientesPagar />}");
-    expect(app).toMatch(/useState<SubPagar>\('pendientes'\)/);
+  it('caja-mejoras-v2 (0121): Cuentas a pagar is the pending list; owner 2026-11-24: no «Ver también» strip', () => {
+    expect(pagar).toContain("<PendientesPagar onProveedores={() => setVista('proveedores')} onCheques={() => setVista('emitidos')} />");
+    expect(pagar).toContain('<CuentasAPagar />');   // the supplier accounts open from the «Proveedores» card
+    expect(pagar).not.toMatch(/Ver también[^»]/);
+    expect(app).toContain("{vista === 'pagar' && <SolapaPagar />}");
     for (const old of ['GastosAPagar', 'PagosFacturas', "'pagosfactura'", '<Compras />']) expect(pagar + app).not.toContain(old);
   });
   it('the floating "Nuevo gasto" button lives at Caja level (every tab) and opens the existing purchase form', () => {

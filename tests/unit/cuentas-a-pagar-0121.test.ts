@@ -61,7 +61,7 @@ describe('Cuentas a pagar → Pendientes (0121)', () => {
   });
   it('wiring: the real list in Cuentas a pagar, each action is its RPC (no direct writes)', () => {
     const ui = SRC('features/caja/PendientesPagar.tsx');
-    expect(SRC('features/caja/SolapaPagar.tsx')).toContain("{sub === 'pendientes' && <PendientesPagar />}");
+    expect(SRC('features/caja/SolapaPagar.tsx')).toContain('<PendientesPagar onProveedores=');
     expect(ui).not.toMatch(/\.insert\(|\.update\(|\.delete\(|\.rpc\(/);
     for (const call of ['m.payItem.mutateAsync', 'm.chequesItem.mutateAsync', 'm.chequesObligation.mutateAsync', 'm.payInvoice.mutateAsync', 'm.payPending.mutateAsync', 'm.plan.mutateAsync'])
       expect(ui, call).toContain(call);

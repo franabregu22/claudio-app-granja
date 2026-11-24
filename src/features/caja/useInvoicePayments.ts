@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { readTable } from '../../target/db';
 import { attachInstrumentDocument, listDocumentLinks, uploadErpDocument, type DocumentTargetKind, type ErpDocumentInput, type ViewableDocument } from '../../target/documents';
 import { removeAttachments } from '../../target/attachments';
+import { listFeedPurchaseExtras } from '../../target/alimento';
 import {
   allocatePurchasePayment, issuePurchaseInstruments, listDebitedInstruments, listInvoicePaymentDetail, listInvoicePaymentStatus,
   listSupplierInvoices, listSupplierPayments, monthRange, type InstrumentToIssue,
@@ -11,6 +12,17 @@ import {
 /** ADR-025 stage 4: documents of the visible records (one request per list). */
 export function useDocumentLinks(kind: DocumentTargetKind, ids: string[]) {
   return useQuery({ queryKey: ['documents', kind, [...ids].sort().join(',')], queryFn: () => listDocumentLinks(supabase, kind, ids), enabled: ids.length > 0 });
+}
+/**
+ * Owner 2026-11-24 (column «Factura / comprobante» of Todas las operaciones): the invoice number and the files of each expense, keyed by
+ * purchase_root_id — the version in force and the original one (a rectified expense keeps the file uploaded with its first version).
+ */
+export function useComprobantesDeGastos(compras: { purchase_root_id: string; purchase_id: string }[]) {
+  const ids = [...new Set(compras.flatMap((c) => [c.purchase_root_id, c.purchase_id]))].sort();
+  return useQuery({
+    queryKey: ['documents', 'comprobantes-gastos', ids.join(',')], enabled: ids.length > 0,
+    queryFn: () => listFeedPurchaseExtras(supabase, compras),
+  });
 }
 /** The files of purchases (purchase_attachment: ERP uploads and WhatsApp receipts alike). */
 export function usePurchaseAttachments(purchaseIds: string[]) {

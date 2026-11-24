@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { useAuth } from '../../auth/useAuth';
 import { Movimientos } from './Movimientos';
-import { SolapaPagar, type SubPagar } from './SolapaPagar';
+import { SolapaPagar } from './SolapaPagar';
 import { ExtractosBancarios } from './ExtractosBancarios';
 import { CalendarioPagos } from './CalendarioPagos';
 import { usePendingSummary } from './useMpActivity';
@@ -15,7 +15,7 @@ type Vista = 'movimientos' | 'pagar' | 'cartera' | 'calendario' | 'extractos' | 
 const VISTAS: { id: Vista; label: string }[] = [
   { id: 'movimientos', label: 'Movimientos' },   // balances, Por resolver and Todas las operaciones (expenses, invoices, transfers and their actions)
   { id: 'analisis', label: 'Análisis' },   // owner 2026-11-18: the cash flow (0122) moved here from Movimientos; second tab
-  { id: 'pagar', label: 'Cuentas a pagar' },   // 0121: every pending due item (Proveedores and Cheques emitidos still reachable inside)
+  { id: 'pagar', label: 'Cuentas a pagar' },   // 0121: every pending due item (owner 2026-11-24: no «Ver también» strip)
   { id: 'cartera', label: 'Cartera de cheques' },   // 0123: client cheques held — deposit / credit, or endorse against a supplier's due item
   { id: 'calendario', label: 'Calendario' },   // Lote 3B (0110): every future commitment once; debited apart (was Vencimientos, 0104)
   { id: 'extractos', label: 'Extractos' },
@@ -29,7 +29,6 @@ const VISTAS: { id: Vista; label: string }[] = [
 export function CajaApp() {
   const { rol } = useAuth();
   const [vista, setVista] = useState<Vista>('movimientos');
-  const [subPagar, setSubPagar] = useState<SubPagar>('pendientes');
   const [nuevoGasto, setNuevoGasto] = useState(false);
   const [foco, setFoco] = useState<string | null>(null);   // 0119: the row of a just-recorded operation in Todas las operaciones
   const [registrado, setRegistrado] = useState<{ texto: string; clave: string | null } | null>(null);
@@ -78,7 +77,7 @@ export function CajaApp() {
             </div>
           )}
           {vista === 'movimientos' && <Movimientos onIrAExtractos={() => setVista('extractos')} focus={foco} onFocus={setFoco} />}
-          {vista === 'pagar' && <SolapaPagar sub={subPagar} onSub={setSubPagar} />}
+          {vista === 'pagar' && <SolapaPagar />}
           {vista === 'cartera' && <CarteraCheques />}
           {vista === 'calendario' && <CalendarioPagos />}
           {vista === 'extractos' && <ExtractosBancarios />}
