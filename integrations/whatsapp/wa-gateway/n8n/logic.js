@@ -83,6 +83,13 @@ const WA = (() => {
   const money = (v) => { const [i, d] = Number(v).toFixed(2).split('.'); return '$ ' + i.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + d; };
   const ddmmyyyy = (iso) => String(iso || '').split('-').reverse().join('/');
   const METHOD = { CASH: 'Efectivo', TRANSFER: 'Transferencia', MERCADOPAGO: 'Mercado Pago' };
+  /** owner 2026-11-20: the ERP's refusals at confirmation, in plain words (nothing was recorded); the code never reaches the user alone */
+  const CONFIRM_ERR = [
+    [/DUPLICATE_FISCAL_DOCUMENT|DUPLICATE_INVOICE/, (c) => `No registré ${c}: esa factura ya está cargada en el ERP (mismo emisor y mismo número). Si es la misma, escribí "cancelar" y no se carga dos veces. Si es otra factura, decime el número correcto.`],
+    [/PERIOD_CLOSED|PERIOD_NOT_OPEN/, (c) => `No registré ${c}: el mes de esa fecha ya está cerrado en el ERP. Decime otra fecha o escribí "cancelar".`],
+    [/INVALID_FISCAL_DOCUMENT/, (c) => `No registré ${c}: los datos de la factura no cierran (neto, IVA y total). Revisalos y decime qué corregir, o respondé "sin factura".`],
+    [/FISCAL_PERIOD_DECLARED/, (c) => `No registré ${c}: el IVA de ese mes ya está declarado. Decime otra fecha, respondé "sin factura" o escribí "cancelar".`],
+  ];
   const ERR = {
     WA_OPEN_DRAFT_EXISTS: 'Ya tenés un borrador abierto. Confirmalo, mandá la corrección o escribí "cancelar".',
     WA_VERSION_CHANGED: 'Ese botón es de una versión anterior. Usá el del último resumen.',
@@ -212,7 +219,8 @@ const WA = (() => {
         ? `No se registró ${r.short_code || ''}: la subcategoría elegida ya no está disponible en el ERP. Decime cuál usar (el resto del gasto se mantiene) o escribí "cancelar".`
         : /^WA_ACCOUNT_NOT_SELECTABLE/.test(e)   // the paying account was disabled after the proposal
           ? `No se registró ${r.short_code || ''}: la cuenta elegida ya no está habilitada en el ERP. Decime desde qué cuenta lo pagaste (el resto del gasto se mantiene) o escribí "cancelar".`
-          : `No se pudo registrar ${r.short_code || ''}: ${e.slice(0, 120)}.\nDecime qué corregir o escribí "cancelar".`;
+          : CONFIRM_ERR.find(([re]) => re.test(e))?.[1](r.short_code || '')
+            ?? `No se pudo registrar ${r.short_code || ''} (${e.split(':')[0].slice(0, 60) || 'error del ERP'}).\nDecime qué corregir o escribí "cancelar".`;
       return { graph: text(ctx.to, body), state: { ...st, open } };
     }
     if (r.already_confirmed) return { graph: text(ctx.to, `${r.short_code} ya estaba registrado.`), state: drop(st, r.draft_id) };

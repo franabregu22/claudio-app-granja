@@ -100,9 +100,13 @@ const WAR = (() => {
   function knownIssuerCuit(name, known) {
     const read = new Set(issuerWords(name)); if (!read.size) return null;
     const hits = new Set();
+    // either name may be the short one («POZZO ARDIZZI S.A.» read, «EESS RUTA 3 de POZZO ARDIZZI S.A.» known, or the reverse): the
+    // shorter one must be specific (≥ 2 words or ≥ 6 letters) and wholly inside the other; one CUIT only, else nothing is assumed
+    const enough = (ws) => ws.length >= 2 || ws.join('').length >= 6;
+    const rw = [...read];
     for (const [k, c] of Object.entries(known || {})) {
-      const kw = issuerWords(k), cv = cuitValid(c);
-      if (cv && (kw.length >= 2 || kw.join('').length >= 6) && kw.every((w) => read.has(w))) hits.add(cv);
+      const kw = issuerWords(k), cv = cuitValid(c), ks = new Set(kw);
+      if (cv && ((enough(kw) && kw.every((w) => read.has(w))) || (enough(rw) && rw.every((w) => ks.has(w))))) hits.add(cv);
     }
     return hits.size === 1 ? [...hits][0] : null;
   }

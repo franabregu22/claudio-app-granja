@@ -227,3 +227,18 @@ test('L4-L5 the real W-0015 conversation: a CUIT inside a longer message keeps t
   assert.match(c.graph.text.body, /^✏️ Anoté pago Efectivo \(Caja chica\)\.\n\nMe falta:\n• ¿Con qué concepto/);
   assert.doesNotMatch(c.graph.text.body, /Borrador W-0015/);
 });
+
+test('L-11 owner 2026-11-20: an ERP refusal at confirmation reads in plain words (a duplicate invoice), never the bare code', () => {
+  const D = 'd-18'; const cfg = CFG;
+  const dup = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 1 } }, 200,
+    { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0018', error: 'DUPLICATE_FISCAL_DOCUMENT' } }, null, cfg);
+  assert.match(dup.graph.text.body, /^No registré W-0018: esa factura ya está cargada en el ERP \(mismo emisor y mismo número\)\. Si es la misma, escribí "cancelar"/);
+  assert.doesNotMatch(dup.graph.text.body, /DUPLICATE_FISCAL_DOCUMENT/);
+  assert.equal(dup.state.open.state, 'FAILED');
+  const closed = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 1 } }, 200,
+    { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0018', error: 'PERIOD_CLOSED: 2026-10' } }, null, cfg);
+  assert.match(closed.graph.text.body, /el mes de esa fecha ya está cerrado/);
+  const other = WA.compose({ to: '1', request: { action: 'confirm', draft_id: D, expected_version: 1 } }, 200,
+    { ok: true, result: { ok: false, draft_id: D, short_code: 'W-0018', error: 'SOMETHING_NEW: detail' } }, null, cfg);
+  assert.match(other.graph.text.body, /^No se pudo registrar W-0018 \(SOMETHING_NEW\)\./);
+});

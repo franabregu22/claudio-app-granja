@@ -181,6 +181,11 @@ test('RC-H1 owner decision 2026-11-19: an unread issuer CUIT comes from earlier 
   assert.equal(WAR.knownIssuerCuit('Pozzo Hnos', known), null);                 // not every word of a known name
   assert.equal(WAR.knownIssuerCuit('Estación YPF Ruta 5', known), null);         // a single short word is not enough
   assert.equal(WAR.knownIssuerCuit('Pozzo Ardizzi', { ...known, 'Pozzo Ardizzi SRL': '20123456786' }), null);   // two CUITs → asked
+  // 2026-11-20 (real W-0016): the invoice reads the SHORT name, the known one is the long one
+  const longKnown = { 'EESS RUTA 3 de POZZO ARDIZZI S.A.': '30708086831', 'YPF S.A.': '30546689979' };
+  assert.equal(WAR.knownIssuerCuit('POZZO ARDIZZI S.A.', longKnown), '30708086831');
+  assert.equal(WAR.knownIssuerCuit('Ruta', longKnown), null);                    // a single short word read is not enough
+  assert.equal(WAR.knownIssuerCuit('YPF', longKnown), null);
   const inv = { document_type: 'INVOICE_A', issuer_name: 'EESS RUTA 3 de POZZO ARDIZZI S.A.', issuer_cuit: null, net: 1000, total: 1210,
     iva: [{ rate: 21, base: 1000, amount: 210 }], receiver_cuit: OWN };
   const d = go(R(inv), 'gasoil', { knownIssuers: known });
