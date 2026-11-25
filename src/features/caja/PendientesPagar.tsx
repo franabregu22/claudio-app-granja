@@ -38,7 +38,8 @@ const gastoDe = (todos: GastoItem[], root: string | null) => (root ? todos.find(
  * Pagar pays THAT item (cash / transfer, or own cheques / eCheqs when it has a supplier); "Cambiar forma de pago" replans what is open.
  * Every figure is the backend's; every action is its RPC with one idempotency key per opened form.
  */
-export function PendientesPagar({ onProveedores, onCheques }: { onProveedores?: () => void; onCheques?: () => void } = {}) {
+export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onProveedores?: () => void; onCheques?: () => void; onAnulados?: () => void } = {}) {
+  const anulados = useAnnulments();
   const hoy = getTodayDate();
   const due = usePayablesDue();
   const gastos = useGastoItems();
@@ -74,7 +75,7 @@ export function PendientesPagar({ onProveedores, onCheques }: { onProveedores?: 
 
   return (
     <div className="space-y-3">
-      <div className={`grid grid-cols-2 ${onProveedores ? 'sm:grid-cols-4 lg:grid-cols-7' : 'sm:grid-cols-5'} gap-2`} role="group" aria-label="Totales (tocá una tarjeta para filtrar)">
+      <div className={`grid grid-cols-2 ${onProveedores ? 'sm:grid-cols-4 lg:grid-cols-8' : 'sm:grid-cols-5'} gap-2`} role="group" aria-label="Totales (tocá una tarjeta para filtrar)">
         {TARJETAS.map((x) => {
           const activa = tarjeta === x.id;
           const rojo = x.id === 'VENCIDO' && t.VENCIDO > 0;
@@ -99,6 +100,14 @@ export function PendientesPagar({ onProveedores, onCheques }: { onProveedores?: 
             className="text-left rounded-lg border px-3 py-2 bg-white border-[#E4DCC8] hover:border-[#A8552E]">
             <p className="text-xs text-[#8A7A5C]">Cheques emitidos</p>
             <p className="font-bold text-[#A8552E]">Ver cheques ›</p>
+          </button>
+        )}
+        {/* owner 2026-11-25: the annulled expenses as a card (was a folded list at the bottom) */}
+        {onAnulados && (
+          <button type="button" onClick={onAnulados} title="Gastos anulados: tachados, con quién, cuándo y por qué"
+            className="text-left rounded-lg border px-3 py-2 bg-white border-[#E4DCC8] hover:border-[#A8552E]">
+            <p className="text-xs text-[#8A7A5C]">Anulados{anulados.data ? ` · ${anulados.data.length}` : ''}</p>
+            <p className="font-bold text-[#A8552E]">Ver anulados ›</p>
           </button>
         )}
       </div>
@@ -189,7 +198,6 @@ export function PendientesPagar({ onProveedores, onCheques }: { onProveedores?: 
         );
       })}
 
-      <Anulados />
 
       {pagando && <PagarModal r={pagando} g={gastoDe(gastos.todos, pagando.purchase_root_id)} onClose={() => setPagando(null)} />}
       {plan && <PlanModal r={plan} abierto={todas.filter((x) => x.purchase_root_id === plan.purchase_root_id && !esChequeFila(x)).reduce((s, x) => s + x.amount, 0)}
@@ -305,14 +313,15 @@ function PlanModal({ r, abierto, conPlan, onClose }: { r: PayableDueRow; abierto
   );
 }
 
-/** 0124: the annulled expenses, struck through, with who, when and why (nothing is deleted). */
-function Anulados() {
+/** 0124: the annulled expenses, struck through, with who, when and why (nothing is deleted). Owner 2026-11-25: opened from its card. */
+export function Anulados() {
   const q = useAnnulments();
   const xs = q.data ?? [];
-  if (xs.length === 0) return null;
+  if (q.isLoading) return <p className="text-sm text-gray-500">Cargando anulados…</p>;
+  if (xs.length === 0) return <p className="text-sm text-[#8A7A5C]">No hay gastos anulados.</p>;
   return (
-    <details className="pt-2">
-      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-[#8A7A5C]">Anulados · {xs.length}</summary>
+    <section>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-[#8A7A5C]">Anulados · {xs.length}</h3>
       <ul className="mt-1 bg-white rounded-lg border border-[#E4DCC8] divide-y divide-[#F0EADC]">
         {xs.map((a) => (
           <li key={a.annulment_id} className="px-3 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -322,6 +331,6 @@ function Anulados() {
           </li>
         ))}
       </ul>
-    </details>
+    </section>
   );
 }

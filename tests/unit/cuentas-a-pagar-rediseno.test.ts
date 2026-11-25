@@ -96,7 +96,7 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
   const gastos = SRC('features/caja/Gastos.tsx');
   const compras = SRC('features/caja/Compras.tsx');
   it('caja-mejoras-v2 (0121): Cuentas a pagar is the pending list; owner 2026-11-24: no «Ver también» strip', () => {
-    expect(pagar).toContain("<PendientesPagar onProveedores={() => setVista('proveedores')} onCheques={() => setVista('emitidos')} />");
+    expect(pagar).toContain("<PendientesPagar onProveedores={() => setVista('proveedores')} onCheques={() => setVista('emitidos')} onAnulados={() => setVista('anulados')} />");
     expect(pagar).toContain('<CuentasAPagar />');   // the supplier accounts open from the «Proveedores» card
     expect(pagar).not.toMatch(/Ver también[^»]/);
     expect(app).toContain("{vista === 'pagar' && <SolapaPagar />}");
