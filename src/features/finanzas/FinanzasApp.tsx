@@ -11,6 +11,10 @@ import { useExpenseCategories } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
 import { EVENTO_LABEL, EventoGestionModal, useManagementEvents } from './EventoGestionModal';
 import { TendenciaMeses } from './TendenciaMeses';
+import { formatearFechaLocal } from '../../utils/dateUtils';
+import { usePendingSummary } from '../caja/useMpActivity';
+import { mandatoryPending } from '../../target/pendingClassification';
+import { MP_CORTE } from '../../target/cashOpening';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const mesCorto = (period: string) => `${MESES[Number(period.slice(5, 7)) - 1]}-${period.slice(2, 4)}`.toUpperCase();
@@ -32,7 +36,9 @@ const PNL = ['pnl'];
  * (retiros / reservas internas, ADR-004 D9) are registered only through register_management_event. The monthly trend
  * is the single TendenciaMeses presentation over pnl_summary (P27-D2); the legacy cash-flow formula is retired.
  */
-export function FinanzasApp() {
+export function FinanzasApp({ onIrAClasificar }: { onIrAClasificar?: () => void } = {}) {
+  const pendientesMp = usePendingSummary();
+  const sinClasificar = pendientesMp.data ? mandatoryPending(pendientesMp.data) : null;
   const { rol } = useAuth();
   const hoy = getTodayDate();
   const [meses, setMeses] = useState(6);
@@ -74,6 +80,17 @@ export function FinanzasApp() {
 
           <section>
             <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-3">Estado de resultados (devengado)</p>
+            {/* owner 2026-11-25: what is not classified is NOT in this statement — said here, with the way to classify it */}
+            {sinClasificar && sinClasificar.current > 0 && (
+              <button type="button" onClick={onIrAClasificar} disabled={!onIrAClasificar}
+                className="mb-3 w-full text-left rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-900 hover:bg-orange-100">
+                <b>Faltan clasificar {sinClasificar.current} salida{sinClasificar.current === 1 ? '' : 's'} de Mercado Pago</b>: no aparecen en este estado de resultados.
+                <span className="ml-1 underline">Clasificalas en Caja ›</span>
+              </button>
+            )}
+            {sinClasificar && sinClasificar.historical > 0 && (
+              <p className="mb-3 text-xs text-[#8A7A5C]">Las salidas de Mercado Pago sin clasificar anteriores al {formatearFechaLocal(MP_CORTE)} ({sinClasificar.historical}) quedaron cerradas sin detalle (corte): siguen en el saldo, no en resultados.</p>
+            )}
             {resumen.isLoading ? <p className="text-sm text-gray-500">Cargando…</p> : filas.length === 0 ? (
               <p className="text-sm text-[#8A7A5C]">No hay períodos con resultados en el rango elegido.</p>
             ) : (

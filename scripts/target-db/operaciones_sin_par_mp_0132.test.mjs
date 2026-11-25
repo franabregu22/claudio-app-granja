@@ -50,6 +50,11 @@ SELECT (EXISTS (SELECT 1 FROM migration_ledger.applied WHERE version = '0132')) 
 \\i /tmp/${FILE}
 \\endif
 CREATE TEMP TABLE res (k TEXT PRIMARY KEY, v JSONB);
+-- [0140] the Mercado Pago cutover closes the older pending outflows without detail: this test checks the classifiable row, so its
+-- transaction moves the cutover before every fixture (rolled back)
+DO $c$ BEGIN IF to_regprocedure('public.corte_clasificacion_mp()') IS NOT NULL THEN
+  EXECUTE $f$CREATE OR REPLACE FUNCTION corte_clasificacion_mp() RETURNS DATE LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $b$ SELECT DATE '2000-01-01' $b$$f$;
+END IF; END $c$;
 CREATE FUNCTION pg_temp.run_as(p_role TEXT, p_uid TEXT, p_sql TEXT, p_key TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
 DECLARE v TEXT; msg TEXT; ok BOOLEAN := false; e TEXT; val TEXT;
 BEGIN

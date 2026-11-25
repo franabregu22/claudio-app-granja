@@ -62,6 +62,7 @@ export const TARGET_READ_TABLES = [
   'payment_plan_item',   // 0121: the payment plans (instalments) of an obligation, versioned, append-only (ADMIN policy)
   'feed_stock_period',   // 0125: closed / reopened feed stock months (ADMIN and OPERATOR read)
   'flock_day_note',   // 0131: the note of a production day (ADMIN and OPERATOR read)
+  'cash_opening_count',   // 0140: the opening balance of a cash account by a physical count (ADMIN policy, read-only)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -148,6 +149,7 @@ export const TARGET_RPCS = [
   'close_feed_month', 'reopen_feed_month',   // 0125 (ADMIN): monthly feed stock close / reopen
   'set_expense_category_feed', 'set_feed_purchase_quantity', 'allocate_feed_freight',   // 0126 (ADMIN): feed categories, purchase kg, freight split
   'set_purchase_tag',   // 0127 (ADMIN): the tag of an expense (NULL = «Sin etiqueta»), audited
+  'register_cash_opening', 'fin_account_balance_on',   // 0140 (ADMIN): the cash opening by count; the ERP balance of an account at a date
   'set_feed_purchase_parts',   // 0138 (ADMIN): one invoice with several ingredients (category, kg and amount of each), audited
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];

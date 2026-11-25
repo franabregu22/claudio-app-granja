@@ -106,3 +106,18 @@ describe('Cheques — repartir al centavo (owner 2026-11-25)', () => {
     for (const f of ['features/caja/EditorPlanPago.tsx', 'features/caja/PagosFacturas.tsx', 'features/caja/PendientesPagar.tsx']) expect(SRC(f)).toContain('repartirEnCuotas(');
   });
 });
+
+describe('0140 — corte de Mercado Pago (01/12/2026) y saldo inicial de caja por conteo (owner 2026-11-25)', () => {
+  it('Resultados says what is not classified (and opens Caja on Pendientes de clasificar); the cash count lives on the cash card', () => {
+    const fin = SRC('features/finanzas/FinanzasApp.tsx');
+    expect(fin).toContain('no aparecen en este estado de resultados');
+    expect(fin).toContain('quedaron cerradas sin detalle (corte)');
+    expect(SRC('App.tsx')).toContain("guardarEstado('caja.porResolver', 'MP_CLASIFICAR'); setTab('caja');");
+    expect(SRC('features/caja/Movimientos.tsx')).toContain("useEstadoGuardado<PendingFilter | null>('caja.porResolver', null)");
+    const conteo = SRC('features/caja/ConteoCaja.tsx');
+    expect(conteo).toContain('registerCashOpening(supabase');
+    expect(conteo).toContain('fuera del estado de resultados');
+    expect(SRC('target/cashOpening.ts')).toContain("export const MP_CORTE = '2026-12-01';");
+    expect(TARGET_RPCS as readonly string[]).toEqual(expect.arrayContaining(['register_cash_opening', 'fin_account_balance_on']));
+  });
+});

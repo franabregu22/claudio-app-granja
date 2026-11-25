@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { AperturaCaja, ConteoCajaModal } from './ConteoCaja';
+import { useAperturasCaja } from './useAperturasCaja';
 import { errorMessage } from '../../target/messages';
 import type { PendingFilter } from '../../target/movementHistory';
 import { formatoPesos } from '../pedidos/helpers';
@@ -24,7 +26,10 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
   const cuentas = useFinancialAccounts();
   const saldos = useLedgerBalances('ACCOUNT');
   const [cuentaId, setCuentaId] = useEstadoGuardado('caja.operaciones.cuenta', '');   // owner 2026-11-24: kept across tabs / sections
-  const [pendiente, setPendiente] = useState<PendingFilter | null>(null);
+  // owner 2026-11-25: kept (Resultados → «Faltan clasificar» opens Caja on Pendientes de clasificar)
+  const [pendiente, setPendiente] = useEstadoGuardado<PendingFilter | null>('caja.porResolver', null);
+  const aperturas = useAperturasCaja();
+  const [conteo, setConteo] = useState<{ id: string; nombre: string } | null>(null);
 
   if (cuentas.isLoading || saldos.isLoading) return <p className="text-sm text-gray-500">Cargando saldos...</p>;
   const error = cuentas.error ?? saldos.error;
@@ -49,6 +54,7 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
                   <p className="text-xs text-[#8A7A5C]">{TIPO[x.account_type] ?? x.account_type}</p>
                   {s ? <p className={`mt-2 text-lg sm:text-xl font-bold ${s.balance < 0 ? 'text-red-700' : 'text-[#2C2419]'}`}>{formatoPesos(s.balance)}</p>
                     : <p className="mt-2 text-sm text-[#8A7A5C]">Sin movimientos</p>}
+                  {x.account_type === 'CASH' && <AperturaCaja apertura={(aperturas.data ?? []).find((a) => a.financial_account_id === x.id)} onRegistrar={() => setConteo({ id: x.id, nombre: x.nombre })} />}
                 </button>
               );
             })}
@@ -57,6 +63,7 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
         </div>
       )}
       {/* balances, then the movement history (the cash flow lives in Caja → Análisis since 2026-11-18) */}
+      {conteo && <ConteoCajaModal cuenta={conteo} onClose={() => setConteo(null)} />}
       <h2 className="font-semibold text-[#2C2419] pt-2">Historial de movimientos</h2>
       <TarjetasPorResolver activo={pendiente} onFiltro={setPendiente} />
       {/* 0119: Todas las operaciones is the list; a Por resolver card opens its resolution list (classification / linking actions) */}

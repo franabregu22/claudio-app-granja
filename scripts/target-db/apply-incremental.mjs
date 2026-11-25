@@ -115,6 +115,7 @@ const PROFILES = {
   ADR025_POST_0137: './verify-profiles/adr025-post-0137.mjs',   // 0137 (the «Factura / comprobante» filter of Todas las operaciones)
   ADR025_POST_0138: './verify-profiles/adr025-post-0138.mjs',   // 0138 (one invoice with several ingredients)
   ADR025_POST_0139: './verify-profiles/adr025-post-0139.mjs',   // 0139 (Mercado Pago link rounding, cheque number, ingredient name)
+  ADR025_POST_0140: './verify-profiles/adr025-post-0140.mjs',   // 0140 (Mercado Pago cutover 01/12/2026, cash opening by count)
 };
 const t0 = Date.now();
 

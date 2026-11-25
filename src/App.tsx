@@ -5,6 +5,7 @@ import { LoginScreen } from './auth/LoginScreen';
 import { PedidosApp } from './features/pedidos/PedidosApp';
 import { CobrosApp } from './features/cobros/CobrosApp';
 import { CajaApp } from './features/caja/CajaApp';
+import { guardarEstado } from './features/caja/useEstadoGuardado';
 import { FinanzasApp } from './features/finanzas/FinanzasApp';
 import { AdminApp } from './features/admin/AdminApp';
 import { ProductionApp } from './features/production/ProductionApp';
@@ -193,7 +194,7 @@ function App() {
           {currentTab === 'feria' && <FeriaApp />}
           {currentTab === 'fiscal' && <FiscalApp />}
           {currentTab === 'mercadopago' && <MercadoPagoApp />}
-          {currentTab === 'finanzas' && <FinanzasApp />}
+          {currentTab === 'finanzas' && <FinanzasApp onIrAClasificar={() => { guardarEstado('caja.porResolver', 'MP_CLASIFICAR'); setTab('caja'); }} />}
           {currentTab === 'admin' && <AdminApp />}
         </div>
       </div>

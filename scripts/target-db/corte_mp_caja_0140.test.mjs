@@ -1,0 +1,376 @@
+#!/usr/bin/env node
+/**
+ * 0140 — on top of the 0139 test (every 0111 / 0139 check kept): the Mercado Pago classification cutover (01/12/2026) and the cash
+ * opening by a count. Before that, as 0139: the link with rounding (up to $1: candidates, settle, the
+ * rounding in the P&L of the same expense), «eCheq Nº · <expense>» for the debit of a cheque paid for an expense, and the ingredient
+ * renamed with its subcategory. LOCAL TEST DATABASE ONLY; one transaction, rolled back; 0139 applied inside it when not in the ledger.
+ *
+ * Usage:
+ *   TEST_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres" node scripts/target-db/corte_mp_caja_0140.test.mjs
+ */
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { assertSafeDestructiveTarget } from '../test-env/guard.mjs';
+
+function resolveDockerBin() {
+  if (process.env.DOCKER_BIN) return process.env.DOCKER_BIN;
+  const onPath = spawnSync('docker', ['--version'], { encoding: 'utf8' });
+  if (!onPath.error && onPath.status === 0) return 'docker';
+  const c = resolve(process.env.LOCALAPPDATA ?? '', 'Programs', 'DockerDesktop', 'resources', 'bin', 'docker.exe');
+  return existsSync(c) ? c : 'docker';
+}
+const DOCKER = resolveDockerBin();
+const dockerRun = (args, input) => {
+  const r = spawnSync(DOCKER, args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+  if (r.error) throw new Error(`docker: ${r.error.message}`);
+  return r;
+};
+
+const lit = (v) => (v === null || v === undefined ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`);
+const ADMIN = 'aaaaaaaa-0111-0000-0000-00000000000a';
+const OPER = 'aaaaaaaa-0111-0000-0000-00000000000b';
+const GW = 'aaaaaaaa-0111-0000-0000-0000000000ff';
+const PHONE = '+5491100000111';
+const CAT = 'cccccccc-0111-0000-0000-0000000000c1';
+const MPACC = `(SELECT id FROM financial_account WHERE nombre = 'Mercado Pago' AND account_type = 'EXTERNAL_SERVICE')`;
+const CASH = `(SELECT id FROM financial_account WHERE account_type = 'CASH' AND activo ORDER BY nombre LIMIT 1)`;
+const sha = (seed) => createHash('sha256').update(`LOTE4-0111-${seed}`).digest('hex');
+const RES = (key, path) => `(SELECT v ->> '${path}' FROM res WHERE k = '${key}')`;
+const P = (expr) => `{{${expr}}}`;
+const DAY = '2026-10-20';            // the Mercado Pago report day (the outflow's business date)
+const WDAY = '2026-10-22';           // the date written in WhatsApp
+const O = '930011100101';            // a real outbound payment: economic 500, tax 3, net 503
+
+const sql = [];
+const add = (s) => sql.push(s);
+const expect = (name, got, like) => add(`SELECT pg_temp.expect(${lit(name)}, (${got})::text, ${lit(like)});`);
+const as = (role, uid, call, key = null) => `pg_temp.run_as(${lit(role)}, ${lit(uid)}, ${lit(call)}, ${lit(key)})`;
+const GWC = (call, key) => as('authenticated', GW, call, key);
+const ADM = (call, key) => as('authenticated', ADMIN, call, key);
+
+add(`\\set ON_ERROR_STOP 1
+BEGIN;
+SELECT (EXISTS (SELECT 1 FROM migration_ledger.applied WHERE version = '0139')) AS has_0139 \\gset
+\\if :has_0139
+\\else
+\\i /tmp/0139_redondeo_mp_cheque_insumo.sql
+\\endif
+SELECT (EXISTS (SELECT 1 FROM migration_ledger.applied WHERE version = '0140')) AS has_0140 \\gset
+\\if :has_0140
+\\else
+\\i /tmp/0140_corte_mp_y_saldo_inicial_caja.sql
+\\endif
+CREATE TEMP TABLE res (k TEXT PRIMARY KEY, v JSONB);
+CREATE TEMP TABLE msg (k TEXT PRIMARY KEY, id BIGINT);
+CREATE FUNCTION pg_temp.run_as(p_role TEXT, p_uid TEXT, p_sql TEXT, p_key TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
+DECLARE v TEXT; m TEXT; ok BOOLEAN := false; e TEXT; val TEXT;
+BEGIN
+  LOOP
+    e := substring(p_sql FROM '\\{\\{(.+?)\\}\\}');
+    EXIT WHEN e IS NULL;
+    EXECUTE 'SELECT (' || e || ')::text' INTO val;
+    p_sql := replace(p_sql, '{{' || e || '}}', quote_nullable(val));
+  END LOOP;
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', p_role);
+    PERFORM set_config('request.jwt.claims', CASE WHEN p_uid IS NULL THEN json_build_object('role', p_role)::text
+                                                  ELSE json_build_object('sub', p_uid, 'role', p_role)::text END, true);
+    PERFORM set_config('request.jwt.claim.sub', coalesce(p_uid, ''), true);
+    EXECUTE p_sql INTO v;
+    ok := true;
+    RESET ROLE;
+  EXCEPTION WHEN others THEN
+    GET STACKED DIAGNOSTICS m = MESSAGE_TEXT;
+    RESET ROLE;
+  END;
+  IF ok AND p_key IS NOT NULL THEN INSERT INTO res VALUES (p_key, v::jsonb) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v; END IF;
+  RETURN CASE WHEN ok THEN 'OK:' || coalesce(v, 'null') ELSE 'ERR:' || m END;
+END $f$;
+CREATE FUNCTION pg_temp.expect(p_name TEXT, p_got TEXT, p_like TEXT) RETURNS VOID LANGUAGE plpgsql AS $f$
+BEGIN
+  IF p_got IS NULL OR p_got NOT LIKE p_like THEN RAISE NOTICE 'FAIL % :: got [%] expected like [%]', p_name, left(p_got, 400), p_like;
+  ELSE RAISE NOTICE 'PASS %', p_name; END IF;
+END $f$;
+CREATE FUNCTION pg_temp.err_of(p_sql TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
+BEGIN EXECUTE p_sql; RETURN 'OK'; EXCEPTION WHEN others THEN RETURN 'ERR:' || SQLERRM; END $f$;
+-- one accepted WhatsApp message of the sender (text, or the explicit button of a draft version)
+CREATE FUNCTION pg_temp.msg(p_key TEXT, p_button TEXT) RETURNS BIGINT LANGUAGE plpgsql AS $f$
+DECLARE v BIGINT;
+BEGIN
+  INSERT INTO wa.inbound_message (wamid, phone_e164, sender_perfil_id, meta_ts, kind, text_body, button_payload, raw_sha256, outcome)
+  VALUES ('T0111-' || p_key, '${PHONE}', '${ADMIN}', now(), CASE WHEN p_button IS NULL THEN 'text' ELSE 'interactive' END,
+          CASE WHEN p_button IS NULL THEN 'test' END, p_button, md5(p_key), 'ACCEPTED') RETURNING id INTO v;
+  INSERT INTO msg VALUES (p_key, v);
+  RETURN v;
+END $f$;
+INSERT INTO perfiles (id, email, rol_type) VALUES ('${ADMIN}', 'lote4-0111-admin@test.local', 'ADMIN'), ('${OPER}', 'lote4-0111-oper@test.local', 'OPERATOR');
+INSERT INTO wa.config (singleton, gateway_user_id, enabled) VALUES (true, '${GW}', true)
+  ON CONFLICT (singleton) DO UPDATE SET gateway_user_id = EXCLUDED.gateway_user_id, enabled = true;
+INSERT INTO wa.sender (phone_e164, perfil_id) VALUES ('${PHONE}', '${ADMIN}');
+INSERT INTO expense_category (id, nombre, pnl_cost_class, group_id) VALUES ('${CAT}', 'Combustible 0111', 'INDIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'));`);
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+const MSG = (k, button = null) => `(SELECT pg_temp.msg(${lit(k)}, ${button === null ? 'NULL' : button}))`;
+const BTN = (draftKey, v, kind = 'CONFIRM') => `'${kind}:' || ${RES(draftKey, 'draft_id')} || ':${v}'`;
+const propose = (k, type, payload, key) => GWC(`SELECT wa_propose(${P(MSG(k))}::bigint, ${lit(type)}, ${payload})::text`, key);
+const correct = (k, draftKey, v, payload, key) => GWC(`SELECT wa_correct(${P(MSG(k))}::bigint, ${P(RES(draftKey, 'draft_id'))}::uuid, ${v}, ${payload})::text`, key);
+const confirm = (k, draftKey, v, key) => GWC(`SELECT wa_confirm(${P(MSG(k, BTN(draftKey, v)))}::bigint, ${P(RES(draftKey, 'draft_id'))}::uuid, ${v})::text`, key);
+const cancel = (k, draftKey, v) => GWC(`SELECT wa_cancel(${P(MSG(k))}::bigint, ${P(RES(draftKey, 'draft_id'))}::uuid, ${v})::text`);
+const J = (o) => `${lit(JSON.stringify(o))}::jsonb`;
+const base = (extra) => ({ date: WDAY, total: 70637.06, concept: 'Gasoil', category_id: CAT, nature: 'OPERATING', ...extra });
+const FISCAL = (components, issuer = '30712345671') => ({ document_type: 'INVOICE_A', document_date: WDAY, fiscal_period: '2026-10-01', net_amount: 55462.5,
+  total_amount: 70637.06, components, external_number: '0110-00010999', issuer_tax_id: issuer, issuer_name: 'EESS Ruta 3' });
+const IVA = [{ tax_kind: 'IVA', direction: 'CREDITO', base_amount: 55462.5, rate_applied: 21, tax_amount: 11647.14 }];
+const STATE = (draftKey) => `(SELECT d.type || ':' || d.state FROM wa.draft d WHERE d.id = ${RES(draftKey, 'draft_id')}::uuid)`;
+const TABLES = ['financial_operation', 'financial_posting', 'purchases', 'fiscal_document', 'fiscal_document_component', 'expense_payable', 'mp_pending_outflow_resolution'];
+const counts = () => TABLES.map((t) => `SELECT ${lit(t)} AS t, count(*) AS n FROM ${t}`).join(' UNION ALL ');
+const snap = (n) => add(`CREATE TEMP TABLE ${n} AS ${counts()};`);
+const delta = (n) => `(SELECT coalesce(string_agg(c.t || '=' || (c.n - b.n), ',' ORDER BY c.t), 'none') FROM (${counts()}) c JOIN ${n} b ON b.t = c.t WHERE c.n <> b.n)`;
+const BAL = (acc) => `(SELECT coalesce(sum(signed_amount), 0) FROM financial_posting WHERE financial_account_id = ${acc})`;
+
+// ── A. Factura A: receiver not identified / issuer CUIT unreadable ───────────
+expect('A-1 Factura A with IVA, receiver not identified → a DRAFT (CASUAL_WITH_INVOICE), IVA not assumed',
+  propose('a1', 'CASUAL_WITH_INVOICE', J(base({ method: 'CASH', fiscal: FISCAL([]), vat_receiver_pending: true })), 'A1'), 'OK:%"state": "DRAFT"%');
+expect('A-2 it cannot be confirmed while the receiver is pending (WA_RECEIVER_REQUIRED)', confirm('a2', 'A1', 1), 'ERR:WA_RECEIVER_REQUIRED%');
+expect('A-3 computable IVA is refused while the receiver is pending', correct('a3', 'A1', 1, J(base({ method: 'CASH', fiscal: FISCAL(IVA), vat_receiver_pending: true }))), 'ERR:WA_INVALID_PAYLOAD%');
+expect('A-4 the user says "es de Santo Tomás": the SAME draft gets the IVA (v2)',
+  correct('a4', 'A1', 1, J(base({ method: 'CASH', fiscal: FISCAL(IVA) }))), 'OK:%"version": 2%');
+expect('A-5 and it stays the same draft, now confirmable', STATE('A1'), 'CASUAL_WITH_INVOICE:DRAFT');
+snap('sa');
+add(`UPDATE wa.draft SET payload = payload || jsonb_build_object('account_id', ${CASH}) WHERE id = ${RES('A1', 'draft_id')}::uuid;`);
+expect('A-6 confirmed (cash): one purchase, one fiscal document with IVA 11,647.14',
+  confirm('a6', 'A1', 2, 'A6'), 'OK:%"state": "CONFIRMED"%');
+expect('A-7 … IVA recorded once, computable', `(SELECT coalesce(sum(tax_amount), 0) FROM fiscal_document_component WHERE fiscal_document_id = (${RES('A6', 'result')}::jsonb ->> 'fiscal_document_id')::uuid)`, '11647.14');
+expect('A-9 Factura A with an unreadable issuer CUIT → CASUAL_EXPENSE, fiscal data held apart (never recorded)',
+  propose('a9', 'CASUAL_EXPENSE', J(base({ method: 'CASH', fiscal_pending: FISCAL([], null), issuer_cuit_pending: true, vat_receiver_pending: true })), 'A9'), 'OK:%"state": "DRAFT"%');
+expect('A-10 not confirmable without the issuer CUIT (WA_RECEIVER_REQUIRED first, then WA_ISSUER_CUIT_REQUIRED)', confirm('a10', 'A9', 1), 'ERR:WA_RECEIVER_REQUIRED%');
+expect('A-11 the user writes the CUIT and confirms the receiver: the same draft becomes CASUAL_WITH_INVOICE',
+  correct('a11', 'A9', 1, J(base({ method: 'CASH', fiscal: FISCAL(IVA) }))), 'OK:%"version": 2%');
+expect('A-12 … type follows the payload', STATE('A9'), 'CASUAL_WITH_INVOICE:DRAFT');
+expect('A-13 "sin factura": back to an expense without invoice (no IVA)', correct('a13', 'A9', 2, J(base({ method: 'CASH' }))), 'OK:%"version": 3%');
+expect('A-14 … CASUAL_EXPENSE again', STATE('A9'), 'CASUAL_EXPENSE:DRAFT');
+expect('A-15 issuer pending without fiscal_pending is an invalid payload', correct('a15', 'A9', 3, J(base({ method: 'CASH', issuer_cuit_pending: true }))), 'ERR:WA_INVALID_PAYLOAD%');
+expect('A-16 cancelled (W-0007 style: nothing recorded)', cancel('a16', 'A9', 3), 'OK:%"state": "CANCELLED"%');
+
+// ── B. Mercado Pago (opción A): the purchase + IVA at confirmation, the outflow linked later (ADR-021 §2.3(c)) ──
+const EMPTY = { BALANCE_AMOUNT: '', BUSINESS_UNIT: '', DATE: '', DESCRIPTION: '', GROSS_AMOUNT: '', MP_FEE_AMOUNT: '', NET_CREDIT_AMOUNT: '', NET_DEBIT_AMOUNT: '',
+  PAYMENT_METHOD: '', PAYMENT_METHOD_TYPE: '', PURCHASE_ID: '', SOURCE_ID: '', SUB_UNIT: '', TAXES_AMOUNT: '', TRANSACTION_APPROVAL_DATE: '' };
+const pay = (t, sid, gross, tax) => ({ ...EMPTY, DATE: `${DAY}T${t}.000-03:00`, SOURCE_ID: sid, DESCRIPTION: 'payment', NET_CREDIT_AMOUNT: '0.00',
+  NET_DEBIT_AMOUNT: (gross + tax).toFixed(2), GROSS_AMOUNT: (-gross).toFixed(2), MP_FEE_AMOUNT: '0.00', TAXES_AMOUNT: (-tax).toFixed(2),
+  PAYMENT_METHOD: 'available_money', TRANSACTION_APPROVAL_DATE: `${DAY}T${t}.000-03:00`, BALANCE_AMOUNT: '0.00', PAYMENT_METHOD_TYPE: 'account_money' });
+const O2 = '930011100102';   // same gross: classified as a NEW purchase (the duplicate the warning is about)
+const O3 = '930011100103';   // another gross: amount mismatch
+const O4 = '930011100104';   // [0139] 2 cents above the purchase D (1.000,00): rounding
+const O5 = '930011100105';   // [0139] 1,50 above it: still a mismatch
+const ROWS = [
+  { ...EMPTY, DATE: `${DAY}T00:00:00.000-03:00`, NET_CREDIT_AMOUNT: '10000.00', NET_DEBIT_AMOUNT: '0.00', GROSS_AMOUNT: '10000.00', MP_FEE_AMOUNT: '0.00', TAXES_AMOUNT: '0.00', BALANCE_AMOUNT: '10000.00' },
+  pay('02:00:00', O, 500, 3), pay('03:00:00', O2, 500, 3), pay('04:00:00', O3, 400, 2), pay('05:00:00', O4, 1000.02, 6), pay('06:00:00', O5, 1001.5, 6),
+  { ...EMPTY, NET_CREDIT_AMOUNT: '0.00', NET_DEBIT_AMOUNT: '0.00', GROSS_AMOUNT: '-762462.72', MP_FEE_AMOUNT: '0.00', TAXES_AMOUNT: '0.00', BALANCE_AMOUNT: '0.00' },
+].map((raw_row, i) => ({ row_number: i + 1, raw_row }));
+const s = sha('day');
+const INGEST = as('service_role', null, `SELECT fin_ingest_mp_release_report(NULL::uuid, 'mp-release-report-csv/1.1.0', 'MP_RELEASE_REPORT_CSV_V1', ${lit(s)},
+  ${P(`'mp/' || ${MPACC} || '/${s}.csv'`)}, 'release-report.csv', 2048, ${lit(DAY)}::date, ${lit(DAY)}::date,
+  ${lit(JSON.stringify({ report_type: 'release_report', task_id: '1' }))}::jsonb, NULL, ${lit(JSON.stringify(ROWS))}::jsonb)::text`);
+expect('B-0 three real Mercado Pago outbound payments imported (provisionals, pending classification)', INGEST, 'OK:%"provisionals_posted": 5%');
+const EDAY = '2026-09-28';   // the invoice / economic date (September) ≠ the movement date (October 20)
+const MPFISCAL = { document_type: 'INVOICE_A', document_date: EDAY, fiscal_period: '2026-09-01', net_amount: 413.22, total_amount: 500,
+  components: [{ tax_kind: 'IVA', direction: 'CREDITO', base_amount: 413.22, rate_applied: 21, tax_amount: 86.78 }], external_number: '0001-00000777',
+  issuer_tax_id: '30712345671', issuer_name: 'EESS Ruta 3' };
+const mpExpense = { date: EDAY, total: 500, net: 413.22, concept: 'Gasoil MP', category_id: CAT, nature: 'OPERATING', method: 'MERCADOPAGO', fiscal: MPFISCAL };
+const PURCHASE = RES('B3', 'result') + "::jsonb ->> 'purchase_id'";
+const PNLP = ADM(`SELECT count(*) || ':' || coalesce(sum(signed_amount), 0) FROM pnl_line_item WHERE source_entity_type = 'purchases' AND source_entity_id = (${P(PURCHASE)})`);
+const MPB = BAL(MPACC);
+add(`CREATE TEMP TABLE mp0 AS SELECT ${MPB} AS mp;`);
+expect('B-1 an invoice paid with Mercado Pago WITHOUT operation number → a normal DRAFT (no WAITING_MP, no candidate search)',
+  propose('b1', 'CASUAL_WITH_INVOICE', `${J(mpExpense)} || jsonb_build_object('account_id', ${P(MPACC)}::uuid)`, 'B1'), 'OK:%"state": "DRAFT"%');
+expect('B-2 … no mp_candidates, marked mp_link_pending', `(SELECT (NOT (v ? 'mp_candidates'))::text || ':' || (v -> 'payload' ->> 'mp_link_pending') FROM res WHERE k = 'B1')`, 'true:true');
+snap('sb');
+expect('B-3 confirmed → the purchase is recorded now (P&L + IVA), MP pending link, no money',
+  confirm('b3', 'B1', 1, 'B3'), 'OK:%"status": "PENDIENTE_VINCULACION_MP"%"mp_link_pending": true, "financial_effect": "NONE"%');
+expect('B-4 … one purchase, one fiscal document with ONE IVA line; no operation, no posting, no payable, no release', delta('sb'),
+  'fiscal_document=1,fiscal_document_component=1,purchases=1');
+expect('B-5 recognised in the P&L BEFORE the link (one line, at the economic date)', PNLP, 'OK:1:%');
+expect('B-6 … at its economic date (September), not the movement date', `(SELECT economic_date::text FROM purchases WHERE id = (${PURCHASE})::uuid)`, EDAY);
+expect('B-7 explicit state: PENDIENTE_VINCULACION_MP with the two same-amount pending outflows listed (never chosen)',
+  ADM(`SELECT status || ':' || jsonb_array_length(candidates) || ':' || coalesce(origin_code, '-') FROM fin_purchase_mp_link WHERE purchase_id = (${P(PURCHASE)})::uuid`), 'OK:PENDIENTE_VINCULACION_MP:2:W-%');
+expect('B-8 a second confirmation (another message) → already confirmed', confirm('b8', 'B1', 1), 'OK:%"already_confirmed": true%');
+expect('B-8b … nothing new', delta('sb'), 'fiscal_document=1,fiscal_document_component=1,purchases=1');
+expect('B-9 audit: CONFIRM / MP_LINK_PENDING and CREATE_MP_PENDING_PURCHASE',
+  `((SELECT string_agg(action || ':' || outcome, ',' ORDER BY id) FROM wa.audit_event WHERE draft_id = ${RES('B1', 'draft_id')}::uuid) || '|' || (SELECT count(*) FROM audit_events WHERE action = 'CREATE_MP_PENDING_PURCHASE' AND entity_id = (${PURCHASE})))`,
+  '%CONFIRM:MP_LINK_PENDING%|1');
+// the duplicate the owner warned about: O2 classified as a NEW casual purchase (not blocked), then refused for the link
+expect('B-10 O2 classified as a new purchase from Pendientes MP (allowed: a warning, not a block)',
+  ADM(`SELECT register_casual_purchase('${DAY}'::date, 500, 500, '${CAT}'::uuid, 'Otro gasto', 'OPERATING', ${P(MPACC)}::uuid, 'MERCADOPAGO', 'T0111-O2', NULL, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, '${O2}', 'clasificado aparte')::text`), 'OK:%');
+snap('sc');
+const SETTLE = (src, key = 'T0111-SETTLE', who = ADMIN) => as('authenticated', who, `SELECT settle_purchase_mp(${P(PURCHASE)}::uuid, '${src}', '${key}', 'vinculación manual')::text`);
+expect('B-11 linking the already classified O2 → ALREADY_CLASSIFIED (never re-pointed)', SETTLE(O2), 'ERR:ALREADY_CLASSIFIED%CASUAL_PURCHASE%');
+expect('B-12 linking O3 (gross 400 ≠ 500) → MP_AMOUNT_MISMATCH', SETTLE(O3), 'ERR:MP_AMOUNT_MISMATCH%');
+expect('B-13 an OPERATOR cannot link', SETTLE(O, 'T0111-OP', OPER), 'ERR:FORBIDDEN%');
+expect('B-13b … nothing written by the refusals', delta('sc'), 'none');
+// the expense's month (September) is closed; the movement's month (October) is open: the link only touches October
+add(`INSERT INTO management_period (periodo_fecha, status) VALUES ('2026-09-01', 'OPEN') ON CONFLICT (periodo_fecha) DO UPDATE SET status = 'OPEN';`);
+expect('B-14 closing September with an MP purchase pending link → NOT blocked, a warning + audit row',
+  as('postgres', null, `UPDATE management_period SET status = 'CLOSED', closed_at = now() WHERE periodo_fecha = '2026-09-01' RETURNING status::text`), 'OK:CLOSED');
+expect('B-14b … the warning left its audit row', `(SELECT count(*) FROM audit_events WHERE action = 'CLOSE_WITH_MP_LINK_PENDING' AND entity_id = '2026-09-01')`, '1');
+add(`CREATE TEMP TABLE mp1 AS SELECT ${MPB} AS mp; CREATE TEMP TABLE pnl1 AS SELECT ${ADM(`SELECT md5(coalesce((SELECT string_agg(x::text, '#' ORDER BY x::text) FROM pnl_line_item x), ''))`)} AS h;`);
+snap('sd');
+expect('B-15 linked to O (gross 500 + tax 3) with September closed → only the payment side, on the MOVEMENT date',
+  SETTLE(O, 'T0111-SETTLE'), `OK:%"tax": -3.00, "paid": 500.00, "amount": 500.00, "status": "VINCULADO"%"rounding": 0.00%"economic_date": "${EDAY}", "movement_date": "${DAY}"%`);
+expect('B-16 … no purchase, no fiscal document, no IVA line; release + payment + tax charge, one classification, one link',
+  delta('sd'), 'financial_operation=3,financial_posting=3,mp_pending_outflow_resolution=1');
+expect('B-17 … P&L unchanged by the link (recognised once, at confirmation)', `(${ADM(`SELECT md5(coalesce((SELECT string_agg(x::text, '#' ORDER BY x::text) FROM pnl_line_item x), ''))`)} = (SELECT h FROM pnl1))::text`, 'true');
+expect('B-18 … Mercado Pago unchanged by the link: the provisional already took the net 503 (release +503, payment −500, tax −3)',
+  `((SELECT ${MPB} - mp FROM mp1)::NUMERIC(15,2))`, '0.00');
+expect('B-19 … the movement reconciles to its net once (provisional, release, payment, charge)',
+  `(SELECT sum(r.assigned_amount)::text FROM mp_reconciliation r JOIN mp_pending_outflow po ON po.mp_financial_movement_id = r.mp_financial_movement_id WHERE po.source_id = '${O}')`, '-503.00');
+expect('B-20 … IVA recorded once for the purchase', `(SELECT count(*) || ':' || sum(c.tax_amount) FROM fiscal_document_component c JOIN purchases p ON p.fiscal_document_id = c.fiscal_document_id WHERE p.id = (${PURCHASE})::uuid)`, '1:86.78');
+expect('B-21 … the payment is dated on the movement, the purchase keeps its economic date',
+  `(SELECT o.effective_date || '|' || p.economic_date FROM purchase_mp_settlement s JOIN financial_operation o ON o.id = s.financial_operation_id JOIN purchases p ON p.id = s.purchase_id WHERE s.source_id = '${O}')`, `${DAY}|${EDAY}`);
+expect('B-22 the same link again → replayed, nothing new', SETTLE(O, 'T0111-SETTLE'), 'OK:%"replayed": true%');
+expect('B-22b … nothing new', delta('sd'), 'financial_operation=3,financial_posting=3,mp_pending_outflow_resolution=1');
+expect('B-23 another operation for the same purchase → PURCHASE_MP_ALREADY_LINKED', SETTLE(O3, 'T0111-OTHER'), 'ERR:PURCHASE_MP_ALREADY_LINKED%');
+expect('B-24 state VINCULADO with both dates; no candidates any more',
+  ADM(`SELECT status || ':' || movement_date || ':' || economic_date || ':' || (candidates IS NULL) FROM fin_purchase_mp_link WHERE purchase_id = (${P(PURCHASE)})::uuid`), `OK:VINCULADO:${DAY}:${EDAY}:true`);
+expect('B-25 the MP activity shows the outflow classified with the EXISTING purchase', ADM(`SELECT coverage_status || ':' || classification || ':' || classification_detail FROM fin_mp_report_activity WHERE source_id = '${O}' AND description = 'payment'`),
+  'OK:CLASSIFIED_OUTFLOW:CASUAL_PURCHASE:Gasoil MP · Combustible 0111%');
+expect('B-26 audit SETTLE_MP; the link records are append-only',
+  `((SELECT count(*) FROM audit_events WHERE action = 'SETTLE_MP' AND entity_id = (${PURCHASE}))::text || '|' || ${as('postgres', null, `UPDATE purchase_mp_settlement SET reason = 'x' RETURNING 'x'`)} || '|' || ${as('postgres', null, `DELETE FROM purchase_mp_link RETURNING 'x'`)})`, '1|ERR:%|ERR:%');
+expect('B-27 an OPERATOR reads no link (RLS)', as('authenticated', OPER, `SELECT ((SELECT count(*) FROM purchase_mp_link) + (SELECT count(*) FROM purchase_mp_settlement) + (SELECT count(*) FROM fin_purchase_mp_link))::text`), 'OK:0');
+expect('B-28 a casual purchase without payment, payable or MP link is still refused at commit (the amended 0106 check)',
+  `pg_temp.err_of($q$INSERT INTO purchases (supplier_id, economic_date, amount_net, amount_total, expense_category_id, subcategory, nature, is_current, version_seq, idempotency_key)
+    VALUES (NULL, '2026-10-20', 1, 1, '${CAT}', 'x', 'OPERATING', true, 0, 'T0111-UNSETTLED'); SET CONSTRAINTS trg_purchases_casual_settlement IMMEDIATE$q$)`, 'ERR:CASUAL_PURCHASE_UNSETTLED%');
+
+// ── C. compatibility: cash, transfer, "a pagar", solo IVA keep their routes ───
+snap('se');
+expect('C-1 a pending expense ("a pagar") still becomes PENDING_EXPENSE', propose('c1', 'CASUAL_EXPENSE', J(base({ total: 1200, concept: 'Flete', pending_payment: true })), 'C1'), 'OK:%"type": "PENDING_EXPENSE"%');
+expect('C-2 … confirmed: a payable', confirm('c2', 'C1', 1), 'OK:%"payable_id"%"financial_effect": "NONE"%');
+expect('C-2b … one payable and its purchase, no money, no MP link', delta('se'), 'expense_payable=1,purchases=1');
+const BNA = `(SELECT id FROM financial_account WHERE nombre = 'BNA' AND account_type = 'BANK_ACCOUNT')`;
+snap('sf');
+expect('C-3 a transfer expense: proposed and confirmed', `(${propose('c3', 'CASUAL_EXPENSE', `${J(base({ total: 800, concept: 'Repuestos' , method: 'TRANSFER' }))} || jsonb_build_object('account_id', ${P(BNA)}::uuid)`, 'C3')})`, 'OK:%"state": "DRAFT"%');
+expect('C-4 … confirmed: purchase + payment from the bank (born paid)', confirm('c4', 'C3', 1), 'OK:%"state": "CONFIRMED"%"payment_operation_id"%');
+expect('C-4b … one purchase, one operation, one posting', delta('sf'), 'financial_operation=1,financial_posting=1,purchases=1');
+snap('sg');
+const VATDOC = { document_type: 'INVOICE_A', document_date: WDAY, fiscal_period: '2026-10-01', net_amount: 1000, total_amount: 1210, external_number: '0009-00000001',
+  issuer_tax_id: '30709998885', issuer_name: 'Otro', components: [{ tax_kind: 'IVA', direction: 'CREDITO', base_amount: 1000, rate_applied: 21, tax_amount: 210 }] };
+expect('C-5 "solo IVA": only Fiscal', propose('c5', 'VAT_ONLY_DOCUMENT', J({ date: WDAY, total: 1210, vat_only: true, fiscal: VATDOC }), 'C5'), 'OK:%"state": "DRAFT"%');
+expect('C-6 … confirmed: a fiscal document, no purchase, no money', confirm('c6', 'C5', 1), 'OK:%"state": "CONFIRMED"%');
+expect('C-6b … only the fiscal document and its IVA line', delta('sg'), 'fiscal_document=1,fiscal_document_component=1');
+
+
+// ── D. [0139] the link with rounding (owner 2026-11-25: up to $1, the difference goes to the expense) ──
+expect('D-1 a purchase of 1.000,00 recorded as paid with Mercado Pago (waiting for its movement)',
+  ADM(`SELECT register_casual_purchase_mp_pending('${DAY}'::date, 1000, 1000, '${CAT}'::uuid, 'Gasoil D 0139', 'OPERATING', 'T0139-D', ${P(MPACC)}::uuid)::text`, 'D1'), 'OK:%');
+const PD = `(${RES('D1', 'purchase_id')})`;
+expect('D-2 its candidates: O4 (2 cents above, difference listed), never O5 (1,50 apart)',
+  ADM(`SELECT string_agg((c ->> 'source_id') || ':' || (c ->> 'difference'), ',') FROM fin_purchase_mp_link v CROSS JOIN LATERAL jsonb_array_elements(v.candidates) c WHERE v.purchase_id = ${P(PD)}::uuid`), `OK:${O4}:0.02`);
+snap('sx');
+const SETTLED = (src, key) => ADM(`SELECT settle_purchase_mp(${P(PD)}::uuid, '${src}', '${key}', 'redondeo')::text`);
+expect('D-3 linking O5 (1,50 apart) → still MP_AMOUNT_MISMATCH', SETTLED(O5, 'T0139-D-O5'), 'ERR:MP_AMOUNT_MISMATCH%more than $1 apart%');
+expect('D-3b … nothing written', delta('sx'), 'none');
+add(`CREATE TEMP TABLE mpd AS SELECT ${MPB} AS mp;`);
+expect('D-4 linking O4 → linked; the payment is what the movement paid (1.000,02), rounding 0,02',
+  SETTLED(O4, 'T0139-D-O4'), 'OK:%"paid": 1000.02%"status": "VINCULADO"%"rounding": 0.02%');
+expect('D-5 … the settlement keeps the purchase amount and its rounding', `(SELECT amount || ':' || rounding FROM purchase_mp_settlement WHERE source_id = '${O4}')`, '1000.00:0.02');
+expect('D-6 … Mercado Pago unchanged by the link (the provisional already took 1.006,02: release + payment 1.000,02 + tax 6)',
+  `((SELECT ${MPB} - mp FROM mpd)::NUMERIC(15,2))`, '0.00');
+expect('D-7 … the payment posting is the gross of the movement', `(SELECT p.signed_amount FROM purchase_mp_settlement s JOIN financial_posting p ON p.financial_operation_id = s.financial_operation_id WHERE s.source_id = '${O4}')`, '-1000.02');
+expect('D-8 P&L: the expense 1.000,00 plus its rounding 0,02 — same bucket, category and date, no other category',
+  ADM(`SELECT string_agg(source_entity_type || ':' || bucket || ':' || expense_category_id || ':' || business_date || ':' || signed_amount, ';' ORDER BY source_entity_type)
+         FROM pnl_line_item WHERE (source_entity_type = 'purchases' AND source_entity_id = ${P(PD)}) OR (source_entity_type = 'purchase_mp_rounding' AND source_entity_id = ${P(`(SELECT id::text FROM purchase_mp_settlement WHERE source_id = '${O4}')`)})`),
+  `OK:purchase_mp_rounding:%:${CAT}:${DAY}:-0.02;purchases:%:${CAT}:${DAY}:-1000.00`);
+expect('D-9 the rounding line reads as the expense', ADM(`SELECT description FROM pnl_line_item WHERE source_entity_type = 'purchase_mp_rounding'`), 'OK:Gasoil D 0139 (redondeo del pago Mercado Pago)');
+expect('D-10 an exact link has no rounding (O: 500 = 500)', `(SELECT rounding FROM purchase_mp_settlement WHERE source_id = '${O}')`, '0.00');
+expect('D-11 the rounding is limited to $1 by the table too (and the settlement stays immutable)',
+  `((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'chk_purchase_mp_settlement_rounding') || '|' || ${as('postgres', null, `UPDATE purchase_mp_settlement SET rounding = 0 WHERE source_id = '${O4}' RETURNING 'x'`)})`,
+  'CHECK ((abs(rounding) <= 1.00))|ERR:FIN_EVIDENCE_IMMUTABLE%');
+
+// ── E. [0139] the debit of an own eCheq paid for an expense: «eCheq Nº · <expense>» (backlog #6) ──
+const SUP = 'dddddddd-0139-0000-0000-0000000000d1';
+const BNAE = `(SELECT id FROM financial_account WHERE nombre = 'BNA' AND account_type = 'BANK_ACCOUNT')`;
+add(`INSERT INTO suppliers (id, nombre) VALUES ('${SUP}', 'Proveedor 0139');`);
+expect('E-1 a supplier invoice «Expeller 0139» of 3.000',
+  ADM(`SELECT register_purchase('${SUP}'::uuid, '${DAY}'::date, 3000, 3000, '${CAT}'::uuid, 'Expeller 0139', 'OPERATING', '[{"producto_id":null,"feed_ingredient_id":null,"descripcion":"x","cantidad":1,"unit_type":"UNIT","precio_unitario":3000}]'::jsonb, '[]'::jsonb, 'T0139-E1', NULL, NULL, 'F-0139-1', NULL, 'fixture')::text`, 'E1'), 'OK:%');
+expect('E-2 paid with the eCheq E-0139-7', ADM(`SELECT issue_purchase_instruments(${P(RES('E1', 'purchase_id'))}::uuid, jsonb_build_array(jsonb_build_object('instrument_type', 'ECHEQ', 'cheque_number', 'E-0139-7', 'amount', 3000,
+    'maturity_date', '2026-10-25', 'issued_date', '${DAY}', 'bank_account_id', ${P(BNAE)})), 'T0139-EQ')::text`), 'OK:%');
+expect('E-3 debited', ADM(`SELECT mark_supplier_instrument_debited(${P(`(SELECT id FROM financial_instrument WHERE cheque_number = 'E-0139-7')`)}::uuid, '2026-10-25'::date, 'debitado')::text`), 'OK:%');
+expect('E-4 Todas las operaciones: the debit reads «eCheq E-0139-7 · Expeller 0139» (and still belongs to the invoice)',
+  ADM(`SELECT string_agg((r ->> 'concepto') || '|' || (r ->> 'detalle') || '|' || (r ->> 'purchase_root_id' IS NOT NULL), ',') FROM jsonb_array_elements((SELECT fin_operation_list(p_search => 'E-0139-7', p_limit => 50)) -> 'rows') r WHERE r ->> 'row_kind' = 'OP'`),
+  'OK:eCheq E-0139-7 · Expeller 0139|Cheque debitado|true');
+
+// ── F. [0139] the ingredient follows its subcategory's name (backlog #2) ──
+add(`INSERT INTO feed_ingredient (id, nombre) VALUES ('eeeeeeee-0139-0000-0000-0000000000e1', 'Ing 0139 viejo'), ('eeeeeeee-0139-0000-0000-0000000000e2', 'Ing 0139 compartido'), ('eeeeeeee-0139-0000-0000-0000000000e3', 'Ing 0139 ocupado');
+INSERT INTO expense_category (id, nombre, pnl_cost_class, group_id, feed_ingredient_id) VALUES
+  ('cccccccc-0139-0000-0000-0000000000f1', 'Sub 0139 viejo', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'), 'eeeeeeee-0139-0000-0000-0000000000e1'),
+  ('cccccccc-0139-0000-0000-0000000000f2', 'Sub 0139 A', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'), 'eeeeeeee-0139-0000-0000-0000000000e2'),
+  ('cccccccc-0139-0000-0000-0000000000f3', 'Sub 0139 B', 'DIRECT', (SELECT id FROM expense_category_group WHERE nombre = 'Otros'), 'eeeeeeee-0139-0000-0000-0000000000e2');`);
+expect('F-1 renaming the subcategory (as ADMIN) renames its ingredient',
+  ADM(`UPDATE expense_category SET nombre = 'Sub 0139 nuevo' WHERE id = 'cccccccc-0139-0000-0000-0000000000f1' RETURNING (SELECT nombre FROM feed_ingredient WHERE id = 'eeeeeeee-0139-0000-0000-0000000000e1')`),
+  'OK:Ing 0139 viejo');
+expect('F-1b … after the statement, the ingredient has the new name', `(SELECT nombre FROM feed_ingredient WHERE id = 'eeeeeeee-0139-0000-0000-0000000000e1')`, 'Sub 0139 nuevo');
+expect('F-2 an ingredient shared by two subcategories keeps its name',
+  ADM(`UPDATE expense_category SET nombre = 'Sub 0139 A2' WHERE id = 'cccccccc-0139-0000-0000-0000000000f2' RETURNING 'x'`), 'OK:x');
+expect('F-2b … unchanged', `(SELECT nombre FROM feed_ingredient WHERE id = 'eeeeeeee-0139-0000-0000-0000000000e2')`, 'Ing 0139 compartido');
+expect('F-3 a name another ingredient has: the subcategory is renamed, the ingredient keeps its name (never blocks)',
+  ADM(`UPDATE expense_category SET nombre = 'Ing 0139 ocupado' WHERE id = 'cccccccc-0139-0000-0000-0000000000f1' RETURNING nombre`), 'OK:Ing 0139 ocupado');
+expect('F-3b … the ingredient kept the previous name', `(SELECT nombre FROM feed_ingredient WHERE id = 'eeeeeeee-0139-0000-0000-0000000000e1')`, 'Sub 0139 nuevo');
+
+
+// ── G. [0140] the Mercado Pago cutover (01/12/2026): before it, a pending outflow is closed without detail ──
+const OPL = (src) => ADM(`SELECT (r ->> 'concepto') || '|' || coalesce(r ->> 'clasificacion', 'null') FROM jsonb_array_elements((SELECT fin_operation_list(p_search => '${src}', p_limit => 100)) -> 'rows') r WHERE r ->> 'mp_source_id' = '${src}' LIMIT 1`);
+expect('G-1 the cutover is 2026-12-01', `(SELECT corte_clasificacion_mp()::text)`, '2026-12-01');
+expect('G-2 O3 (20/10, still pending) is historical now: no action, out of the tray', ADM(`SELECT is_historical::text FROM fin_mp_pending_classification WHERE source_id = '${O3}'`), 'OK:true');
+expect('G-3 … and out of the month close count (October)', `(SELECT pending_count FROM mp_pending_classification_totals('2026-10-01', '2026-10-31'))`, '0');
+expect('G-4 … Todas las operaciones: «sin detalle (antes del corte)», nothing to review', OPL(O3), 'OK:Salida MP sin detalle (antes del corte)|null');
+expect('G-5 … still in the Mercado Pago balance (its provisional posting untouched)', `(SELECT count(*) FROM mp_pending_outflow p JOIN financial_posting fp ON fp.financial_operation_id = p.provisional_operation_id WHERE p.source_id = '${O3}')`, '1');
+add(`CREATE OR REPLACE FUNCTION corte_clasificacion_mp() RETURNS DATE LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$ SELECT DATE '2026-10-01' $$;`);
+expect('G-6 with the cutover before it (test only), the same outflow is current again', ADM(`SELECT is_historical::text FROM fin_mp_pending_classification WHERE source_id = '${O3}'`), 'OK:false');
+expect('G-7 … counted by the month close', `(SELECT (pending_count > 0)::text FROM mp_pending_classification_totals('2026-10-01', '2026-10-31'))`, 'true');
+expect('G-8 … and «Salida MP sin clasificar», to review', OPL(O3), 'OK:Salida MP sin clasificar|MP_SIN_CLASIFICAR');
+add(`CREATE OR REPLACE FUNCTION corte_clasificacion_mp() RETURNS DATE LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp AS $$ SELECT DATE '2026-12-01' $$;`);
+
+// ── K. [0140] the cash opening by a count ──
+const CASHID = `(SELECT id FROM financial_account WHERE account_type = 'CASH' AND activo ORDER BY nombre LIMIT 1)`;
+const OPEN = (date, counted, who = ADMIN, acc = CASHID) => as('authenticated', who, `SELECT register_cash_opening(${P(acc)}::uuid, '${date}'::date, ${counted}, 'conteo de prueba')::text`);
+add(`CREATE TEMP TABLE cash0 AS SELECT (SELECT coalesce(sum(signed_amount), 0) FROM financial_posting WHERE financial_account_id = ${CASHID} AND effective_date <= '${WDAY}') AS bal,
+  ${ADM(`SELECT md5(coalesce((SELECT string_agg(x::text, '#' ORDER BY x::text) FROM pnl_line_item x), ''))`)} AS pnl;`);
+expect('K-1 the ERP balance of the cash account at the count date (fin_account_balance_on)', ADM(`SELECT (fin_account_balance_on(${P(CASHID)}::uuid, '${WDAY}') = ${P('(SELECT bal FROM cash0)')}::numeric)::text`), 'OK:true');
+expect('K-2 OPERATOR cannot record it', OPEN(WDAY, 1000, OPER), 'ERR:FORBIDDEN%');
+expect('K-3 a bank account is refused', OPEN(WDAY, 1000, ADMIN, `(SELECT id FROM financial_account WHERE nombre = 'BNA' AND account_type = 'BANK_ACCOUNT')`), 'ERR:NOT_A_CASH_ACCOUNT%');
+expect('K-4 a future date is refused', OPEN('2099-01-01', 1000), 'ERR:INVALID_DATE%');
+const COUNTED = `(${P('(SELECT bal FROM cash0)')}::numeric + 1234.56)`;
+expect('K-5 recorded: the difference (counted − ERP) is 1.234,56', as('authenticated', ADMIN, `SELECT register_cash_opening(${P(CASHID)}::uuid, '${WDAY}'::date, ${COUNTED}, 'conteo de prueba')::text`, 'K5'), 'OK:%"replayed": false%"difference": 1234.56%');
+expect('K-6 … the cash balance at that date is now the counted cash', `((SELECT coalesce(sum(signed_amount), 0) FROM financial_posting WHERE financial_account_id = ${CASHID} AND effective_date <= '${WDAY}') - (SELECT bal FROM cash0))::text`, '1234.56');
+expect('K-7 … one ADJUSTMENT «Saldo inicial (conteo de caja)» on that date',
+  `(SELECT o.operation_type || '|' || o.effective_date || '|' || c.label FROM financial_operation o CROSS JOIN LATERAL fin_movement_class(o.operation_type::text, o.external_ref) c WHERE o.id = (${RES('K5', 'financial_operation_id')})::bigint)`,
+  `ADJUSTMENT|${WDAY}|Saldo inicial (conteo de caja)`);
+expect('K-8 … outside the P&L (identical)', `(${ADM(`SELECT md5(coalesce((SELECT string_agg(x::text, '#' ORDER BY x::text) FROM pnl_line_item x), ''))`)} = (SELECT pnl FROM cash0))::text`, 'true');
+expect('K-9 … Todas las operaciones reads it as «Saldo inicial»', ADM(`SELECT r ->> 'concepto' FROM jsonb_array_elements((SELECT fin_operation_list(p_search => 'conteo de prueba', p_limit => 100)) -> 'rows') r WHERE (r ->> 'operation_id')::bigint = ${P(`(${RES('K5', 'financial_operation_id')})::bigint`)}`), 'OK:Saldo inicial');
+expect('K-10 the same count again → replayed, nothing new', as('authenticated', ADMIN, `SELECT register_cash_opening(${P(CASHID)}::uuid, '${WDAY}'::date, ${COUNTED}, 'otra vez')::text`), 'OK:%"replayed": true%');
+expect('K-11 a second opening for the same cash → CASH_OPENING_EXISTS', OPEN('2026-10-23', 1), 'ERR:CASH_OPENING_EXISTS%');
+expect('K-12 audited once', `(SELECT count(*) FROM audit_events WHERE action = 'CASH_OPENING')`, '1');
+expect('K-13 OPERATOR reads no opening (RLS)', as('authenticated', OPER, `SELECT count(*)::text FROM cash_opening_count`), 'OK:0');
+
+add('ROLLBACK;');
+
+const target = assertSafeDestructiveTarget(process.env.TEST_DATABASE_URL);
+const containers = (dockerRun(['ps', '--filter', 'name=supabase_db', '--format', '{{.Names}}']).stdout || '').trim().split('\n').filter(Boolean);
+const container = containers.find((c) => (dockerRun(['port', c, '5432/tcp']).stdout || '').includes(`:${target.port}`));
+if (!container) { console.error(`  no running supabase_db container mapped to the guarded port ${target.port}. Run \`supabase start\`.`); process.exit(1); }
+console.log(`  container: ${container}`);
+{ const cp = dockerRun(['exec', '-i', container, 'sh', '-c', 'cat > /tmp/0139_redondeo_mp_cheque_insumo.sql'], readFileSync(resolve(import.meta.dirname, '../../supabase/target-migrations/0139_redondeo_mp_cheque_insumo.sql'), 'utf8'));
+  if (cp.status !== 0) { console.error('  could not copy 0139 into the container'); process.exit(1); } }
+{ const cp = dockerRun(['exec', '-i', container, 'sh', '-c', 'cat > /tmp/0140_corte_mp_y_saldo_inicial_caja.sql'], readFileSync(resolve(import.meta.dirname, '../../supabase/target-migrations/0140_corte_mp_y_saldo_inicial_caja.sql'), 'utf8'));
+  if (cp.status !== 0) { console.error('  could not copy 0140 into the container'); process.exit(1); } }
+const r = dockerRun(['exec', '-i', container, 'psql', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1', '-f', '-'], sql.join('\n'));
+const lines = `${r.stdout}\n${r.stderr}`.split('\n');
+let pass = 0; let fail = 0;
+for (const l of lines) {
+  const m = l.match(/NOTICE:\s+(PASS|FAIL) (.*)$/);
+  if (m) { if (m[1] === 'PASS') { pass += 1; console.log(`    OK   ${m[2]}`); } else { fail += 1; console.log(`    MAL  ${m[2]}`); } }
+}
+if (r.status !== 0) { fail += 1; console.log(`    MAL  psql aborted: ${(lines.find((l) => /ERROR/.test(l)) || r.stderr || '').slice(0, 300)}`); }
+console.log(`\n  ${pass} PASS, ${fail} FAIL`);
+process.exit(fail === 0 && pass > 0 ? 0 : 1);
