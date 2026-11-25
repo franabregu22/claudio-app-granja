@@ -145,7 +145,7 @@ describe('ADR-021 — activity and classification routes', () => {
     const pr = SRC('features/caja/PorResolver.tsx');
     const lista = SRC('features/caja/MovimientosHistoricos.tsx');
     expect(pr).toMatch(/id: 'MP_CLASIFICAR', titulo: 'Pendientes de clasificar'/);
-    expect(pr).toMatch(/id: 'ENTRADA_SIN_VINCULAR', titulo: 'Entradas sin vincular'.*aviso: false, requerido: false/);
+    expect(pr).not.toMatch(/id: 'ENTRADA_SIN_VINCULAR'/);   // owner 2026-11-25: optional and never reviewed — no card
     expect(pr).toMatch(/Actuales: \$\{mp\.current\} · Históricos: \$\{mp\.historical\}/);
     expect(pr).not.toMatch(/<PendientesClasificar|<EntradasSinVincular|<GastosSinClasificar/);   // no list of its own
     expect(app).toMatch(/\{vista === 'movimientos' && <Movimientos onIrAExtractos=\{\(\) => setVista\('extractos'\)\} focus=\{foco\} onFocus=\{setFoco\} \/>\}/);

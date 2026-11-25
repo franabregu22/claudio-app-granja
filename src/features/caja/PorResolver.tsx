@@ -12,16 +12,15 @@ export function TarjetasPorResolver({ activo, onFiltro }: { activo: PendingFilte
   const resumen = usePendingSummary();
   const gastos = useUnclassifiedCount();
   const mp = resumen.data ? mandatoryPending(resumen.data) : null;
-  const entradas = resumen.data?.UNLINKED_CURRENT.count;
   const tarjetas: { id: PendingFilter; titulo: string; cantidad: number | undefined; detalle: string; aviso: boolean; requerido: boolean }[] = [
     { id: 'MP_CLASIFICAR', titulo: 'Pendientes de clasificar', cantidad: mp?.count, detalle: mp ? `Actuales: ${mp.current} · Históricos: ${mp.historical}` : 'Requiere acción', aviso: (mp?.current ?? 0) > 0, requerido: true },
     { id: 'GASTO_SIN_CLASIFICAR', titulo: 'Gastos sin clasificar', cantidad: gastos.data, detalle: 'Ya pagados · requiere acción', aviso: (gastos.data ?? 0) > 0, requerido: true },
-    { id: 'ENTRADA_SIN_VINCULAR', titulo: 'Entradas sin vincular', cantidad: entradas, detalle: 'Opcional', aviso: false, requerido: false },
+    // owner 2026-11-25: «Entradas sin vincular» is not a card any more (optional, never reviewed): only what requires action
   ];
   return (
     <section aria-label="Por resolver">
       <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Por resolver</p>
-      <div role="group" aria-label="Filtros por resolver" className="grid grid-cols-3 gap-2">
+      <div role="group" aria-label="Filtros por resolver" className="grid grid-cols-2 gap-2">
         {tarjetas.map((t) => {
           const elegida = activo === t.id;
           return (
@@ -35,6 +34,9 @@ export function TarjetasPorResolver({ activo, onFiltro }: { activo: PendingFilte
           );
         })}
       </div>
+      {/* the optional list stays reachable, without a count */}
+      <button type="button" onClick={() => onFiltro(activo === 'ENTRADA_SIN_VINCULAR' ? null : 'ENTRADA_SIN_VINCULAR')} className="mt-1 text-[11px] text-[#8A7A5C] hover:underline">
+        {activo === 'ENTRADA_SIN_VINCULAR' ? 'Ocultar entradas de Mercado Pago sin vincular' : 'Ver entradas de Mercado Pago sin vincular (opcional)'}</button>
     </section>
   );
 }

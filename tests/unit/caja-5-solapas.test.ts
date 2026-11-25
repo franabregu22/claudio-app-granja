@@ -27,7 +27,7 @@ describe('Caja — the five tabs', () => {
       [app, '<Movimientos '], [app, '<SolapaPagar />'], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
       [tlo, '<TransferenciaModal '], [tlo, '<ImpuestoModal '], [tlo, '<VincularAnticipada '], [tlo, '<TransferenciasAnticipadas />'], [tlo, '<ImpuestoPorPeriodo />'],
       [tlo, '<DetalleGasto '], [tlo, '<ModalesGasto '],
-      [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "id: 'ENTRADA_SIN_VINCULAR'"],
+      [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "'ENTRADA_SIN_VINCULAR' ? null : 'ENTRADA_SIN_VINCULAR'"],
       [lista, '<BandejaPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionEntrada '],
       [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],   // owner 2026-11-24: from their cards (no «Ver también»)
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
