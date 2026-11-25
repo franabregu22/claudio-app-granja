@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { errorMessage } from '../../target/messages';
 
@@ -16,19 +17,24 @@ interface ModalProps {
   children: ReactNode;
 }
 
-/** Form dialog shared by the F27-D treasury screens: every submit is one contract RPC; errors come normalized. */
+/**
+ * Form dialog shared by the F27-D treasury screens: every submit is one contract RPC; errors come normalized.
+ * Rendered in document.body (portal) and its submit does not propagate: a modal opened from inside another one (e.g. «Anular» from the
+ * detail of a row in Todas las operaciones) is never a <form> nested in the outer <form> — the browser would submit the outer form
+ * natively and reload the page, so the action never ran (owner 2026-11-25) — and its submit never closes the outer modal.
+ */
 export function Modal({ titulo, onClose, onSubmit, puedeGuardar, guardando, error, textoGuardar = 'Guardar', children }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { ref.current?.showModal(); }, []);
   const cerrar = () => { ref.current?.close(); onClose(); };
 
-  return (
+  return createPortal(
     <dialog ref={ref} onClose={cerrar} className="w-full max-w-md p-6 rounded-lg backdrop:bg-black backdrop:bg-opacity-50">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold text-amber-900">{titulo}</h2>
         <button type="button" onClick={cerrar} className="text-gray-400 hover:text-gray-600"><X size={22} /></button>
       </div>
-      <form onSubmit={(e) => { e.preventDefault(); if (puedeGuardar && !guardando) onSubmit(); }} className="space-y-3">
+      <form onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); if (puedeGuardar && !guardando) onSubmit(); }} className="space-y-3">
         {children}
         {error ? <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded-lg text-sm">{errorMessage(error)}</div> : null}
         <div className="flex gap-2 pt-2">
@@ -39,6 +45,7 @@ export function Modal({ titulo, onClose, onSubmit, puedeGuardar, guardando, erro
           </button>
         </div>
       </form>
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }
