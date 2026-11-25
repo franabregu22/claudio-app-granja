@@ -27,6 +27,8 @@ import { useEstadoGuardado } from './useEstadoGuardado';
 import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, useSuppliers, useTransferIntents } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
 import { NumeroInput } from '../../components/NumeroInput';
+import { usePurchaseMpLinks, useSettlePurchaseMp } from './useMpActivity';
+import type { PurchaseMpLinkRow } from '../../target/purchaseMpLink';
 import { FiltroColumna, OpcionesFiltro } from '../../components/FiltroColumna';
 
 const CHIP = 'text-xs px-2 py-0.5 rounded whitespace-nowrap';
@@ -100,6 +102,11 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const focus = recientes ? null : foco;
   const lista = useOperationList(filtroServidor(filtros, recientes), pagina, focus);
   const filas = lista.data?.rows ?? [];
+  // owner 2026-11-25: an unclassified Mercado Pago outflow suggests the expense already recorded as paid with Mercado Pago of its amount
+  const gastosMp = usePurchaseMpLinks();
+  const sugeridos = new Map<string, PurchaseMpLinkRow[]>();
+  for (const g of gastosMp.data ?? []) if (g.status === 'PENDIENTE_VINCULACION_MP') for (const k of g.candidates ?? []) sugeridos.set(k.source_id, [...(sugeridos.get(k.source_id) ?? []), g]);
+  const [vinculando, setVinculando] = useState<{ r: OperationRow; gastos: PurchaseMpLinkRow[] } | null>(null);
   const comprobantes = useComprobantesDeGastos(filas.flatMap((r) => (r.purchase_id ? [{ purchase_id: r.purchase_id, purchase_root_id: r.purchase_root_id ?? r.purchase_id }] : [])));
   const total = lista.data?.total ?? 0;
   const poner = (cambio: Partial<Filtros>) => {
@@ -223,7 +230,8 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
                   </td></tr>
                 )}
                 {filas.map((r) => (
-                  <Fila key={r.row_key} r={r} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
+                  <Fila key={r.row_key} r={r} sugeridos={clasificableEnFila(r) && r.mp_source_id ? sugeridos.get(r.mp_source_id) : undefined}
+                    onVincular={(gastos) => setVinculando({ r, gastos })} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
                     comprobante={r.purchase_id ? comprobantes.data?.get(r.purchase_root_id ?? r.purchase_id) : undefined}
                     onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onDetalle={() => setDetalle(r)}
                     revertido={r.retiro ? retiroAnulado(r, compensados.data) : r.operation_id !== null && !!revertidos.data?.has(r.operation_id)}
@@ -259,6 +267,8 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
           onPagado={(op, resto) => { setPagar(null); setAviso({ texto: `Pago registrado${resto > 0 ? `; queda pendiente ${formatoPesos(resto)}` : ''}.`, clave: `OP:${op}` }); }} />
       )}
       {historial && <HistorialModal r={historial} onClose={() => setHistorial(null)} />}
+      {vinculando && <VincularSugeridoModal r={vinculando.r} gastos={vinculando.gastos} onClose={() => setVinculando(null)}
+        onListo={(t) => { setVinculando(null); setAviso({ texto: t, clave: null }); }} />}
       {revertir && <RevertirPagoModal r={revertir} onClose={() => setRevertir(null)} onListo={(t) => { setRevertir(null); setAviso({ texto: t, clave: null }); }} />}
       {anular && <AnularRetiroModal r={anular} compensado={(anular.retiro && compensados.data?.get(anular.retiro.event_id)) || 0}
         onClose={() => setAnular(null)} onListo={(t) => { setAnular(null); setAviso({ texto: t, clave: null }); }} />}
@@ -275,8 +285,8 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
  * (owner 2026-11-17): an expense is corrected in its cells (double click), an unclassified Mercado Pago outflow is classified from its
  * subcategory cell; Acciones: Registrar pago, the invoice, the history and «⋯» (the full detail: supplier / invoice number, rectify
  * items, annul, payments, cheques, transfer, transfer). An unclassified Mercado Pago outflow is classified only from its cell. */
-function Fila({ r, etiqueta, destacada, comprobante, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
-  r: OperationRow; etiqueta?: string; destacada: boolean; comprobante: FeedPurchaseExtra | undefined; onPagar: () => void; onHistorial: () => void;
+function Fila({ r, sugeridos, onVincular, etiqueta, destacada, comprobante, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
+  r: OperationRow; sugeridos?: PurchaseMpLinkRow[]; onVincular: (gastos: PurchaseMpLinkRow[]) => void; etiqueta?: string; destacada: boolean; comprobante: FeedPurchaseExtra | undefined; onPagar: () => void; onHistorial: () => void;
   onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
@@ -309,6 +319,11 @@ function Fila({ r, etiqueta, destacada, comprobante, onPagar, onHistorial, onDet
         <span className="flex items-center gap-1">
           <span className={`${CHIP} ${TONO_ESTADO[r.estado]}`}>{estadoLabel(r)}</span>
           {r.clasificacion && <span className={`${CHIP} bg-orange-100 text-orange-900`} title={CLASIFICACION_LABEL[r.clasificacion]}>Por revisar</span>}
+          {sugeridos && sugeridos.length > 0 && (
+            <button type="button" onClick={() => onVincular(sugeridos)} className={`${CHIP} bg-emerald-100 text-emerald-900 hover:bg-emerald-200 whitespace-nowrap`}
+              title={`Hay ${sugeridos.length === 1 ? 'un gasto cargado' : `${sugeridos.length} gastos cargados`} como pagado con Mercado Pago por este importe: ${sugeridos.map(descripcionSugerido).join(' / ')}`}>
+              Vincular con gasto ›</button>
+          )}
           {revertido && (r.retiro
             ? <span className={`${CHIP} bg-stone-200 text-stone-700`} title="El retiro se anuló: el dinero volvió a la cuenta">Retiro anulado</span>
             : <span className={`${CHIP} bg-stone-200 text-stone-700`} title="El pago se revirtió: el gasto volvió a pendiente y el dinero a la cuenta">Pago revertido</span>)}
@@ -591,6 +606,36 @@ function HistorialModal({ r, onClose }: { r: OperationRow; onClose: () => void }
             ))}
           </ol>
         )}
+    </Modal>
+  );
+}
+
+const descripcionSugerido = (g: PurchaseMpLinkRow) => [g.origin_code ? `WhatsApp ${g.origin_code}` : null, g.concept ?? 'Gasto', g.category_name, formatearFechaLocal(g.economic_date), formatoPesos(g.amount_total)].filter(Boolean).join(' · ');
+
+/**
+ * Owner 2026-11-25: the suggestion of an unclassified Mercado Pago outflow — the expense already recorded as paid with Mercado Pago of
+ * its amount (the backend's candidates, the same ones as Pendientes de clasificar). Linking it is settle_purchase_mp: no second expense.
+ */
+function VincularSugeridoModal({ r, gastos, onClose, onListo }: { r: OperationRow; gastos: PurchaseMpLinkRow[]; onClose: () => void; onListo: (texto: string) => void }) {
+  const vincular = useSettlePurchaseMp();
+  const [elegido, setElegido] = useState(gastos.length === 1 ? gastos[0].purchase_id : '');
+  const [clave] = useState(() => `PURCHASE-MP-${crypto.randomUUID()}`);   // idempotency of the link: one per opened form
+  const g = gastos.find((x) => x.purchase_id === elegido);
+  return (
+    <Modal titulo={'Vincular con el gasto cargado'} onClose={onClose} puedeGuardar={!!g && !!r.mp_source_id} guardando={vincular.isPending} error={vincular.error}
+      textoGuardar="Vincular" onSubmit={() => vincular.mutate({ purchaseId: elegido, sourceId: r.mp_source_id!, idempotencyKey: clave, reason: 'Vinculación desde Todas las operaciones' },
+        { onSuccess: () => onListo(`Salida de Mercado Pago vinculada al gasto «${g?.concept ?? 'Gasto'}»: no se cargó otro gasto.`) })}>
+      <p className="text-sm text-[#6B5D45]">Salida de Mercado Pago del {r.date ? formatearFechaLocal(r.date) : '—'} por {formatoPesos(Math.abs(r.amount))}{r.mp_source_id ? ` · Nº ${r.mp_source_id}` : ''}</p>
+      <div className="space-y-2" role="radiogroup" aria-label="Gasto a vincular">
+        {gastos.map((x) => (
+          <label key={x.purchase_id} className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer ${elegido === x.purchase_id ? 'border-amber-600 bg-amber-50' : 'border-[#E4DCC8]'}`}>
+            <input type="radio" name="gasto-sugerido" checked={elegido === x.purchase_id} onChange={() => setElegido(x.purchase_id)} className="mt-1" />
+            <span>{descripcionSugerido(x)}</span>
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-[#6B5D45]">El gasto ya está en resultados{g?.fiscal_document_id ? ' (con su factura e IVA)' : ''}: vincularlo solo registra que se pagó con esta salida.
+        {g && r.date && g.economic_date !== r.date ? ` El gasto conserva su fecha (${formatearFechaLocal(g.economic_date)}); el pago queda con la de la salida.` : ''}</p>
     </Modal>
   );
 }
