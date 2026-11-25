@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '../../../lib/supabase';
+import { updateMaster } from '../../../target/masters';
 import { ChevronDown, Pencil, Plus } from 'lucide-react';
 import type { RecipeChange } from '../../../target/alimento';
 import { versionsEffectiveOn, type FeedTypeRow, type FormulaLineRow, type FormulaSection, type FormulaVersionRow } from '../../../target/feed';
@@ -12,7 +15,7 @@ import { useAlimentoMutations, useAllFeedTypes, useComposition, useRecipeChanges
 import { NumeroInput } from '../../../components/NumeroInput';
 
 interface Ingrediente { id: string; nombre: string; activo: boolean }
-type Editor = { tipo: 'receta' } | { tipo: 'modificar'; receta: FeedTypeRow } | { tipo: 'batch'; receta: FeedTypeRow } | null;
+type Editor = { tipo: 'receta' } | { tipo: 'modificar'; receta: FeedTypeRow } | { tipo: 'batch'; receta: FeedTypeRow } | { tipo: 'nombre'; receta: FeedTypeRow } | null;
 
 /**
  * Recetas (ADMIN). List → versions with their validity and comment → ingredients by section. «Modificar ingredientes»
@@ -56,6 +59,7 @@ export function Recetas() {
               <div className="px-4 pb-4 border-t border-[#E4DCC8] bg-[#FAF6EE] space-y-3 pt-3">
                 <div className="flex gap-2 flex-wrap items-center">
                   {t.activo && <button className={botonPrimario} onClick={() => setEditor({ tipo: 'modificar', receta: t })}><Pencil className="w-4 h-4 inline -mt-0.5" /> {vs.length ? 'Modificar ingredientes' : 'Cargar ingredientes'}</button>}
+                  <button className={botonSecundario} onClick={() => setEditor({ tipo: 'nombre', receta: t })}>Cambiar nombre</button>
                   <button className={botonSecundario} disabled={m.active.isPending} onClick={() => m.active.mutate({ feedTypeId: t.id, active: !t.activo })}>{t.activo ? 'Desactivar' : 'Activar'}</button>
                   {t.activo && <button className={botonSecundario} onClick={() => setEditor({ tipo: 'batch', receta: t })}>Batch estándar: {kgTxt(t.standard_batch_kg)} · cambiar</button>}
                 </div>
@@ -88,6 +92,7 @@ export function Recetas() {
       </section>
 
       {editor?.tipo === 'batch' && <BatchModal receta={editor.receta} onClose={() => setEditor(null)} />}
+      {editor?.tipo === 'nombre' && <NombreModal receta={editor.receta} onClose={() => setEditor(null)} />}
       {editor?.tipo === 'receta' && <RecetaModal onClose={() => setEditor(null)} />}
       {editor?.tipo === 'modificar' && <RecetaModal receta={editor.receta} base={versionsEffectiveOn(delTipo(editor.receta.id), hoy)[0] ?? delTipo(editor.receta.id)[0]}
         ultimaDesde={delTipo(editor.receta.id)[0]?.effective_from} onClose={() => setEditor(null)} />}
@@ -190,6 +195,24 @@ function BatchModal({ receta, onClose }: { receta: FeedTypeRow; onClose: () => v
       puedeGuardar={n > 0 && n !== receta.standard_batch_kg} onSubmit={() => m.batch.mutate({ feedTypeId: receta.id, kg: n }, { onSuccess: onClose })}>
       <p className="text-sm text-gray-700">Es el tamaño que aparece por defecto en «Ver recetas» y en Nueva fabricación. Las proporciones no cambian y no se crea una versión nueva.</p>
       <label className={etiqueta}>Tamaño estándar del batch (kg)<NumeroInput min="1" value={kg} onChange={(e) => setKg(e.target.value)} className={campo} /></label>
+    </Modal>
+  );
+}
+
+/** The name of a recipe (owner 2026-11-25: moved here from Administración → Alimento, which is gone). Versions and history unchanged. */
+function NombreModal({ receta, onClose }: { receta: FeedTypeRow; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [nombre, setNombre] = useState(receta.nombre);
+  const guardar = useMutation({
+    mutationFn: (n: string) => updateMaster(supabase, 'feed_type', receta.id, { nombre: n }),
+    onSuccess: () => Promise.all([['feed'], ['master', 'feed_type']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
+  });
+  const n = nombre.trim();
+  return (
+    <Modal titulo={`Cambiar nombre — ${receta.nombre}`} onClose={onClose} guardando={guardar.isPending} error={guardar.error}
+      puedeGuardar={n !== '' && n !== receta.nombre} onSubmit={() => guardar.mutate(n, { onSuccess: onClose })}>
+      <label className={etiqueta}>Nombre<input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} maxLength={100} className={campo} /></label>
+      <p className="text-xs text-gray-600">Cambia solo el nombre: las versiones, las fabricaciones y el historial siguen siendo de la misma receta.</p>
     </Modal>
   );
 }

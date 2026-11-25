@@ -7,10 +7,9 @@ import { CategoriasAdmin } from './CategoriasAdmin';
 import { ProveedoresAdmin } from './ProveedoresAdmin';
 import { CuentasAdmin } from './CuentasAdmin';
 import { ProyectosAdmin } from './ProyectosAdmin';
-import { AlimentoAdmin } from './AlimentoAdmin';
 import { UsuariosAdmin } from './UsuariosAdmin';
 
-type Tab = 'client' | 'product' | 'shed' | 'expense' | 'supplier' | 'account' | 'project' | 'feed' | 'user';
+type Tab = 'client' | 'product' | 'shed' | 'expense' | 'supplier' | 'account' | 'project' | 'user';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'client', label: 'Clientes' },
@@ -20,7 +19,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'supplier', label: 'Proveedores' },
   { id: 'account', label: 'Cuentas' },
   { id: 'project', label: 'Etiquetas de gasto' },   // 0127: the projects master is the expense tag catalog
-  { id: 'feed', label: 'Alimento' },
   { id: 'user', label: 'Usuarios' },
 ];
 
@@ -73,7 +71,6 @@ export function AdminApp() {
           {tab === 'supplier' && <ProveedoresAdmin />}
           {tab === 'account' && <CuentasAdmin />}
           {tab === 'project' && <ProyectosAdmin />}
-          {tab === 'feed' && <AlimentoAdmin />}
           {tab === 'user' && <UsuariosAdmin />}
         </div>
       </div>

@@ -49,7 +49,7 @@ export interface ProfileRow { id: string; email: string; rol_type: 'ADMIN' | 'OP
 
 /** The master tables edited through direct writes in F27-B (all INSERT / UPDATE only). */
 export type MasterTable = 'clients' | 'suppliers' | 'expense_category' | 'expense_category_group' | 'financial_account' | 'projects' | 'products' | 'sheds'
-  | 'feed_type' | 'feed_ingredient';   // Administración → Alimento (ADR-013 block 4)
+  | 'feed_type' | 'feed_ingredient';   // ADR-013 block 4 (recipes: Producción → Alimento → Recetas; ingredients: Categorías de gasto)
 type Values = Record<string, unknown>;
 
 /** Trim text fields and turn empty strings into NULL; other values pass through unchanged. */
