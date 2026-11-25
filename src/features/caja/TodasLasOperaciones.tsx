@@ -304,7 +304,7 @@ function Fila({ r, sugeridos, onVincular, etiqueta, destacada, comprobante, onPa
       <td className={`${TD}${cls('fecha')}`} {...alDoble('fecha')}>{celda('fecha', r.date ? formatearFechaLocal(r.date) : NADA)}</td>
       <td className={`${TD} font-semibold ${TONO_TIPO[r.tipo]}`}>{TIPO_LABEL[r.tipo]}</td>
       <td className={`px-1.5 py-1.5 min-w-[12rem] ${editando === 'concepto' ? '' : 'max-w-0 truncate'}${cls('concepto')}`} title={r.concepto} {...alDoble('concepto')}>
-        {celda('concepto', <span className="font-medium text-[#2C2419]">{r.concepto || NADA}</span>)}</td>
+        {celda('concepto', <span className="font-medium text-[#2C2419]">{chequeDebitado(r) && <span className={`${CHIP} mr-1 bg-slate-100 text-slate-700 font-normal`} title="Débito en el banco de un cheque / eCheq propio; el concepto es el gasto o la factura que pagó">Cheque debitado</span>}{r.concepto || NADA}</span>)}</td>
       <td className={`${TD} max-w-[10rem] ${editando === 'categoria' ? '' : 'truncate'}${cls('categoria')}`} title={r.category ?? undefined} {...alDoble('categoria')}>
         {editando === 'categoria' ? null : (r.category ?? (clasificable ? <span className="text-xs text-orange-800">Sin clasificar</span> : retiro ? 'Retiros de socios' : NADA))}</td>
       <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${cls('categoria')}`} title={r.subcategory ?? undefined} {...alDoble('categoria')}>
@@ -649,3 +649,7 @@ function VincularSugeridoModal({ r, gastos, onClose, onListo }: { r: OperationRo
 /** An invoice fully covered with own cheques / eCheqs still to be debited: nothing is owed to the supplier, only the bank debit is left. */
 const enCheques = (r: OperationRow) => r.row_kind === 'FACTURA' && r.estado === 'PENDIENTE' && !!r.pendiente
   && (r.pendiente as PendienteFactura).cheques_por_debitar > 0 && (r.pendiente as PendienteFactura).sin_cubrir <= 0.005;
+
+/** Owner 2026-11-25: the bank debit of an own cheque / eCheq is named after the expense it paid — the row says it is a cheque debit
+ * (a debit not linked to an expense already reads «Cheque … / eCheq …»). */
+const chequeDebitado = (r: OperationRow) => r.row_kind === 'OP' && r.detalle === 'Cheque debitado' && !/^(Cheque|eCheq) /.test(r.concepto);

@@ -89,3 +89,11 @@ describe('Todas las operaciones — importe de una fila pendiente (owner 2026-11
     expect(c).toContain('(r.pendiente as PendienteFactura).cheques_por_debitar > 0 && (r.pendiente as PendienteFactura).sin_cubrir <= 0.005');
   });
 });
+
+describe('Todas las operaciones — débito de cheque (owner 2026-11-25)', () => {
+  it('the bank debit of an own cheque named after the expense it paid says «Cheque debitado»', () => {
+    const c = SRC('features/caja/TodasLasOperaciones.tsx');
+    expect(c).toContain("r.row_kind === 'OP' && r.detalle === 'Cheque debitado' && !/^(Cheque|eCheq) /.test(r.concepto)");
+    expect(c).toContain('{chequeDebitado(r) && <span');
+  });
+});
