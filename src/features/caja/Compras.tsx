@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../auth/useAuth';
 import { supabase } from '../../lib/supabase';
@@ -7,7 +7,7 @@ import { defaultNatureOf, socios } from '../../target/expenseCategories';
 import { registerManagementEvent } from '../../target/pnl';
 import { COMPROBANTE_VACIO, cuentaAdmitida, MEDIO_PAGO_LABEL, NATURALEZA_GASTO, rutaGasto, type ComprobanteForm, type EstadoPago, type MedioPago } from '../../target/expenses';
 import { claveDeRegistro } from '../../target/operations';
-import { ALICUOTAS_IVA, cuitOrNull, diferenciaFacturaA, FISCAL_VACIO, fiscalDeGasto, OTROS_IMPUESTOS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
+import { ALICUOTAS_IVA, cuitOrNull, diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, OTROS_IMPUESTOS, recalcularFacturaA, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
 import { type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
@@ -262,10 +262,13 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
   const setF = (p: Partial<FiscalForm>) => set({ fiscal: { ...f, ...p } });
   const setComp = (i: number, p: Partial<ComponenteForm>) => setF({ componentes: f.componentes.map((c, j) => (j === i ? { ...c, ...p } : c)) });
   const clase: '' | 'A' | 'OTRA' = f.tipo === '' ? '' : f.tipo === 'INVOICE_A' ? 'A' : 'OTRA';
+  // owner 2026-11-25: neto and IVA complete each other from the total (the one not typed is computed and recomputed)
+  const editar = (campo: 'NETO' | number, valor: string) => setF(editarFacturaA(f, Number(total), campo, valor));
+  useEffect(() => { const g = recalcularFacturaA(f, Number(total)); if (g !== f) onChange({ ...value, fiscal: g }); }, [total]);   // eslint-disable-line react-hooks/exhaustive-deps
   function elegirClase(c: '' | 'A' | 'OTRA') {
     if (c === '') setF({ ...FISCAL_VACIO });
-    else if (c === 'A') setF({ ...FISCAL_VACIO, tipo: 'INVOICE_A', periodo: f.periodo, componentes: [{ tax_kind: 'IVA', base: '', alicuota: ALICUOTAS_IVA[0], importe: '' }] });
-    else setF({ ...FISCAL_VACIO, tipo: 'INVOICE_B', periodo: f.periodo });
+    else if (c === 'A') setF({ ...FISCAL_VACIO, tipo: 'INVOICE_A', componentes: [{ tax_kind: 'IVA', base: '', alicuota: ALICUOTAS_IVA[0], importe: '' }] });
+    else setF({ ...FISCAL_VACIO, tipo: 'INVOICE_B' });
   }
   function elegirArchivos(lista: FileList | null) {
     const files = Array.from(lista ?? []);
@@ -297,15 +300,9 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
       )}
       {clase === 'A' && (
         <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <label className={etiqueta}>Neto gravado
-              <NumeroInput min="0" step="0.01" value={f.neto} onChange={(e) => setF({ neto: e.target.value })} className={campo} />
-            </label>
-            <label className={etiqueta}>Período fiscal
-              <input type="month" value={f.periodo} onChange={(e) => setF({ periodo: e.target.value })} className={campo} />
-              <span className="block text-[11px] font-normal text-gray-500">Vacío = el mes de la fecha del gasto.</span>
-            </label>
-          </div>
+          <label className={etiqueta}>Neto gravado{f.auto === 'NETO' && <span className="ml-1 text-[11px] font-normal text-gray-500">(calculado)</span>}
+            <NumeroInput min="0" step="0.01" value={f.neto} onChange={(e) => editar('NETO', e.target.value)} className={campo} />
+          </label>
           {f.componentes.map((c, i) => (
             <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
               {c.tax_kind === 'IVA' ? (
@@ -321,10 +318,10 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
                   </select>
                 </label>
               )}
-              <label className="text-xs text-gray-600">Importe
-                <NumeroInput min="0" step="0.01" value={c.importe} onChange={(e) => setComp(i, { importe: e.target.value })} className={campo} />
+              <label className="text-xs text-gray-600">Importe{i === 0 && f.auto === 'IVA' && <span className="ml-1 text-[11px] text-gray-500">(calculado)</span>}
+                <NumeroInput min="0" step="0.01" value={c.importe} onChange={(e) => editar(i, e.target.value)} className={campo} />
               </label>
-              <button type="button" aria-label="Quitar impuesto" disabled={i === 0} onClick={() => setF({ componentes: f.componentes.filter((_, j) => j !== i) })}
+              <button type="button" aria-label="Quitar impuesto" disabled={i === 0} onClick={() => setF(recalcularFacturaA({ ...f, componentes: f.componentes.filter((_, j) => j !== i) }, Number(total)))}
                 className="mb-1 text-xs text-[#A8552E] hover:underline disabled:invisible">Quitar</button>
             </div>
           ))}

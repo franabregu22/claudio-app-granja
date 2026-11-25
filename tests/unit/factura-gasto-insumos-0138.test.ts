@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { diferenciaFacturaA, FISCAL_VACIO, fiscalDeGasto, type FiscalForm } from '../../src/target/fiscal';
+import { diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, recalcularFacturaA, type FiscalForm } from '../../src/target/fiscal';
 import { TARGET_RPCS } from '../../src/target/db';
 
 const SRC = (p: string) => readFileSync(resolve(__dirname, '../../src', p), 'utf8');
@@ -38,6 +38,22 @@ describe('Factura del gasto (owner 2026-11-25): Factura A con neto + impuestos =
   it('another document: neto = total, no taxes', () => {
     expect(fiscalDeGasto({ ...FISCAL_VACIO, tipo: 'INVOICE_C' }, 500, '2026-11-24'))
       .toEqual({ documentType: 'INVOICE_C', fiscalPeriod: '2026-11-01', netAmount: 500, totalAmount: 500, components: [] });
+  });
+  it('autocompletion (owner 2026-11-25): the neto fills the IVA, the IVA fills the neto, from the total', () => {
+    const conNeto = editarFacturaA(A({}), 1210, 'NETO', '1000');
+    expect([conNeto.auto, conNeto.componentes[0].importe]).toEqual(['IVA', '210.00']);
+    expect(fiscalDeGasto(conNeto, 1210, '2026-11-24')?.netAmount).toBe(1000);
+    const conIva = editarFacturaA(A({}), 1210, 0, '210');
+    expect([conIva.auto, conIva.neto]).toEqual(['NETO', '1000.00']);
+    // a perception: the computed neto discounts it; a new total recomputes it
+    const conPerc = editarFacturaA({ ...conIva, componentes: [...conIva.componentes, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '' }] }, 1240, 1, '30');
+    expect(conPerc.neto).toBe('1000.00');
+    expect(recalcularFacturaA(conPerc, 1250).neto).toBe('1010.00');
+    // typing the computed field makes it manual (nothing recomputed any more)
+    const manual = editarFacturaA(conNeto, 1210, 0, '200');
+    expect([manual.auto, manual.neto, diferenciaFacturaA(manual, 1210)]).toEqual([undefined, '1000', 1000]);
+    // the fiscal period is always the month of the invoice date (no field)
+    expect(SRC('features/caja/Compras.tsx')).not.toContain('Período fiscal');
   });
   it('the forms use it: Nuevo gasto and Editar gasto', () => {
     expect(SRC('features/caja/Compras.tsx')).toContain('fiscalDeGasto(comprobante.fiscal, Number(total), fecha)');

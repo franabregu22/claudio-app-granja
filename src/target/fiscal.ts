@@ -141,7 +141,7 @@ export interface PurchaseFiscalInput {
 }
 
 export type ComponenteForm = { tax_kind: TaxKind; base: string; alicuota: string; importe: string };
-export interface FiscalForm { tipo: FiscalDocumentType | ''; periodo: string; neto: string; total: string; componentes: ComponenteForm[] }
+export interface FiscalForm { tipo: FiscalDocumentType | ''; periodo: string; neto: string; total: string; componentes: ComponenteForm[]; /** Factura A: the computed field */ auto?: 'NETO' | 'IVA' }
 export const FISCAL_VACIO: FiscalForm = { tipo: '', periodo: '', neto: '', total: '', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '', importe: '' }] };
 
 /** IVA rates printed on a Factura A (the first one is the default of a new row). */
@@ -163,6 +163,36 @@ export function diferenciaFacturaA(f: FiscalForm, total: number): number | null 
     suma += centavos(c.importe);
   }
   return centavos(total) - suma;
+}
+
+/**
+ * Factura A autocompletion (owner 2026-11-25): the expense total is known, so the neto and the first IVA amount complete each other —
+ * neto = total − every tax; IVA = total − neto − the other taxes. The field the user did NOT type is the computed one (f.auto); typing in
+ * it makes it manual. Any change (neto, a tax, the total) recomputes the computed field. A negative result leaves it empty.
+ */
+const deCentavos = (c: number) => (c < 0 ? '' : (c / 100).toFixed(2));
+export function recalcularFacturaA(f: FiscalForm, total: number): FiscalForm {
+  if (f.tipo !== 'INVOICE_A' || !f.auto || !(total > 0) || f.componentes[0]?.tax_kind !== 'IVA') return f;
+  const imp = (c: ComponenteForm) => (c.importe === '' ? 0 : centavos(c.importe));
+  if (f.auto === 'NETO') {
+    const v = deCentavos(centavos(total) - f.componentes.reduce((t, c) => t + imp(c), 0));
+    return v === f.neto ? f : { ...f, neto: v };
+  }
+  if (f.neto === '') return f;
+  const v = deCentavos(centavos(total) - centavos(f.neto) - f.componentes.slice(1).reduce((t, c) => t + imp(c), 0));
+  return v === f.componentes[0].importe ? f : { ...f, componentes: f.componentes.map((c, i) => (i === 0 ? { ...c, importe: v } : c)) };
+}
+/** The user typed the neto (campo 'NETO') or the amount of tax row i: the other one of the pair becomes the computed field. */
+export function editarFacturaA(f: FiscalForm, total: number, campo: 'NETO' | number, valor: string): FiscalForm {
+  let g: FiscalForm;
+  if (campo === 'NETO') {
+    g = { ...f, neto: valor, auto: f.auto === 'NETO' ? undefined : f.auto };
+    if (!g.auto && (g.componentes[0]?.importe ?? '') === '') g = { ...g, auto: 'IVA' };
+  } else {
+    g = { ...f, componentes: f.componentes.map((c, i) => (i === campo ? { ...c, importe: valor } : c)), auto: campo === 0 && f.auto === 'IVA' ? undefined : f.auto };
+    if (campo === 0 && !g.auto && g.neto === '') g = { ...g, auto: 'NETO' };
+  }
+  return recalcularFacturaA(g, total);
 }
 
 /**
