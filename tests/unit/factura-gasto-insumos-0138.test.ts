@@ -80,3 +80,12 @@ describe('Todas las operaciones — sugerencia de vinculación (owner 2026-11-25
     expect(c).toContain("vincular.mutate({ purchaseId: elegido, sourceId: r.mp_source_id!, idempotencyKey: clave");
   });
 });
+
+describe('Todas las operaciones — importe de una fila pendiente (owner 2026-11-25)', () => {
+  it('shows what is left and, under it, the amount recorded; an invoice covered with cheques is «En cheques · por debitar»', () => {
+    const c = SRC('features/caja/TodasLasOperaciones.tsx');
+    expect(c).toContain('de {formatoPesos(r.pendiente.total)} cargado');
+    expect(c).toContain('En cheques · por debitar');
+    expect(c).toContain('(r.pendiente as PendienteFactura).cheques_por_debitar > 0 && (r.pendiente as PendienteFactura).sin_cubrir <= 0.005');
+  });
+});

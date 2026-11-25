@@ -314,10 +314,16 @@ function Fila({ r, sugeridos, onVincular, etiqueta, destacada, comprobante, onPa
       <td {...alDoble('importe')} className={`${TD} text-right font-bold${cls('importe')} ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
         title={r.informativo ? 'Ya está en Mercado Pago como movimiento sin clasificar: no se cuenta dos veces' : undefined}>
         {celda('importe', r.informativo ? `(${importe})` : importe)}
+        {/* owner 2026-11-25: a pending row is what is still to pay; the amount recorded (the invoice / expense total) is shown under it */}
+        {r.pendiente && editando !== 'importe' && Math.abs(r.pendiente.total - Math.abs(r.amount)) > 0.005 && (
+          <span className="block text-[11px] font-normal text-[#8A7A5C] whitespace-nowrap">de {formatoPesos(r.pendiente.total)} cargado</span>
+        )}
       </td>
       <td className={TD}>
         <span className="flex items-center gap-1">
-          <span className={`${CHIP} ${TONO_ESTADO[r.estado]}`}>{estadoLabel(r)}</span>
+          {enCheques(r)
+            ? <span className={`${CHIP} bg-sky-100 text-sky-900`} title="Cubierta con cheques / eCheqs: la deuda con el proveedor ya está saldada; falta que se debiten del banco">En cheques · por debitar</span>
+            : <span className={`${CHIP} ${TONO_ESTADO[r.estado]}`}>{estadoLabel(r)}</span>}
           {r.clasificacion && <span className={`${CHIP} bg-orange-100 text-orange-900`} title={CLASIFICACION_LABEL[r.clasificacion]}>Por revisar</span>}
           {sugeridos && sugeridos.length > 0 && (
             <button type="button" onClick={() => onVincular(sugeridos)} className={`${CHIP} bg-emerald-100 text-emerald-900 hover:bg-emerald-200 whitespace-nowrap`}
@@ -639,3 +645,7 @@ function VincularSugeridoModal({ r, gastos, onClose, onListo }: { r: OperationRo
     </Modal>
   );
 }
+
+/** An invoice fully covered with own cheques / eCheqs still to be debited: nothing is owed to the supplier, only the bank debit is left. */
+const enCheques = (r: OperationRow) => r.row_kind === 'FACTURA' && r.estado === 'PENDIENTE' && !!r.pendiente
+  && (r.pendiente as PendienteFactura).cheques_por_debitar > 0 && (r.pendiente as PendienteFactura).sin_cubrir <= 0.005;
