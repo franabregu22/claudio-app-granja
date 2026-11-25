@@ -24,6 +24,16 @@ release en su lugar. Cada ítem dice qué es, de dónde salió y qué hay que te
 - **Alcance estimado:** sin cambios en la base; función nueva más pantalla. Uno o dos días de trabajo, más el despliegue de la función.
   Cada lectura tiene un costo chico de IA, como el del bot.
 
+### 6. Número del cheque en la fila de su débito (Todas las operaciones)
+- **Origen:** owner, 2026-11-25. Hoy el débito del eCheq 035 (04/11) aparece como «[Cheque debitado] Expeller de Soja», sin el
+  número (commit `435121a`).
+- **Qué:** que el débito de un cheque o eCheq propio asociado a un gasto se lea «eCheq 035 · Expeller de Soja». Así queda igual que
+  los cheques sin gasto, que ya dicen «Cheque 250 · proveedor».
+- **Cómo:** en `fin_operation_list`, cuando la operación es un `INSTRUMENT_DEBIT`, anteponer el tipo y el número del instrumento al
+  concepto del gasto. Hoy ese concepto lo toma de `cur.subcategory` antes que del instrumento.
+- **Alcance estimado:** migración que redefine la función, con la misma identidad, más su test y su perfil de verificación. Lleva una
+  release completa: backup, ensayo, aplicación y post. Conviene sumarlo al próximo lote que toque la base.
+
 ## Detectados durante el trabajo (no pedidos todavía)
 
 ### 2. Nombre del insumo cuando se renombra su subcategoría
