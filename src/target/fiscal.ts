@@ -144,6 +144,47 @@ export type ComponenteForm = { tax_kind: TaxKind; base: string; alicuota: string
 export interface FiscalForm { tipo: FiscalDocumentType | ''; periodo: string; neto: string; total: string; componentes: ComponenteForm[] }
 export const FISCAL_VACIO: FiscalForm = { tipo: '', periodo: '', neto: '', total: '', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '', importe: '' }] };
 
+/** IVA rates printed on a Factura A (the first one is the default of a new row). */
+export const ALICUOTAS_IVA = ['21', '10.5', '27'] as const;
+/** The other taxes a Factura A may print (base / rate not on the form, stored 0 like the WhatsApp bot does). */
+export const OTROS_IMPUESTOS: [TaxKind, string][] = [['PERCEPTION', 'Percepción IVA'], ['IIBB', 'Percepción IIBB'], ['OTHER', 'Otro impuesto']];
+const centavos = (v: string | number) => Math.round(Number(v) * 100);
+
+/**
+ * Factura A of an expense (owner 2026-11-25): the difference in cents between the expense total and neto + every tax typed, or null
+ * while the neto is missing or a tax row is invalid (an IVA row with an amount needs its rate). Rows without an amount are ignored.
+ */
+export function diferenciaFacturaA(f: FiscalForm, total: number): number | null {
+  if (f.neto === '' || !(Number(f.neto) >= 0)) return null;
+  let suma = centavos(f.neto);
+  for (const c of f.componentes) {
+    if (c.importe === '') continue;   // a blank row is ignored
+    if (!(Number(c.importe) >= 0) || (c.tax_kind === 'IVA' && !(Number(c.alicuota) > 0))) return null;
+    suma += centavos(c.importe);
+  }
+  return centavos(total) - suma;
+}
+
+/**
+ * The fiscal data of an expense from its invoice block, or null while incomplete:
+ *   * no invoice ('') → null (nothing fiscal is recorded);
+ *   * Factura A → the neto and the taxes as printed, only when they add up to the expense total to the cent. An IVA row stores
+ *     base = amount × 100 / rate (the bot's rule); another tax stores base and rate 0;
+ *   * any other document (B, C, receipt, other) → neto = total = the expense total, no taxes.
+ */
+export function fiscalDeGasto(f: FiscalForm, total: number, fecha: string): PurchaseFiscalInput | null {
+  if (f.tipo === '' || !(total > 0)) return null;
+  const fiscalPeriod = f.periodo !== '' ? `${f.periodo}-01` : firstOfMonth(fecha);
+  if (f.tipo !== 'INVOICE_A') return { documentType: f.tipo, fiscalPeriod, netAmount: total, totalAmount: total, components: [] };
+  if (diferenciaFacturaA(f, total) !== 0) return null;
+  return {
+    documentType: 'INVOICE_A', fiscalPeriod, netAmount: Number(f.neto), totalAmount: total,
+    components: f.componentes.filter((c) => c.importe !== '').map((c) => (c.tax_kind === 'IVA'
+      ? { tax_kind: 'IVA' as const, base_amount: Math.round(Number(c.importe) * 10000 / Number(c.alicuota)) / 100, rate_applied: Number(c.alicuota), tax_amount: Number(c.importe) }
+      : { tax_kind: c.tax_kind, base_amount: 0, rate_applied: 0, tax_amount: Number(c.importe) })),
+  };
+}
+
 /**
  * The typed fiscal data, or null while incomplete. Every amount is exactly what the user typed: no rate, base or tax
  * is derived here (the backend stores them as supplied). Components left completely blank are ignored.

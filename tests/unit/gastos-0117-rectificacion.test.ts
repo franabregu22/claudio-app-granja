@@ -83,7 +83,7 @@ describe('Nuevo gasto — one form, the existing RPC of each case', () => {
     expect(cuentaAdmitida('TRANSFER', 'BANK_ACCOUNT')).toBe(true);
     expect(cuentaAdmitida('MERCADOPAGO', 'EXTERNAL_SERVICE')).toBe(true);
   });
-  it('the form: owner order, no Notas / Detalle de ítems / Más datos, the receipt folded and optional', () => {
+  it('the form: owner order, no Notas / Detalle de ítems / Más datos, the invoice block visible (sin factura / Factura A / otra)', () => {
     const c = SRC('features/caja/Compras.tsx');
     const form = c.slice(c.indexOf('export function NuevaCompraModal'), c.indexOf('export function SelectorNaturaleza'));
     const orden = ['Concepto del gasto', '>Proveedor', 'Importe total', '<SelectorCategoria ', '<SelectorNaturaleza ', 'Estado del pago', '<BloqueComprobante '].map((t) => form.indexOf(t));
@@ -92,7 +92,9 @@ describe('Nuevo gasto — one form, the existing RPC of each case', () => {
     for (const t of ['Notas', 'Detalle de ítems', 'Más datos', 'reason: notas']) expect(form).not.toContain(t);
     expect(form).toMatch(/<option value="">Sin proveedor<\/option>/);
     expect(form).toMatch(/useRegisterExpense\(\)/);
-    expect(c).toMatch(/Factura o comprobante \(opcional\)/);
+    expect(c).toContain('Factura o comprobante</legend>');   // 2026-11-25: visible, not folded
+    for (const t of ['Sin factura', 'Factura A', 'Otra (B, C, recibo)', 'Neto gravado']) expect(c).toContain(t);
+    expect(c).not.toContain('Datos fiscales (opcional)');
   });
 });
 

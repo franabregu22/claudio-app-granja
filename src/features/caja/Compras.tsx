@@ -7,7 +7,7 @@ import { defaultNatureOf, socios } from '../../target/expenseCategories';
 import { registerManagementEvent } from '../../target/pnl';
 import { COMPROBANTE_VACIO, cuentaAdmitida, MEDIO_PAGO_LABEL, NATURALEZA_GASTO, rutaGasto, type ComprobanteForm, type EstadoPago, type MedioPago } from '../../target/expenses';
 import { claveDeRegistro } from '../../target/operations';
-import { cuitOrNull, fiscalInput, TAX_KINDS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
+import { ALICUOTAS_IVA, cuitOrNull, diferenciaFacturaA, FISCAL_VACIO, fiscalDeGasto, OTROS_IMPUESTOS, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
 import { type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
@@ -103,7 +103,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   // caja-mejoras-v2 (0121): a pending expense can be split into instalments or paid with own cheques right here (cheques: supplier only)
   const plan = usePlanPago(Number(total), { cheques: conProveedor ? 'SI' : 'REQUIERE_PROVEEDOR' });
   const planes = usePaymentPlanMutations();
-  const fiscalDatos = fiscalInput(comprobante.fiscal, fecha);
+  const fiscalDatos = fiscalDeGasto(comprobante.fiscal, Number(total), fecha);
   const cuitEmisor = cuitOrNull(comprobante.cuitEmisor);
   const cuentasMedio = (cuentas.data ?? []).filter((a) => cuentaAdmitida(medio, a.account_type));
   const cuentaElegida = estado === 'PAGADO' ? (medio === 'MERCADOPAGO' ? cuentasMedio[0]?.id ?? '' : cuentaId) : '';
@@ -229,7 +229,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
           </div>
         )}
       </fieldset>
-      <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos />
+      <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos total={total} />
       {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Movimientos → Todas las operaciones en lugar de cargarla de nuevo.</p>}
       </>}
     </Modal>
@@ -249,48 +249,114 @@ export function SelectorNaturaleza({ value, onChange }: { value: PurchaseNature;
 
 
 /**
- * Factura o comprobante (optional, folded): the file, the invoice number and — only when a document type is chosen — the fiscal
- * data as printed (nothing derived). Without supplier the invoice identifies its issuer by CUIT (the backend's rule).
+ * Factura (owner 2026-11-25): visible, not folded. Three choices — sin factura, Factura A, otra (B, C, recibo) — plus the file and the
+ * number. A Factura A asks for the neto, the IVA (rate + amount) and any other tax as printed, and is accepted only when they add up
+ * to the expense total to the cent (fiscalDeGasto): its neto is the cost basis of a feed ingredient and the IVA crédito of the month.
+ * Another document records the type only (neto = total). Without supplier the invoice identifies its issuer by CUIT (backend rule).
  */
-export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, conNumero = true }: {
-  value: ComprobanteForm; onChange: (v: ComprobanteForm) => void; conProveedor: boolean; conArchivos: boolean; conNumero?: boolean;
+export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, conNumero = true, total }: {
+  value: ComprobanteForm; onChange: (v: ComprobanteForm) => void; conProveedor: boolean; conArchivos: boolean; conNumero?: boolean; total: string;
 }) {
   const set = (p: Partial<ComprobanteForm>) => onChange({ ...value, ...p });
+  const f = value.fiscal;
+  const setF = (p: Partial<FiscalForm>) => set({ fiscal: { ...f, ...p } });
+  const setComp = (i: number, p: Partial<ComponenteForm>) => setF({ componentes: f.componentes.map((c, j) => (j === i ? { ...c, ...p } : c)) });
+  const clase: '' | 'A' | 'OTRA' = f.tipo === '' ? '' : f.tipo === 'INVOICE_A' ? 'A' : 'OTRA';
+  function elegirClase(c: '' | 'A' | 'OTRA') {
+    if (c === '') setF({ ...FISCAL_VACIO });
+    else if (c === 'A') setF({ ...FISCAL_VACIO, tipo: 'INVOICE_A', periodo: f.periodo, componentes: [{ tax_kind: 'IVA', base: '', alicuota: ALICUOTAS_IVA[0], importe: '' }] });
+    else setF({ ...FISCAL_VACIO, tipo: 'INVOICE_B', periodo: f.periodo });
+  }
   function elegirArchivos(lista: FileList | null) {
     const files = Array.from(lista ?? []);
     let error: unknown = null;
     try { validateAttachments(files); } catch (e) { error = files.length ? e : null; }
     set({ archivos: files, errorArchivo: error });
   }
+  const dif = clase === 'A' ? diferenciaFacturaA(f, Number(total)) : null;
   return (
-    <details className="border border-[#E4DCC8] rounded-lg p-2" open={value.fiscal.tipo !== '' || value.numero !== '' || value.archivos.length > 0}>
-      <summary className="text-sm text-[#8A6A2E] cursor-pointer">Factura o comprobante (opcional)</summary>
-      <div className="space-y-2 mt-2">
-        {conArchivos && (
-          <label className={etiqueta}>Foto o PDF
-            <input type="file" multiple accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => elegirArchivos(e.target.files)} className={campo} />
-            <span className="block text-xs text-gray-500">PDF, JPG, PNG o WebP; hasta 10 MB.</span>
-          </label>
-        )}
-        {conNumero && (
-          <label className={etiqueta}>Nº de factura
-            <input type="text" value={value.numero} onChange={(e) => set({ numero: e.target.value })} maxLength={100} placeholder="0001-00001234" className={campo} />
-          </label>
-        )}
-        <DatosFiscales value={value.fiscal} onChange={(fiscal) => set({ fiscal })} />
-        {!conProveedor && value.fiscal.tipo !== '' && (
-          <div className="grid grid-cols-2 gap-2">
-            <label className={etiqueta}>CUIT del emisor
-              <input type="text" inputMode="numeric" value={value.cuitEmisor} onChange={(e) => set({ cuitEmisor: e.target.value })} placeholder="30-12345678-9" className={campo} />
-            </label>
-            <label className={etiqueta}>Razón social (opcional)
-              <input type="text" value={value.nombreEmisor} onChange={(e) => set({ nombreEmisor: e.target.value })} maxLength={120} className={campo} />
-            </label>
-            {value.cuitEmisor !== '' && cuitOrNull(value.cuitEmisor) === null && <p className="col-span-2 text-xs text-red-700">El CUIT tiene 11 dígitos.</p>}
-          </div>
-        )}
+    <fieldset className="border border-[#E4DCC8] rounded-lg p-2 space-y-2">
+      <legend className="text-sm text-[#8A6A2E] px-1">Factura o comprobante</legend>
+      <div className="grid grid-cols-3 gap-1" role="radiogroup" aria-label="Factura">
+        {([['', 'Sin factura'], ['A', 'Factura A'], ['OTRA', 'Otra (B, C, recibo)']] as const).map(([c, l]) => (
+          <button key={c} type="button" role="radio" aria-checked={clase === c} onClick={() => elegirClase(c)}
+            className={`py-1.5 rounded text-xs font-medium ${clase === c ? 'bg-amber-600 text-white' : 'bg-stone-100 text-gray-700'}`}>{l}</button>
+        ))}
       </div>
-    </details>
+      {clase === 'OTRA' && (
+        <label className={etiqueta}>Tipo de comprobante
+          <select value={f.tipo} onChange={(e) => setF({ tipo: e.target.value as FiscalDocumentType })} className={campo}>
+            {TIPO_OTRA.map(([t, l]) => <option key={t} value={t}>{l}</option>)}
+          </select>
+        </label>
+      )}
+      {conNumero && (
+        <label className={etiqueta}>Nº de factura
+          <input type="text" value={value.numero} onChange={(e) => set({ numero: e.target.value })} maxLength={100} placeholder="0001-00001234" className={campo} />
+        </label>
+      )}
+      {clase === 'A' && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <label className={etiqueta}>Neto gravado
+              <NumeroInput min="0" step="0.01" value={f.neto} onChange={(e) => setF({ neto: e.target.value })} className={campo} />
+            </label>
+            <label className={etiqueta}>Período fiscal
+              <input type="month" value={f.periodo} onChange={(e) => setF({ periodo: e.target.value })} className={campo} />
+              <span className="block text-[11px] font-normal text-gray-500">Vacío = el mes de la fecha del gasto.</span>
+            </label>
+          </div>
+          {f.componentes.map((c, i) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+              {c.tax_kind === 'IVA' ? (
+                <label className="text-xs text-gray-600">IVA
+                  <select value={c.alicuota} onChange={(e) => setComp(i, { alicuota: e.target.value })} className={campo}>
+                    {ALICUOTAS_IVA.map((a) => <option key={a} value={a}>{a.replace('.', ',')} %</option>)}
+                  </select>
+                </label>
+              ) : (
+                <label className="text-xs text-gray-600">Impuesto
+                  <select value={c.tax_kind} onChange={(e) => setComp(i, { tax_kind: e.target.value as TaxKind })} className={campo}>
+                    {OTROS_IMPUESTOS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="text-xs text-gray-600">Importe
+                <NumeroInput min="0" step="0.01" value={c.importe} onChange={(e) => setComp(i, { importe: e.target.value })} className={campo} />
+              </label>
+              <button type="button" aria-label="Quitar impuesto" disabled={i === 0} onClick={() => setF({ componentes: f.componentes.filter((_, j) => j !== i) })}
+                className="mb-1 text-xs text-[#A8552E] hover:underline disabled:invisible">Quitar</button>
+            </div>
+          ))}
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setF({ componentes: [...f.componentes, { tax_kind: 'IVA', base: '', alicuota: ALICUOTAS_IVA[1], importe: '' }] })}
+              className="text-xs text-[#A8552E] hover:underline">+ Otra alícuota de IVA</button>
+            <button type="button" onClick={() => setF({ componentes: [...f.componentes, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '' }] })}
+              className="text-xs text-[#A8552E] hover:underline">+ Percepción u otro impuesto</button>
+          </div>
+          {dif === null ? <p className="text-xs text-gray-500">Cargá el neto y los impuestos tal como figuran en la factura: tienen que sumar el importe total.</p>
+            : dif === 0 ? <p className="text-xs text-green-700">Neto + impuestos = importe total {formatoPesos(Number(total))}.</p>
+              : <p className="text-xs text-red-700" role="alert">Neto + impuestos no da el importe total: {dif > 0 ? 'faltan' : 'sobran'} {formatoPesos(Math.abs(dif) / 100)}.</p>}
+        </div>
+      )}
+      {!conProveedor && clase !== '' && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className={etiqueta}>CUIT del emisor
+            <input type="text" inputMode="numeric" value={value.cuitEmisor} onChange={(e) => set({ cuitEmisor: e.target.value })} placeholder="30-12345678-9" className={campo} />
+          </label>
+          <label className={etiqueta}>Razón social (opcional)
+            <input type="text" value={value.nombreEmisor} onChange={(e) => set({ nombreEmisor: e.target.value })} maxLength={120} className={campo} />
+          </label>
+          {value.cuitEmisor !== '' && cuitOrNull(value.cuitEmisor) === null && <p className="col-span-2 text-xs text-red-700">El CUIT tiene 11 dígitos.</p>}
+        </div>
+      )}
+      {conArchivos && (
+        <label className={etiqueta}>Foto o PDF (opcional)
+          <input type="file" multiple accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => elegirArchivos(e.target.files)} className={campo} />
+          <span className="block text-xs text-gray-500">PDF, JPG, PNG o WebP; hasta 10 MB.</span>
+        </label>
+      )}
+    </fieldset>
   );
 }
 
@@ -407,51 +473,5 @@ export function AsignarFleteModal({ purchaseId, fletes, onClose }: { purchaseId:
   );
 }
 
-// ── D-FISCAL-4 / D-FISCAL-5: optional fiscal data of a purchase (ADR-015) ──────────────────────────
-const TIPO_COMPROBANTE: [FiscalDocumentType, string][] = [['INVOICE_A', 'Factura A'], ['INVOICE_B', 'Factura B'], ['INVOICE_C', 'Factura C'], ['RECEIPT', 'Recibo'], ['OTHER', 'Otro']];
-const IMPUESTO: Record<TaxKind, string> = { IVA: 'IVA', IIBB: 'IIBB', GANANCIAS: 'Ganancias', RETENTION: 'Retención', PERCEPTION: 'Percepción', OTHER: 'Otro' };
-function DatosFiscales({ value, onChange }: { value: FiscalForm; onChange: (v: FiscalForm) => void }) {
-  const set = (patch: Partial<FiscalForm>) => onChange({ ...value, ...patch });
-  const setComp = (i: number, patch: Partial<ComponenteForm>) => set({ componentes: value.componentes.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
-  return (
-    <details className="border border-[#E4DCC8] rounded-lg p-2">
-      <summary className="text-sm text-[#8A6A2E] cursor-pointer">Datos fiscales (opcional)</summary>
-      <div className="space-y-2 mt-2">
-        <div className="grid grid-cols-2 gap-2">
-          <label className={etiqueta}>Tipo de comprobante
-            <select value={value.tipo} onChange={(e) => set({ tipo: e.target.value as FiscalDocumentType | '' })} className={campo}>
-              <option value="">Sin datos fiscales</option>
-              {TIPO_COMPROBANTE.map(([t, l]) => <option key={t} value={t}>{l}</option>)}
-            </select>
-          </label>
-          <label className={etiqueta}>Período fiscal
-            <input type="month" value={value.periodo} onChange={(e) => set({ periodo: e.target.value })} className={campo} />
-          </label>
-        </div>
-        {value.tipo !== '' && (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <label className={etiqueta}>Neto del comprobante<NumeroInput min="0" step="0.01" value={value.neto} onChange={(e) => set({ neto: e.target.value })} className={campo} /></label>
-              <label className={etiqueta}>Total del comprobante<NumeroInput min="0" step="0.01" value={value.total} onChange={(e) => set({ total: e.target.value })} className={campo} /></label>
-            </div>
-            {value.componentes.map((c, i) => (
-              <div key={i} className="grid grid-cols-4 gap-2 items-end">
-                <label className="text-xs text-gray-600">Impuesto
-                  <select value={c.tax_kind} onChange={(e) => setComp(i, { tax_kind: e.target.value as TaxKind })} className={campo}>
-                    {TAX_KINDS.map((k) => <option key={k} value={k}>{IMPUESTO[k]}</option>)}
-                  </select>
-                </label>
-                <label className="text-xs text-gray-600">Base<NumeroInput min="0" step="0.01" value={c.base} onChange={(e) => setComp(i, { base: e.target.value })} className={campo} /></label>
-                <label className="text-xs text-gray-600">Alícuota %<NumeroInput min="0" step="0.01" value={c.alicuota} onChange={(e) => setComp(i, { alicuota: e.target.value })} className={campo} /></label>
-                <label className="text-xs text-gray-600">Importe<NumeroInput min="0" step="0.01" value={c.importe} onChange={(e) => setComp(i, { importe: e.target.value })} className={campo} /></label>
-              </div>
-            ))}
-            <button type="button" onClick={() => set({ componentes: [...value.componentes, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '' }] })}
-              className="text-xs text-[#A8552E] hover:underline">+ Otro impuesto (percepción, IIBB…)</button>
-            <p className="text-xs text-gray-500">Cargá los importes tal como figuran en el comprobante; no se calculan. El Nº de comprobante es el de arriba. La compra y su comprobante se guardan juntos.</p>
-          </>
-        )}
-      </div>
-    </details>
-  );
-}
+// ── D-FISCAL-4 / D-FISCAL-5: fiscal data of a purchase (ADR-015) — the document types of «Otra (B, C, recibo)» ───────────────────────
+const TIPO_OTRA: [FiscalDocumentType, string][] = [['INVOICE_B', 'Factura B'], ['INVOICE_C', 'Factura C'], ['RECEIPT', 'Recibo'], ['OTHER', 'Otro']];

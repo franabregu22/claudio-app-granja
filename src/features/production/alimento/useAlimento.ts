@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../lib/supabase';
 import {
   allocateFeedFreight, closeFeedMonth, listConsumptionCosts, listFeedFreights, listFeedPurchaseExtras, listFeedMonths, listFeedPurchases, listFeedStockPeriods,
-  listRecipeChanges, listRecipeCosts, reopenFeedMonth, setExpenseCategoryFeed, setFeedPurchaseQuantity, setFeedTypeActive, setFormulaComment,
+  listRecipeChanges, listRecipeCosts, reopenFeedMonth, setExpenseCategoryFeed, setFeedPurchaseParts, setFeedPurchaseQuantity, setFeedTypeActive, setFormulaComment,
   setStandardBatch,
 } from '../../../target/alimento';
 import { listAllFeedTypes, listFormulaComposition, listFormulaVersions, listManufacturing, publishFormulaVersion, rectifyFeedManufacturing, registerFeedManufacturing } from '../../../target/feed';
@@ -45,6 +45,7 @@ export function useAlimentoMutations() {
     close: useWrite(closeFeedMonth, [['pnl']]),
     reopen: useWrite(reopenFeedMonth, [['pnl']]),
     kg: useWrite(setFeedPurchaseQuantity, [['pnl']]),
+    parts: useWrite(setFeedPurchaseParts, [['pnl']]),
     freight: useWrite(allocateFeedFreight, [['pnl']]),
     categoryFeed: useWrite(setExpenseCategoryFeed, [['pnl'], ['master']]),
   };

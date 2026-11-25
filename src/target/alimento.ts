@@ -60,12 +60,15 @@ export interface FeedPurchase {
   purchase_root_id: string; purchase_id: string; economic_date: string; period: string; feed_ingredient_id: string; ingredient_nombre: string;
   supplier_name: string | null; amount_total: number; invoice_a: boolean; cost_amount: number; quantity_kg: number | null; no_freight: boolean;
   freight_amount: number; freight_cost: number; freight_status: FreightStatus; price_per_kg: number | null; cost_per_kg: number | null;
+  /** 0138: an invoice with several ingredients is one row per ingredient (part_position 1…n; null = a purchase of one ingredient). */
+  expense_category_id: string; part_position: number | null; purchase_quantity_kg: number | null;
 }
 export async function listFeedPurchases(c: SupabaseClient): Promise<FeedPurchase[]> {
   const rows = await readView<FeedPurchase>(c, 'report_feed_purchase', (q) => q.order('economic_date', { ascending: false }));
   return rows.map((r) => ({
     ...r, amount_total: Number(r.amount_total), cost_amount: Number(r.cost_amount), quantity_kg: n(r.quantity_kg), freight_amount: Number(r.freight_amount),
     freight_cost: Number(r.freight_cost), price_per_kg: n(r.price_per_kg), cost_per_kg: n(r.cost_per_kg),
+    part_position: r.part_position == null ? null : Number(r.part_position), purchase_quantity_kg: n(r.purchase_quantity_kg),
   }));
 }
 /**
@@ -136,6 +139,12 @@ export const setExpenseCategoryFeed = (c: SupabaseClient, p: { categoryId: strin
   callRpc(c, 'set_expense_category_feed', { p_category_id: p.categoryId, p_feed_ingredient_id: p.ingredientId, p_is_feed_freight: p.isFreight });
 export const setFeedPurchaseQuantity = (c: SupabaseClient, p: { purchaseId: string; kg: number; noFreight?: boolean | null }) =>
   callRpc(c, 'set_feed_purchase_quantity', { p_purchase_id: p.purchaseId, p_quantity_kg: p.kg, p_no_freight: p.noFreight ?? null });
+/** 0138: the ingredients of one invoice (two or more; [] removes the split). Amounts add up to the neto (Factura A) or the total. */
+export interface FeedPurchasePartInput { categoryId: string; kg: number; amount: number }
+export const setFeedPurchaseParts = (c: SupabaseClient, p: { purchaseId: string; parts: FeedPurchasePartInput[]; noFreight?: boolean | null }) =>
+  callRpc<{ parts: number; quantity_kg: number }>(c, 'set_feed_purchase_parts', {
+    p_purchase_id: p.purchaseId, p_parts: p.parts.map((x) => ({ expense_category_id: x.categoryId, quantity_kg: x.kg, amount: x.amount })), p_no_freight: p.noFreight ?? null,
+  });
 export const allocateFeedFreight = (c: SupabaseClient, p: { freightPurchaseId: string; allocations: { purchaseId: string; amount: number }[] }) =>
   callRpc<{ allocated: number; remaining: number }>(c, 'allocate_feed_freight', {
     p_freight_purchase_id: p.freightPurchaseId, p_allocations: p.allocations.map((a) => ({ purchase_id: a.purchaseId, amount: a.amount })),

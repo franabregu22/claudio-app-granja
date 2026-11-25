@@ -4,7 +4,7 @@ import {
   ACCION_AUDITORIA, cambiosAuditoria, COMPROBANTE_VACIO, fiscalJson, NATURALEZA_GASTO_LABEL, reglasDeCompra, type ComprobanteForm, type VinculosGasto,
 } from '../../target/expenses';
 import { errorMessage } from '../../target/messages';
-import { cuitOrNull, fiscalInput } from '../../target/fiscal';
+import { cuitOrNull, fiscalDeGasto } from '../../target/fiscal';
 import type { PurchaseNature, PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
@@ -40,7 +40,7 @@ export function EditarGastoModal({ compra, vinculos, onClose }: { compra: Purcha
   const [numero, setNumero] = useState(compra.supplier_invoice_number ?? '');
   const [comprobante, setComprobante] = useState<ComprobanteForm>(COMPROBANTE_VACIO);
   const [motivo, setMotivo] = useState('');
-  const fiscal = fiscalInput(comprobante.fiscal, fecha);
+  const fiscal = fiscalDeGasto(comprobante.fiscal, Number(total), fecha);
   const cuit = cuitOrNull(comprobante.cuitEmisor);
   const conFiscalNuevo = comprobante.fiscal.tipo !== '';
   const importe = Number(total);
@@ -123,7 +123,7 @@ export function EditarGastoModal({ compra, vinculos, onClose }: { compra: Purcha
         </label>
       )}
       {reglas.agregarFactura
-        ? <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos={false} conNumero={!conProveedor} />
+        ? <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos={false} conNumero={!conProveedor} total={total} />
         : <p className="text-xs text-blue-800">Tiene comprobante fiscal registrado (en Fiscal).</p>}
       {reglas.motivos.length > 0 && (
         <ul className="text-xs text-[#8A7A5C] list-disc pl-4 space-y-0.5">{reglas.motivos.map((m) => <li key={m}>{m}</li>)}</ul>

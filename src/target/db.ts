@@ -148,6 +148,7 @@ export const TARGET_RPCS = [
   'close_feed_month', 'reopen_feed_month',   // 0125 (ADMIN): monthly feed stock close / reopen
   'set_expense_category_feed', 'set_feed_purchase_quantity', 'allocate_feed_freight',   // 0126 (ADMIN): feed categories, purchase kg, freight split
   'set_purchase_tag',   // 0127 (ADMIN): the tag of an expense (NULL = «Sin etiqueta»), audited
+  'set_feed_purchase_parts',   // 0138 (ADMIN): one invoice with several ingredients (category, kg and amount of each), audited
 ] as const;
 export type TargetRpc = (typeof TARGET_RPCS)[number];
 

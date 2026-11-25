@@ -113,6 +113,7 @@ const PROFILES = {
   ADR025_POST_0135: './verify-profiles/adr025-post-0135.mjs',   // 0135 (Factura A on orders, Mercado Pago débitos y créditos tax)
   ADR025_POST_0136: './verify-profiles/adr025-post-0136.mjs',   // 0136 (Factura A on a delivered order)
   ADR025_POST_0137: './verify-profiles/adr025-post-0137.mjs',   // 0137 (the «Factura / comprobante» filter of Todas las operaciones)
+  ADR025_POST_0138: './verify-profiles/adr025-post-0138.mjs',   // 0138 (one invoice with several ingredients)
 };
 const t0 = Date.now();
 
