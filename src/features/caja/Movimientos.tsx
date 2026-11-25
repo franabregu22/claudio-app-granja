@@ -66,7 +66,7 @@ export function Movimientos({ onIrAExtractos, focus = null, onFocus = () => {} }
         </section>
       ) : (
         <section aria-label="Todas las operaciones">
-          <TodasLasOperaciones cuentas={lista} cuentaId={cuentaId} onCuenta={setCuentaId} focus={focus} onFocus={onFocus} />
+          <TodasLasOperaciones cuentas={lista} cuentaId={cuentaId} onCuenta={setCuentaId} focus={focus} onFocus={onFocus} onResolver={() => setPendiente('MP_CLASIFICAR')} />
         </section>
       )}
     </div>

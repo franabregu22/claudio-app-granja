@@ -11,7 +11,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readView } from './db';
 
-export interface MpOutflowCandidate { source_id: string; date: string; amount: number }
+/** 0139: an outflow up to $1 apart from the purchase is a candidate; difference = outflow − purchase (the rounding of the link). */
+export interface MpOutflowCandidate { source_id: string; date: string; amount: number; difference?: number }
 export interface PurchaseMpLinkRow {
   purchase_root_id: string; purchase_id: string; economic_date: string; amount_total: number; concept: string | null; counterparty_name: string | null;
   category_name: string | null; fiscal_document_id: string | null; origin: 'ERP' | 'WHATSAPP'; origin_code: string | null; created_at: string;

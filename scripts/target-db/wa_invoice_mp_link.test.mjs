@@ -203,7 +203,7 @@ expect('B-14b … the warning left its audit row', `(SELECT count(*) FROM audit_
 add(`CREATE TEMP TABLE mp1 AS SELECT ${MPB} AS mp; CREATE TEMP TABLE pnl1 AS SELECT ${ADM(`SELECT md5(coalesce((SELECT string_agg(x::text, '#' ORDER BY x::text) FROM pnl_line_item x), ''))`)} AS h;`);
 snap('sd');
 expect('B-15 linked to O (gross 500 + tax 3) with September closed → only the payment side, on the MOVEMENT date',
-  SETTLE(O, 'T0111-SETTLE'), `OK:%"tax": -3.00, "amount": 500.00, "status": "VINCULADO"%"economic_date": "${EDAY}", "movement_date": "${DAY}"%`);
+  SETTLE(O, 'T0111-SETTLE'), `OK:%"tax": -3.00%"amount": 500.00, "status": "VINCULADO"%"economic_date": "${EDAY}", "movement_date": "${DAY}"%`);
 expect('B-16 … no purchase, no fiscal document, no IVA line; release + payment + tax charge, one classification, one link',
   delta('sd'), 'financial_operation=3,financial_posting=3,mp_pending_outflow_resolution=1');
 expect('B-17 … P&L unchanged by the link (recognised once, at confirmation)', `(${ADM(`SELECT md5(coalesce((SELECT string_agg(x::text, '#' ORDER BY x::text) FROM pnl_line_item x), ''))`)} = (SELECT h FROM pnl1))::text`, 'true');

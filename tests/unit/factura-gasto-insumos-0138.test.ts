@@ -71,13 +71,16 @@ describe('0138 — una factura con varios insumos', () => {
   });
 });
 
-describe('Todas las operaciones — sugerencia de vinculación (owner 2026-11-25)', () => {
-  it('an unclassified Mercado Pago outflow offers the pending MP expense of its amount (backend candidates) and links it with settle_purchase_mp', () => {
+describe('Todas las operaciones — vincular gasto y pago de Mercado Pago (owner 2026-11-25, 0139)', () => {
+  it('from either row (the backend candidates, up to $1 apart), the rounding shown, settle_purchase_mp; a banner of what is left', () => {
     const c = SRC('features/caja/TodasLasOperaciones.tsx');
     expect(c).toContain("if (g.status === 'PENDIENTE_VINCULACION_MP') for (const k of g.candidates ?? [])");
-    expect(c).toContain('sugeridos={clasificableEnFila(r) && r.mp_source_id ? sugeridos.get(r.mp_source_id) : undefined}');
-    expect(c).toContain('Vincular con gasto ›');
-    expect(c).toContain("vincular.mutate({ purchaseId: elegido, sourceId: r.mp_source_id!, idempotencyKey: clave");
+    expect(c).toContain('pares={clasificableEnFila(r) ? paresDeSalida(r) : paresDeGasto(r)}');
+    expect(c).toContain("{r.row_kind === 'MP_PENDIENTE' ? 'Vincular con salida ›' : 'Vincular con gasto ›'}");
+    expect(c).toContain('vincular.mutate({ purchaseId: p.gasto.purchase_id, sourceId: p.salida.source_id, idempotencyKey: clave');
+    expect(c).toContain('se suma al costo de este gasto');
+    expect(c).toContain('Por revisar:');
+    expect(SRC('features/caja/Movimientos.tsx')).toContain("onResolver={() => setPendiente('MP_CLASIFICAR')}");
   });
 });
 

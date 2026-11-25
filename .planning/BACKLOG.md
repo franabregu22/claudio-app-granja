@@ -5,6 +5,8 @@ release en su lugar. Cada ítem dice qué es, de dónde salió y qué hay que te
 
 ## Propuestos por el owner
 
+_Hechos: #2 nombre del insumo y #6 número de cheque en su débito → release 0139 (2026-11-25)._
+
 ### 1. Lectura automática de la factura en el formulario del gasto
 - **Origen:** owner, 2026-11-25 («es difícil hacer que lo reconozca el sistema con la factura que subo?»). Se decidió dejarlo para más adelante.
 - **Qué:** al elegir la foto o el PDF en «Factura o comprobante» del gasto (Nuevo gasto / Editar gasto), el sistema lee la factura y completa
@@ -24,32 +26,16 @@ release en su lugar. Cada ítem dice qué es, de dónde salió y qué hay que te
 - **Alcance estimado:** sin cambios en la base; función nueva más pantalla. Uno o dos días de trabajo, más el despliegue de la función.
   Cada lectura tiene un costo chico de IA, como el del bot.
 
-### 6. Número del cheque en la fila de su débito (Todas las operaciones)
-- **Origen:** owner, 2026-11-25. Hoy el débito del eCheq 035 (04/11) aparece como «[Cheque debitado] Expeller de Soja», sin el
-  número (commit `435121a`).
-- **Qué:** que el débito de un cheque o eCheq propio asociado a un gasto se lea «eCheq 035 · Expeller de Soja». Así queda igual que
-  los cheques sin gasto, que ya dicen «Cheque 250 · proveedor».
-- **Cómo:** en `fin_operation_list`, cuando la operación es un `INSTRUMENT_DEBIT`, anteponer el tipo y el número del instrumento al
-  concepto del gasto. Hoy ese concepto lo toma de `cur.subcategory` antes que del instrumento.
-- **Alcance estimado:** migración que redefine la función, con la misma identidad, más su test y su perfil de verificación. Lleva una
-  release completa: backup, ensayo, aplicación y post. Conviene sumarlo al próximo lote que toque la base.
-
 ## Detectados durante el trabajo (no pedidos todavía)
 
-### 2. Nombre del insumo cuando se renombra su subcategoría
-- **Origen:** retiro de Administración → Alimento (2026-11-25, commit `cc58418`).
-- **Qué pasa:** el nombre del ingrediente se fija al marcar la subcategoría como insumo. Si después se renombra la subcategoría:
-  - Recetas muestra el nombre nuevo;
-  - Alimento → Compras y los reportes de costo siguen mostrando el viejo (`feed_ingredient.nombre`).
-  Antes se corregía desde la sección que se sacó.
-- **Opciones:**
-  - que renombrar una subcategoría de insumo renombre también su ingrediente;
-  - o que los reportes muestren el nombre de la subcategoría.
-
-### 3. Facturas A de ventas en la columna «Factura / comprobante»
-- **Origen:** release 0137 (2026-11-24).
-- **Qué pasa:** la columna de Todas las operaciones muestra el número y los archivos de los gastos, pero no la Factura A emitida en un
-  cobro o venta.
+### 3. Facturas A de ventas en la columna «Factura / comprobante» — a definir
+- **Origen:** release 0137 (2026-11-24). El owner lo eligió para la 0139 el 2026-11-25.
+- **Por qué no entró:** «Todas las operaciones» lista solo movimientos de dinero. Un pedido entregado (donde se emite la Factura A) no
+  es una fila, y un cobro no está atado a una factura o pedido (`collections` no tiene vínculo con `pedidos`). No hay en qué fila
+  mostrarla sin definir antes una regla.
+- **Opciones para decidir con el owner:**
+  - mostrar la Factura A en Pedidos / Cuentas corrientes de clientes (donde sí existe el pedido);
+  - o vincular cada cobro con las facturas que cancela, un cambio de dominio más grande.
 
 ## Pendientes ya conocidos (decisiones anteriores del owner)
 
