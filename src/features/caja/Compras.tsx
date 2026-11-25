@@ -266,7 +266,7 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
   const editar = (campo: 'NETO' | number, valor: string) => setF(editarFacturaA(f, Number(total), campo, valor));
   useEffect(() => { const g = recalcularFacturaA(f, Number(total)); if (g !== f) onChange({ ...value, fiscal: g }); }, [total]);   // eslint-disable-line react-hooks/exhaustive-deps
   function elegirClase(c: '' | 'A' | 'OTRA') {
-    if (c === '') setF({ ...FISCAL_VACIO });
+    if (c === '') set({ fiscal: { ...FISCAL_VACIO }, numero: '' });   // owner 2026-11-25: «Sin factura» has no invoice number
     else if (c === 'A') setF({ ...FISCAL_VACIO, tipo: 'INVOICE_A', componentes: [{ tax_kind: 'IVA', base: '', alicuota: ALICUOTAS_IVA[0], importe: '' }] });
     else setF({ ...FISCAL_VACIO, tipo: 'INVOICE_B' });
   }
@@ -293,7 +293,7 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
           </select>
         </label>
       )}
-      {conNumero && (
+      {conNumero && clase !== '' && (
         <label className={etiqueta}>Nº de factura
           <input type="text" value={value.numero} onChange={(e) => set({ numero: e.target.value })} maxLength={100} placeholder="0001-00001234" className={campo} />
         </label>
@@ -348,7 +348,7 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
         </div>
       )}
       {conArchivos && (
-        <label className={etiqueta}>Foto o PDF (opcional)
+        <label className={etiqueta}>{clase === '' ? 'Foto del ticket o comprobante (opcional)' : 'Foto o PDF de la factura (opcional)'}
           <input type="file" multiple accept={Object.keys(ATTACHMENT_TYPES).join(',')} onChange={(e) => elegirArchivos(e.target.files)} className={campo} />
           <span className="block text-xs text-gray-500">PDF, JPG, PNG o WebP; hasta 10 MB.</span>
         </label>
