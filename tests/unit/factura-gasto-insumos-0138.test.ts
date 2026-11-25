@@ -97,3 +97,9 @@ describe('Todas las operaciones — débito de cheque (owner 2026-11-25)', () =>
     expect(c).toContain('{chequeDebitado(r) && <span');
   });
 });
+
+describe('Cheques — repartir al centavo (owner 2026-11-25)', () => {
+  it('the three cheque forms split the total exactly (the cents left over in the last cheque)', () => {
+    for (const f of ['features/caja/EditorPlanPago.tsx', 'features/caja/PagosFacturas.tsx', 'features/caja/PendientesPagar.tsx']) expect(SRC(f)).toContain('repartirEnCuotas(');
+  });
+});

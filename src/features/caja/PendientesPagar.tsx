@@ -8,6 +8,7 @@ import {
 import type { GastoItem } from '../../target/expenseHub';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
+import { repartirEnCuotas } from '../fiscal/cuotas';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { AccionModal } from './Cheques';
 import { FechaPagoChequeModal } from './FechaPagoCheque';
@@ -285,7 +286,10 @@ function PagarModal({ r, g, onClose }: { r: PayableDueRow; g: GastoItem | null; 
               <button type="button" onClick={() => setCheques(cheques.filter((_, j) => j !== i))} disabled={cheques.length === 1} className="text-gray-400 hover:text-red-600 disabled:opacity-30 justify-self-center" aria-label="Quitar cheque"><Trash2 className="w-4 h-4" /></button>
             </div>
           ))}
-          <button type="button" onClick={() => setCheques([...cheques, { ...cheques[cheques.length - 1], numero: '', fecha: '', importe: '' }])} className="text-sm text-[#A8552E] hover:underline">+ Agregar otro cheque</button>
+          <div className="flex flex-wrap gap-4">
+            <button type="button" onClick={() => setCheques([...cheques, { ...cheques[cheques.length - 1], numero: '', fecha: '', importe: '' }])} className="text-sm text-[#A8552E] hover:underline">+ Agregar otro cheque</button>
+            {cheques.length > 1 && <button type="button" onClick={() => { const p = repartirEnCuotas(r.amount, cheques.length); setCheques(cheques.map((c, i) => ({ ...c, importe: p[i].toFixed(2) }))); }} className="text-sm text-[#A8552E] hover:underline">Repartir {formatoPesos(r.amount)} en los {cheques.length} cheques</button>}
+          </div>
           <p className={`text-xs ${sumaCheques <= r.amount + 0.005 ? 'text-[#8A7A5C]' : 'text-red-700'}`}>Cheques {formatoPesos(sumaCheques)} de {formatoPesos(r.amount)} pendientes. Salen del banco en su fecha.</p>
         </div>
       )}

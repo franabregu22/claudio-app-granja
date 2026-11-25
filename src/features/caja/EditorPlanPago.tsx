@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { repartirCuotas, type ChequeInput } from '../../target/paymentPlan';
+import { repartirEnCuotas } from '../fiscal/cuotas';
 import { getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
@@ -104,7 +105,11 @@ export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: 
               <button type="button" onClick={() => setCheques(cheques.filter((_, j) => j !== i))} disabled={cheques.length === 1} className="text-gray-400 hover:text-red-600 disabled:opacity-30 justify-self-center" aria-label="Quitar cheque"><Trash2 className="w-4 h-4" /></button>
             </div>
           ))}
-          <button type="button" onClick={() => setCheques([...cheques, { ...cheques[cheques.length - 1], numero: '', fecha: '', importe: '' }])} className="text-sm text-[#A8552E] hover:underline">+ Agregar otro cheque</button>
+          <div className="flex flex-wrap gap-4">
+            <button type="button" onClick={() => setCheques([...cheques, { ...cheques[cheques.length - 1], numero: '', fecha: '', importe: '' }])} className="text-sm text-[#A8552E] hover:underline">+ Agregar otro cheque</button>
+            {/* owner 2026-11-25: the total split to the cent (the cents left over in the last cheque) — never a $0,01 difference */}
+            {tot > 0 && <button type="button" onClick={() => { const p = repartirEnCuotas(tot, cheques.length); setCheques(cheques.map((c, i) => ({ ...c, importe: p[i].toFixed(2) }))); }} className="text-sm text-[#A8552E] hover:underline">Repartir {formatoPesos(tot)} en {cheques.length === 1 ? '1 cheque' : `los ${cheques.length} cheques`}</button>}
+          </div>
         </div>
       )}
       {formaEf !== 'UNICO' && tot > 0 && <p className={`text-xs ${cuadra ? 'text-green-700' : 'text-red-700'}`}>Suma {formatoPesos(suma)} de {formatoPesos(tot)}</p>}

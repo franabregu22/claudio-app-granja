@@ -6,6 +6,7 @@ import { errorMessage } from '../../target/messages';
 import { INSTRUMENT_TYPES, type InstrumentType } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
+import { repartirEnCuotas } from '../fiscal/cuotas';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { AccionModal, ACCION, ESTADO, MasAcciones, TIPO } from './Cheques';
 import { EtiquetaFechaCorregida, FechaPagoChequeModal, type ChequeFecha } from './FechaPagoCheque';
@@ -167,6 +168,8 @@ export function EmitirChequesModal({ f, reemplaza, onClose }: { f: PurchasePayme
         <button type="button" onClick={() => setFilas((fs) => [...fs, filaVacia(String(Math.max(0, +(f.pending - suma).toFixed(2))), fs[fs.length - 1]?.cuenta ?? '')])}
           className="text-xs text-[#A8552E] hover:underline">+ Agregar otro cheque</button>
       )}
+      {filas.length > 1 && <button type="button" onClick={() => { const p = repartirEnCuotas(f.pending, filas.length); setFilas((fs) => fs.map((r, i) => ({ ...r, monto: p[i].toFixed(2) }))); }}
+        className="text-xs text-[#A8552E] hover:underline">Repartir {formatoPesos(f.pending)} en los {filas.length} cheques (al centavo)</button>}
       <p className={`text-xs ${suma > f.pending + 0.005 ? 'text-red-700' : 'text-[#6B5D45]'}`}>Suma {formatoPesos(suma)} de {formatoPesos(f.pending)} pendiente.</p>
       <label className={etiqueta}>Notas (opcional)<input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={campo} /></label>
       <p className="text-xs text-gray-500">Baja la deuda con el proveedor; el banco se mueve recién al marcar cada cheque como debitado.</p>
