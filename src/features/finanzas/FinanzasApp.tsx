@@ -7,10 +7,11 @@ import {
   PNL_LINES, PNL_RESULT_LINES, listPnlLineItems, listPnlSummary, type ManagementEventRow,
 } from '../../target/pnl';
 import { getTodayDate } from '../../utils/dateUtils';
-import { useExpenseCategories } from '../caja/useTreasury';
+import { useBankTaxPeriods, useExpenseCategories } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
 import { EVENTO_LABEL, EventoGestionModal, useManagementEvents } from './EventoGestionModal';
 import { TendenciaMeses } from './TendenciaMeses';
+import { debitosCreditosPorMes } from '../../target/fiscalLibro';
 import { formatearFechaLocal } from '../../utils/dateUtils';
 import { usePendingSummary } from '../caja/useMpActivity';
 import { mandatoryPending } from '../../target/pendingClassification';
@@ -46,6 +47,10 @@ export function FinanzasApp({ onIrAClasificar }: { onIrAClasificar?: () => void 
   const hasta = periodoAtras(hoy, 0);
   const resumen = useQuery({ queryKey: [...PNL, 'summary', desde, hasta], queryFn: () => listPnlSummary(supabase, desde, hasta), enabled: rol === 'ADMIN' });
   const eventos = useManagementEvents();
+  // owner 2026-11-26: the debits / credits tax is not an expense — as a PyME 100 % is a payment on account of Ganancias: shown below
+  const impDebCred = useBankTaxPeriods();
+  const anticipos = debitosCreditosPorMes(impDebCred.data ?? []);
+  const anticipoDe = (period: string) => anticipos.find((m) => m.period === period)?.total ?? 0;
   const [detalle, setDetalle] = useState<string | null>(null);
   const [nuevoEvento, setNuevoEvento] = useState(false);
 
@@ -121,6 +126,10 @@ export function FinanzasApp({ onIrAClasificar }: { onIrAClasificar?: () => void 
                         </tr>
                       );
                     })}
+                    <tr className="text-[#6B5D45] italic" title="No resta del resultado: como PyME, el impuesto a los débitos y créditos se computa al 100 % como pago a cuenta de Ganancias.">
+                      <td className="px-3 py-2 text-left whitespace-nowrap">Anticipo de Ganancias (imp. débitos y créditos)</td>
+                      {filas.map((f) => <td key={f.period} className="px-3 py-2 text-right whitespace-nowrap">{formatoPesos(anticipoDe(f.period))}</td>)}
+                    </tr>
                   </tbody>
                 </table>
               </div>

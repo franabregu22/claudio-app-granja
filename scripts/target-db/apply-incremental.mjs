@@ -118,6 +118,7 @@ const PROFILES = {
   ADR025_POST_0140: './verify-profiles/adr025-post-0140.mjs',   // 0140 (Mercado Pago cutover 01/12/2026, cash opening by count)
   ADR025_POST_0141: './verify-profiles/adr025-post-0141.mjs',   // 0141 (remove one feed freight allocation)
   ADR025_POST_0142: './verify-profiles/adr025-post-0142.mjs',   // 0142 (annul an expense waiting for its Mercado Pago movement)
+  ADR025_POST_0143: './verify-profiles/adr025-post-0143.mjs',   // 0143 (Mercado Pago collections to invoice; Factura B IVA out of net sales)
 };
 const t0 = Date.now();
 

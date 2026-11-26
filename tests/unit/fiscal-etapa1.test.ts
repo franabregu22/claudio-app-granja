@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { debitosCreditosPorMes, filaLibro, posicionIva, siguienteMes, totalesLibro, type DocumentoLibro } from '../../src/target/fiscalLibro';
+import { debitosCreditosPorMes, desglosarFacturaB, filaLibro, posicionIva, registrarFacturaB, siguienteMes, totalesLibro, type DocumentoLibro } from '../../src/target/fiscalLibro';
 import type { FiscalPeriodRow, ObligationRow } from '../../src/target/fiscal';
 import { libroXlsx } from '../../src/lib/xlsx';
 
@@ -78,7 +78,7 @@ describe('Excel writer', () => {
 describe('the screen', () => {
   it('four tabs; Posición IVA opens the month in the Libro; obligations filtered by period', () => {
     const c = readFileSync(resolve(__dirname, '../../src/features/fiscal/FiscalApp.tsx'), 'utf8');
-    expect(c).toContain("[['POSICION', 'Posición IVA'], ['DEBCRED', 'Débitos y créditos'], ['LIBRO', 'Libro IVA'], ['OBLIGACIONES', 'Obligaciones y pagos']]");
+    expect(c).toContain("[['POSICION', 'Posición IVA'], ['FACTURAR', 'Cobros MP a facturar'], ['DEBCRED', 'Débitos y créditos'], ['LIBRO', 'Libro IVA'], ['OBLIGACIONES', 'Obligaciones y pagos']]");
     expect(c).toContain("onVerMes={(p) => { setPeriodoLibro(p); setSolapa('LIBRO'); }}");
     const s = readFileSync(resolve(__dirname, '../../src/features/fiscal/Solapas.tsx'), 'utf8');
     expect(s).toContain("{ nombre: 'Compras',");
@@ -86,3 +86,29 @@ describe('the screen', () => {
     expect(s).toContain('PyME: se computa el 100 %');
   });
 });
+
+describe('0143 — Factura B a consumidor final y cobros de Mercado Pago a facturar (owner 2026-11-26)', () => {
+  it('the IVA is included: neto = total ÷ 1,21 to the cent, IVA = the rest', () => {
+    expect(desglosarFacturaB(12100)).toEqual({ neto: 10000, iva: 2100 });
+    expect(desglosarFacturaB(3046500)).toEqual({ neto: 2517768.6, iva: 528731.4 });
+    const r = desglosarFacturaB(1000);
+    expect(Math.round((r.neto + r.iva) * 100)).toBe(100000);
+  });
+  it('registers an INVOICE_B / DEBITO to the client with its IVA component and the ARCA number', async () => {
+    const calls: { fn: string; args: Record<string, unknown> }[] = [];
+    const client = { rpc: async (fn: string, args: Record<string, unknown>) => { calls.push({ fn, args }); return { data: { fiscal_document_id: 'd1', component_count: 1 }, error: null }; } };
+    await registrarFacturaB(client as never, { fecha: '2026-11-30', periodo: '2026-11-01', puntoVenta: '2', numero: '123', total: 12100, clienteId: 'cf' });
+    expect(calls[0].fn).toBe('register_fiscal_document');
+    expect(calls[0].args).toMatchObject({ p_document_type: 'INVOICE_B', p_direction: 'DEBITO', p_document_date: '2026-11-30', p_fiscal_period: '2026-11-01', p_net_amount: 10000,
+      p_total_amount: 12100, p_cliente_id: 'cf', p_external_number: '0002-00000123', p_components: [{ tax_kind: 'IVA', direction: 'DEBITO', base_amount: 10000, rate_applied: 21, tax_amount: 2100 }] });
+  });
+  it('the screens: the tab, «Facturar el mes», the Factura B form, «Adjuntar PDF», the Ganancias advance in Resultados', () => {
+    const s = readFileSync(resolve(__dirname, '../../src/features/fiscal/Solapas.tsx'), 'utf8');
+    expect(s).toContain('Facturar el mes');
+    expect(s).toContain('Registrar Factura B (consumidor final)');
+    expect(s).toContain("{k === 'numero' && libro === 'DEBITO' && <AdjuntarPdf fiscalDocumentId={f.id} />}");
+    const f = readFileSync(resolve(__dirname, '../../src/features/finanzas/FinanzasApp.tsx'), 'utf8');
+    expect(f).toContain('Anticipo de Ganancias (imp. débitos y créditos)');
+  });
+});
+

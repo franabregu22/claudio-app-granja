@@ -14,10 +14,10 @@ import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { useFiscalDocuments, useFiscalMutations, useFiscalPayments, useFiscalPeriods, useObligations } from '../feria/useFeriaFiscal';
 import { NumeroInput } from '../../components/NumeroInput';
 import { repartirEnCuotas, sumarCuotas } from './cuotas';
-import { DebitosCreditos, LibroIva, PosicionIva } from './Solapas';
+import { CobrosMpFacturar, DebitosCreditos, LibroIva, PosicionIva } from './Solapas';
 
-type Solapa = 'POSICION' | 'DEBCRED' | 'LIBRO' | 'OBLIGACIONES';
-const SOLAPAS: [Solapa, string][] = [['POSICION', 'Posición IVA'], ['DEBCRED', 'Débitos y créditos'], ['LIBRO', 'Libro IVA'], ['OBLIGACIONES', 'Obligaciones y pagos']];
+type Solapa = 'POSICION' | 'FACTURAR' | 'DEBCRED' | 'LIBRO' | 'OBLIGACIONES';
+const SOLAPAS: [Solapa, string][] = [['POSICION', 'Posición IVA'], ['FACTURAR', 'Cobros MP a facturar'], ['DEBCRED', 'Débitos y créditos'], ['LIBRO', 'Libro IVA'], ['OBLIGACIONES', 'Obligaciones y pagos']];
 
 const TIPO: Record<FiscalDocumentType, string> = {
   INVOICE_A: 'Factura A', INVOICE_B: 'Factura B', INVOICE_C: 'Factura C', CREDIT_NOTE: 'Nota de crédito', DEBIT_NOTE: 'Nota de débito', RECEIPT: 'Recibo', OTHER: 'Otro',
@@ -75,6 +75,7 @@ export function FiscalApp() {
 
       {solapa === 'POSICION' && (periodos.isLoading ? <p className="text-sm text-gray-500">Cargando…</p>
         : <PosicionIva periodos={periodos.data ?? []} obligaciones={obligaciones.data ?? []} onVerMes={(p) => { setPeriodoLibro(p); setSolapa('LIBRO'); }} />)}
+      {solapa === 'FACTURAR' && <CobrosMpFacturar />}
       {solapa === 'DEBCRED' && <DebitosCreditos />}
       {solapa === 'LIBRO' && (
         <>

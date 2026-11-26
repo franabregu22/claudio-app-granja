@@ -1,12 +1,18 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { Fragment, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../../auth/useAuth';
 import { zipSync } from 'fflate';
 import { supabase } from '../../lib/supabase';
 import { descargar, libroXlsx, TIPO_XLSX, type Celda } from '../../lib/xlsx';
 import { documentSignedUrl } from '../../target/documents';
 import {
-  COLUMNAS_LIBRO, debitosCreditosPorMes, filaLibro, listArchivosDocumentos, listDocumentosPeriodo, posicionIva, totalesLibro, type FilaLibro,
+  attachFiscalDocumentFile, COLUMNAS_LIBRO, CONSUMIDOR_FINAL, debitosCreditosPorMes, desglosarFacturaB, filaLibro, listArchivosDocumentos, listDocumentosPeriodo,
+  listFacturarDia, listFacturarMes, posicionIva, registrarFacturaB, totalesLibro, type FilaLibro,
 } from '../../target/fiscalLibro';
+import { campo, etiqueta, Modal } from '../caja/Modal';
+import { useClients } from '../caja/useTreasury';
+import { NumeroInput } from '../../components/NumeroInput';
+import { getTodayDate } from '../../utils/dateUtils';
 import type { FiscalPeriodRow, ObligationRow } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
 import { formatoPesos } from '../pedidos/helpers';
@@ -129,6 +135,7 @@ const filaExcel = (f: FilaLibro): Celda[] => COLUMNAS_LIBRO.map(([k]) => (k === 
  */
 export function LibroIva({ periodo, onPeriodo }: { periodo: string; onPeriodo: (p: string) => void }) {
   const [libro, setLibro] = useState<'CREDITO' | 'DEBITO'>('CREDITO');
+  const [facturaB, setFacturaB] = useState(false);
   const [zipeando, setZipeando] = useState<string | null>(null);
   const docs = useQuery({ queryKey: ['fiscal', 'libro', periodo], queryFn: () => listDocumentosPeriodo(supabase, periodo) });
   const compras = (docs.data ?? []).filter((d) => d.direction === 'CREDITO').map(filaLibro);
@@ -198,6 +205,7 @@ export function LibroIva({ periodo, onPeriodo }: { periodo: string; onPeriodo: (
           ))}
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
+          {libro === 'DEBITO' && <button type="button" onClick={() => setFacturaB(true)} className="text-sm px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar Factura B (consumidor final)</button>}
           <button type="button" disabled={docs.isLoading || (compras.length + ventas.length === 0)} onClick={exportar}
             className="text-sm px-3 py-1.5 rounded bg-green-700 text-white hover:bg-green-800 disabled:opacity-40">Exportar Excel</button>
           <button type="button" disabled={docs.isLoading || filas.length === 0 || (zipeando !== null && zipeando.endsWith('…'))} onClick={() => { void zip(); }}
@@ -223,7 +231,8 @@ export function LibroIva({ periodo, onPeriodo }: { periodo: string; onPeriodo: (
                       {COLUMNAS_LIBRO.map(([k]) => (typeof f[k] === 'number'
                         ? <td key={k} className={TD}>{f[k] === 0 ? '—' : formatoPesos(f[k] as number)}</td>
                         : <td key={k} className="px-3 py-2 whitespace-nowrap">{k === 'fecha' ? f.fecha.split('-').reverse().join('/') : String(f[k]) || '—'}
-                          {k === 'numero' && f.avisos.length > 0 && <span className="ml-1 text-[10px] px-1 rounded bg-amber-100 text-amber-900">{f.avisos.join(' · ')}</span>}</td>))}
+                          {k === 'numero' && f.avisos.length > 0 && <span className="ml-1 text-[10px] px-1 rounded bg-amber-100 text-amber-900">{f.avisos.join(' · ')}</span>}
+                          {k === 'numero' && libro === 'DEBITO' && <AdjuntarPdf fiscalDocumentId={f.id} />}</td>))}
                     </tr>
                   ))}
                   <tr className="bg-amber-50 font-semibold">
@@ -234,6 +243,141 @@ export function LibroIva({ periodo, onPeriodo }: { periodo: string; onPeriodo: (
             </div>
           </>
         )}
+      {facturaB && <FacturaBModal fecha={periodo.slice(0, 7) === getTodayDate().slice(0, 7) ? getTodayDate() : finDeMes(periodo)} total={null} onClose={() => setFacturaB(false)} />}
+    </section>
+  );
+}
+
+const finDeMes = (p: string) => { const [a, m] = p.split('-').map(Number); return `${a}-${String(m).padStart(2, '0')}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`; };
+
+/** 0143: the PDF / photo of a sales invoice (as issued in ARCA). */
+function AdjuntarPdf({ fiscalDocumentId }: { fiscalDocumentId: string }) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const subir = useMutation({
+    mutationFn: (file: File) => attachFiscalDocumentFile(supabase, { userId: user!.id, fiscalDocumentId, file }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fiscal'] }),
+  });
+  return (
+    <span className="ml-2">
+      <input ref={input} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) subir.mutate(f); e.target.value = ''; }} />
+      <button type="button" disabled={subir.isPending} onClick={() => input.current?.click()} className="text-[11px] text-[#A8552E] hover:underline disabled:opacity-50">
+        {subir.isPending ? 'Subiendo…' : subir.isSuccess ? 'PDF adjunto ✓' : 'Adjuntar PDF'}</button>
+      {subir.error ? <span className="ml-1 text-[11px] text-red-700">{errorMessage(subir.error)}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * 0143 (owner 2026-11-26): an issued Factura B to consumidor final — the total with IVA; neto = total ÷ 1,21, IVA = the rest. It enters
+ * the Libro IVA Ventas and the Posición IVA, and its IVA leaves the net sales in Resultados. The sales themselves are already recorded.
+ */
+function FacturaBModal({ fecha: fecha0, total: total0, periodo: periodo0, onClose }: { fecha: string; total: number | null; periodo?: string; onClose: () => void }) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const clientes = useClients();
+  const cf = (clientes.data ?? []).find((c) => c.nombre.trim().toLowerCase() === CONSUMIDOR_FINAL.toLowerCase());
+  const [fecha, setFecha] = useState(fecha0);
+  const [periodo, setPeriodo] = useState((periodo0 ?? fecha0).slice(0, 7));
+  const [pv, setPv] = useState('');
+  const [numero, setNumero] = useState('');
+  const [total, setTotal] = useState(total0 && total0 > 0 ? String(Math.round(total0 * 100) / 100) : '');
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const t = Number(total);
+  const { neto, iva } = desglosarFacturaB(t > 0 ? t : 0);
+  const registrar = useMutation({
+    mutationFn: async () => {
+      const r = await registrarFacturaB(supabase, { fecha, periodo: `${periodo}-01`, puntoVenta: pv, numero, total: t, clienteId: cf?.id ?? null });
+      if (archivo) await attachFiscalDocumentFile(supabase, { userId: user!.id, fiscalDocumentId: r.fiscal_document_id, file: archivo });
+      return r;
+    },
+    onSuccess: () => Promise.all([['fiscal'], ['pnl'], ['master']].map((queryKey) => qc.invalidateQueries({ queryKey }))).then(onClose),
+  });
+  return (
+    <Modal titulo="Registrar Factura B (consumidor final)" onClose={onClose} puedeGuardar={t > 0 && fecha !== '' && numero.trim() !== '' && !clientes.isLoading}
+      guardando={registrar.isPending} error={registrar.error ?? clientes.error} textoGuardar="Registrar factura" onSubmit={() => registrar.mutate()}>
+      <p className="text-xs text-[#6B5D45]">La factura que emitiste en ARCA. Registra solo el IVA (débito fiscal): las ventas ya están cargadas. El IVA se descuenta de las ventas en Resultados.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <label className={etiqueta}>Fecha de la factura<input type="date" value={fecha} onChange={(e) => { setFecha(e.target.value); if (e.target.value) setPeriodo(e.target.value.slice(0, 7)); }} className={campo} /></label>
+        <label className={etiqueta}>Período fiscal<input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={campo} /></label>
+      </div>
+      <div className="grid grid-cols-[1fr_2fr] gap-2">
+        <label className={etiqueta}>Punto de venta<input type="text" inputMode="numeric" value={pv} onChange={(e) => setPv(e.target.value)} placeholder="0002" className={campo} /></label>
+        <label className={etiqueta}>Número<input type="text" inputMode="numeric" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="00000123" className={campo} /></label>
+      </div>
+      <label className={etiqueta}>Total facturado (con IVA)
+        <NumeroInput min="0" step="0.01" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
+      </label>
+      {t > 0 && <p className="text-sm text-[#2C2419]">Neto {formatoPesos(neto)} · IVA 21 % {formatoPesos(iva)}</p>}
+      <label className={etiqueta}>PDF de la factura (opcional)
+        <input type="file" accept="application/pdf,image/*" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} className={campo} />
+      </label>
+      <p className="text-xs text-gray-500">Cliente: «{CONSUMIDOR_FINAL}»{cf ? '' : ' (se crea con esta primera factura)'}.</p>
+    </Modal>
+  );
+}
+
+// ── 5. Cobros de Mercado Pago a facturar (0143) ────────────────────────────
+/**
+ * Owner 2026-11-26: by month (and day) what was collected through Mercado Pago, what was already invoiced with Factura B, what clients with
+ * a Factura A paid that month, and what is left to invoice; «Facturar el mes» / «Facturar» open the Factura B with that amount.
+ */
+export function CobrosMpFacturar() {
+  const meses = useQuery({ queryKey: ['fiscal', 'facturar-mes'], queryFn: () => listFacturarMes(supabase) });
+  const [abierto, setAbierto] = useState<string | null>(null);
+  const [facturar, setFacturar] = useState<{ fecha: string; total: number; periodo: string } | null>(null);
+  const dias = useQuery({ queryKey: ['fiscal', 'facturar-dia', abierto], queryFn: () => listFacturarDia(supabase, abierto!), enabled: abierto !== null });
+  if (meses.isLoading) return <p className="text-sm text-gray-500">Cargando…</p>;
+  if (meses.error) return <p className="text-sm text-red-700">{errorMessage(meses.error)}</p>;
+  const filas = meses.data ?? [];
+  if (filas.length === 0) return <p className="text-sm text-[#8A7A5C]">Todavía no hay cobros de Mercado Pago.</p>;
+  const hoy = getTodayDate();
+  return (
+    <section className="space-y-3">
+      <div className={caja}>
+        <table className="w-full text-xs md:text-sm">
+          <thead className="bg-amber-50 border-b border-amber-200 text-amber-900">
+            <tr><th className="px-3 py-2 text-left">Mes</th><th className={TH}>Cobrado por Mercado Pago</th><th className={TH}>Facturado (Factura B)</th>
+              <th className={TH}>Cobrado con Factura A</th><th className={TH}>Pendiente de facturar</th><th className="px-3 py-2" /></tr>
+          </thead>
+          <tbody>
+            {filas.map((m) => (
+              <Fragment key={m.period}>
+                <tr className="border-b border-amber-100">
+                  <td className="px-3 py-2"><button type="button" onClick={() => setAbierto(abierto === m.period ? null : m.period)} className="font-medium text-[#2C2419] hover:underline">
+                    {abierto === m.period ? '▾' : '▸'} {nombreMes(m.period)}</button></td>
+                  <td className={TD}>{formatoPesos(m.cobrado)} <span className="text-[11px] text-gray-500">({m.cobros})</span></td>
+                  <td className={TD}>{formatoPesos(m.facturado_b)}{m.facturas_b > 0 && <span className="text-[11px] text-gray-500"> ({m.facturas_b})</span>}</td>
+                  <td className={TD}>{m.cobrado_factura_a > 0 ? formatoPesos(m.cobrado_factura_a) : '—'}</td>
+                  <td className={`${TD} font-semibold ${m.pendiente > 0.005 ? 'text-red-800' : 'text-green-700'}`}>{m.pendiente > 0.005 ? formatoPesos(m.pendiente) : 'Facturado'}</td>
+                  <td className="px-3 py-2 text-right">{m.pendiente > 0.005 && (
+                    <button type="button" onClick={() => setFacturar({ fecha: m.period.slice(0, 7) === hoy.slice(0, 7) ? hoy : finDeMes(m.period), total: m.pendiente, periodo: m.period })}
+                      className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700 whitespace-nowrap">Facturar el mes</button>)}</td>
+                </tr>
+                {abierto === m.period && (dias.isLoading ? <tr><td colSpan={6} className="px-6 py-2 text-xs text-gray-500">Cargando…</td></tr>
+                  : (dias.data ?? []).map((d) => {
+                    const pend = Math.round((d.cobrado - d.facturado_b) * 100) / 100;
+                    return (
+                      <tr key={d.business_date} className="border-b border-amber-50 bg-[#FCFAF5] text-xs">
+                        <td className="pl-8 pr-3 py-1.5">{d.business_date.split('-').reverse().join('/')}</td>
+                        <td className={TD}>{formatoPesos(d.cobrado)} <span className="text-[11px] text-gray-500">({d.cobros})</span></td>
+                        <td className={TD}>{d.facturado_b > 0 ? formatoPesos(d.facturado_b) : '—'}</td>
+                        <td className={TD} />
+                        <td className={`${TD} ${pend > 0.005 ? 'text-red-800' : 'text-green-700'}`}>{pend > 0.005 ? formatoPesos(pend) : pend < -0.005 ? `+${formatoPesos(-pend)}` : '✓'}</td>
+                        <td className="px-3 py-1.5 text-right">{pend > 0.005 && (
+                          <button type="button" onClick={() => setFacturar({ fecha: d.business_date, total: pend, periodo: m.period })} className="text-[11px] text-[#A8552E] hover:underline">Facturar</button>)}</td>
+                      </tr>
+                    );
+                  }))}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-500">Cobrado = todo lo que entró a Mercado Pago (cobros y transferencias recibidas; las devoluciones restan), menos lo marcado como transferencia propia.
+        Lo cobrado a clientes con Factura A ese mes se descuenta para no facturarlo dos veces. Por día se compara con las Facturas B de ese día.</p>
+      {facturar && <FacturaBModal fecha={facturar.fecha} total={facturar.total} periodo={facturar.periodo} onClose={() => setFacturar(null)} />}
     </section>
   );
 }

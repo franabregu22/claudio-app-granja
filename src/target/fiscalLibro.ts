@@ -5,9 +5,11 @@
  * expenses leave their documents out (as report_fiscal_period does). Nothing is written.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { readTable } from './db';
-import type { FiscalDirection, FiscalDocumentType, FiscalPeriodRow, ObligationRow } from './fiscal';
-import { listDocumentLinks, type ViewableDocument } from './documents';
+import { callRpc, readTable, readView } from './db';
+import { documentNumber, firstOfMonth, registerFiscalDocument, type FiscalDirection, type FiscalDocumentType, type FiscalPeriodRow, type ObligationRow } from './fiscal';
+import { createMaster } from './masters';
+import { listDocumentLinks, uploadErpDocument, type ViewableDocument } from './documents';
+import { removeAttachments } from './attachments';
 import { listAnulaciones } from './expenses';
 
 const num = (v: unknown) => Number(v ?? 0);
@@ -182,3 +184,48 @@ export function debitosCreditosPorMes(filas: { period: string; tax_kind: string;
   }
   return [...porMes.values()].sort((a, b) => b.period.localeCompare(a.period)).map((m) => ({ ...m, porCuenta: m.porCuenta.sort((a, b) => a.cuenta.localeCompare(b.cuenta)) }));
 }
+
+// ── Ingresos de Mercado Pago a facturar (0143) ─────────────────────────────
+export interface FacturarMes { period: string; cobrado: number; cobros: number; facturado_b: number; facturas_b: number; cobrado_factura_a: number; pendiente: number }
+export interface FacturarDia { business_date: string; period: string; cobrado: number; cobros: number; facturado_b: number; facturas_b: number }
+export async function listFacturarMes(client: SupabaseClient): Promise<FacturarMes[]> {
+  const rows = await readView<FacturarMes>(client, 'report_mp_facturar_mes', (q) => q.order('period', { ascending: false }).limit(60));
+  return rows.map((r) => ({ ...r, cobrado: num(r.cobrado), cobros: num(r.cobros), facturado_b: num(r.facturado_b), facturas_b: num(r.facturas_b), cobrado_factura_a: num(r.cobrado_factura_a), pendiente: num(r.pendiente) }));
+}
+export async function listFacturarDia(client: SupabaseClient, period: string): Promise<FacturarDia[]> {
+  const rows = await readView<FacturarDia>(client, 'report_mp_facturar_dia', (q) => q.eq('period', period).order('business_date'));
+  return rows.map((r) => ({ ...r, cobrado: num(r.cobrado), cobros: num(r.cobros), facturado_b: num(r.facturado_b), facturas_b: num(r.facturas_b) }));
+}
+
+/** Factura B to consumidor final: the price includes IVA 21 % — neto = total ÷ 1,21 (to the cent), IVA = total − neto. */
+export function desglosarFacturaB(total: number): { neto: number; iva: number } {
+  const t = cent(total);
+  const n = Math.round(t / 1.21);
+  return { neto: pesos(n), iva: pesos(t - n) };
+}
+export const CONSUMIDOR_FINAL = 'Consumidor final';
+/** Registers an issued Factura B (DEBITO) to «Consumidor final» (the client is created the first time). */
+export async function registrarFacturaB(client: SupabaseClient, p: {
+  fecha: string; periodo?: string | null; puntoVenta: string; numero: string; total: number; clienteId: string | null; reason?: string | null;
+}): Promise<{ fiscal_document_id: string }> {
+  let clienteId = p.clienteId;
+  if (!clienteId) clienteId = (await createMaster<{ id: string }>(client, 'clients', { nombre: CONSUMIDOR_FINAL })).id;
+  const { neto, iva } = desglosarFacturaB(p.total);
+  return registerFiscalDocument(client, {
+    type: 'INVOICE_B', direction: 'DEBITO', date: p.fecha, fiscalPeriod: firstOfMonth(p.periodo || p.fecha), netAmount: neto, totalAmount: p.total,
+    components: [{ tax_kind: 'IVA', direction: 'DEBITO', base_amount: neto, rate_applied: 21, tax_amount: iva }],
+    clienteId, externalNumber: documentNumber(p.puntoVenta, p.numero), reason: p.reason ?? 'Factura B a consumidor final (cobros de Mercado Pago)',
+  });
+}
+
+/** The PDF / photo of a fiscal document (a sales invoice) from the ERP; on failure the uploaded object is removed. */
+export async function attachFiscalDocumentFile(client: SupabaseClient, p: { userId: string; fiscalDocumentId: string; file: File }): Promise<string> {
+  const doc = await uploadErpDocument(client, p.userId, p.file);
+  try {
+    return await callRpc<string>(client, 'attach_fiscal_document_file', { p_fiscal_document_id: p.fiscalDocumentId, p_document: doc });
+  } catch (err) {
+    await removeAttachments(client, [doc.storage_path]);
+    throw err;
+  }
+}
+

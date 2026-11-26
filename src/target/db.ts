@@ -21,6 +21,7 @@ export const TARGET_VIEWS = [
   'fin_mp_pending_classification', 'fin_mp_technical_review', 'fin_mp_report_day_status',   // ADR-021 (0093)
   'fin_purchase_mp_link',   // Lote 4 (0111): purchases paid with Mercado Pago, pending / linked to their movement
   'fin_mp_unlinked_inflows', 'fin_mp_pending_summary',   // ADR-023 (0095)
+  'report_mp_facturar_dia', 'report_mp_facturar_mes',   // 0143: Mercado Pago collections to invoice (ADMIN)
   'fin_expense_pending_classification',   // ADR-025 stage 3 (0101): Caja → Gastos sin clasificar (ADMIN)
   'fin_mp_whatsapp_notes',   // ADR-025 stage 3 (0102): the WhatsApp concept of a pending MP outflow (ADMIN, read-only)
   'fin_document_links',   // ADR-025 stage 4 (0103): receipts / PDFs linked to purchases, fiscal documents, pending expenses, instruments (ADMIN)
@@ -150,6 +151,7 @@ export const TARGET_RPCS = [
   'close_feed_month', 'reopen_feed_month',   // 0125 (ADMIN): monthly feed stock close / reopen
   'set_expense_category_feed', 'set_feed_purchase_quantity', 'allocate_feed_freight',   // 0126 (ADMIN): feed categories, purchase kg, freight split
   'unallocate_feed_freight',   // 0141 (ADMIN): remove one freight allocation (audited) so it can be allocated anew
+  'attach_fiscal_document_file',   // 0143 (ADMIN): the PDF / photo of a sales invoice uploaded from the ERP
   'set_purchase_tag',   // 0127 (ADMIN): the tag of an expense (NULL = «Sin etiqueta»), audited
   'register_cash_opening', 'fin_account_balance_on',   // 0140 (ADMIN): the cash opening by count; the ERP balance of an account at a date
   'set_feed_purchase_parts',   // 0138 (ADMIN): one invoice with several ingredients (category, kg and amount of each), audited
