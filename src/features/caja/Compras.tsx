@@ -181,7 +181,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo después con cheque o eCheq habrá que vincularlo a un proveedor.</p>}
       </>}
       <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Importe total
+        <label className={etiqueta}>Importe total (con IVA: el total de la factura)
           <NumeroInput min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
         </label>
         <label className={etiqueta}>Fecha
@@ -322,7 +322,7 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
       )}
       {clase === 'A' && (
         <div className="space-y-2">
-          <label className={etiqueta}>Neto gravado{f.auto === 'NETO' && <span className="ml-1 text-[11px] font-normal text-gray-500">(calculado)</span>}
+          <label className={etiqueta}>Neto gravado (sin IVA){f.auto === 'NETO' && <span className="ml-1 text-[11px] font-normal text-gray-500">(calculado)</span>}
             <NumeroInput min="0" step="0.01" value={f.neto} onChange={(e) => editar('NETO', e.target.value)} className={campo} />
           </label>
           {f.componentes.map((c, i) => (
@@ -340,7 +340,7 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
                   </select>
                 </label>
               )}
-              <label className="text-xs text-gray-600">Importe{i === 0 && f.auto === 'IVA' && <span className="ml-1 text-[11px] text-gray-500">(calculado)</span>}
+              <label className="text-xs text-gray-600">Importe del impuesto{i === 0 && f.auto === 'IVA' && <span className="ml-1 text-[11px] text-gray-500">(calculado)</span>}
                 <NumeroInput min="0" step="0.01" value={c.importe} onChange={(e) => editar(i, e.target.value)} className={campo} />
               </label>
               <button type="button" aria-label="Quitar impuesto" disabled={i === 0} onClick={() => setF(recalcularFacturaA({ ...f, componentes: f.componentes.filter((_, j) => j !== i) }, Number(total)))}

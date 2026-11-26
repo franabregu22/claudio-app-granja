@@ -28,7 +28,7 @@ export function GrillaInsumos({ partes, onChange, insumos, base, facturaA }: {
   const setParte = (i: number, p: Partial<ParteInsumoForm>) => onChange(partes.map((x, j) => (j === i ? { ...x, ...p } : x)));
   return (
     <div className="space-y-2">
-      <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe en la factura{facturaA ? ' (neto, sin IVA)' : ''}. Los importes tienen que sumar {pesos(base)}: el gasto, el pago y el IVA siguen siendo uno solo.</p>
+      <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe en la factura{facturaA ? ': el neto, sin IVA, como figura en cada renglón (si un artículo aparece en dos renglones, sumalos)' : ''}. Los importes tienen que sumar {pesos(base)}{facturaA ? ' (el neto gravado)' : ''}: el gasto, el pago y el IVA siguen siendo uno solo.</p>
       {partes.map((p, i) => (
         <div key={i} className="grid grid-cols-[1.4fr_1fr_1fr_auto] gap-2 items-end">
           <label className="text-xs text-gray-600">Insumo
@@ -38,7 +38,7 @@ export function GrillaInsumos({ partes, onChange, insumos, base, facturaA }: {
             </select>
           </label>
           <label className="text-xs text-gray-600">Kilos<NumeroInput min="0" step="0.001" value={p.kg} onChange={(e) => setParte(i, { kg: e.target.value })} className={campo} /></label>
-          <label className="text-xs text-gray-600">Importe<NumeroInput min="0" step="0.01" value={p.monto} onChange={(e) => setParte(i, { monto: e.target.value })} className={campo} /></label>
+          <label className="text-xs text-gray-600">{facturaA ? 'Importe neto (sin IVA)' : 'Importe total'}<NumeroInput min="0" step="0.01" value={p.monto} onChange={(e) => setParte(i, { monto: e.target.value })} className={campo} /></label>
           <button type="button" aria-label="Quitar insumo" disabled={partes.length <= 2} onClick={() => onChange(partes.filter((_, j) => j !== i))}
             className="mb-1 text-xs text-[#A8552E] hover:underline disabled:invisible">Quitar</button>
           {Number(p.kg) > 0 && p.monto !== '' && <p className="col-span-4 -mt-1 text-[11px] text-gray-500">Precio/kg: {pesos(Number(p.monto) / Number(p.kg))}</p>}

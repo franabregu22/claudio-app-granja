@@ -115,6 +115,10 @@ describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos 
     expect(c).toContain('Nº de factura (opcional)');
     expect(SRC('features/caja/Etiquetas.tsx')).toContain('Etiqueta (opcional)');
     expect(i).toContain('Kilos comprados (opcional)');
+    // every amount says whether it is with or without IVA (owner 2026-11-26)
+    expect(c).toContain('Importe total (con IVA: el total de la factura)');
+    expect(c).toContain('Neto gravado (sin IVA)');
+    expect(i).toContain("{facturaA ? 'Importe neto (sin IVA)' : 'Importe total'}");
   });
   it('Todas las operaciones: the row shows every ingredient and «⋯» opens the Kilos window', () => {
     const c = SRC('features/caja/TodasLasOperaciones.tsx');
