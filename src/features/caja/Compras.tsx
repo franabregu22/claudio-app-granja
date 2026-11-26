@@ -179,6 +179,9 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
           </select>
         </label>
         {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo después con cheque o eCheq habrá que vincularlo a un proveedor.</p>}
+        {/* owner 2026-11-26: the invoice right under the supplier — with Factura A chosen first, the ingredients are asked without IVA */}
+        <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos total={total} />
+        {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Movimientos → Todas las operaciones en lugar de cargarla de nuevo.</p>}
       </>}
       <div className="grid grid-cols-2 gap-2">
         <label className={etiqueta}>Importe total (con IVA: el total de la factura)
@@ -251,8 +254,6 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
           </div>
         )}
       </fieldset>
-      <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos total={total} />
-      {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Movimientos → Todas las operaciones en lugar de cargarla de nuevo.</p>}
       </>}
     </Modal>
   );
