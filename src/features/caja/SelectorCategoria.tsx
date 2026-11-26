@@ -10,12 +10,14 @@ const NATURES: PurchaseNatureValue[] = ['OPERATING', 'REINVESTMENT', 'INVESTMENT
  * pre-fills its default nature, which the owner may still change for this operation only (the master default never changes).
  * Reserved subcategories (Retiros de socios, IVA / Ganancias) are never offered. DIRECT / INDIRECT is not shown.
  */
-export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, onNaturaleza, campo, etiqueta = '', compacto = false, conRetiros = false }: {
+export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, onNaturaleza, campo, etiqueta = '', compacto = false, conRetiros = false, subcategoriaFija }: {
   subcategoriaId: string; onSubcategoria: (id: string) => void;
   naturaleza?: PurchaseNatureValue; onNaturaleza?: (n: PurchaseNatureValue) => void;
   campo: string; etiqueta?: string; compacto?: boolean;
   /** Nuevo gasto (owner 2026-11-18): «Retiros de socios» is offered too — a socio as subcategory; the form records a withdrawal. */
   conRetiros?: boolean;
+  /** Nuevo gasto (owner 2026-11-26): an invoice with several feed ingredients — the subcategory is the first ingredient below; this note replaces its select. */
+  subcategoriaFija?: string;
 }) {
   const grupos = useExpenseGroups();
   const subs = useExpenseCategories();
@@ -56,7 +58,9 @@ export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, 
   return (
     <div className={`grid grid-cols-1 gap-2 ${conNaturaleza ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
       <label className={etiqueta}>Categoría{categoria}</label>
-      <label className={etiqueta}>Subcategoría{subcategoria}</label>
+      {subcategoriaFija !== undefined
+        ? <div className={etiqueta}>Subcategoría<p className="mt-1 text-xs text-[#6B5D45]">{subcategoriaFija}</p></div>
+        : <label className={etiqueta}>Subcategoría{subcategoria}</label>}
       {conNaturaleza && <label className={etiqueta}>Naturaleza (automática, editable){nat}</label>}
     </div>
   );

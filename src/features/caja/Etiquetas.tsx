@@ -26,7 +26,7 @@ export function SelectorEtiqueta({ value, onChange }: { value: string; onChange:
     );
   }
   return (
-    <label className={etiquetaCls}>Etiqueta
+    <label className={etiquetaCls}>Etiqueta (opcional)
       <select value={value} onChange={(e) => (e.target.value === '__nueva' ? setNueva('') : onChange(e.target.value))} className={campo}>
         <option value="">{SIN_ETIQUETA}</option>
         {activas.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}

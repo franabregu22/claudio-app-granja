@@ -102,6 +102,15 @@ describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos 
     expect(c).toContain('if (purchaseId) await insumos.guardar(purchaseId, insumosForm, baseInsumos);');
     expect(c).toContain('{insumos.activo && <BloqueInsumosGasto');
     expect(c).toContain('const baseInsumos = facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null)');
+    // with several ingredients the subcategory above is hidden and follows the first ingredient of the grid
+    expect(c).toContain("subcategoriaFija={variosInsumos ? 'Los insumos de la factura, abajo (el gasto queda con el primero).' : undefined}");
+    expect(c).toContain('if (primero && primero !== categoriaId) elegirSub(primero);');
+    expect(c).toContain('<BloqueInsumosGasto value={insumosForm} onChange={cambiarInsumos}');
+    // the optional fields say so
+    expect(c).toContain('Proveedor (opcional)');
+    expect(c).toContain('Nº de factura (opcional)');
+    expect(SRC('features/caja/Etiquetas.tsx')).toContain('Etiqueta (opcional)');
+    expect(i).toContain('Kilos comprados (opcional)');
   });
   it('Todas las operaciones: the row shows every ingredient and «⋯» opens the Kilos window', () => {
     const c = SRC('features/caja/TodasLasOperaciones.tsx');

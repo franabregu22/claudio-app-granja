@@ -133,6 +133,13 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
     onRegistrado(null, `Retiro de socios «${concepto.trim()}» registrado (fecha ${formatearFechaLocal(fecha)}).`);
   }).catch(() => {});
   const elegirSub = (id: string) => { setCategoriaId(id); if (id) setNaturaleza(defaultNatureOf(categorias.data ?? [], id)); };
+  // owner 2026-11-26: with several ingredients the expense's subcategory is the first ingredient of the grid (never one left above)
+  const variosInsumos = insumos.activo && insumosForm.varios;
+  const cambiarInsumos = (v: InsumosGastoForm) => {
+    setInsumosForm(v);
+    const primero = v.varios ? v.partes[0]?.cat : '';
+    if (primero && primero !== categoriaId) elegirSub(primero);
+  };
 
   return (
     <Modal titulo={esRetiro ? 'Nuevo retiro de socios' : 'Nuevo gasto'} onClose={onClose} puedeGuardar={puede} guardando={guardando}
@@ -163,7 +170,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
           placeholder={esRetiro ? 'Ej.: retiro mensual' : 'Ej.: maíz, gasoil, reparación de la bomba'} className={`${campo} text-base`} autoFocus />
       </label>
       {!esRetiro && <>
-        <label className={etiqueta}>Proveedor
+        <label className={etiqueta}>Proveedor (opcional)
           <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className={campo}>
             <option value="">Sin proveedor</option>
             {(proveedores.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
@@ -180,7 +187,8 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         </label>
       </div>
       {!esRetiro && parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
-      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta} conRetiros />
+      <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta}
+        subcategoriaFija={variosInsumos ? 'Los insumos de la factura, abajo (el gasto queda con el primero).' : undefined} conRetiros />
       {esRetiro ? (
         <div className="space-y-1 border border-[#E4DCC8] rounded-lg p-2">
           <label className={etiqueta}>Cuenta de la que sale el dinero
@@ -193,7 +201,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
             Si salió por Mercado Pago, clasificá su movimiento en la tabla: doble clic → «Retiro · socio».</p>
         </div>
       ) : <>
-      {insumos.activo && <BloqueInsumosGasto value={insumosForm} onChange={setInsumosForm} categoriaId={categoriaId} insumos={insumos.insumos}
+      {insumos.activo && <BloqueInsumosGasto value={insumosForm} onChange={cambiarInsumos} categoriaId={categoriaId} insumos={insumos.insumos}
         base={baseInsumos} facturaA={facturaA} />}
       <SelectorNaturaleza value={naturaleza} onChange={setNaturaleza} />
       <SelectorEtiqueta value={etiquetaId} onChange={setEtiquetaId} />
@@ -291,7 +299,7 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
   const dif = clase === 'A' ? diferenciaFacturaA(f, Number(total)) : null;
   return (
     <fieldset className="border border-[#E4DCC8] rounded-lg p-2 space-y-2">
-      <legend className="text-sm text-[#8A6A2E] px-1">Factura o comprobante</legend>
+      <legend className="text-sm text-[#8A6A2E] px-1">Factura o comprobante (opcional)</legend>
       <div className="grid grid-cols-3 gap-1" role="radiogroup" aria-label="Factura">
         {([['', 'Sin factura'], ['A', 'Factura A'], ['OTRA', 'Otra (B, C, recibo)']] as const).map(([c, l]) => (
           <button key={c} type="button" role="radio" aria-checked={clase === c} onClick={() => elegirClase(c)}
@@ -306,7 +314,7 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
         </label>
       )}
       {conNumero && clase !== '' && (
-        <label className={etiqueta}>Nº de factura
+        <label className={etiqueta}>Nº de factura (opcional)
           <input type="text" value={value.numero} onChange={(e) => set({ numero: e.target.value })} maxLength={100} placeholder="0001-00001234" className={campo} />
         </label>
       )}

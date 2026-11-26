@@ -98,7 +98,7 @@ export function BloqueInsumosGasto({ value, onChange, categoriaId, insumos, base
         Esta factura trae varios insumos</label>
       {!value.varios ? (
         <>
-          <label className={etiqueta}>Kilos comprados
+          <label className={etiqueta}>Kilos comprados (opcional)
             <NumeroInput min="0" step="0.001" value={value.kg} onChange={(e) => set({ kg: e.target.value })} className={campo} />
           </label>
           {kg > 0 && base !== null && base > 0 && <p className="text-xs text-gray-600">Precio/kg: {pesos(base / kg)}{facturaA ? ' (sin IVA)' : ''}</p>}

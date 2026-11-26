@@ -92,7 +92,7 @@ describe('Nuevo gasto — one form, the existing RPC of each case', () => {
     for (const t of ['Notas', 'Detalle de ítems', 'Más datos', 'reason: notas']) expect(form).not.toContain(t);
     expect(form).toMatch(/<option value="">Sin proveedor<\/option>/);
     expect(form).toMatch(/useRegisterExpense\(\)/);
-    expect(c).toContain('Factura o comprobante</legend>');   // 2026-11-25: visible, not folded
+    expect(c).toContain('Factura o comprobante (opcional)</legend>');   // 2026-11-25: visible, not folded
     for (const t of ['Sin factura', 'Factura A', 'Otra (B, C, recibo)', 'Neto gravado']) expect(c).toContain(t);
     expect(c).not.toContain('Datos fiscales (opcional)');
   });
