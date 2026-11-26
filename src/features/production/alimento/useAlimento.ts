@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../lib/supabase';
 import {
-  allocateFeedFreight, closeFeedMonth, listConsumptionCosts, listFeedFreights, listFeedPurchaseExtras, listFeedMonths, listFeedPurchases, listFeedStockPeriods,
+  allocateFeedFreight, closeFeedMonth, listFeedFreightAllocations, unallocateFeedFreight, listConsumptionCosts, listFeedFreights, listFeedPurchaseExtras, listFeedMonths, listFeedPurchases, listFeedStockPeriods,
   listRecipeChanges, listRecipeCosts, reopenFeedMonth, setExpenseCategoryFeed, setFeedPurchaseParts, setFeedPurchaseQuantity, setFeedTypeActive, setFormulaComment,
   setStandardBatch,
 } from '../../../target/alimento';
@@ -31,6 +31,7 @@ export const useFeedMonths = (enabled = true) => useQuery({ queryKey: [...FEED, 
 export const useRecipeChanges = (enabled = true) => useQuery({ queryKey: [...FEED, 'recipe-changes'], queryFn: () => listRecipeChanges(supabase), enabled });
 export const useFeedPurchases = (enabled = true) => useQuery({ queryKey: [...FEED, 'purchases'], queryFn: () => listFeedPurchases(supabase), enabled });
 export const useFeedFreights = (enabled = true) => useQuery({ queryKey: [...FEED, 'freights'], queryFn: () => listFeedFreights(supabase), enabled });
+export const useFeedFreightAllocations = (enabled = true) => useQuery({ queryKey: [...FEED, 'freight-allocations'], queryFn: () => listFeedFreightAllocations(supabase), enabled });
 export const useRecipeCosts = (enabled = true) => useQuery({ queryKey: [...FEED, 'recipe-costs'], queryFn: () => listRecipeCosts(supabase), enabled });
 export const useConsumptionCosts = (enabled = true) => useQuery({ queryKey: [...FEED, 'consumption-costs'], queryFn: () => listConsumptionCosts(supabase), enabled });
 
@@ -47,6 +48,7 @@ export function useAlimentoMutations() {
     kg: useWrite(setFeedPurchaseQuantity, [['pnl']]),
     parts: useWrite(setFeedPurchaseParts, [['pnl']]),
     freight: useWrite(allocateFeedFreight, [['pnl']]),
+    unfreight: useWrite(unallocateFeedFreight, [['pnl']]),
     categoryFeed: useWrite(setExpenseCategoryFeed, [['pnl'], ['master']]),
   };
 }

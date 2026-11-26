@@ -175,7 +175,16 @@ export function partesInput(partes: ParteInsumoForm[], base: number): FeedPurcha
   }));
 }
 
-export const allocateFeedFreight =(c: SupabaseClient, p: { freightPurchaseId: string; allocations: { purchaseId: string; amount: number }[] }) =>
+/** 0141: the freight allocations (ADMIN) — which freight expense was allocated to which purchase, and how much. */
+export interface FeedFreightAllocation { freight_purchase_root_id: string; purchase_root_id: string; amount: number; allocated_at: string }
+export async function listFeedFreightAllocations(c: SupabaseClient): Promise<FeedFreightAllocation[]> {
+  const rows = await readTable<FeedFreightAllocation>(c, 'feed_freight_allocation', (q) => q.order('allocated_at'), 'freight_purchase_root_id, purchase_root_id, amount, allocated_at');
+  return rows.map((r) => ({ ...r, amount: Number(r.amount) }));
+}
+/** 0141: remove one allocation (audited, with its reason): its amount is free again on the freight. */
+export const unallocateFeedFreight = (c: SupabaseClient, p: { freightPurchaseId: string; purchaseId: string; reason: string }) =>
+  callRpc<{ released: number; remaining: number }>(c, 'unallocate_feed_freight', { p_freight_purchase_id: p.freightPurchaseId, p_purchase_id: p.purchaseId, p_reason: p.reason.trim() });
+export const allocateFeedFreight = (c: SupabaseClient, p: { freightPurchaseId: string; allocations: { purchaseId: string; amount: number }[] }) =>
   callRpc<{ allocated: number; remaining: number }>(c, 'allocate_feed_freight', {
     p_freight_purchase_id: p.freightPurchaseId, p_allocations: p.allocations.map((a) => ({ purchase_id: a.purchaseId, amount: a.amount })),
   });

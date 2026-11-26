@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { splitByKg, type FeedPurchase } from '../../../target/alimento';
+import { splitByKg, type FeedFreight, type FeedPurchase } from '../../../target/alimento';
 import { Comprobantes } from '../../caja/Comprobantes';
 import { campo, etiqueta, Modal } from '../../caja/Modal';
 import { fechaCorta, fechaDMA, kgTxt, pesos } from './format';
 import { botonPrimario, Tabla, Titulo, td, tdR, thL, thR } from './ui';
-import { useAlimentoMutations, useFeedFreights, useFeedPurchaseExtras, useFeedPurchases } from './useAlimento';
+import { useAlimentoMutations, useFeedFreightAllocations, useFeedFreights, useFeedPurchaseExtras, useFeedPurchases } from './useAlimento';
 import { KgModal } from './Insumos';
 import { NumeroInput } from '../../../components/NumeroInput';
 
@@ -28,6 +28,7 @@ export function Compras() {
   const [elegidas, setElegidas] = useState<string[]>([]);
   const [kgDe, setKgDe] = useState<string | null>(null);   // purchase_root_id
   const [vinculando, setVinculando] = useState(false);
+  const [fleteDe, setFleteDe] = useState<string | null>(null);   // 0141: purchase_root_id whose freight is shown / removed
   const todas = compras.data ?? [];
   const extras = useFeedPurchaseExtras(todas.filter(esPrimera));
   const filasDe = (root: string) => todas.filter((c) => c.purchase_root_id === root).sort((a, b) => (a.part_position ?? 0) - (b.part_position ?? 0));
@@ -74,7 +75,8 @@ export function Compras() {
                 <td className={tdR}><button className="text-[#A8552E] hover:underline" onClick={() => setKgDe(c.purchase_root_id)}>{c.quantity_kg === null ? 'cargar' : kgTxt(c.quantity_kg)}</button></td>
                 <td className={`${td} hidden md:table-cell`}>{c.supplier_name ?? '—'}</td>
                 <td className={tdR}>{pesos(c.price_per_kg)}</td>
-                <td className={tdR}>{c.freight_amount > 0 ? pesos(c.freight_cost) : '—'}</td>
+                <td className={tdR}>{c.freight_amount > 0
+                  ? <button className="text-[#A8552E] hover:underline" title="Ver o quitar el flete asignado" onClick={() => setFleteDe(c.purchase_root_id)}>{pesos(c.freight_cost)}</button> : '—'}</td>
                 <td className={tdR}>{pesos(c.cost_per_kg)}</td>
                 <td className={td}>{c.quantity_kg === null ? <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">Faltan kilos</span>
                   : c.freight_status === 'PENDIENTE' ? <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-900">Flete pendiente</span>
@@ -85,6 +87,7 @@ export function Compras() {
         </Tabla>
       )}
       {kgDe && filasDe(kgDe).length > 0 && <KgModal filas={filasDe(kgDe)} extra={extras.data?.get(kgDe)} onClose={() => setKgDe(null)} />}
+      {fleteDe && <QuitarFleteModal compra={filasDe(fleteDe)} fletes={fletes.data ?? []} onClose={() => setFleteDe(null)} />}
       {vinculando && <FleteModal compras={paraFlete} fletes={(fletes.data ?? []).filter((f) => f.remaining > 0)}
         onClose={() => setVinculando(false)} onListo={() => { setVinculando(false); setElegidas([]); }} guardando={m.freight.isPending} error={m.freight.error}
         onGuardar={(freightPurchaseId, allocations, listo) => m.freight.mutate({ freightPurchaseId, allocations }, { onSuccess: listo })} />}
@@ -118,12 +121,15 @@ function FleteModal({ compras, fletes, guardando, error, onClose, onListo, onGua
         </label>
       )}
       {elegido && <p className="text-xs text-gray-600">Saldo sin asignar: <b>{pesos(saldo)}</b></p>}
+      <p className="text-xs text-[#6B5D45] bg-amber-50 border border-amber-200 rounded px-2 py-1">El monto se reparte entre las compras que tildaste{modo === 'KG' ? ', según sus kilos' : ''}.
+        Si el flete trajo varias compras, tildalas todas antes de vincular. Si el flete es de una sola compra, asignale el saldo completo.</p>
       <div className="flex gap-4 text-sm">
         <label className="flex items-center gap-1"><input type="radio" checked={modo === 'KG'} onChange={() => setModo('KG')} /> Proporcional por kg</label>
         <label className="flex items-center gap-1"><input type="radio" checked={modo === 'MANUAL'} onChange={() => setModo('MANUAL')} /> Manual</label>
       </div>
       {modo === 'KG' && elegido && <label className={etiqueta}>Monto a repartir ($)<NumeroInput min="0" max={saldo} step="0.01" value={monto ?? String(saldo)} onChange={(e) => setMonto(e.target.value)} className={campo} /></label>}
       <div className="space-y-1 text-sm">
+        <p className="text-xs font-semibold text-[#8A6A2E]">{compras.length === 1 ? '1 compra tildada' : `${compras.length} compras tildadas`}</p>
         {compras.map((c) => (
           <div key={c.purchase_root_id} className="grid grid-cols-[1fr_8rem] gap-2 items-center">
             <span>{c.ingredient_nombre} · {fechaCorta(c.economic_date)} · {kgTxt(c.quantity_kg)}</span>
@@ -135,6 +141,63 @@ function FleteModal({ compras, fletes, guardando, error, onClose, onListo, onGua
         ))}
       </div>
       <p className={`text-xs ${total <= saldo + 0.001 ? 'text-gray-600' : 'text-red-700'}`}>Asignado {pesos(total)} · queda {pesos(Math.round((saldo - total) * 100) / 100)} del flete{total > saldo + 0.001 ? ' — supera el saldo' : ''}</p>
+      {elegido && total > 0 && saldo - total > 0.005 && (
+        <p className="text-xs text-amber-800">Van a quedar {pesos(Math.round((saldo - total) * 100) / 100)} del flete sin asignar, para otras compras. A cada compra se le asigna un flete una sola vez: si es todo de estas compras, asigná el saldo completo.</p>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * 0141 (owner 2026-11-26): the freight allocated to a purchase — each freight expense and its amount — and «Quitar»: the allocation is
+ * removed (audited, with its reason) and its amount is free again on the freight, to allocate it again with «Vincular flete».
+ */
+function QuitarFleteModal({ compra, fletes, onClose }: { compra: FeedPurchase[]; fletes: FeedFreight[]; onClose: () => void }) {
+  const m = useAlimentoMutations();
+  const asignaciones = useFeedFreightAllocations();
+  const [quitando, setQuitando] = useState<string | null>(null);   // freight_purchase_root_id
+  const [motivo, setMotivo] = useState('');
+  const [hecho, setHecho] = useState<string | null>(null);
+  const c = compra[0];
+  if (!c) return null;
+  const deEsta = (asignaciones.data ?? []).filter((a) => a.purchase_root_id === c.purchase_root_id);
+  const flete = (id: string) => fletes.find((f) => f.freight_purchase_root_id === id);
+  const quitar = (freightId: string) => m.unfreight.mutate({ freightPurchaseId: freightId, purchaseId: c.purchase_root_id, reason: motivo.trim() || 'Flete mal asignado' }, {
+    onSuccess: (r) => { setQuitando(null); setMotivo(''); setHecho(`Se quitó el flete: ${pesos(Number((r as { released?: number }).released ?? 0))} vuelven a quedar libres en ese flete. Volvé a vincularlo con «Vincular flete».`); },
+  });
+  return (
+    <Modal titulo={`Flete — ${compra.map((f) => f.ingredient_nombre).join(' + ')} ${fechaDMA(c.economic_date)}`} onClose={onClose} guardando={m.unfreight.isPending}
+      error={m.unfreight.error ?? asignaciones.error} puedeGuardar textoGuardar="Cerrar" onSubmit={onClose}>
+      {hecho && <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded px-2 py-1">{hecho}</p>}
+      {asignaciones.isLoading ? <p className="text-sm text-gray-500">Cargando…</p> : deEsta.length === 0 ? <p className="text-sm text-gray-600">Esta compra no tiene flete asignado.</p> : (
+        <div className="space-y-2">
+          {deEsta.map((a) => {
+            const f = flete(a.freight_purchase_root_id);
+            return (
+              <div key={a.freight_purchase_root_id} className="rounded border border-[#E4DCC8] p-2 space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Flete {f ? `${fechaCorta(f.economic_date)} · ${f.supplier_name ?? '—'} · total ${pesos(f.amount_total)}` : ''}: <b>{pesos(a.amount)}</b> asignados a esta compra</span>
+                  {quitando !== a.freight_purchase_root_id && (
+                    <button type="button" onClick={() => { setQuitando(a.freight_purchase_root_id); setHecho(null); }} className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-900 hover:bg-amber-200">Quitar</button>
+                  )}
+                </div>
+                {quitando === a.freight_purchase_root_id && (
+                  <div className="space-y-2">
+                    <label className={etiqueta}>Motivo (opcional)
+                      <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} placeholder="Ej.: monto mal puesto" className={campo} />
+                    </label>
+                    <p className="text-xs text-[#6B5D45]">Se quita la asignación de {pesos(a.amount)}: vuelven a quedar libres en el flete. El gasto del flete y su pago no cambian. Queda en el historial.</p>
+                    <div className="flex gap-2">
+                      <button type="button" disabled={m.unfreight.isPending} onClick={() => quitar(a.freight_purchase_root_id)} className="text-sm px-3 py-1.5 rounded bg-amber-600 text-white disabled:opacity-50">Quitar flete</button>
+                      <button type="button" onClick={() => setQuitando(null)} className="text-sm px-3 py-1.5 rounded text-gray-700">Cancelar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Modal>
   );
 }

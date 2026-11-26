@@ -63,6 +63,7 @@ export const TARGET_READ_TABLES = [
   'feed_stock_period',   // 0125: closed / reopened feed stock months (ADMIN and OPERATOR read)
   'flock_day_note',   // 0131: the note of a production day (ADMIN and OPERATOR read)
   'cash_opening_count',   // 0140: the opening balance of a cash account by a physical count (ADMIN policy, read-only)
+  'feed_freight_allocation',   // 0126 / 0141: which feed freight was allocated to which purchase, to remove one (ADMIN policy, read-only)
 ] as const;
 export type TargetReadTable = (typeof TARGET_READ_TABLES)[number];
 
@@ -148,6 +149,7 @@ export const TARGET_RPCS = [
   'set_feed_formula_comment', 'set_feed_type_standard_batch', 'set_feed_type_active',   // 0125 (ADMIN): recipe comment, standard batch, (de)activation
   'close_feed_month', 'reopen_feed_month',   // 0125 (ADMIN): monthly feed stock close / reopen
   'set_expense_category_feed', 'set_feed_purchase_quantity', 'allocate_feed_freight',   // 0126 (ADMIN): feed categories, purchase kg, freight split
+  'unallocate_feed_freight',   // 0141 (ADMIN): remove one freight allocation (audited) so it can be allocated anew
   'set_purchase_tag',   // 0127 (ADMIN): the tag of an expense (NULL = «Sin etiqueta»), audited
   'register_cash_opening', 'fin_account_balance_on',   // 0140 (ADMIN): the cash opening by count; the ERP balance of an account at a date
   'set_feed_purchase_parts',   // 0138 (ADMIN): one invoice with several ingredients (category, kg and amount of each), audited

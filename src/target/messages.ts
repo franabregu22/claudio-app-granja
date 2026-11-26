@@ -102,7 +102,7 @@ const MESSAGES: Record<string, string> = {
   FREIGHT_NOT_FOUND: 'El flete no existe.',
   FREIGHT_SUPERSEDED: 'El flete fue reemplazado por otra versión.',
   OVER_ALLOCATION: 'El monto supera lo que queda por asignar (del flete, de la factura o del pago).',
-  ALREADY_ALLOCATED: 'Ese flete ya está asignado a esta compra.',
+  ALREADY_ALLOCATED: 'Ese flete ya está asignado a esta compra. Para cambiar el monto, quitalo desde la columna Flete y volvé a vincularlo.',
   INSTRUMENT_NOT_FOUND: 'El cheque no existe.',
   INVALID_STATE: 'El cheque no está en un estado que permita esta acción.',
   WRONG_DIRECTION: 'Esta acción no corresponde a este tipo de cheque (recibido / emitido).',

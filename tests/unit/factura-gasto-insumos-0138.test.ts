@@ -213,3 +213,21 @@ describe('0140 — corte de Mercado Pago (01/12/2026) y saldo inicial de caja po
     expect(TARGET_RPCS as readonly string[]).toEqual(expect.arrayContaining(['register_cash_opening', 'fin_account_balance_on']));
   });
 });
+
+describe('0141 — quitar un flete asignado (owner 2026-11-26)', () => {
+  it('the RPC and the allocations are allow-listed; the Flete cell opens «Quitar»; Vincular flete explains the split', async () => {
+    expect(TARGET_RPCS as readonly string[]).toContain('unallocate_feed_freight');
+    const calls: { fn: string; args: unknown }[] = [];
+    const client = { rpc: async (fn: string, args: unknown) => { calls.push({ fn, args }); return { data: { released: 60000, remaining: 255000 }, error: null }; } };
+    const { unallocateFeedFreight } = await import('../../src/target/alimento');
+    await unallocateFeedFreight(client as never, { freightPurchaseId: 'F', purchaseId: 'P', reason: '  monto mal puesto ' });
+    expect(calls).toEqual([{ fn: 'unallocate_feed_freight', args: { p_freight_purchase_id: 'F', p_purchase_id: 'P', p_reason: 'monto mal puesto' } }]);
+    const c = SRC('features/production/alimento/Compras.tsx');
+    expect(c).toContain('onClick={() => setFleteDe(c.purchase_root_id)}');
+    expect(c).toContain("reason: motivo.trim() || 'Flete mal asignado'");
+    expect(c).toContain('Si el flete trajo varias compras, tildalas todas antes de vincular.');
+    expect(c).toContain('del flete sin asignar, para otras compras.');
+    expect(SRC('target/db.ts')).toContain("'feed_freight_allocation',");
+  });
+});
+
