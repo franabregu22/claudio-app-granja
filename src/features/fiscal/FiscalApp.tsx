@@ -12,11 +12,12 @@ import { useClients, useSuppliers } from '../caja/useTreasury';
 import { formatoPesos } from '../pedidos/helpers';
 import { useFinancialAccounts } from '../pedidos/useCommercial';
 import { useFiscalDocuments, useFiscalMutations, useFiscalPayments, useFiscalPeriods, useObligations } from '../feria/useFeriaFiscal';
-import type { FiscalPeriodRow } from '../../target/fiscal';
-import { Comprobantes } from '../caja/Comprobantes';
-import { useDocumentLinks } from '../caja/useInvoicePayments';
 import { NumeroInput } from '../../components/NumeroInput';
 import { repartirEnCuotas, sumarCuotas } from './cuotas';
+import { DebitosCreditos, LibroIva, PosicionIva } from './Solapas';
+
+type Solapa = 'POSICION' | 'DEBCRED' | 'LIBRO' | 'OBLIGACIONES';
+const SOLAPAS: [Solapa, string][] = [['POSICION', 'Posición IVA'], ['DEBCRED', 'Débitos y créditos'], ['LIBRO', 'Libro IVA'], ['OBLIGACIONES', 'Obligaciones y pagos']];
 
 const TIPO: Record<FiscalDocumentType, string> = {
   INVOICE_A: 'Factura A', INVOICE_B: 'Factura B', INVOICE_C: 'Factura C', CREDIT_NOTE: 'Nota de crédito', DEBIT_NOTE: 'Nota de débito', RECEIPT: 'Recibo', OTHER: 'Otro',
@@ -35,11 +36,14 @@ const ESTADO: Record<ObligationRow['status'], string> = { PENDING: 'Pendiente', 
 export function FiscalApp() {
   const { rol } = useAuth();
   const docs = useFiscalDocuments();
-  const originales = useDocumentLinks('FISCAL_DOCUMENT', (docs.data ?? []).map((d) => d.id));   // ADR-025 stage 4: the receipt (WhatsApp)
   const obligaciones = useObligations();
   const periodos = useFiscalPeriods();
   const pagos = useFiscalPayments();
   const [modal, setModal] = useState<'documento' | 'obligacion' | ObligationRow | null>(null);
+  // owner 2026-11-26: four tabs; the Libro IVA opens on the current month (or the month tapped in Posición IVA)
+  const [solapa, setSolapa] = useState<Solapa>('POSICION');
+  const [periodoLibro, setPeriodoLibro] = useState(() => `${getTodayDate().slice(0, 7)}-01`);
+  const [filtroObl, setFiltroObl] = useState('');   // YYYY-MM; '' = every period
 
   if (rol !== 'ADMIN') {
     return (
@@ -62,16 +66,38 @@ export function FiscalApp() {
       </div>
       {error ? <div className="bg-red-100 border border-red-300 text-red-800 px-3 py-2 rounded text-sm">{errorMessage(error)}</div> : null}
 
-      <ResumenFiscal filas={periodos.data ?? []} cargando={periodos.isLoading} />
+      <div className="flex flex-wrap gap-1 border-b border-[#E4DCC8]" role="tablist" aria-label="Fiscal">
+        {SOLAPAS.map(([k, t]) => (
+          <button key={k} type="button" role="tab" aria-selected={solapa === k} onClick={() => setSolapa(k)}
+            className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 ${solapa === k ? 'border-[#A8552E] text-[#A8552E]' : 'border-transparent text-[#6B5D45] hover:text-[#2C2419]'}`}>{t}</button>
+        ))}
+      </div>
 
+      {solapa === 'POSICION' && (periodos.isLoading ? <p className="text-sm text-gray-500">Cargando…</p>
+        : <PosicionIva periodos={periodos.data ?? []} obligaciones={obligaciones.data ?? []} onVerMes={(p) => { setPeriodoLibro(p); setSolapa('LIBRO'); }} />)}
+      {solapa === 'DEBCRED' && <DebitosCreditos />}
+      {solapa === 'LIBRO' && (
+        <>
+          <LibroIva periodo={periodoLibro} onPeriodo={setPeriodoLibro} />
+          <button onClick={() => setModal('documento')} className="text-xs text-[#A8552E] hover:underline">Registrar comprobante manual</button>
+        </>
+      )}
+
+      {solapa === 'OBLIGACIONES' && <>
       <section>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Obligaciones</p>
-          <button onClick={() => setModal('obligacion')} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Registrar obligación</button>
+          <span className="flex items-center gap-2">
+            <label className="text-xs text-gray-600 flex items-center gap-1">Período
+              <input type="month" value={filtroObl} onChange={(e) => setFiltroObl(e.target.value)} className="border border-[#D8CDB0] rounded px-2 py-1 text-xs" />
+              {filtroObl && <button type="button" onClick={() => setFiltroObl('')} className="text-[#A8552E] hover:underline">todos</button>}
+            </label>
+            <button onClick={() => setModal('obligacion')} className="text-sm px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700">Registrar obligación</button>
+          </span>
         </div>
         {(obligaciones.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">Sin obligaciones.</p> : (
           <div className="space-y-2">
-            {(obligaciones.data ?? []).map((o) => (
+            {(obligaciones.data ?? []).filter((o) => !filtroObl || o.fiscal_period.startsWith(filtroObl)).map((o) => (
               <div key={o.id} className="bg-white rounded-lg border border-[#E4DCC8] p-3 text-sm flex items-center justify-between gap-2">
                 <span>
                   <b className="text-amber-900">{o.tax_kind}</b> · período {o.fiscal_period.slice(0, 7)} · {formatoPesos(o.amount)}
@@ -94,41 +120,15 @@ export function FiscalApp() {
         <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Pagos</p>
         {(pagos.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">Sin pagos.</p> : (
           <div className="space-y-1 text-sm">
-            {(pagos.data ?? []).map((p) => (
+            {(pagos.data ?? []).filter((p) => !filtroObl || (p.fiscal_period ?? '').startsWith(filtroObl)).map((p) => (
               <p key={p.id} className="text-gray-700">{p.effective_date} · {p.tax_kind ?? '—'} {p.fiscal_period?.slice(0, 7) ?? ''} · {formatoPesos(p.amount)}{p.cuenta ? ` · ${p.cuenta}` : ''}</p>
             ))}
           </div>
         )}
       </section>
 
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Comprobantes</p>
-          <button onClick={() => setModal('documento')} className="text-xs text-[#A8552E] hover:underline">Registrar comprobante manual</button>
-        </div>
-        {(docs.data ?? []).length === 0 ? <p className="text-sm text-[#8A7A5C]">Sin comprobantes.</p> : (
-          <div className="bg-white rounded-lg border border-amber-200 overflow-x-auto">
-            <table className="w-full text-xs md:text-sm">
-              <thead className="bg-amber-50 border-b border-amber-200 text-amber-900">
-                <tr><th className="px-3 py-2 text-left">Fecha</th><th className="px-3 py-2 text-left">Tipo</th><th className="px-3 py-2 text-left">Número</th>
-                  <th className="px-3 py-2 text-left">Contraparte</th><th className="px-3 py-2 text-right">Neto</th><th className="px-3 py-2 text-right">Total</th></tr>
-              </thead>
-              <tbody>
-                {(docs.data ?? []).map((d) => (
-                  <tr key={d.id} className="border-b border-amber-100">
-                    <td className="px-3 py-2">{d.document_date}</td>
-                    <td className="px-3 py-2">{TIPO[d.document_type]} · {d.direction === 'DEBITO' ? 'Débito' : 'Crédito'}</td>
-                    <td className="px-3 py-2">{d.external_number ?? '—'} <Comprobantes docs={originales.data?.get(d.id)} compacto /></td>
-                    <td className="px-3 py-2">{d.contraparte ?? '—'}</td>
-                    <td className="px-3 py-2 text-right">{formatoPesos(d.net_amount)}</td>
-                    <td className="px-3 py-2 text-right font-semibold">{formatoPesos(d.total_amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <p className="text-xs text-gray-500">Al pagar una obligación elegís la cuenta: el pago sale de esa cuenta y queda en Caja. El IVA no es un gasto, así que no va a Resultados.</p>
+      </>}
 
       {modal === 'documento' && <DocumentoModal onClose={() => setModal(null)} />}
       {modal === 'obligacion' && <ObligacionModal onClose={() => setModal(null)} />}
@@ -356,51 +356,5 @@ function PagoModal({ obligacion, onClose }: { obligacion: ObligationRow; onClose
       </label>
       {esMp && <BloqueoMp />}
     </Modal>
-  );
-}
-
-const IMPUESTO_LABEL: Record<string, string> = {
-  IVA: 'IVA', IIBB: 'IIBB', GANANCIAS: 'Ganancias', RETENTION: 'Retenciones', PERCEPTION: 'Percepciones', OTHER: 'Otros', DEBITOS_CREDITOS: 'Débitos y créditos',
-};
-
-/**
- * D-FISCAL-2 / D-FISCAL-7: the period position exactly as report_fiscal_period returns it. "Diferencia del período" is
- * the backend's informational debit − credit for IVA; it is not a payable amount and nothing is carried forward.
- */
-function ResumenFiscal({ filas, cargando }: { filas: FiscalPeriodRow[]; cargando: boolean }) {
-  const periodos = [...new Set(filas.map((f) => f.period))];
-  return (
-    <section>
-      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide mb-2">Resumen fiscal</p>
-      {cargando ? <p className="text-sm text-gray-500">Cargando…</p> : periodos.length === 0 ? (
-        <p className="text-sm text-[#8A7A5C]">Todavía no hay comprobantes con impuestos cargados.</p>
-      ) : (
-        <div className="space-y-3">
-          {periodos.map((p) => {
-            const delPeriodo = filas.filter((f) => f.period === p);
-            const iva = delPeriodo.find((f) => f.tax_kind === 'IVA');
-            const otros = delPeriodo.filter((f) => f.tax_kind !== 'IVA');
-            return (
-              <div key={p} className="bg-white rounded-lg border border-[#E4DCC8] p-3 text-sm">
-                <p className="font-semibold text-amber-900 mb-1">Período {p.slice(0, 7)}</p>
-                {iva && (
-                  <div className="grid grid-cols-3 gap-2">
-                    <span>Débito fiscal<br /><b>{formatoPesos(iva.debit_amount)}</b> <span className="text-xs text-gray-500">({iva.debit_documents} comp.)</span></span>
-                    <span>Crédito fiscal<br /><b>{formatoPesos(iva.credit_amount)}</b> <span className="text-xs text-gray-500">({iva.credit_documents} comp.)</span></span>
-                    <span>Diferencia del período<br /><b>{formatoPesos(iva.period_difference)}</b></span>
-                  </div>
-                )}
-                {otros.map((o) => (
-                  <p key={o.tax_kind} className="text-xs text-gray-700 mt-1">
-                    {IMPUESTO_LABEL[o.tax_kind] ?? o.tax_kind}: en ventas {formatoPesos(o.debit_amount)} · en compras {formatoPesos(o.credit_amount)}
-                  </p>
-                ))}
-              </div>
-            );
-          })}
-          <p className="text-xs text-gray-500">La diferencia del período es informativa (débito − crédito de lo cargado). No es el saldo a pagar ni arrastra saldos de otros períodos. Las notas de crédito ya restan.</p>
-        </div>
-      )}
-    </section>
   );
 }
