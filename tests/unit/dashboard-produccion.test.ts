@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  deLote, diasDe, escalaPostura, posturaPonderada, rangoPersonalizado, ticksRedondos, rangosDashboard, seriePostura, serieHuevosMes, serieHuevosRango, totalesDe, variacionPct,
+  deLote, deLotes, diasDe, escalaPostura, posturaPonderada, rangoPersonalizado, ticksRedondos, rangosDashboard, seriePostura, serieHuevosMes, serieHuevosRango, totalesDe, variacionPct,
 } from '../../src/features/production/indicadoresProduccion';
 import type { FlockDay } from '../../src/target/production';
 
@@ -91,7 +91,7 @@ describe('the screen', () => {
     expect((app.match(/<Tarjeta label=/g) ?? []).length).toBe(4);   // one card per indicator; the period selector replaces the repeated cards
     expect(app).not.toMatch(/ddmm|slice\(8, 10\)\}\/\$/);   // dates as «1 nov», never dd/mm
     expect(app).toMatch(/MESES_CORTOS = \['ene'/);
-    expect(app).toMatch(/const filas = deLote\(todas, elegido\);/);   // the lote filter feeds every card and chart
+    expect(app).toMatch(/const filas = deLotes\(todas, elegidos\);/);   // the lote filter feeds every card and chart
     expect(app).toMatch(/filter\(\(f\) => f\.estado === 'ACTIVE'\)\.map\(\(f\) => \(\{ id: f\.id, codigo: codigoLote\(f\)/);   // only the ACTIVE lotes, by code
     expect(app).toMatch(/label="Mortandad" vacio=\{comp \? null/);   // mortality shows even without eggs (recría)
     expect(app).not.toMatch(/latestPerFlock|Edad \(sem\.\)/);
@@ -124,6 +124,23 @@ describe('período personalizado (owner 2026-11-26): the chosen closed range vs 
     const k = readFileSync(resolve(__dirname, '../../src/features/production/CalendarioRango.tsx'), 'utf8');
     expect(k).toContain('const deshabilitado = f > max;');
     expect(k).toContain('Últimos {n} días');
+  });
+});
+
+describe('varios lotes (owner 2026-11-26): tap several lotes to add them up; «Todos los lotes» = the whole farm', () => {
+  it('deLotes: none = every row; one or several = only theirs', () => {
+    const filas = [dia({ flock_id: 'f1' }), dia({ flock_id: 'f2' }), dia({ flock_id: 'f3' })];
+    expect(deLotes(filas, [])).toHaveLength(3);
+    expect(deLotes(filas, ['f2']).map((d) => d.flock_id)).toEqual(['f2']);
+    expect(deLotes(filas, ['f1', 'f3']).map((d) => d.flock_id)).toEqual(['f1', 'f3']);
+  });
+  it('the buttons toggle; the total line is the farm (none chosen) or the chosen lotes (2 or more)', () => {
+    const c = readFileSync(resolve(__dirname, '../../src/features/production/ProductionDashboard.tsx'), 'utf8');
+    expect(c).toContain('onClick={() => alternarLote(f.id)} aria-pressed={elegidos.includes(f.id)}');
+    expect(c).toContain('onClick={() => setSeleccion([])} aria-pressed={todosLosLotes}');
+    expect(c).toContain('const filas = deLotes(todas, elegidos);');
+    expect(c).toContain("const nombreTotal = todosLosLotes ? 'Total granja' : 'Total seleccionados';");
+    expect(c).toContain('const conTotal = elegidos.length !== 1;');
   });
 });
 

@@ -4,7 +4,7 @@ import { errorMessage } from '../../target/messages';
 import { agregarDiasAFecha, getTodayDate } from '../../utils/dateUtils';
 import type { Rango } from '../pedidos/periodos';
 import {
-  deLote, diasDe, escalaPostura, rangoPersonalizado, rangosDashboard, ticksRedondos, seriePostura, serieHuevosMes, serieHuevosRango, totalesDe, variacionPct,
+  deLotes, diasDe, escalaPostura, rangoPersonalizado, rangosDashboard, ticksRedondos, seriePostura, serieHuevosMes, serieHuevosRango, totalesDe, variacionPct,
 } from './indicadoresProduccion';
 import { CalendarioRango } from './CalendarioRango';
 import { codigoLote } from '../../target/production';
@@ -59,13 +59,13 @@ function Tarjeta({ label, valor, anterior, cambio, unidad = '%', menosEsMejor = 
 /**
  * Dashboard → Producción (owner 2026-11-17): one glance on top — healthy eggs, broken eggs, laying % and mortality of the selected
  * period (this week / this month, closed days only: up to yesterday, against the same days of the previous period) for the whole farm
- * or one active lote — and the evolution charts below. report_flock_day only; indicadoresProduccion.ts holds the rules.
+ * or one or several active lotes (owner 2026-11-26: tapping several adds them up) — and the evolution charts below. report_flock_day only; indicadoresProduccion.ts holds the rules.
  */
 export function ProductionDashboard() {
   const hoy = getTodayDate();
   const { semana, mes, ayer } = rangosDashboard(hoy);
   const [periodo, setPeriodo] = useState<Periodo>('semana');
-  const [lote, setLote] = useState('');   // flock id; '' = toda la granja
+  const [seleccion, setSeleccion] = useState<string[]>([]);   // owner 2026-11-26: the chosen lotes (several); [] = toda la granja
   const [ventana, setVentana] = useState<(typeof VENTANAS)[number]>(30);
   // owner 2026-11-26: período personalizado — any closed range chosen on the calendar vs the same number of days right before it
   const [rango, setRango] = useState<{ desde: string; hasta: string }>(() => ({ desde: agregarDiasAFecha(ayer, -6), hasta: ayer }));
@@ -82,8 +82,10 @@ export function ProductionDashboard() {
   // «Todos los lotes» is the whole farm (a lote closed during the compared period still counts there).
   const activos = (lotes.data ?? []).filter((f) => f.estado === 'ACTIVE').map((f) => ({ id: f.id, codigo: codigoLote(f), galpon: f.shed_nombre }))
     .sort((x, y) => x.codigo.localeCompare(y.codigo, 'es'));
-  const elegido = activos.some((f) => f.id === lote) ? lote : '';
-  const filas = deLote(todas, elegido);
+  const elegidos = seleccion.filter((id) => activos.some((f) => f.id === id));
+  const todosLosLotes = elegidos.length === 0;
+  const alternarLote = (id: string) => setSeleccion((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const filas = deLotes(todas, elegidos);
 
   // the cards: the selected period against the same days of the previous one
   const comp = periodo === 'semana' ? semana : periodo === 'mes' ? mes : personalizado;
@@ -100,11 +102,12 @@ export function ProductionDashboard() {
   const mesNombre = MESES[Number(hoy.slice(5, 7)) - 1];
   const mesAnteriorNombre = mes ? MESES[Number(mes.anterior.desde.slice(5, 7)) - 1] : '';
 
-  // laying % per day: the farm total and one line per active lote (one line when a lote is selected)
-  const series = elegido === '' ? activos : activos.filter((f) => f.id === elegido);
+  // laying % per day: one line per active lote (only the chosen ones) and the total — of the farm, or of the chosen lotes when 2 or more
+  const series = todosLosLotes ? activos : activos.filter((f) => elegidos.includes(f.id));
   const postura = esRango ? seriePostura(filas, personalizado.actual.desde, personalizado.actual.hasta, series.map((f) => f.id))
     : seriePostura(filas, agregarDiasAFecha(ayer, -(ventana - 1)), ayer, series.map((f) => f.id));
-  const conTotal = elegido === '';
+  const conTotal = elegidos.length !== 1;
+  const nombreTotal = todosLosLotes ? 'Total granja' : 'Total seleccionados';
   const [yMin, yMax] = escalaPostura(postura, conTotal ? ['total', ...series.map((f) => f.id)] : series.map((f) => f.id));
   const ticks = Array.from({ length: Math.floor((yMax - yMin) / 5) + 1 }, (_, i) => yMin + i * 5).filter((t, _i, arr) => arr.length <= 12 || t % 10 === 0);
 
@@ -127,12 +130,14 @@ export function ProductionDashboard() {
           <CalendarioRango desde={rango.desde} hasta={rango.hasta} max={ayer} onAplicar={(desde, hasta) => { setRango({ desde, hasta }); setEligiendo(false); }} />
         )}
         <div className="flex flex-wrap gap-2" role="group" aria-label="Lote">
-          <button type="button" onClick={() => setLote('')} aria-pressed={elegido === ''} className={botonClase(elegido === '', true)}>Todos los lotes</button>
+          <button type="button" onClick={() => setSeleccion([])} aria-pressed={todosLosLotes} className={botonClase(todosLosLotes, true)}>Todos los lotes</button>
           {activos.map((f) => (
-            <button key={f.id} type="button" onClick={() => setLote(f.id)} aria-pressed={elegido === f.id} title={f.galpon} className={botonClase(elegido === f.id, true)}>
+            <button key={f.id} type="button" onClick={() => alternarLote(f.id)} aria-pressed={elegidos.includes(f.id)} title={`${f.galpon} · tocá varios para sumarlos`}
+              className={botonClase(elegidos.includes(f.id), true)}>
               {f.codigo}
             </button>
           ))}
+          {elegidos.length >= 2 && <span className="self-center text-xs text-gray-500">Suma de {elegidos.length} lotes</span>}
         </div>
         <p className="text-xs text-gray-500">
           {comp ? <>Días cerrados <b>{rangoTexto(comp.actual)}</b> vs <b>{rangoTexto(comp.anterior)}</b>{esRango ? ` (${diasDe(comp.actual)} día${diasDe(comp.actual) === 1 ? '' : 's'} cada uno)` : ' (hasta ayer; hoy está incompleto)'}</>
@@ -198,9 +203,9 @@ export function ProductionDashboard() {
                 <YAxis domain={[yMin, yMax]} ticks={ticks} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 11, fill: '#6B5D45' }}
                   tickLine={false} axisLine={false} width={42} allowDataOverflow />
                 <Tooltip labelFormatter={(f) => fechaCorta(String(f))}
-                  formatter={(v, n) => [pct1(typeof v === 'number' ? v : null), n === 'total' ? 'Total granja' : String(n)]}
+                  formatter={(v, n) => [pct1(typeof v === 'number' ? v : null), n === 'total' ? nombreTotal : String(n)]}
                   itemSorter={(item) => -(Number(item.value) || 0)} contentStyle={{ fontSize: 12 }} />
-                <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} formatter={(n) => (n === 'total' ? 'Total granja' : n)} />
+                <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} formatter={(n) => (n === 'total' ? nombreTotal : n)} />
                 {series.map((f) => (
                   <Line key={f.id} dataKey={f.id} name={f.codigo} stroke={COLORES_LOTE[activos.indexOf(f) % COLORES_LOTE.length]} strokeWidth={conTotal ? 2 : 3}
                     dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />

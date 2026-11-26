@@ -86,6 +86,8 @@ export function totalesDe(filas: FlockDay[], r: Rango): Totales {
 
 /** The rows of one flock ('' = the whole farm): the lote filter of the dashboard applies to every card and chart. */
 export const deLote = (filas: FlockDay[], flockId: string): FlockDay[] => (flockId === '' ? filas : filas.filter((d) => d.flock_id === flockId));
+/** owner 2026-11-26: several lotes at once; none chosen = the whole farm. */
+export const deLotes = (filas: FlockDay[], ids: string[]): FlockDay[] => (ids.length === 0 ? filas : filas.filter((d) => ids.includes(d.flock_id)));
 
 /** Relative change in % (null without a base). */
 export const variacionPct = (x: number, y: number): number | null => (y === 0 ? null : ((x - y) / y) * 100);
