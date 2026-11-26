@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, recalcularFacturaA, type FiscalForm } from '../../src/target/fiscal';
 import { TARGET_RPCS } from '../../src/target/db';
+import { estadoPartes, partesInput, PARTE_VACIA } from '../../src/target/alimento';
+import { registrarGasto } from '../../src/target/expenses';
 
 const SRC = (p: string) => readFileSync(resolve(__dirname, '../../src', p), 'utf8');
 const A = (p: Partial<FiscalForm>): FiscalForm => ({ ...FISCAL_VACIO, tipo: 'INVOICE_A', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '21', importe: '' }], ...p });
@@ -65,9 +67,56 @@ describe('0138 — una factura con varios insumos', () => {
   it('the RPC is in the allow-list and Alimento → Compras offers the split', () => {
     expect(TARGET_RPCS as readonly string[]).toContain('set_feed_purchase_parts');
     const c = SRC('features/production/alimento/Compras.tsx');
-    expect(c).toContain('Esta factura trae varios insumos');
-    expect(c).toContain('m.parts.mutateAsync');
+    expect(c).toContain("import { KgModal } from './Insumos';");
     expect(c).toMatch(/key=\{clave\(c\)\}/);   // one row per ingredient
+    const i = SRC('features/production/alimento/Insumos.tsx');
+    expect(i).toContain('Esta factura trae varios insumos');
+    expect(i).toContain('m.parts.mutateAsync');
+  });
+});
+
+describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos sigue siendo un gasto', () => {
+  const P = (cat: string, kg: string, monto: string) => ({ cat, kg, monto });
+  it('the rows add up to the cost basis to the cent, two or more, each ingredient once', () => {
+    expect(estadoPartes([P('maiz', '1000', '600'), P('soja', '500', '400')], 1000)).toEqual({ resta: 0, repetida: false, ok: true });
+    // owner 2026-11-26: up to $1 of difference is accepted and adjusted in the last ingredient (the backend gets the exact sum)
+    expect(estadoPartes([P('maiz', '1000', '600'), P('soja', '500', '399.01')], 1000)).toMatchObject({ resta: 99, ok: true });
+    expect(estadoPartes([P('maiz', '1000', '600'), P('soja', '500', '401')], 1000)).toMatchObject({ resta: -100, ok: true });
+    expect(estadoPartes([P('maiz', '1000', '600'), P('soja', '500', '398.99')], 1000)).toMatchObject({ resta: 101, ok: false });
+    expect(estadoPartes([P('maiz', '1000', '600'), P('soja', '500', '401.01')], 1000)).toMatchObject({ resta: -101, ok: false });
+    expect(estadoPartes([P('maiz', '1000', '1000.50'), P('soja', '500', '0')], 1000).ok).toBe(false);   // the last one would go negative
+    expect(partesInput([P('maiz', '1000', '600'), P('soja', '500', '399.01')], 1000)).toEqual([
+      { categoryId: 'maiz', kg: 1000, amount: 600 }, { categoryId: 'soja', kg: 500, amount: 400 }]);
+    expect(partesInput([P('maiz', '1000', '600.10'), P('soja', '500', '400.60')], 1000).map((x) => x.amount)).toEqual([600.1, 399.9]);
+    expect(estadoPartes([P('maiz', '1000', '600'), P('maiz', '500', '400')], 1000)).toMatchObject({ repetida: true, ok: false });
+    expect(estadoPartes([P('maiz', '1000', '1000')], 1000).ok).toBe(false);
+    expect(estadoPartes([P('maiz', '0', '600'), P('soja', '500', '400')], 1000).ok).toBe(false);
+    expect(estadoPartes([P('maiz', '1000', '600'), { ...PARTE_VACIA }], 1000).ok).toBe(false);
+    expect(estadoPartes([P('maiz', '1000', '2073016.53'), P('soja', '1', '0.01')], 2073016.54).ok).toBe(true);   // float-safe
+    expect(partesInput([P('maiz', '1000.5', '600.25'), P('soja', '1', '0')], 600.25)).toEqual([{ categoryId: 'maiz', kg: 1000.5, amount: 600.25 }, { categoryId: 'soja', kg: 1, amount: 0 }]);
+  });
+  it('Nuevo gasto: feed ingredients only, ADMIN only; the split / kg saved on the purchase after it is registered', () => {
+    const i = SRC('features/production/alimento/Insumos.tsx');
+    expect(i).toContain("rol === 'ADMIN' && lista.some((c) => c.id === categoriaId && !!c.feed_ingredient_id)");
+    const c = SRC('features/caja/Compras.tsx');
+    expect(c).toContain('if (purchaseId) await insumos.guardar(purchaseId, insumosForm, baseInsumos);');
+    expect(c).toContain('{insumos.activo && <BloqueInsumosGasto');
+    expect(c).toContain('const baseInsumos = facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null)');
+  });
+  it('Todas las operaciones: the row shows every ingredient and «⋯» opens the Kilos window', () => {
+    const c = SRC('features/caja/TodasLasOperaciones.tsx');
+    expect(c).toContain("filasCompra.map((c) => nombreSub.get(c.expense_category_id) ?? c.ingredient_nombre).join(' + ')");
+    expect(c).toContain("{celda('categoria', insumos ?? r.subcategory");
+    expect(c).toContain('{r.purchase_id && <InsumosDeFila r={r} />}');
+  });
+  it('an expense without supplier paid from cash / bank returns its purchase id too (the kg are set on it)', async () => {
+    const calls: string[] = [];
+    const client = { rpc: async (fn: string) => { calls.push(fn); return { data: fn === 'register_pending_expense' ? { payable_id: 'P1', purchase_id: 'U1' } : { financial_operation_id: 8 }, error: null }; } };
+    const r = await registrarGasto(client as never, { concept: 'Maíz', supplierId: null, amountTotal: 100, fecha: '2026-11-20', categoryId: 'c', nature: 'OPERATING',
+      estado: 'PAGADO', medio: 'CASH', accountId: 'a', fechaPago: '2026-11-21', invoiceNumber: null, fiscal: null, cuitEmisor: null, nombreEmisor: null,
+      idempotencyKey: 'k', userId: 'u', files: [] } as never, []);
+    expect(r).toMatchObject({ purchase_id: 'U1', financial_operation_id: 8 });
+    expect(calls[0]).toBe('register_pending_expense');
   });
 });
 

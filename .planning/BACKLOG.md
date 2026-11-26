@@ -37,6 +37,11 @@ _Hechos: #2 nombre del insumo y #6 número de cheque en su débito → release 0
   - mostrar la Factura A en Pedidos / Cuentas corrientes de clientes (donde sí existe el pedido);
   - o vincular cada cobro con las facturas que cancela, un cambio de dominio más grande.
 
+### 7. Filtrar por cualquier insumo de una factura con varios insumos
+- **Origen:** owner 2026-11-26, insumos desde Caja (opción A). Quedó fuera de alcance porque necesita una migración.
+- **Qué:** en Todas las operaciones, al filtrar por Subcategoría «Soja» tiene que aparecer también la factura «Maíz + Soja».
+  Hoy el filtro se resuelve en `fin_operation_list` con la categoría del gasto. Hay que sumarle `feed_purchase_part`.
+
 ## Pendientes ya conocidos (decisiones anteriores del owner)
 
 ### 4. Cartones: al estado de resultados por consumo, como el alimento

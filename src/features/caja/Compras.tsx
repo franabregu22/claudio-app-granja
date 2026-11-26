@@ -24,6 +24,7 @@ import { SelectorEtiqueta } from './Etiquetas';
 import { useEtiquetaMutations } from './useEtiquetas';
 import { usePaymentPlanMutations } from './usePaymentPlan';
 import { NumeroInput } from '../../components/NumeroInput';
+import { BloqueInsumosGasto, INSUMOS_GASTO_VACIO, insumosGastoValido, useInsumosDelGasto, type InsumosGastoForm } from '../production/alimento/Insumos';
 
 /**
  * Compras y fletes (F27-D; Phase 27 acceptance fixes D-WALK-3/4/5/6). The forms of a purchase and of freight; the list of purchases is
@@ -85,6 +86,10 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const [fechaPago, setFechaPago] = useState(getTodayDate());
   const [comprobante, setComprobante] = useState<ComprobanteForm>(COMPROBANTE_VACIO);
   const [etiquetaId, setEtiquetaId] = useState('');   // 0127: '' = Sin etiqueta
+  // owner 2026-11-26: a feed ingredient (Alimento balanceado only) takes its kg — or the split of an invoice with several ingredients —
+  // right here, so no ingredient goes unnoticed; the expense, its payment and its IVA stay one
+  const [insumosForm, setInsumosForm] = useState<InsumosGastoForm>(INSUMOS_GASTO_VACIO);
+  const insumos = useInsumosDelGasto(categoriaId);
   const etiquetas = useEtiquetaMutations();
   const [clave] = useState(() => `GASTO-${crypto.randomUUID()}`);   // idempotency: one per opened form
   // owner 2026-11-18: «Retiros de socios → <socio>» in the same form records a partner withdrawal (management_event RETIRO): it moves
@@ -110,13 +115,16 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   const ruta = rutaGasto({ supplierId: proveedorId || null, estado, medio: estado === 'PAGADO' ? medio : null, fecha, fechaPago });
   const repetida = conProveedor && facturaRepetida(facturas.data ?? [], proveedorId, comprobante.numero);
   const parecido = !repetida && posibleDuplicado(facturas.data ?? [], proveedorId, fecha, Number(total));
+  const facturaA = comprobante.fiscal.tipo === 'INVOICE_A';
+  const baseInsumos = facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null) : (Number(total) > 0 ? Number(total) : null);
+  const insumosOk = !insumos.activo || insumosGastoValido(insumosForm, baseInsumos);
   const fiscalOk = comprobante.fiscal.tipo === '' || (fiscalDatos !== null && (conProveedor || cuitEmisor !== null));
   const pagoOk = estado === 'PENDIENTE'
     || (ruta !== 'PROVEEDOR_MP_NO_PERMITIDO' && cuentaElegida !== '' && (medio === 'MERCADOPAGO' || (fechaPago !== '' && fechaPago >= fecha)));
   const basico = !!user && concepto.trim() !== '' && concepto.trim().length <= 100 && Number(total) > 0 && fecha !== '' && categoriaId !== '';
   const puede = esRetiro ? basico && cuentaRetiro !== ''
-    : basico && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida && (estado === 'PAGADO' || plan.valido);
-  const guardando = registrar.isPending || planes.plan.isPending || planes.chequesObligation.isPending || retiro.isPending;
+    : basico && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida && insumosOk && (estado === 'PAGADO' || plan.valido);
+  const guardando = registrar.isPending || planes.plan.isPending || planes.chequesObligation.isPending || retiro.isPending || insumos.guardando;
   const registrarRetiro = () => retiro.mutateAsync({
     type: 'RETIRO', effectiveDate: fecha, amount: Number(total), idempotencyKey: clave, reason: concepto.trim(),
     accountId: cuentaRetiro, compensatesEventId: null, socioCategoryId: categoriaId,
@@ -129,7 +137,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   return (
     <Modal titulo={esRetiro ? 'Nuevo retiro de socios' : 'Nuevo gasto'} onClose={onClose} puedeGuardar={puede} guardando={guardando}
       error={esRetiro ? retiro.error ?? cuentas.error
-        : comprobante.errorArchivo ?? registrar.error ?? etiquetas.asignar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
+        : comprobante.errorArchivo ?? registrar.error ?? insumos.error ?? etiquetas.asignar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
       textoGuardar={esRetiro ? 'Registrar retiro' : 'Registrar gasto'}
       onSubmit={() => { if (esRetiro) { void registrarRetiro(); return; } registrar.mutateAsync({
         userId: user!.id, files: comprobante.archivos, concept: concepto, supplierId: proveedorId || null, amountTotal: Number(total), fecha,
@@ -143,6 +151,8 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         else if (estado === 'PENDIENTE' && purchaseId && plan.items.length > 0) await planes.plan.mutateAsync({ purchaseId, items: plan.items, idempotencyKey: `${clave}:PLAN` });
         // 0127: the tag (a retry that finds it already set is fine: NO_CHANGES is ignored)
         if (etiquetaId && purchaseId) await etiquetas.asignar.mutateAsync({ purchaseId, etiquetaId }).catch((e: unknown) => { if (!String(e).includes('NO_CHANGES')) throw e; });
+        // the kg / ingredients (a retry replays the expense by its key and sets them again: same values, no duplicate)
+        if (purchaseId) await insumos.guardar(purchaseId, insumosForm, baseInsumos);
         if (!onRegistrado) { onClose(); return; }
         const fechaTxt = estado === 'PAGADO' && medio !== 'MERCADOPAGO' ? fechaPago : fecha;
         const forma = estado === 'PENDIENTE' && plan.forma === 'CUOTAS' ? ` en ${plan.items.length} cuotas` : estado === 'PENDIENTE' && plan.forma === 'CHEQUES' ? ` con ${plan.cheques.length} cheque(s)` : '';
@@ -183,6 +193,8 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
             Si salió por Mercado Pago, clasificá su movimiento en la tabla: doble clic → «Retiro · socio».</p>
         </div>
       ) : <>
+      {insumos.activo && <BloqueInsumosGasto value={insumosForm} onChange={setInsumosForm} categoriaId={categoriaId} insumos={insumos.insumos}
+        base={baseInsumos} facturaA={facturaA} />}
       <SelectorNaturaleza value={naturaleza} onChange={setNaturaleza} />
       <SelectorEtiqueta value={etiquetaId} onChange={setEtiquetaId} />
       <fieldset className="space-y-2">

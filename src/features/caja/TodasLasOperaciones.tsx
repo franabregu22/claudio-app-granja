@@ -31,6 +31,8 @@ import { usePendingSummary, usePurchaseMpLinks, useSettlePurchaseMp } from './us
 import type { MpOutflowCandidate, PurchaseMpLinkRow } from '../../target/purchaseMpLink';
 import { mandatoryPending } from '../../target/pendingClassification';
 import { FiltroColumna, OpcionesFiltro } from '../../components/FiltroColumna';
+import { KgModal, useComprasDeInsumos } from '../production/alimento/Insumos';
+import { kgTxt } from '../production/alimento/format';
 
 const CHIP = 'text-xs px-2 py-0.5 rounded whitespace-nowrap';
 const TONO_ESTADO: Record<OperationEstado, string> = { PENDIENTE: 'bg-amber-100 text-amber-900', COMPLETADA: 'bg-green-100 text-green-800' };
@@ -98,6 +100,13 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const grupos = useExpenseGroups();
   const subcategorias = useAllExpenseSubcategories();
   const etiquetas = useEtiquetas();   // 0127
+  // owner 2026-11-26: an invoice with several feed ingredients shows them all in Subcategoría («Maíz + Soja»), not only its own category
+  const insumosPorRaiz = useComprasDeInsumos();
+  const nombreSub = new Map((subcategorias.data ?? []).map((x) => [x.id, x.nombre]));
+  const insumosDe = (r: OperationRow) => {
+    const filasCompra = r.purchase_id ? insumosPorRaiz.get(r.purchase_root_id ?? r.purchase_id) : undefined;
+    return filasCompra && filasCompra.length > 1 ? filasCompra.map((c) => nombreSub.get(c.expense_category_id) ?? c.ingredient_nombre).join(' + ') : undefined;
+  };
   // the account cards above filter the same list: kept in step with them
   const filtros = { ...f, cuenta: f.cuenta === 'SIN' ? 'SIN' : cuentaId };
   // 'RECIENTES': the just-recorded operation is not a row yet (Mercado Pago): the list by loading time instead of one row
@@ -255,7 +264,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
                 )}
                 {filas.map((r) => (
                   <Fila key={r.row_key} r={r} pares={clasificableEnFila(r) ? paresDeSalida(r) : paresDeGasto(r)}
-                    onVincular={setVinculando} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
+                    onVincular={setVinculando} insumos={insumosDe(r)} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
                     comprobante={r.purchase_id ? comprobantes.data?.get(r.purchase_root_id ?? r.purchase_id) : undefined}
                     onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onDetalle={() => setDetalle(r)}
                     revertido={r.retiro ? retiroAnulado(r, compensados.data) : r.operation_id !== null && !!revertidos.data?.has(r.operation_id)}
@@ -309,8 +318,8 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
  * (owner 2026-11-17): an expense is corrected in its cells (double click), an unclassified Mercado Pago outflow is classified from its
  * subcategory cell; Acciones: Registrar pago, the invoice, the history and «⋯» (the full detail: supplier / invoice number, rectify
  * items, annul, payments, cheques, transfer, transfer). An unclassified Mercado Pago outflow is classified only from its cell. */
-function Fila({ r, pares, onVincular, etiqueta, destacada, comprobante, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
-  r: OperationRow; pares: ParMp[]; onVincular: (pares: ParMp[]) => void; etiqueta?: string; destacada: boolean; comprobante: FeedPurchaseExtra | undefined; onPagar: () => void; onHistorial: () => void;
+function Fila({ r, pares, onVincular, insumos, etiqueta, destacada, comprobante, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
+  r: OperationRow; pares: ParMp[]; onVincular: (pares: ParMp[]) => void; insumos?: string; etiqueta?: string; destacada: boolean; comprobante: FeedPurchaseExtra | undefined; onPagar: () => void; onHistorial: () => void;
   onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
@@ -331,8 +340,8 @@ function Fila({ r, pares, onVincular, etiqueta, destacada, comprobante, onPagar,
         {celda('concepto', <span className="font-medium text-[#2C2419]">{chequeDebitado(r) && <span className={`${CHIP} mr-1 bg-slate-100 text-slate-700 font-normal`} title="Débito en el banco de un cheque / eCheq propio; el concepto es el gasto o la factura que pagó">Cheque debitado</span>}{r.concepto || NADA}</span>)}</td>
       <td className={`${TD} max-w-[10rem] ${editando === 'categoria' ? '' : 'truncate'}${cls('categoria')}`} title={r.category ?? undefined} {...alDoble('categoria')}>
         {editando === 'categoria' ? null : (r.category ?? (clasificable ? <span className="text-xs text-orange-800">Sin clasificar</span> : retiro ? 'Retiros de socios' : NADA))}</td>
-      <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${cls('categoria')}`} title={r.subcategory ?? undefined} {...alDoble('categoria')}>
-        {celda('categoria', r.subcategory ?? (retiro ? <span className="text-xs text-orange-800">Sin socio</span> : NADA))}</td>
+      <td className={`${TD} ${editando === 'categoria' ? '' : 'max-w-[10rem] truncate'}${cls('categoria')}`} title={insumos ? `Una factura con varios insumos: ${insumos}` : r.subcategory ?? undefined} {...alDoble('categoria')}>
+        {celda('categoria', insumos ?? r.subcategory ?? (retiro ? <span className="text-xs text-orange-800">Sin socio</span> : NADA))}</td>
       <td className={`${TD}${cls('naturaleza')}`} {...alDoble('naturaleza')}>{celda('naturaleza', r.nature ? NATURALEZA_LABEL[r.nature] : NADA)}</td>
       <td className={`${TD} max-w-[12rem] truncate`}>{r.accounts.length === 0 ? <span className="text-[#8A7A5C] italic">Sin asignar</span> : cuentasLabel(r)}</td>
       <td {...alDoble('importe')} className={`${TD} text-right font-bold${cls('importe')} ${r.informativo ? 'text-[#8A7A5C] font-normal' : r.tipo === 'INGRESO' ? 'text-green-800' : r.tipo === 'EGRESO' ? 'text-red-800' : 'text-[#2C2419]'}`}
@@ -407,8 +416,28 @@ function DetalleFila({ r }: { r: OperationRow; onHistorial?: () => void }) {
       {r.row_kind === 'TRANSFERENCIA' && r.ref_id !== null && <AnticipadaDeFila id={r.ref_id} />}
       {r.row_kind === 'CHEQUE' && <p className={DATO}>Cheque propio sin factura: se debita, anula, rechaza o cambia su fecha de pago en Cuentas a pagar → Cheques.</p>}
       {r.row_kind === 'CHEQUE_RECIBIDO' && <p className={DATO}>Cheque de cliente: se deposita, acredita, endosa o rechaza en Cuentas a pagar → Cheques.</p>}
+      {r.purchase_id && <InsumosDeFila r={r} />}
       {(r.purchase_id || r.pending_class_id !== null) && <GastoDeFila r={r} onAccion={setAccion} />}
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
+    </div>
+  );
+}
+
+/** owner 2026-11-26 (ADMIN, Alimento balanceado only): the kg / ingredients of a feed purchase, editable from Caja (Alimento's own window). */
+function InsumosDeFila({ r }: { r: OperationRow }) {
+  const porRaiz = useComprasDeInsumos();
+  const [abierto, setAbierto] = useState(false);
+  const filasCompra = porRaiz.get(r.purchase_root_id ?? r.purchase_id!);
+  if (!filasCompra || filasCompra.length === 0) return null;
+  const sinKg = filasCompra.some((c) => c.quantity_kg === null);
+  return (
+    <div className="bg-white rounded border border-[#E4DCC8] p-2 space-y-1">
+      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Insumos de alimento balanceado</p>
+      {sinKg ? <p className="text-xs text-red-700">Faltan los kilos.</p>
+        : filasCompra.map((c) => <p key={c.part_position ?? 0} className={DATO}>{c.ingredient_nombre}: <b>{kgTxt(c.quantity_kg)}</b> · {formatoPesos(c.cost_amount)}{c.invoice_a ? ' sin IVA' : ''}</p>)}
+      <button type="button" onClick={() => setAbierto(true)} className="text-xs text-[#A8552E] hover:underline">
+        {sinKg ? 'Cargar kilos' : 'Editar kilos'} o desglosar en varios insumos</button>
+      {abierto && <KgModal filas={filasCompra} onClose={() => setAbierto(false)} />}
     </div>
   );
 }

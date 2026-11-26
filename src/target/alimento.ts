@@ -145,7 +145,35 @@ export const setFeedPurchaseParts = (c: SupabaseClient, p: { purchaseId: string;
   callRpc<{ parts: number; quantity_kg: number }>(c, 'set_feed_purchase_parts', {
     p_purchase_id: p.purchaseId, p_parts: p.parts.map((x) => ({ expense_category_id: x.categoryId, quantity_kg: x.kg, amount: x.amount })), p_no_freight: p.noFreight ?? null,
   });
-export const allocateFeedFreight = (c: SupabaseClient, p: { freightPurchaseId: string; allocations: { purchaseId: string; amount: number }[] }) =>
+/**
+ * The rows of «Esta factura trae varios insumos» as typed (Alimento → Kilos and Caja → Nuevo gasto). Valid when there are two or more,
+ * each with its ingredient category (once), kg > 0 and an amount, and the amounts add up to the cost basis to the cent (the neto with
+ * Factura A, otherwise the total) — what set_feed_purchase_parts accepts. `resta` is in cents (positive: still missing; negative: over).
+ */
+export interface ParteInsumoForm { cat: string; kg: string; monto: string }
+export const PARTE_VACIA: ParteInsumoForm = { cat: '', kg: '', monto: '' };
+export const centavos = (v: number | string) => Math.round(Number(v) * 100);
+/** owner 2026-11-26: up to $1 of difference (rounding of the invoice) is accepted and adjusted in the last ingredient. */
+export const TOLERANCIA_PARTES = 100;   // cents
+export function estadoPartes(partes: ParteInsumoForm[], base: number): { resta: number; repetida: boolean; ok: boolean } {
+  const resta = centavos(base) - partes.reduce((t, p) => t + (p.monto === '' ? 0 : centavos(p.monto)), 0);
+  const cats = partes.map((p) => p.cat).filter(Boolean);
+  const repetida = new Set(cats).size !== cats.length;
+  const ultimo = partes.length > 0 && partes[partes.length - 1].monto !== '' ? centavos(partes[partes.length - 1].monto) : 0;
+  const ok = partes.length >= 2 && partes.every((p) => p.cat !== '' && Number(p.kg) > 0 && p.monto !== '' && Number(p.monto) >= 0) && !repetida
+    && Math.abs(resta) <= TOLERANCIA_PARTES && ultimo + resta >= 0;
+  return { resta, repetida, ok };
+}
+/** What set_feed_purchase_parts receives: the amounts add up exactly to the base (the difference within $1 goes to the last ingredient). */
+export function partesInput(partes: ParteInsumoForm[], base: number): FeedPurchasePartInput[] {
+  const { resta } = estadoPartes(partes, base);
+  return partes.map((p, i) => ({
+    categoryId: p.cat, kg: Number(p.kg),
+    amount: i === partes.length - 1 && Math.abs(resta) <= TOLERANCIA_PARTES ? (centavos(p.monto) + resta) / 100 : Number(p.monto),
+  }));
+}
+
+export const allocateFeedFreight =(c: SupabaseClient, p: { freightPurchaseId: string; allocations: { purchaseId: string; amount: number }[] }) =>
   callRpc<{ allocated: number; remaining: number }>(c, 'allocate_feed_freight', {
     p_freight_purchase_id: p.freightPurchaseId, p_allocations: p.allocations.map((a) => ({ purchase_id: a.purchaseId, amount: a.amount })),
   });

@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { splitByKg, type FeedPurchase, type FeedPurchaseExtra } from '../../../target/alimento';
-import type { ExpenseCategoryRow } from '../../../target/masters';
-import { useMasterList } from '../../admin/useMasters';
+import { splitByKg, type FeedPurchase } from '../../../target/alimento';
 import { Comprobantes } from '../../caja/Comprobantes';
 import { campo, etiqueta, Modal } from '../../caja/Modal';
 import { fechaCorta, fechaDMA, kgTxt, pesos } from './format';
 import { botonPrimario, Tabla, Titulo, td, tdR, thL, thR } from './ui';
 import { useAlimentoMutations, useFeedFreights, useFeedPurchaseExtras, useFeedPurchases } from './useAlimento';
+import { KgModal } from './Insumos';
 import { NumeroInput } from '../../../components/NumeroInput';
 
 type Filtro = 'TODAS' | 'SIN_KG' | 'FLETE';
@@ -14,7 +13,6 @@ type Filtro = 'TODAS' | 'SIN_KG' | 'FLETE';
 /** 0138: the rows of one purchase (several when its invoice brings several ingredients, one per ingredient). */
 const esPrimera = (c: FeedPurchase) => c.part_position === null || c.part_position === 1;
 const clave = (c: FeedPurchase) => `${c.purchase_root_id}:${c.part_position ?? 0}`;
-const cent = (v: number | string) => Math.round(Number(v) * 100);
 
 /**
  * Compras e insumos (ADMIN): the purchases of the categories marked as an ingredient (Administración → Categorías de
@@ -55,7 +53,7 @@ export function Compras() {
         <button className={botonPrimario} disabled={elegidas.length === 0} onClick={() => setVinculando(true)}>Vincular flete a {elegidas.length || ''} compra{elegidas.length === 1 ? '' : 's'}</button>
       </div>
       <Titulo info={<><p>Costo final/kg = (importe + flete) ÷ kg. Con Factura A se toma el importe sin IVA (también el del flete); el resto, el total.</p>
-        <p>Si una factura trae varios insumos, cargalos desde los kilos («Esta factura trae varios insumos»): cada insumo queda en su fila con su precio por kg. El gasto, el pago y el IVA siguen siendo uno solo; el flete se reparte por kg.</p>
+        <p>Si una factura trae varios insumos, cargalos desde los kilos («Esta factura trae varios insumos») o en Caja al registrar el gasto: cada insumo queda en su fila con su precio por kg. El gasto, el pago y el IVA siguen siendo uno solo; el flete se reparte por kg.</p>
         <p>Las compras salen de las categorías marcadas como insumo en Administración → Categorías de gasto. Desde noviembre 2026 no van al estado de resultados: va el alimento consumido.</p></>}>
         Compras de materias primas
       </Titulo>
@@ -91,91 +89,6 @@ export function Compras() {
         onClose={() => setVinculando(false)} onListo={() => { setVinculando(false); setElegidas([]); }} guardando={m.freight.isPending} error={m.freight.error}
         onGuardar={(freightPurchaseId, allocations, listo) => m.freight.mutate({ freightPurchaseId, allocations }, { onSuccess: listo })} />}
     </div>
-  );
-}
-
-type ParteForm = { cat: string; kg: string; monto: string };
-
-/**
- * The kg of a purchase and, when its invoice brings several ingredients (0138), each one: its ingredient category, kg and amount
- * on the invoice (the neto with Factura A, otherwise the total). The amounts must add up exactly to the purchase amount — the
- * expense, its payment and its IVA stay one; the backend refuses anything else.
- */
-function KgModal({ filas, extra, onClose }: { filas: FeedPurchase[]; extra?: FeedPurchaseExtra; onClose: () => void }) {
-  const m = useAlimentoMutations();
-  const categorias = useMasterList<ExpenseCategoryRow>('expense_category');
-  const insumos = (categorias.data ?? []).filter((c) => c.feed_ingredient_id && (c.activo || filas.some((f) => f.expense_category_id === c.id)));
-  const compra = filas[0];
-  const teniaPartes = compra.part_position !== null;
-  const base = filas.reduce((t, f) => t + cent(f.cost_amount), 0) / 100;   // the purchase amount the costing uses (neto with Factura A)
-  const kgCompra = compra.purchase_quantity_kg ?? compra.quantity_kg;
-  const [varios, setVarios] = useState(teniaPartes);
-  const [kg, setKg] = useState(kgCompra === null ? '' : String(kgCompra));
-  const [sinFlete, setSinFlete] = useState(compra.no_freight);
-  const [partes, setPartes] = useState<ParteForm[]>(teniaPartes
-    ? filas.map((f) => ({ cat: f.expense_category_id, kg: String(f.quantity_kg ?? ''), monto: String(f.cost_amount) }))
-    : [{ cat: compra.expense_category_id, kg: kgCompra === null ? '' : String(kgCompra), monto: '' }, { cat: '', kg: '', monto: '' }]);
-  const setParte = (i: number, p: Partial<ParteForm>) => setPartes((ps) => ps.map((x, j) => (j === i ? { ...x, ...p } : x)));
-  const n = Number(kg);
-  const asignado = partes.reduce((t, p) => t + (p.monto === '' ? 0 : cent(p.monto)), 0);
-  const resta = cent(base) - asignado;
-  const cats = partes.map((p) => p.cat);
-  const partesOk = partes.length >= 2 && partes.every((p) => p.cat !== '' && Number(p.kg) > 0 && p.monto !== '' && Number(p.monto) >= 0)
-    && new Set(cats).size === cats.length && resta === 0;
-  const flete = compra.freight_amount > 0 || filas.some((f) => f.freight_amount > 0);
-  const guardando = m.kg.isPending || m.parts.isPending;
-  const puede = varios ? partesOk : n > 0 && (teniaPartes || n !== kgCompra || sinFlete !== compra.no_freight);
-  async function guardar() {
-    if (varios) {
-      await m.parts.mutateAsync({ purchaseId: compra.purchase_id, parts: partes.map((p) => ({ categoryId: p.cat, kg: Number(p.kg), amount: Number(p.monto) })), noFreight: sinFlete });
-    } else {
-      if (teniaPartes) await m.parts.mutateAsync({ purchaseId: compra.purchase_id, parts: [] });
-      await m.kg.mutateAsync({ purchaseId: compra.purchase_id, kg: n, noFreight: sinFlete });
-    }
-    onClose();
-  }
-  return (
-    <Modal titulo={`Kilos — ${filas.map((f) => f.ingredient_nombre).join(' + ')} ${fechaDMA(compra.economic_date)}`} onClose={onClose} guardando={guardando}
-      error={m.parts.error ?? m.kg.error ?? categorias.error} puedeGuardar={puede} onSubmit={() => { guardar().catch(() => {}); }}>
-      <p className="text-sm text-gray-700">{compra.supplier_name ?? '—'} · {pesos(base)}{compra.invoice_a ? ' sin IVA (Factura A)' : ''}</p>
-      {extra?.concepto && <p className="text-sm text-gray-700">Concepto del gasto: <i>«{extra.concepto}»</i></p>}
-      {extra && (extra.numero || extra.docs.length > 0) && <p className="flex items-center gap-2 text-sm text-gray-700">Factura{extra.numero ? ` ${extra.numero}` : ''}{extra.docs.length > 0 && <>: <Comprobantes docs={extra.docs} /></>}</p>}
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={varios} onChange={(e) => setVarios(e.target.checked)} />
-        Esta factura trae varios insumos</label>
-      {!varios ? (
-        <>
-          <label className={etiqueta}>Kilos comprados<NumeroInput min="0" step="0.001" value={kg} onChange={(e) => setKg(e.target.value)} className={campo} /></label>
-          {n > 0 && <p className="text-xs text-gray-600">Precio/kg: {pesos(base / n)}</p>}
-          {teniaPartes && <p className="text-xs text-amber-800">Al guardar se quita el detalle por insumo: la compra vuelve a ser de un solo insumo.</p>}
-        </>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe en la factura{compra.invoice_a ? ' (neto, sin IVA)' : ''}. Los importes tienen que sumar {pesos(base)}: el gasto, el pago y el IVA siguen siendo uno solo.</p>
-          {partes.map((p, i) => (
-            <div key={i} className="grid grid-cols-[1.4fr_1fr_1fr_auto] gap-2 items-end">
-              <label className="text-xs text-gray-600">Insumo
-                <select value={p.cat} onChange={(e) => setParte(i, { cat: e.target.value })} className={campo}>
-                  <option value="">Elegir…</option>
-                  {insumos.map((c) => <option key={c.id} value={c.id} disabled={c.id !== p.cat && cats.includes(c.id)}>{c.nombre}</option>)}
-                </select>
-              </label>
-              <label className="text-xs text-gray-600">Kilos<NumeroInput min="0" step="0.001" value={p.kg} onChange={(e) => setParte(i, { kg: e.target.value })} className={campo} /></label>
-              <label className="text-xs text-gray-600">Importe<NumeroInput min="0" step="0.01" value={p.monto} onChange={(e) => setParte(i, { monto: e.target.value })} className={campo} /></label>
-              <button type="button" aria-label="Quitar insumo" disabled={partes.length <= 2} onClick={() => setPartes((ps) => ps.filter((_, j) => j !== i))}
-                className="mb-1 text-xs text-[#A8552E] hover:underline disabled:invisible">Quitar</button>
-              {Number(p.kg) > 0 && p.monto !== '' && <p className="col-span-4 -mt-1 text-[11px] text-gray-500">Precio/kg: {pesos(Number(p.monto) / Number(p.kg))}</p>}
-            </div>
-          ))}
-          <button type="button" onClick={() => setPartes((ps) => [...ps, { cat: '', kg: '', monto: '' }])} className="text-xs text-[#A8552E] hover:underline">+ Otro insumo</button>
-          <p className={`text-xs ${resta === 0 ? 'text-green-700' : 'text-red-700'}`}>
-            {resta === 0 ? `Los importes suman ${pesos(base)}.` : `${resta > 0 ? 'Faltan' : 'Sobran'} ${pesos(Math.abs(resta) / 100)} para llegar a ${pesos(base)}.`}
-          </p>
-          {new Set(cats.filter(Boolean)).size !== cats.filter(Boolean).length && <p className="text-xs text-red-700">Cada insumo va una sola vez.</p>}
-        </div>
-      )}
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sinFlete} disabled={flete} onChange={(e) => setSinFlete(e.target.checked)} />
-        Confirmar flete $0 (vino sin flete o el flete está incluido en el precio)</label>
-    </Modal>
   );
 }
 

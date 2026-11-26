@@ -100,9 +100,11 @@ export async function registrarGasto(client: SupabaseClient, g: NuevoGastoInput,
     case 'SIN_PROVEEDOR_PAGADO':
       return callRpc(client, 'register_casual_purchase', { ...casual, p_paid_from_account_id: g.accountId, p_payment_method: g.medio, p_idempotency_key: g.idempotencyKey });
     case 'SIN_PROVEEDOR_PAGADO_DESPUES': {
-      const r = await callRpc<{ payable_id: string }>(client, 'register_pending_expense', { ...casual, p_idempotency_key: g.idempotencyKey, p_origin: 'ERP' });
-      return payPendingExpense(client, { payableId: r.payable_id, amount: g.amountTotal, effectiveDate: g.fechaPago, accountId: g.accountId!,
+      const r = await callRpc<{ payable_id: string; purchase_id: string }>(client, 'register_pending_expense', { ...casual, p_idempotency_key: g.idempotencyKey, p_origin: 'ERP' });
+      // the purchase id travels with the payment's result (the kg / ingredients of a feed purchase are set on it right after)
+      const pago = await payPendingExpense(client, { payableId: r.payable_id, amount: g.amountTotal, effectiveDate: g.fechaPago, accountId: g.accountId!,
         method: g.medio === 'CASH' ? 'CASH' : 'TRANSFER', idempotencyKey: `${g.idempotencyKey}:PAY` });
+      return { purchase_id: r.purchase_id, ...(pago as object) };
     }
   }
 }

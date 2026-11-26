@@ -109,7 +109,7 @@ describe('Cuentas a pagar — navigation, floating button and reuse', () => {
     expect(compras).toContain("<Modal titulo={esRetiro ? 'Nuevo retiro de socios' : 'Nuevo gasto'}");
     expect(compras).toContain('const fiscalDatos = fiscalDeGasto(comprobante.fiscal, Number(total), fecha);');   // 2026-11-25: a Factura A must add up to the total
     expect(compras).toMatch(/useState\(\(\) => `GASTO-\$\{crypto\.randomUUID\(\)\}`\)/);
-    expect(compras).toContain("&& !repetida && (estado === 'PAGADO' || plan.valido);");   // caja-mejoras-v2: a pending expense also needs a valid payment plan
+    expect(compras).toContain("&& !repetida && insumosOk && (estado === 'PAGADO' || plan.valido);");   // caja-mejoras-v2: a pending expense also needs a valid payment plan
   });
   it('Gastos reuses the existing forms: eCheqs, allocation, payment, supplier link, dates, classification, rectification, freight', () => {
     for (const tag of ['<EmitirChequesModal ', '<ImputarPagoModal ', '<PagarGastoModal ', '<VincularProveedorModal ', '<FechasPagoModal ', '<AccionGastoSinClasificar ',
