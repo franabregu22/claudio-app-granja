@@ -42,6 +42,11 @@ _Hechos: #2 nombre del insumo y #6 número de cheque en su débito → release 0
 - **Qué:** en Todas las operaciones, al filtrar por Subcategoría «Soja» tiene que aparecer también la factura «Maíz + Soja».
   Hoy el filtro se resuelve en `fin_operation_list` con la categoría del gasto. Hay que sumarle `feed_purchase_part`.
 
+### 8. Cobros de Mercado Pago: caída desde el 09/11/2026
+- **Origen:** detectado el 26/11 al armar «Cobros MP a facturar» (0143). No se investigó.
+- **Qué:** los cobros de Mercado Pago pasaron de ~100 por semana (oct) a 80, 4, 17 y 4 desde la semana del 09/11. Hay que ver si es
+  un cambio real en las ventas o una falta de sincronización (reporte diario / webhooks).
+
 ## Pendientes ya conocidos (decisiones anteriores del owner)
 
 ### 4. Cartones: al estado de resultados por consumo, como el alimento
