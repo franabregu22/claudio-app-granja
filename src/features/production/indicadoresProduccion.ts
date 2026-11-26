@@ -8,6 +8,7 @@
  *     cerrados todavía»);
  *   - mes: the 1st → yesterday vs the 1st of the previous month → the same day number (capped at that month's last day); on the 1st
  *     there is no closed day (null);
+ *   - personalizado (owner 2026-11-26): any closed range chosen on the calendar vs the same number of days right before it;
  *   - huevos sanos = huevos totales − rotos (dirty eggs are no longer collected);
  *   - mortandad of a period = the deaths the view reports for every flock-day of it (with or without production);
  *   - % postura of a period = the view's daily laying % weighted by that day's birds (= total eggs ÷ bird-days, total eggs as the
@@ -38,6 +39,20 @@ export function rangosDashboard(hoy: string): { semana: Comparacion | null; mes:
     mes = { actual: { desde: `${a}-${pad(m)}-01`, hasta: ayer }, anterior: { desde: `${pa}-${pad(pm)}-01`, hasta: `${pa}-${pad(pm)}-${pad(dia)}` } };
   }
   return { semana, mes, ayer };
+}
+
+/** Período personalizado: [desde, hasta] (closed days, hasta ≤ yesterday) vs the same number of days right before it. */
+export function rangoPersonalizado(desde: string, hasta: string): Comparacion {
+  const [d0, d1] = desde <= hasta ? [desde, hasta] : [hasta, desde];
+  let n = 0;
+  for (let f = d0; f <= d1; f = agregarDiasAFecha(f, 1)) n += 1;
+  return { actual: { desde: d0, hasta: d1 }, anterior: { desde: agregarDiasAFecha(d0, -n), hasta: agregarDiasAFecha(d0, -1) } };
+}
+/** Number of days of a range (both ends included). */
+export function diasDe(r: Rango): number {
+  let n = 0;
+  for (let f = r.desde; f <= r.hasta; f = agregarDiasAFecha(f, 1)) n += 1;
+  return n;
 }
 
 export interface Totales { sanos: number; rotos: number; totales: number; postura: number | null; pctRotos: number | null; dias: number; muertes: number }
@@ -86,6 +101,20 @@ export function serieHuevosMes(filas: FlockDay[], mes: Comparacion): PuntoHuevos
     const fa = `${mes.anterior.desde.slice(0, 8)}${pad(dia)}`;
     const valida = fa <= mes.anterior.hasta;
     out.push({ dia, fecha: f, sanos: porFecha.get(f) ?? null, fechaAnterior: valida ? fa : null, anterior: valida ? porFecha.get(fa) ?? null : null });
+  }
+  return out;
+}
+
+/** Healthy eggs per day of any range, each day against the day at the same position of the previous range (período personalizado). */
+export function serieHuevosRango(filas: FlockDay[], r: Comparacion): PuntoHuevos[] {
+  const porFecha = new Map<string, number>();
+  for (const d of filas) if (d.daily_production_id !== null) porFecha.set(d.business_date, (porFecha.get(d.business_date) ?? 0) + sanosDe(d));
+  const out: PuntoHuevos[] = [];
+  let i = 0;
+  for (let f = r.actual.desde; f <= r.actual.hasta; f = agregarDiasAFecha(f, 1), i += 1) {
+    const fa = agregarDiasAFecha(r.anterior.desde, i);
+    const valida = fa <= r.anterior.hasta;
+    out.push({ dia: i + 1, fecha: f, sanos: porFecha.get(f) ?? null, fechaAnterior: valida ? fa : null, anterior: valida ? porFecha.get(fa) ?? null : null });
   }
   return out;
 }

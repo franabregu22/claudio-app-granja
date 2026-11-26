@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  deLote, escalaPostura, posturaPonderada, ticksRedondos, rangosDashboard, seriePostura, serieHuevosMes, totalesDe, variacionPct,
+  deLote, diasDe, escalaPostura, posturaPonderada, rangoPersonalizado, ticksRedondos, rangosDashboard, seriePostura, serieHuevosMes, serieHuevosRango, totalesDe, variacionPct,
 } from '../../src/features/production/indicadoresProduccion';
 import type { FlockDay } from '../../src/target/production';
 
@@ -99,3 +99,31 @@ describe('the screen', () => {
     expect(app).toMatch(/menosEsMejor/);   // more broken eggs is red
   });
 });
+
+describe('período personalizado (owner 2026-11-26): the chosen closed range vs the same number of days right before it', () => {
+  it('10–20/11 (11 days) vs 30/10–09/11; a single day; reversed ends; across months and years', () => {
+    expect(rangoPersonalizado('2026-11-10', '2026-11-20')).toEqual({ actual: { desde: '2026-11-10', hasta: '2026-11-20' }, anterior: { desde: '2026-10-30', hasta: '2026-11-09' } });
+    expect(diasDe({ desde: '2026-11-10', hasta: '2026-11-20' })).toBe(11);
+    expect(rangoPersonalizado('2026-11-25', '2026-11-25')).toEqual({ actual: { desde: '2026-11-25', hasta: '2026-11-25' }, anterior: { desde: '2026-11-24', hasta: '2026-11-24' } });
+    expect(rangoPersonalizado('2026-11-20', '2026-11-10').actual).toEqual({ desde: '2026-11-10', hasta: '2026-11-20' });
+    expect(rangoPersonalizado('2027-01-01', '2027-01-31').anterior).toEqual({ desde: '2026-12-01', hasta: '2026-12-31' });
+    expect(rangoPersonalizado('2026-03-01', '2026-03-03').anterior).toEqual({ desde: '2026-02-26', hasta: '2026-02-28' });
+  });
+  it('the eggs chart pairs each day with the day at the same position of the previous range', () => {
+    const filas = [dia({ business_date: '2026-11-10', eggs_total: 100, eggs_broken: 0 }), dia({ business_date: '2026-11-08', eggs_total: 80, eggs_broken: 0 })];
+    const s = serieHuevosRango(filas, rangoPersonalizado('2026-11-10', '2026-11-11'));
+    expect(s.map((p) => [p.fecha, p.sanos, p.fechaAnterior, p.anterior])).toEqual([['2026-11-10', 100, '2026-11-08', 80], ['2026-11-11', null, '2026-11-09', null]]);
+  });
+  it('the dashboard offers it with the calendar; cards and both charts follow the range', () => {
+    const c = readFileSync(resolve(__dirname, '../../src/features/production/ProductionDashboard.tsx'), 'utf8');
+    expect(c).toContain("'Período personalizado'");
+    expect(c).toContain('<CalendarioRango desde={rango.desde} hasta={rango.hasta} max={ayer}');
+    expect(c).toContain("const comp = periodo === 'semana' ? semana : periodo === 'mes' ? mes : personalizado;");
+    expect(c).toContain('serieHuevosRango(filas, personalizado)');
+    expect(c).toContain('seriePostura(filas, personalizado.actual.desde, personalizado.actual.hasta');
+    const k = readFileSync(resolve(__dirname, '../../src/features/production/CalendarioRango.tsx'), 'utf8');
+    expect(k).toContain('const deshabilitado = f > max;');
+    expect(k).toContain('Últimos {n} días');
+  });
+});
+

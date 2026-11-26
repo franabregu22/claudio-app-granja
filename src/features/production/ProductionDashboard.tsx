@@ -4,8 +4,9 @@ import { errorMessage } from '../../target/messages';
 import { agregarDiasAFecha, getTodayDate } from '../../utils/dateUtils';
 import type { Rango } from '../pedidos/periodos';
 import {
-  deLote, escalaPostura, rangosDashboard, ticksRedondos, seriePostura, serieHuevosMes, totalesDe, variacionPct,
+  deLote, diasDe, escalaPostura, rangoPersonalizado, rangosDashboard, ticksRedondos, seriePostura, serieHuevosMes, serieHuevosRango, totalesDe, variacionPct,
 } from './indicadoresProduccion';
+import { CalendarioRango } from './CalendarioRango';
 import { codigoLote } from '../../target/production';
 import { useFlockDaysRange, useFlockOptions } from './useProduction';
 
@@ -16,7 +17,7 @@ const TINTA = '#2C2419';
 const ACENTO = '#A8552E';
 const REFERENCIA = '#B8AC94';
 const VENTANAS = [30, 60, 90] as const;
-type Periodo = 'semana' | 'mes';
+type Periodo = 'semana' | 'mes' | 'personalizado';
 
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 /** «1 nov» (owner 2026-11-17: never dd/mm). */
@@ -66,8 +67,12 @@ export function ProductionDashboard() {
   const [periodo, setPeriodo] = useState<Periodo>('semana');
   const [lote, setLote] = useState('');   // flock id; '' = toda la granja
   const [ventana, setVentana] = useState<(typeof VENTANAS)[number]>(30);
-  // one read covers every period: the previous month's 1st (or the previous week) and the longest chart window
-  const desdeLectura = [agregarDiasAFecha(ayer, -89), mes?.anterior.desde ?? ayer, semana?.anterior.desde ?? ayer].sort()[0];
+  // owner 2026-11-26: período personalizado — any closed range chosen on the calendar vs the same number of days right before it
+  const [rango, setRango] = useState<{ desde: string; hasta: string }>(() => ({ desde: agregarDiasAFecha(ayer, -6), hasta: ayer }));
+  const [eligiendo, setEligiendo] = useState(false);
+  const personalizado = rangoPersonalizado(rango.desde, rango.hasta);
+  // one read covers every period: the previous month's 1st (or the previous week), the longest chart window and the custom range
+  const desdeLectura = [agregarDiasAFecha(ayer, -89), mes?.anterior.desde ?? ayer, semana?.anterior.desde ?? ayer, personalizado.anterior.desde].sort()[0];
   const dias = useFlockDaysRange(desdeLectura, ayer);
   const lotes = useFlockOptions();
   if (dias.isLoading || lotes.isLoading) return <div className="flex items-center justify-center py-12"><p className="text-gray-500">Cargando dashboard…</p></div>;
@@ -81,21 +86,24 @@ export function ProductionDashboard() {
   const filas = deLote(todas, elegido);
 
   // the cards: the selected period against the same days of the previous one
-  const comp = periodo === 'semana' ? semana : mes;
+  const comp = periodo === 'semana' ? semana : periodo === 'mes' ? mes : personalizado;
   const a = comp ? totalesDe(filas, comp.actual) : null;
   const b = comp ? totalesDe(filas, comp.anterior) : null;
   const vacio = !comp ? 'Sin días cerrados todavía' : a?.dias === 0 ? 'Sin producción cargada' : null;
   const pp = (x: number | null, y: number | null) => (x === null || y === null ? null : x - y);
 
-  // eggs per day of this month, against the previous month day by day
-  const huevosMes = mes ? serieHuevosMes(filas, mes) : [];
+  // eggs per day of this month, against the previous month day by day (personalizado: each day of the range vs the same position before)
+  const esRango = periodo === 'personalizado';
+  const huevosMes = (esRango ? serieHuevosRango(filas, personalizado) : mes ? serieHuevosMes(filas, mes) : [])
+    .map((p) => ({ ...p, etiqueta: esRango ? fechaCorta(p.fecha) : String(p.dia) }));
   const ticksHuevos = ticksRedondos(Math.max(0, ...huevosMes.flatMap((p) => [p.sanos ?? 0, p.anterior ?? 0])));
   const mesNombre = MESES[Number(hoy.slice(5, 7)) - 1];
   const mesAnteriorNombre = mes ? MESES[Number(mes.anterior.desde.slice(5, 7)) - 1] : '';
 
   // laying % per day: the farm total and one line per active lote (one line when a lote is selected)
   const series = elegido === '' ? activos : activos.filter((f) => f.id === elegido);
-  const postura = seriePostura(filas, agregarDiasAFecha(ayer, -(ventana - 1)), ayer, series.map((f) => f.id));
+  const postura = esRango ? seriePostura(filas, personalizado.actual.desde, personalizado.actual.hasta, series.map((f) => f.id))
+    : seriePostura(filas, agregarDiasAFecha(ayer, -(ventana - 1)), ayer, series.map((f) => f.id));
   const conTotal = elegido === '';
   const [yMin, yMax] = escalaPostura(postura, conTotal ? ['total', ...series.map((f) => f.id)] : series.map((f) => f.id));
   const ticks = Array.from({ length: Math.floor((yMax - yMin) / 5) + 1 }, (_, i) => yMin + i * 5).filter((t, _i, arr) => arr.length <= 12 || t % 10 === 0);
@@ -111,7 +119,13 @@ export function ProductionDashboard() {
         <div className="flex flex-wrap gap-2" role="group" aria-label="Período">
           <button type="button" onClick={() => setPeriodo('semana')} aria-pressed={periodo === 'semana'} className={botonClase(periodo === 'semana')}>Esta semana</button>
           <button type="button" onClick={() => setPeriodo('mes')} aria-pressed={periodo === 'mes'} className={botonClase(periodo === 'mes')}>Este mes</button>
+          <button type="button" onClick={() => { setPeriodo('personalizado'); setEligiendo(true); }} aria-pressed={esRango} className={botonClase(esRango)}>
+            {esRango ? `${rangoTexto(personalizado.actual)} ▾` : 'Período personalizado'}
+          </button>
         </div>
+        {esRango && eligiendo && (
+          <CalendarioRango desde={rango.desde} hasta={rango.hasta} max={ayer} onAplicar={(desde, hasta) => { setRango({ desde, hasta }); setEligiendo(false); }} />
+        )}
         <div className="flex flex-wrap gap-2" role="group" aria-label="Lote">
           <button type="button" onClick={() => setLote('')} aria-pressed={elegido === ''} className={botonClase(elegido === '', true)}>Todos los lotes</button>
           {activos.map((f) => (
@@ -121,7 +135,7 @@ export function ProductionDashboard() {
           ))}
         </div>
         <p className="text-xs text-gray-500">
-          {comp ? <>Días cerrados <b>{rangoTexto(comp.actual)}</b> vs <b>{rangoTexto(comp.anterior)}</b> (hasta ayer; hoy está incompleto)</>
+          {comp ? <>Días cerrados <b>{rangoTexto(comp.actual)}</b> vs <b>{rangoTexto(comp.anterior)}</b>{esRango ? ` (${diasDe(comp.actual)} día${diasDe(comp.actual) === 1 ? '' : 's'} cada uno)` : ' (hasta ayer; hoy está incompleto)'}</>
             : `${periodo === 'semana' ? 'La semana' : 'El mes'} todavía no tiene días cerrados (hoy está incompleto).`}
         </p>
       </div>
@@ -132,7 +146,7 @@ export function ProductionDashboard() {
         <Tarjeta label="Huevos rotos" vacio={vacio} valor={a ? entero(a.rotos) : ''} anterior={b ? entero(b.rotos) : ''}
           detalle={a ? `${pct1(a.pctRotos)} del total` : undefined} cambio={a && b ? variacionPct(a.rotos, b.rotos) : null} menosEsMejor />
         <Tarjeta label="% de postura" vacio={vacio} valor={a ? pct1(a.postura) : ''} anterior={b ? pct1(b.postura) : ''}
-          detalle={periodo === 'mes' ? 'acumulado del mes' : undefined} cambio={a && b ? pp(a.postura, b.postura) : null} unidad="pp" />
+          detalle={periodo === 'mes' ? 'acumulado del mes' : esRango ? 'acumulado del período' : undefined} cambio={a && b ? pp(a.postura, b.postura) : null} unidad="pp" />
         <Tarjeta label="Mortandad" vacio={comp ? null : 'Sin días cerrados todavía'} valor={a ? entero(a.muertes) : ''} anterior={b ? entero(b.muertes) : ''}
           detalle="aves muertas" cambio={a && b ? variacionPct(a.muertes, b.muertes) : null} menosEsMejor />
       </div>
@@ -141,12 +155,12 @@ export function ProductionDashboard() {
         <h2 className="text-sm font-semibold text-[#8A6A2E] uppercase tracking-wide">Evolución</h2>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <div className="bg-white rounded-lg p-3 border border-amber-200">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Huevos sanos por día · {mesNombre}</p>
-            {!mes ? <p className="text-sm text-gray-500">Sin días cerrados todavía.</p> : (
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Huevos sanos por día · {esRango ? rangoTexto(personalizado.actual) : mesNombre}</p>
+            {!esRango && !mes ? <p className="text-sm text-gray-500">Sin días cerrados todavía.</p> : (
               <ResponsiveContainer width="100%" height={300}>
                 <ComposedChart data={huevosMes} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} stroke="#EEE8DA" />
-                  <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#6B5D45' }} tickLine={false} axisLine={{ stroke: '#D8CDB0' }} interval="preserveStartEnd" />
+                  <XAxis dataKey="etiqueta" tick={{ fontSize: 11, fill: '#6B5D45' }} tickLine={false} axisLine={{ stroke: '#D8CDB0' }} interval="preserveStartEnd" minTickGap={esRango ? 16 : 5} />
                   <YAxis domain={[0, ticksHuevos[ticksHuevos.length - 1]]} ticks={ticksHuevos} tick={{ fontSize: 11, fill: '#6B5D45' }} tickLine={false} axisLine={false}
                     width={48} tickFormatter={(v: number) => entero(v)} />
                   <Tooltip cursor={{ fill: '#F5EEDF' }} content={({ active, payload }) => {
@@ -160,8 +174,8 @@ export function ProductionDashboard() {
                     );
                   }} />
                   <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="sanos" name={mesNombre} fill={ACENTO} radius={[4, 4, 0, 0]} maxBarSize={28} />
-                  <Line dataKey="anterior" name={mesAnteriorNombre} stroke={REFERENCIA} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls />
+                  <Bar dataKey="sanos" name={esRango ? 'Período elegido' : mesNombre} fill={ACENTO} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                  <Line dataKey="anterior" name={esRango ? `Anterior (${rangoTexto(personalizado.anterior)})` : mesAnteriorNombre} stroke={REFERENCIA} strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls />
                 </ComposedChart>
               </ResponsiveContainer>
             )}
@@ -169,12 +183,12 @@ export function ProductionDashboard() {
 
           <div className="bg-white rounded-lg p-3 border border-amber-200">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">% de postura por día · por lote</p>
-              <div className="flex gap-1" role="group" aria-label="Período del gráfico">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">% de postura por día · por lote{esRango ? ` · ${rangoTexto(personalizado.actual)}` : ''}</p>
+              {!esRango && <div className="flex gap-1" role="group" aria-label="Período del gráfico">
                 {VENTANAS.map((v) => (
                   <button key={v} type="button" onClick={() => setVentana(v)} aria-pressed={ventana === v} className={botonClase(ventana === v, true)}>{v} días</button>
                 ))}
-              </div>
+              </div>}
             </div>
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={postura} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
