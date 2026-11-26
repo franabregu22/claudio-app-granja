@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../../auth/useAuth';
+import { ALICUOTAS_IVA } from '../../../target/fiscal';
 import { estadoPartes, partesInput, PARTE_VACIA, TOLERANCIA_PARTES, type FeedPurchase, type FeedPurchaseExtra, type ParteInsumoForm } from '../../../target/alimento';
 import type { ExpenseCategoryRow } from '../../../target/masters';
 import { useMasterList } from '../../admin/useMasters';
@@ -20,20 +21,20 @@ export const insumosDe = (categorias: ExpenseCategoryRow[], usadas: string[] = [
   categorias.filter((c) => c.feed_ingredient_id && (c.activo || usadas.includes(c.id)));
 
 /** One row per ingredient: category, kg and amount on the invoice; the sum must reach the cost basis to the cent. */
-export function GrillaInsumos({ partes, onChange, insumos, base, facturaA, netoDesdeRenglones = false }: {
+export function GrillaInsumos({ partes, onChange, insumos, base, facturaA, conIva = false }: {
   partes: ParteInsumoForm[]; onChange: (p: ParteInsumoForm[]) => void; insumos: ExpenseCategoryRow[]; base: number; facturaA: boolean;
-  /** Nuevo gasto with Factura A (owner 2026-11-26): the rows ARE the neto gravado — nothing to match, their sum is shown. */
-  netoDesdeRenglones?: boolean;
+  /** Nuevo gasto with Factura A (owner 2026-11-26): each row its neto and its IVA rate; the rows ARE the invoice (nothing to match). */
+  conIva?: boolean;
 }) {
   const { resta, repetida } = estadoPartes(partes, base);
   const cats = partes.map((p) => p.cat);
   const setParte = (i: number, p: Partial<ParteInsumoForm>) => onChange(partes.map((x, j) => (j === i ? { ...x, ...p } : x)));
   return (
     <div className="space-y-2">
-      {netoDesdeRenglones ? <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe neto (sin IVA), como figura en la factura; si un artículo aparece en dos renglones, sumalos. La suma es el neto gravado de la factura.</p>
+      {conIva ? <p className="text-xs text-gray-600">Cada insumo con sus kilos, su importe neto (sin IVA) y su IVA, como figura en la factura. Si un artículo aparece en dos renglones, sumalos.</p>
         : <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe en la factura{facturaA ? ': el neto, sin IVA, como figura en cada renglón (si un artículo aparece en dos renglones, sumalos)' : ''}. Los importes tienen que sumar {pesos(base)}{facturaA ? ' (el neto gravado)' : ''}: el gasto, el pago y el IVA siguen siendo uno solo.</p>}
       {partes.map((p, i) => (
-        <div key={i} className="grid grid-cols-[1.4fr_1fr_1fr_auto] gap-2 items-end">
+        <div key={i} className={`grid ${conIva ? 'grid-cols-[1.3fr_0.9fr_1fr_0.8fr_auto]' : 'grid-cols-[1.4fr_1fr_1fr_auto]'} gap-2 items-end`}>
           <label className="text-xs text-gray-600">Insumo
             <select value={p.cat} onChange={(e) => setParte(i, { cat: e.target.value })} className={campo}>
               <option value="">Elegir…</option>
@@ -41,14 +42,21 @@ export function GrillaInsumos({ partes, onChange, insumos, base, facturaA, netoD
             </select>
           </label>
           <label className="text-xs text-gray-600">Kilos<NumeroInput min="0" step="0.001" value={p.kg} onChange={(e) => setParte(i, { kg: e.target.value })} className={campo} /></label>
-          <label className="text-xs text-gray-600">{facturaA ? 'Importe neto (sin IVA)' : 'Importe total'}<NumeroInput min="0" step="0.01" value={p.monto} onChange={(e) => setParte(i, { monto: e.target.value })} className={campo} /></label>
+          <label className="text-xs text-gray-600">{facturaA ? 'Neto (sin IVA)' : 'Importe total'}<NumeroInput min="0" step="0.01" value={p.monto} onChange={(e) => setParte(i, { monto: e.target.value })} className={campo} /></label>
+          {conIva && (
+            <label className="text-xs text-gray-600">IVA
+              <select value={p.iva ?? ALICUOTAS_IVA[0]} onChange={(e) => setParte(i, { iva: e.target.value })} className={campo}>
+                {ALICUOTAS_IVA.map((a) => <option key={a} value={a}>{a.replace('.', ',')} %</option>)}
+              </select>
+            </label>
+          )}
           <button type="button" aria-label="Quitar insumo" disabled={partes.length <= 2} onClick={() => onChange(partes.filter((_, j) => j !== i))}
             className="mb-1 text-xs text-[#A8552E] hover:underline disabled:invisible">Quitar</button>
-          {Number(p.kg) > 0 && p.monto !== '' && <p className="col-span-4 -mt-1 text-[11px] text-gray-500">Precio/kg: {pesos(Number(p.monto) / Number(p.kg))}</p>}
+          {Number(p.kg) > 0 && p.monto !== '' && <p className={`${conIva ? 'col-span-5' : 'col-span-4'} -mt-1 text-[11px] text-gray-500`}>Precio/kg: {pesos(Number(p.monto) / Number(p.kg))}{facturaA ? ' (sin IVA)' : ''}</p>}
         </div>
       ))}
       <button type="button" onClick={() => onChange([...partes, { ...PARTE_VACIA }])} className="text-xs text-[#A8552E] hover:underline">+ Otro insumo</button>
-      {netoDesdeRenglones ? <p className="text-xs text-green-700">Neto gravado: {pesos(base)}.</p> : <p className={`text-xs ${Math.abs(resta) <= TOLERANCIA_PARTES ? 'text-green-700' : 'text-red-700'}`}>
+      {conIva ? null : <p className={`text-xs ${Math.abs(resta) <= TOLERANCIA_PARTES ? 'text-green-700' : 'text-red-700'}`}>
         {resta === 0 ? `Los importes suman ${pesos(base)}.`
           : Math.abs(resta) <= TOLERANCIA_PARTES ? `${resta > 0 ? 'Faltan' : 'Sobran'} ${pesos(Math.abs(resta) / 100)} para llegar a ${pesos(base)}: es redondeo, se ajusta en el último insumo.`
             : `${resta > 0 ? 'Faltan' : 'Sobran'} ${pesos(Math.abs(resta) / 100)} para llegar a ${pesos(base)} (se acepta hasta $1 de diferencia).`}
@@ -89,22 +97,23 @@ export function useInsumosDelGasto(categoriaId: string, grupoId: string) {
   return { activo, insumos: insumosDe(lista), guardar, guardando: m.parts.isPending || m.kg.isPending, error: m.parts.error ?? m.kg.error ?? null };
 }
 
-/** The block of Nuevo gasto for a feed ingredient: its kg, or «Esta factura trae varios insumos», and «Confirmar flete $0». */
-export function BloqueInsumosGasto({ value, onChange, categoriaId, insumos, base, facturaA, netoDesdeRenglones = false }: {
-  value: InsumosGastoForm; onChange: (v: InsumosGastoForm) => void; categoriaId: string; insumos: ExpenseCategoryRow[]; base: number | null; facturaA: boolean;
-  netoDesdeRenglones?: boolean;
+/** «Esta factura trae varios insumos» ticked / unticked: the first row starts with the subcategory already chosen. */
+export function alternarVarios(value: InsumosGastoForm, categoriaId: string, varios: boolean): InsumosGastoForm {
+  const vacias = value.partes.every((p) => p.cat === '' && p.kg === '' && p.monto === '');
+  return { ...value, varios, ...(varios && vacias ? { partes: [{ cat: categoriaId, kg: value.kg, monto: '' }, { ...PARTE_VACIA }] } : {}) };
+}
+
+/**
+ * Nuevo gasto, inside «Importe», for a feed ingredient: its kg (one ingredient) or the rows of «Esta factura trae varios insumos» —
+ * with Factura A each row its neto and IVA rate, otherwise its amount out of the total — and «Confirmar flete $0».
+ */
+export function BloqueInsumosGasto({ value, onChange, insumos, base, facturaA }: {
+  value: InsumosGastoForm; onChange: (v: InsumosGastoForm) => void; insumos: ExpenseCategoryRow[]; base: number | null; facturaA: boolean;
 }) {
   const set = (p: Partial<InsumosGastoForm>) => onChange({ ...value, ...p });
   const kg = Number(value.kg);
-  const alternarVarios = (varios: boolean) => {
-    const vacias = value.partes.every((p) => p.cat === '' && p.kg === '' && p.monto === '');
-    set({ varios, ...(varios && vacias ? { partes: [{ cat: categoriaId, kg: value.kg, monto: '' }, { ...PARTE_VACIA }] } : {}) });
-  };
   return (
-    <fieldset className="space-y-2 border border-[#E4DCC8] rounded-lg p-2">
-      <legend className={etiqueta}>Insumo de alimento balanceado</legend>
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.varios} onChange={(e) => alternarVarios(e.target.checked)} />
-        Esta factura trae varios insumos</label>
+    <div className="space-y-2">
       {!value.varios ? (
         <>
           <label className={etiqueta}>Kilos comprados (opcional)
@@ -114,14 +123,14 @@ export function BloqueInsumosGasto({ value, onChange, categoriaId, insumos, base
           {value.kg === '' && <p className="text-xs text-[#8A7A5C]">Si no los sabés ahora, quedan para cargar en Alimento → Compras e insumos.</p>}
         </>
       ) : base === null ? (
-        <p className="text-xs text-amber-800">Completá la Factura A: los importes de cada insumo se reparten sobre el neto.</p>
+        <p className="text-xs text-[#8A7A5C]">Cargá el importe total para repartirlo entre los insumos.</p>
       ) : (
-        <GrillaInsumos partes={value.partes} onChange={(partes) => set({ partes })} insumos={insumos} base={base} facturaA={facturaA} netoDesdeRenglones={netoDesdeRenglones} />
+        <GrillaInsumos partes={value.partes} onChange={(partes) => set({ partes })} insumos={insumos} base={base} facturaA={facturaA} conIva={facturaA} />
       )}
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={value.sinFlete} disabled={!value.varios && !(kg > 0)} onChange={(e) => set({ sinFlete: e.target.checked })} />
         Confirmar flete $0 (vino sin flete o el flete está incluido en el precio)</label>
-    </fieldset>
+    </div>
   );
 }
 

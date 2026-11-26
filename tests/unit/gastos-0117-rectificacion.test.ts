@@ -86,7 +86,7 @@ describe('Nuevo gasto — one form, the existing RPC of each case', () => {
   it('the form: owner order, no Notas / Detalle de ítems / Más datos, the invoice block visible (sin factura / Factura A / otra)', () => {
     const c = SRC('features/caja/Compras.tsx');
     const form = c.slice(c.indexOf('export function NuevaCompraModal'), c.indexOf('export function SelectorNaturaleza'));
-    const orden = ['Concepto del gasto', '>Proveedor', '<BloqueComprobante ', 'Importe total', '<SelectorCategoria ', '<SelectorNaturaleza ', 'Estado del pago'].map((t) => form.indexOf(t));
+    const orden = ['Concepto del gasto', '>Proveedor', '<BloqueComprobante ', '<SelectorCategoria ', 'Importe total', '<SelectorNaturaleza ', 'Estado del pago'].map((t) => form.indexOf(t));
     expect(orden.every((i) => i > 0)).toBe(true);
     expect([...orden].sort((a, b) => a - b)).toEqual(orden);
     for (const t of ['Notas', 'Detalle de ítems', 'Más datos', 'reason: notas']) expect(form).not.toContain(t);

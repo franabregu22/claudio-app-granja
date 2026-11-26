@@ -150,7 +150,7 @@ export const setFeedPurchaseParts = (c: SupabaseClient, p: { purchaseId: string;
  * each with its ingredient category (once), kg > 0 and an amount, and the amounts add up to the cost basis to the cent (the neto with
  * Factura A, otherwise the total) — what set_feed_purchase_parts accepts. `resta` is in cents (positive: still missing; negative: over).
  */
-export interface ParteInsumoForm { cat: string; kg: string; monto: string }
+export interface ParteInsumoForm { cat: string; kg: string; monto: string; /** Nuevo gasto with Factura A: the IVA rate of the row */ iva?: string }
 export const PARTE_VACIA: ParteInsumoForm = { cat: '', kg: '', monto: '' };
 export const centavos = (v: number | string) => Math.round(Number(v) * 100);
 /** The sum of the amounts typed in the rows (Nuevo gasto with Factura A: it IS the neto gravado of the invoice). */

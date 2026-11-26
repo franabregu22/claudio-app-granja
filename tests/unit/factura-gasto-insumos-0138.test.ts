@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { completarFacturaA, diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, recalcularFacturaA, totalFacturaA, type FiscalForm } from '../../src/target/fiscal';
+import { diferenciaFacturaA, editarFacturaA, facturaADesdeLineas, FISCAL_VACIO, fiscalDeGasto, recalcularFacturaA, totalFacturaA, type FiscalForm } from '../../src/target/fiscal';
 import { TARGET_RPCS } from '../../src/target/db';
 import { estadoPartes, partesInput, PARTE_VACIA, sumaPartes } from '../../src/target/alimento';
 import { registrarGasto } from '../../src/target/expenses';
@@ -57,23 +57,31 @@ describe('Factura del gasto (owner 2026-11-25): Factura A con neto + impuestos =
     // the fiscal period is always the month of the invoice date (no field)
     expect(SRC('features/caja/Compras.tsx')).not.toContain('Período fiscal');
   });
-  it('Nuevo gasto (owner 2026-11-26): with Factura A the total is neto + taxes, the single IVA is neto × rate (editable), no invoice number', () => {
-    const f = completarFacturaA({ ...A({ neto: '1000' }), auto: 'IVA' });
-    expect(f.componentes[0].importe).toBe('210.00');
-    expect(totalFacturaA(f)).toBe(1210);
-    expect(completarFacturaA({ ...A({ neto: '1160944.35', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '10.5', importe: '' }] }), auto: 'IVA' }).componentes[0].importe).toBe('121899.16');
-    // typed by hand (auto off) or two IVA rates: as typed
-    expect(completarFacturaA(A({ neto: '1000', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '21', importe: '209.99' }] })).componentes[0].importe).toBe('209.99');
-    const dos = { ...A({ neto: '1000', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '21', importe: '105' }, { tax_kind: 'IVA', base: '', alicuota: '10.5', importe: '52.5' }, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '30' }] }), auto: 'IVA' as const };
-    expect(completarFacturaA(dos)).toBe(dos);
-    expect(totalFacturaA(dos)).toBe(1187.5);
-    expect(totalFacturaA(A({ neto: '' }))).toBeNull();
+  it('Nuevo gasto (owner 2026-11-26): a Factura A is lines (neto + IVA rate), the IVA per rate, the total computed; no invoice number', () => {
+    const una = facturaADesdeLineas([{ neto: '1000', alicuota: '21' }], []);
+    expect(una).toMatchObject({ tipo: 'INVOICE_A', neto: '1000.00', componentes: [{ tax_kind: 'IVA', alicuota: '21', importe: '210.00' }] });
+    expect(totalFacturaA(una)).toBe(1210);
+    // two ingredients, two rates, a perception: IVA per rate on the neto of that rate
+    const dos = facturaADesdeLineas([{ neto: '659549.15', alicuota: '10.5' }, { neto: '501395.20', alicuota: '21' }, { neto: '', alicuota: '21' }],
+      [{ tax_kind: 'IIBB', base: '', alicuota: '', importe: '1000' }, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '' }]);
+    expect(dos.neto).toBe('1160944.35');
+    expect(dos.componentes).toEqual([
+      { tax_kind: 'IVA', base: '', alicuota: '10.5', importe: '69252.66' }, { tax_kind: 'IVA', base: '', alicuota: '21', importe: '105292.99' },
+      { tax_kind: 'IIBB', base: '', alicuota: '', importe: '1000' }]);
+    expect(totalFacturaA(dos)).toBe(1336490);
+    // same rate on two rows: one IVA on their sum
+    expect(facturaADesdeLineas([{ neto: '100.10', alicuota: '21' }, { neto: '100.10', alicuota: '21' }], []).componentes).toEqual([{ tax_kind: 'IVA', base: '', alicuota: '21', importe: '42.04' }]);
+    expect(totalFacturaA(facturaADesdeLineas([{ neto: '', alicuota: '21' }], []))).toBeNull();
+    expect(fiscalDeGasto(dos, 1336490, '2026-11-26')).toMatchObject({ documentType: 'INVOICE_A', netAmount: 1160944.35, totalAmount: 1336490 });
     expect(sumaPartes([{ cat: 'a', kg: '1', monto: '659549.15' }, { cat: 'b', kg: '1', monto: '501395.20' }, { cat: '', kg: '', monto: '' }])).toBe(1160944.35);
     const c = SRC('features/caja/Compras.tsx');
     expect(c).toContain('const totalNum = facturaA ? totalFacturaA(fiscalForm) ?? 0 : Number(total);');
-    expect(c).toContain('const netoInsumos = facturaA && variosInsumos ? sumaPartes(insumosForm.partes) : null;');
-    expect(c).toContain('conArchivos conNumero={false}');
-    expect(c).toContain('Calculado: neto + impuestos de la Factura A.');
+    expect(c).toContain('const fiscalForm = facturaA ? facturaADesdeLineas(lineasA, otrosA) : comprobante.fiscal;');
+    expect(c).toContain('conArchivos conNumero={false} total={String(totalNum)} sinImportes />');
+    expect(c).toContain('<legend className={etiqueta}>Importe</legend>');
+    expect(c).toContain('Importe neto (sin IVA)');
+    expect(c).toContain('— calculado</span>');
+    expect(SRC('features/production/alimento/Insumos.tsx')).toContain('conIva={facturaA}');
   });
   it('the forms use it: Nuevo gasto and Editar gasto', () => {
     expect(SRC('features/caja/Compras.tsx')).toContain('fiscalDeGasto(fiscalForm, totalNum, fecha)');
@@ -123,7 +131,7 @@ describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos 
     const c = SRC('features/caja/Compras.tsx');
     expect(c).toContain('if (purchaseId) await insumos.guardar(purchaseId, insumosForm, baseInsumos);');
     expect(c).toContain('{insumos.activo && <BloqueInsumosGasto');
-    expect(c).toContain('const baseInsumos = netoInsumos ?? (facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null)');
+    expect(c).toContain('const baseInsumos = facturaA ? (variosInsumos ? sumaPartes(insumosForm.partes) : fiscalDatos ? fiscalDatos.netAmount : null)');
     // with several ingredients the subcategory above is hidden and follows the first ingredient of the grid
     expect(c).toContain("subcategoriaFija={variosInsumos ? 'Los insumos de la factura, abajo (el gasto queda con el primero).' : undefined}");
     expect(c).toContain('if (primero && primero !== categoriaId) elegirSub(primero);');
@@ -136,7 +144,7 @@ describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos 
     // every amount says whether it is with or without IVA (owner 2026-11-26)
     expect(c).toContain('Importe total (con IVA: el total de la factura)');
     expect(c).toContain('Neto gravado (sin IVA)');
-    expect(i).toContain("{facturaA ? 'Importe neto (sin IVA)' : 'Importe total'}");
+    expect(i).toContain("{facturaA ? 'Neto (sin IVA)' : 'Importe total'}");
   });
   it('Todas las operaciones: the row shows every ingredient and «⋯» opens the Kilos window', () => {
     const c = SRC('features/caja/TodasLasOperaciones.tsx');

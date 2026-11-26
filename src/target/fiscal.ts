@@ -196,16 +196,19 @@ export function editarFacturaA(f: FiscalForm, total: number, campo: 'NETO' | num
 }
 
 /**
- * Nuevo gasto (owner 2026-11-26): with Factura A the total is NOT typed — it is neto + every tax. While the first IVA amount is the
- * computed one (auto 'IVA') and it is the only IVA row, it is neto × its rate (to the cent); typing it makes it manual. With two or
- * more IVA rates each amount is typed as printed. Returns the same object when nothing changes.
+ * Nuevo gasto (owner 2026-11-26): a Factura A is loaded as lines — each its neto (without IVA) and its IVA rate (one line, or one per
+ * feed ingredient) — plus any other tax. The neto is their sum and the IVA is computed per rate on the neto of that rate (to the cent),
+ * as the invoice prints it. The total is neto + every tax (totalFacturaA). Lines without a neto are ignored.
  */
-export function completarFacturaA(f: FiscalForm): FiscalForm {
-  if (f.tipo !== 'INVOICE_A' || f.auto !== 'IVA' || f.componentes.filter((c) => c.tax_kind === 'IVA').length !== 1) return f;
-  const c0 = f.componentes[0];
-  if (c0?.tax_kind !== 'IVA') return f;
-  const v = f.neto === '' || !(Number(f.neto) >= 0) || !(Number(c0.alicuota) > 0) ? '' : (Math.round((centavos(f.neto) * Number(c0.alicuota)) / 100) / 100).toFixed(2);
-  return v === c0.importe ? f : { ...f, componentes: f.componentes.map((c, i) => (i === 0 ? { ...c, importe: v } : c)) };
+export function facturaADesdeLineas(lineas: { neto: string; alicuota: string }[], otros: ComponenteForm[]): FiscalForm {
+  const usadas = lineas.filter((l) => l.neto !== '');
+  if (usadas.length === 0 || usadas.some((l) => !(Number(l.neto) >= 0) || !(Number(l.alicuota) > 0))) return { ...FISCAL_VACIO, tipo: 'INVOICE_A' };
+  const porAlicuota = new Map<string, number>();
+  for (const l of usadas) porAlicuota.set(l.alicuota, (porAlicuota.get(l.alicuota) ?? 0) + centavos(l.neto));
+  const ivas: ComponenteForm[] = [...porAlicuota].map(([alicuota, base]) => (
+    { tax_kind: 'IVA', base: '', alicuota, importe: (Math.round((base * Number(alicuota)) / 100) / 100).toFixed(2) }));
+  const neto = usadas.reduce((t, l) => t + centavos(l.neto), 0);
+  return { tipo: 'INVOICE_A', periodo: '', neto: (neto / 100).toFixed(2), total: '', componentes: [...ivas, ...otros.filter((o) => o.importe !== '')] };
 }
 /** The total of a Factura A typed in Nuevo gasto: neto + every tax (null while the neto is missing or a tax row is invalid). */
 export function totalFacturaA(f: FiscalForm): number | null {
