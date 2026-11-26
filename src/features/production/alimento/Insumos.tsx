@@ -20,15 +20,18 @@ export const insumosDe = (categorias: ExpenseCategoryRow[], usadas: string[] = [
   categorias.filter((c) => c.feed_ingredient_id && (c.activo || usadas.includes(c.id)));
 
 /** One row per ingredient: category, kg and amount on the invoice; the sum must reach the cost basis to the cent. */
-export function GrillaInsumos({ partes, onChange, insumos, base, facturaA }: {
+export function GrillaInsumos({ partes, onChange, insumos, base, facturaA, netoDesdeRenglones = false }: {
   partes: ParteInsumoForm[]; onChange: (p: ParteInsumoForm[]) => void; insumos: ExpenseCategoryRow[]; base: number; facturaA: boolean;
+  /** Nuevo gasto with Factura A (owner 2026-11-26): the rows ARE the neto gravado — nothing to match, their sum is shown. */
+  netoDesdeRenglones?: boolean;
 }) {
   const { resta, repetida } = estadoPartes(partes, base);
   const cats = partes.map((p) => p.cat);
   const setParte = (i: number, p: Partial<ParteInsumoForm>) => onChange(partes.map((x, j) => (j === i ? { ...x, ...p } : x)));
   return (
     <div className="space-y-2">
-      <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe en la factura{facturaA ? ': el neto, sin IVA, como figura en cada renglón (si un artículo aparece en dos renglones, sumalos)' : ''}. Los importes tienen que sumar {pesos(base)}{facturaA ? ' (el neto gravado)' : ''}: el gasto, el pago y el IVA siguen siendo uno solo.</p>
+      {netoDesdeRenglones ? <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe neto (sin IVA), como figura en la factura; si un artículo aparece en dos renglones, sumalos. La suma es el neto gravado de la factura.</p>
+        : <p className="text-xs text-gray-600">Cargá cada insumo con sus kilos y su importe en la factura{facturaA ? ': el neto, sin IVA, como figura en cada renglón (si un artículo aparece en dos renglones, sumalos)' : ''}. Los importes tienen que sumar {pesos(base)}{facturaA ? ' (el neto gravado)' : ''}: el gasto, el pago y el IVA siguen siendo uno solo.</p>}
       {partes.map((p, i) => (
         <div key={i} className="grid grid-cols-[1.4fr_1fr_1fr_auto] gap-2 items-end">
           <label className="text-xs text-gray-600">Insumo
@@ -45,11 +48,11 @@ export function GrillaInsumos({ partes, onChange, insumos, base, facturaA }: {
         </div>
       ))}
       <button type="button" onClick={() => onChange([...partes, { ...PARTE_VACIA }])} className="text-xs text-[#A8552E] hover:underline">+ Otro insumo</button>
-      <p className={`text-xs ${Math.abs(resta) <= TOLERANCIA_PARTES ? 'text-green-700' : 'text-red-700'}`}>
+      {netoDesdeRenglones ? <p className="text-xs text-green-700">Neto gravado: {pesos(base)}.</p> : <p className={`text-xs ${Math.abs(resta) <= TOLERANCIA_PARTES ? 'text-green-700' : 'text-red-700'}`}>
         {resta === 0 ? `Los importes suman ${pesos(base)}.`
           : Math.abs(resta) <= TOLERANCIA_PARTES ? `${resta > 0 ? 'Faltan' : 'Sobran'} ${pesos(Math.abs(resta) / 100)} para llegar a ${pesos(base)}: es redondeo, se ajusta en el último insumo.`
             : `${resta > 0 ? 'Faltan' : 'Sobran'} ${pesos(Math.abs(resta) / 100)} para llegar a ${pesos(base)} (se acepta hasta $1 de diferencia).`}
-      </p>
+      </p>}
       {repetida && <p className="text-xs text-red-700">Cada insumo va una sola vez.</p>}
     </div>
   );
@@ -87,8 +90,9 @@ export function useInsumosDelGasto(categoriaId: string, grupoId: string) {
 }
 
 /** The block of Nuevo gasto for a feed ingredient: its kg, or «Esta factura trae varios insumos», and «Confirmar flete $0». */
-export function BloqueInsumosGasto({ value, onChange, categoriaId, insumos, base, facturaA }: {
+export function BloqueInsumosGasto({ value, onChange, categoriaId, insumos, base, facturaA, netoDesdeRenglones = false }: {
   value: InsumosGastoForm; onChange: (v: InsumosGastoForm) => void; categoriaId: string; insumos: ExpenseCategoryRow[]; base: number | null; facturaA: boolean;
+  netoDesdeRenglones?: boolean;
 }) {
   const set = (p: Partial<InsumosGastoForm>) => onChange({ ...value, ...p });
   const kg = Number(value.kg);
@@ -112,7 +116,7 @@ export function BloqueInsumosGasto({ value, onChange, categoriaId, insumos, base
       ) : base === null ? (
         <p className="text-xs text-amber-800">Completá la Factura A: los importes de cada insumo se reparten sobre el neto.</p>
       ) : (
-        <GrillaInsumos partes={value.partes} onChange={(partes) => set({ partes })} insumos={insumos} base={base} facturaA={facturaA} />
+        <GrillaInsumos partes={value.partes} onChange={(partes) => set({ partes })} insumos={insumos} base={base} facturaA={facturaA} netoDesdeRenglones={netoDesdeRenglones} />
       )}
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={value.sinFlete} disabled={!value.varios && !(kg > 0)} onChange={(e) => set({ sinFlete: e.target.checked })} />

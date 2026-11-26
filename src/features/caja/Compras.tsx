@@ -7,7 +7,7 @@ import { defaultNatureOf, socios } from '../../target/expenseCategories';
 import { registerManagementEvent } from '../../target/pnl';
 import { COMPROBANTE_VACIO, cuentaAdmitida, MEDIO_PAGO_LABEL, NATURALEZA_GASTO, rutaGasto, type ComprobanteForm, type EstadoPago, type MedioPago } from '../../target/expenses';
 import { claveDeRegistro } from '../../target/operations';
-import { ALICUOTAS_IVA, cuitOrNull, diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, OTROS_IMPUESTOS, recalcularFacturaA, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind } from '../../target/fiscal';
+import { ALICUOTAS_IVA, completarFacturaA, cuitOrNull, diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, OTROS_IMPUESTOS, recalcularFacturaA, type ComponenteForm, type FiscalDocumentType, type FiscalForm, type TaxKind, totalFacturaA } from '../../target/fiscal';
 import { errorMessage } from '../../target/messages';
 import { type FreightRow, type PurchaseLineInput, type PurchaseNature, type PurchaseRow } from '../../target/treasury';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
@@ -24,6 +24,7 @@ import { SelectorEtiqueta } from './Etiquetas';
 import { useEtiquetaMutations } from './useEtiquetas';
 import { usePaymentPlanMutations } from './usePaymentPlan';
 import { NumeroInput } from '../../components/NumeroInput';
+import { sumaPartes } from '../../target/alimento';
 import { BloqueInsumosGasto, INSUMOS_GASTO_VACIO, insumosGastoValido, useInsumosDelGasto, type InsumosGastoForm } from '../production/alimento/Insumos';
 
 /**
@@ -107,23 +108,29 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
     onSuccess: () => Promise.all([['pnl'], ['treasury']].map((queryKey) => qc.invalidateQueries({ queryKey }))),
   });
   const conProveedor = proveedorId !== '';
+  // owner 2026-11-26 (simpler form): with Factura A the total is not typed — neto + taxes; with several feed ingredients the neto is
+  // the sum of their rows (each ingredient's amount without IVA is typed once); a single IVA rate is neto × rate (editable)
+  const facturaA = !esRetiro && comprobante.fiscal.tipo === 'INVOICE_A';
+  const variosInsumos = insumos.activo && insumosForm.varios;
+  const netoInsumos = facturaA && variosInsumos ? sumaPartes(insumosForm.partes) : null;
+  const fiscalForm = facturaA ? completarFacturaA(netoInsumos !== null ? { ...comprobante.fiscal, neto: netoInsumos.toFixed(2) } : comprobante.fiscal) : comprobante.fiscal;
+  const totalNum = facturaA ? totalFacturaA(fiscalForm) ?? 0 : Number(total);
   // caja-mejoras-v2 (0121): a pending expense can be split into instalments or paid with own cheques right here (cheques: supplier only)
-  const plan = usePlanPago(Number(total), { cheques: conProveedor ? 'SI' : 'REQUIERE_PROVEEDOR' });
+  const plan = usePlanPago(totalNum, { cheques: conProveedor ? 'SI' : 'REQUIERE_PROVEEDOR' });
   const planes = usePaymentPlanMutations();
-  const fiscalDatos = fiscalDeGasto(comprobante.fiscal, Number(total), fecha);
+  const fiscalDatos = fiscalDeGasto(fiscalForm, totalNum, fecha);
   const cuitEmisor = cuitOrNull(comprobante.cuitEmisor);
   const cuentasMedio = (cuentas.data ?? []).filter((a) => cuentaAdmitida(medio, a.account_type));
   const cuentaElegida = estado === 'PAGADO' ? (medio === 'MERCADOPAGO' ? cuentasMedio[0]?.id ?? '' : cuentaId) : '';
   const ruta = rutaGasto({ supplierId: proveedorId || null, estado, medio: estado === 'PAGADO' ? medio : null, fecha, fechaPago });
   const repetida = conProveedor && facturaRepetida(facturas.data ?? [], proveedorId, comprobante.numero);
-  const parecido = !repetida && posibleDuplicado(facturas.data ?? [], proveedorId, fecha, Number(total));
-  const facturaA = comprobante.fiscal.tipo === 'INVOICE_A';
-  const baseInsumos = facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null) : (Number(total) > 0 ? Number(total) : null);
+  const parecido = !repetida && posibleDuplicado(facturas.data ?? [], proveedorId, fecha, totalNum);
+  const baseInsumos = netoInsumos ?? (facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null) : (totalNum > 0 ? totalNum : null));
   const insumosOk = !insumos.activo || insumosGastoValido(insumosForm, baseInsumos);
   const fiscalOk = comprobante.fiscal.tipo === '' || (fiscalDatos !== null && (conProveedor || cuitEmisor !== null));
   const pagoOk = estado === 'PENDIENTE'
     || (ruta !== 'PROVEEDOR_MP_NO_PERMITIDO' && cuentaElegida !== '' && (medio === 'MERCADOPAGO' || (fechaPago !== '' && fechaPago >= fecha)));
-  const basico = !!user && concepto.trim() !== '' && concepto.trim().length <= 100 && Number(total) > 0 && fecha !== '' && categoriaId !== '';
+  const basico = !!user && concepto.trim() !== '' && concepto.trim().length <= 100 && totalNum > 0 && fecha !== '' && categoriaId !== '';
   const puede = esRetiro ? basico && cuentaRetiro !== ''
     : basico && !comprobante.errorArchivo && fiscalOk && pagoOk && !repetida && insumosOk && (estado === 'PAGADO' || plan.valido);
   const guardando = registrar.isPending || planes.plan.isPending || planes.chequesObligation.isPending || retiro.isPending || insumos.guardando;
@@ -136,7 +143,6 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   }).catch(() => {});
   const elegirSub = (id: string) => { setCategoriaId(id); if (id) setNaturaleza(defaultNatureOf(categorias.data ?? [], id)); };
   // owner 2026-11-26: with several ingredients the expense's subcategory is the first ingredient of the grid (never one left above)
-  const variosInsumos = insumos.activo && insumosForm.varios;
   const cambiarInsumos = (v: InsumosGastoForm) => {
     setInsumosForm(v);
     const primero = v.varios ? v.partes[0]?.cat : '';
@@ -149,7 +155,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         : comprobante.errorArchivo ?? registrar.error ?? insumos.error ?? etiquetas.asignar.error ?? planes.plan.error ?? planes.chequesObligation.error ?? proveedores.error ?? categorias.error ?? cuentas.error}
       textoGuardar={esRetiro ? 'Registrar retiro' : 'Registrar gasto'}
       onSubmit={() => { if (esRetiro) { void registrarRetiro(); return; } registrar.mutateAsync({
-        userId: user!.id, files: comprobante.archivos, concept: concepto, supplierId: proveedorId || null, amountTotal: Number(total), fecha,
+        userId: user!.id, files: comprobante.archivos, concept: concepto, supplierId: proveedorId || null, amountTotal: totalNum, fecha,
         categoryId: categoriaId, nature: naturaleza, estado, medio: estado === 'PAGADO' ? medio : null, accountId: cuentaElegida || null,
         fechaPago: medio === 'MERCADOPAGO' ? fecha : fechaPago, invoiceNumber: comprobante.numero.trim() || null, fiscal: fiscalDatos,
         cuitEmisor: conProveedor ? null : cuitEmisor, nombreEmisor: conProveedor ? null : comprobante.nombreEmisor, idempotencyKey: clave,
@@ -180,13 +186,21 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         </label>
         {!conProveedor && <p className="text-xs text-[#8A7A5C]">Sin proveedor: para pagarlo después con cheque o eCheq habrá que vincularlo a un proveedor.</p>}
         {/* owner 2026-11-26: the invoice right under the supplier — with Factura A chosen first, the ingredients are asked without IVA */}
-        <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos total={total} />
+        <BloqueComprobante value={{ ...comprobante, fiscal: fiscalForm }} onChange={setComprobante} conProveedor={conProveedor} conArchivos conNumero={false}
+          total={String(totalNum)} calculado netoFijo={netoInsumos} />
         {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Movimientos → Todas las operaciones en lugar de cargarla de nuevo.</p>}
       </>}
       <div className="grid grid-cols-2 gap-2">
-        <label className={etiqueta}>Importe total (con IVA: el total de la factura)
-          <NumeroInput min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
-        </label>
+        {facturaA ? (
+          <div className={etiqueta}>Importe total (con IVA: el total de la factura)
+            <p className="mt-1 px-3 py-2 rounded-lg bg-stone-100 text-[#2C2419] font-semibold">{formatoPesos(totalNum)}</p>
+            <span className="block text-xs font-normal text-gray-500">Calculado: neto + impuestos de la Factura A.</span>
+          </div>
+        ) : (
+          <label className={etiqueta}>Importe total (con IVA: el total de la factura)
+            <NumeroInput min="0" step="0.01" inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} className={campo} />
+          </label>
+        )}
         <label className={etiqueta}>Fecha
           <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
         </label>
@@ -207,7 +221,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         </div>
       ) : <>
       {insumos.activo && <BloqueInsumosGasto value={insumosForm} onChange={cambiarInsumos} categoriaId={categoriaId} insumos={insumos.insumos}
-        base={baseInsumos} facturaA={facturaA} />}
+        base={baseInsumos} facturaA={facturaA} netoDesdeRenglones={netoInsumos !== null} />}
       <SelectorNaturaleza value={naturaleza} onChange={setNaturaleza} />
       <SelectorEtiqueta value={etiquetaId} onChange={setEtiquetaId} />
       <fieldset className="space-y-2">
@@ -277,8 +291,12 @@ export function SelectorNaturaleza({ value, onChange }: { value: PurchaseNature;
  * to the expense total to the cent (fiscalDeGasto): its neto is the cost basis of a feed ingredient and the IVA crédito of the month.
  * Another document records the type only (neto = total). Without supplier the invoice identifies its issuer by CUIT (backend rule).
  */
-export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, conNumero = true, total }: {
+export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, conNumero = true, total, calculado = false, netoFijo = null }: {
   value: ComprobanteForm; onChange: (v: ComprobanteForm) => void; conProveedor: boolean; conArchivos: boolean; conNumero?: boolean; total: string;
+  /** Nuevo gasto (owner 2026-11-26): the Factura A total is neto + taxes (not typed); the single IVA is neto × rate (editable). */
+  calculado?: boolean;
+  /** …and with several feed ingredients the neto is the sum of their rows (shown, not typed). */
+  netoFijo?: number | null;
 }) {
   const set = (p: Partial<ComprobanteForm>) => onChange({ ...value, ...p });
   const f = value.fiscal;
@@ -286,11 +304,15 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
   const setComp = (i: number, p: Partial<ComponenteForm>) => setF({ componentes: f.componentes.map((c, j) => (j === i ? { ...c, ...p } : c)) });
   const clase: '' | 'A' | 'OTRA' = f.tipo === '' ? '' : f.tipo === 'INVOICE_A' ? 'A' : 'OTRA';
   // owner 2026-11-25: neto and IVA complete each other from the total (the one not typed is computed and recomputed)
-  const editar = (campo: 'NETO' | number, valor: string) => setF(editarFacturaA(f, Number(total), campo, valor));
-  useEffect(() => { const g = recalcularFacturaA(f, Number(total)); if (g !== f) onChange({ ...value, fiscal: g }); }, [total]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const editar = (campo: 'NETO' | number, valor: string) => (calculado
+    // the IVA typed by hand stops being computed; the parent completes it again (completarFacturaA) while it is
+    ? setF(campo === 'NETO' ? { neto: valor } : { componentes: f.componentes.map((c, i) => (i === campo ? { ...c, importe: valor } : c)), auto: campo === 0 ? undefined : f.auto })
+    : setF(editarFacturaA(f, Number(total), campo, valor)));
+  useEffect(() => { if (calculado) return; const g = recalcularFacturaA(f, Number(total)); if (g !== f) onChange({ ...value, fiscal: g }); }, [total]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const ivaCalculado = calculado && f.auto === 'IVA' && f.componentes.filter((c) => c.tax_kind === 'IVA').length === 1;
   function elegirClase(c: '' | 'A' | 'OTRA') {
     if (c === '') set({ fiscal: { ...FISCAL_VACIO }, numero: '' });   // owner 2026-11-25: «Sin factura» has no invoice number
-    else if (c === 'A') setF({ ...FISCAL_VACIO, tipo: 'INVOICE_A', componentes: [{ tax_kind: 'IVA', base: '', alicuota: ALICUOTAS_IVA[0], importe: '' }] });
+    else if (c === 'A') setF({ ...FISCAL_VACIO, tipo: 'INVOICE_A', componentes: [{ tax_kind: 'IVA', base: '', alicuota: ALICUOTAS_IVA[0], importe: '' }], ...(calculado ? { auto: 'IVA' as const } : {}) });
     else setF({ ...FISCAL_VACIO, tipo: 'INVOICE_B' });
   }
   function elegirArchivos(lista: FileList | null) {
@@ -323,9 +345,13 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
       )}
       {clase === 'A' && (
         <div className="space-y-2">
-          <label className={etiqueta}>Neto gravado (sin IVA){f.auto === 'NETO' && <span className="ml-1 text-[11px] font-normal text-gray-500">(calculado)</span>}
-            <NumeroInput min="0" step="0.01" value={f.neto} onChange={(e) => editar('NETO', e.target.value)} className={campo} />
-          </label>
+          {netoFijo !== null ? (
+            <p className="text-sm text-[#2C2419]">Neto gravado (sin IVA): <b>{formatoPesos(netoFijo)}</b> <span className="text-xs text-gray-500">— la suma de los insumos de abajo</span></p>
+          ) : (
+            <label className={etiqueta}>Neto gravado (sin IVA){!calculado && f.auto === 'NETO' && <span className="ml-1 text-[11px] font-normal text-gray-500">(calculado)</span>}
+              <NumeroInput min="0" step="0.01" value={f.neto} onChange={(e) => editar('NETO', e.target.value)} className={campo} />
+            </label>
+          )}
           {f.componentes.map((c, i) => (
             <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
               {c.tax_kind === 'IVA' ? (
@@ -341,10 +367,10 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
                   </select>
                 </label>
               )}
-              <label className="text-xs text-gray-600">Importe del impuesto{i === 0 && f.auto === 'IVA' && <span className="ml-1 text-[11px] text-gray-500">(calculado)</span>}
+              <label className="text-xs text-gray-600">Importe del impuesto{i === 0 && (calculado ? ivaCalculado : f.auto === 'IVA') && <span className="ml-1 text-[11px] text-gray-500">(calculado)</span>}
                 <NumeroInput min="0" step="0.01" value={c.importe} onChange={(e) => editar(i, e.target.value)} className={campo} />
               </label>
-              <button type="button" aria-label="Quitar impuesto" disabled={i === 0} onClick={() => setF(recalcularFacturaA({ ...f, componentes: f.componentes.filter((_, j) => j !== i) }, Number(total)))}
+              <button type="button" aria-label="Quitar impuesto" disabled={i === 0} onClick={() => { const resto = f.componentes.filter((_, j) => j !== i); setF(calculado ? { componentes: resto } : recalcularFacturaA({ ...f, componentes: resto }, Number(total))); }}
                 className="mb-1 text-xs text-[#A8552E] hover:underline disabled:invisible">Quitar</button>
             </div>
           ))}
@@ -354,7 +380,10 @@ export function BloqueComprobante({ value, onChange, conProveedor, conArchivos, 
             <button type="button" onClick={() => setF({ componentes: [...f.componentes, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '' }] })}
               className="text-xs text-[#A8552E] hover:underline">+ Percepción u otro impuesto</button>
           </div>
-          {dif === null ? <p className="text-xs text-gray-500">Cargá el neto y los impuestos tal como figuran en la factura: tienen que sumar el importe total.</p>
+          {calculado ? (
+            <p className="text-xs text-gray-600">{ivaCalculado ? 'El IVA se calcula con el neto y la alícuota: si la factura dice otro importe, corregilo. ' : 'Cargá cada impuesto como figura en la factura. '}
+              El importe total se calcula solo: neto + impuestos.</p>
+          ) : dif === null ? <p className="text-xs text-gray-500">Cargá el neto y los impuestos tal como figuran en la factura: tienen que sumar el importe total.</p>
             : dif === 0 ? <p className="text-xs text-green-700">Neto + impuestos = importe total {formatoPesos(Number(total))}.</p>
               : <p className="text-xs text-red-700" role="alert">Neto + impuestos no da el importe total: {dif > 0 ? 'faltan' : 'sobran'} {formatoPesos(Math.abs(dif) / 100)}.</p>}
         </div>

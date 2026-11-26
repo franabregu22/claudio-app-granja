@@ -196,6 +196,24 @@ export function editarFacturaA(f: FiscalForm, total: number, campo: 'NETO' | num
 }
 
 /**
+ * Nuevo gasto (owner 2026-11-26): with Factura A the total is NOT typed — it is neto + every tax. While the first IVA amount is the
+ * computed one (auto 'IVA') and it is the only IVA row, it is neto × its rate (to the cent); typing it makes it manual. With two or
+ * more IVA rates each amount is typed as printed. Returns the same object when nothing changes.
+ */
+export function completarFacturaA(f: FiscalForm): FiscalForm {
+  if (f.tipo !== 'INVOICE_A' || f.auto !== 'IVA' || f.componentes.filter((c) => c.tax_kind === 'IVA').length !== 1) return f;
+  const c0 = f.componentes[0];
+  if (c0?.tax_kind !== 'IVA') return f;
+  const v = f.neto === '' || !(Number(f.neto) >= 0) || !(Number(c0.alicuota) > 0) ? '' : (Math.round((centavos(f.neto) * Number(c0.alicuota)) / 100) / 100).toFixed(2);
+  return v === c0.importe ? f : { ...f, componentes: f.componentes.map((c, i) => (i === 0 ? { ...c, importe: v } : c)) };
+}
+/** The total of a Factura A typed in Nuevo gasto: neto + every tax (null while the neto is missing or a tax row is invalid). */
+export function totalFacturaA(f: FiscalForm): number | null {
+  const resto = diferenciaFacturaA(f, 0);   // 0 − (neto + taxes), in cents
+  return resto === null ? null : -resto / 100;
+}
+
+/**
  * The fiscal data of an expense from its invoice block, or null while incomplete:
  *   * no invoice ('') → null (nothing fiscal is recorded);
  *   * Factura A → the neto and the taxes as printed, only when they add up to the expense total to the cent. An IVA row stores

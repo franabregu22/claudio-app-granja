@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, recalcularFacturaA, type FiscalForm } from '../../src/target/fiscal';
+import { completarFacturaA, diferenciaFacturaA, editarFacturaA, FISCAL_VACIO, fiscalDeGasto, recalcularFacturaA, totalFacturaA, type FiscalForm } from '../../src/target/fiscal';
 import { TARGET_RPCS } from '../../src/target/db';
-import { estadoPartes, partesInput, PARTE_VACIA } from '../../src/target/alimento';
+import { estadoPartes, partesInput, PARTE_VACIA, sumaPartes } from '../../src/target/alimento';
 import { registrarGasto } from '../../src/target/expenses';
 
 const SRC = (p: string) => readFileSync(resolve(__dirname, '../../src', p), 'utf8');
@@ -57,8 +57,26 @@ describe('Factura del gasto (owner 2026-11-25): Factura A con neto + impuestos =
     // the fiscal period is always the month of the invoice date (no field)
     expect(SRC('features/caja/Compras.tsx')).not.toContain('Período fiscal');
   });
+  it('Nuevo gasto (owner 2026-11-26): with Factura A the total is neto + taxes, the single IVA is neto × rate (editable), no invoice number', () => {
+    const f = completarFacturaA({ ...A({ neto: '1000' }), auto: 'IVA' });
+    expect(f.componentes[0].importe).toBe('210.00');
+    expect(totalFacturaA(f)).toBe(1210);
+    expect(completarFacturaA({ ...A({ neto: '1160944.35', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '10.5', importe: '' }] }), auto: 'IVA' }).componentes[0].importe).toBe('121899.16');
+    // typed by hand (auto off) or two IVA rates: as typed
+    expect(completarFacturaA(A({ neto: '1000', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '21', importe: '209.99' }] })).componentes[0].importe).toBe('209.99');
+    const dos = { ...A({ neto: '1000', componentes: [{ tax_kind: 'IVA', base: '', alicuota: '21', importe: '105' }, { tax_kind: 'IVA', base: '', alicuota: '10.5', importe: '52.5' }, { tax_kind: 'PERCEPTION', base: '', alicuota: '', importe: '30' }] }), auto: 'IVA' as const };
+    expect(completarFacturaA(dos)).toBe(dos);
+    expect(totalFacturaA(dos)).toBe(1187.5);
+    expect(totalFacturaA(A({ neto: '' }))).toBeNull();
+    expect(sumaPartes([{ cat: 'a', kg: '1', monto: '659549.15' }, { cat: 'b', kg: '1', monto: '501395.20' }, { cat: '', kg: '', monto: '' }])).toBe(1160944.35);
+    const c = SRC('features/caja/Compras.tsx');
+    expect(c).toContain('const totalNum = facturaA ? totalFacturaA(fiscalForm) ?? 0 : Number(total);');
+    expect(c).toContain('const netoInsumos = facturaA && variosInsumos ? sumaPartes(insumosForm.partes) : null;');
+    expect(c).toContain('conArchivos conNumero={false}');
+    expect(c).toContain('Calculado: neto + impuestos de la Factura A.');
+  });
   it('the forms use it: Nuevo gasto and Editar gasto', () => {
-    expect(SRC('features/caja/Compras.tsx')).toContain('fiscalDeGasto(comprobante.fiscal, Number(total), fecha)');
+    expect(SRC('features/caja/Compras.tsx')).toContain('fiscalDeGasto(fiscalForm, totalNum, fecha)');
     expect(SRC('features/caja/EditarGasto.tsx')).toContain('fiscalDeGasto(comprobante.fiscal, Number(total), fecha)');
   });
 });
@@ -105,7 +123,7 @@ describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos 
     const c = SRC('features/caja/Compras.tsx');
     expect(c).toContain('if (purchaseId) await insumos.guardar(purchaseId, insumosForm, baseInsumos);');
     expect(c).toContain('{insumos.activo && <BloqueInsumosGasto');
-    expect(c).toContain('const baseInsumos = facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null)');
+    expect(c).toContain('const baseInsumos = netoInsumos ?? (facturaA ? (fiscalDatos ? fiscalDatos.netAmount : null)');
     // with several ingredients the subcategory above is hidden and follows the first ingredient of the grid
     expect(c).toContain("subcategoriaFija={variosInsumos ? 'Los insumos de la factura, abajo (el gasto queda con el primero).' : undefined}");
     expect(c).toContain('if (primero && primero !== categoriaId) elegirSub(primero);');

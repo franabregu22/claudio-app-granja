@@ -153,6 +153,8 @@ export const setFeedPurchaseParts = (c: SupabaseClient, p: { purchaseId: string;
 export interface ParteInsumoForm { cat: string; kg: string; monto: string }
 export const PARTE_VACIA: ParteInsumoForm = { cat: '', kg: '', monto: '' };
 export const centavos = (v: number | string) => Math.round(Number(v) * 100);
+/** The sum of the amounts typed in the rows (Nuevo gasto with Factura A: it IS the neto gravado of the invoice). */
+export const sumaPartes = (partes: ParteInsumoForm[]) => partes.reduce((t, p) => t + (p.monto === '' ? 0 : centavos(p.monto)), 0) / 100;
 /** owner 2026-11-26: up to $1 of difference (rounding of the invoice) is accepted and adjusted in the last ingredient. */
 export const TOLERANCIA_PARTES = 100;   // cents
 export function estadoPartes(partes: ParteInsumoForm[], base: number): { resta: number; repetida: boolean; ok: boolean } {
