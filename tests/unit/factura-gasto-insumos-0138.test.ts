@@ -97,7 +97,11 @@ describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos 
   });
   it('Nuevo gasto: feed ingredients only, ADMIN only; the split / kg saved on the purchase after it is registered', () => {
     const i = SRC('features/production/alimento/Insumos.tsx');
-    expect(i).toContain("rol === 'ADMIN' && lista.some((c) => c.id === categoriaId && !!c.feed_ingredient_id)");
+    // shown from the CATEGORY of the ingredients, before any subcategory (owner 2026-11-26)
+    expect(i).toContain("? lista.some((c) => c.id === categoriaId && !!c.feed_ingredient_id)");
+    expect(i).toContain(": grupoId !== '' && lista.some((c) => c.group_id === grupoId && !!c.feed_ingredient_id));");
+    expect(SRC('features/caja/Compras.tsx')).toContain('const insumos = useInsumosDelGasto(categoriaId, grupoActual);');
+    expect(SRC('features/caja/SelectorCategoria.tsx')).toContain("onGrupo?.(e.target.value); onSubcategoria('');");
     const c = SRC('features/caja/Compras.tsx');
     expect(c).toContain('if (purchaseId) await insumos.guardar(purchaseId, insumosForm, baseInsumos);');
     expect(c).toContain('{insumos.activo && <BloqueInsumosGasto');

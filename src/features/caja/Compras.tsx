@@ -89,7 +89,9 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
   // owner 2026-11-26: a feed ingredient (Alimento balanceado only) takes its kg — or the split of an invoice with several ingredients —
   // right here, so no ingredient goes unnoticed; the expense, its payment and its IVA stay one
   const [insumosForm, setInsumosForm] = useState<InsumosGastoForm>(INSUMOS_GASTO_VACIO);
-  const insumos = useInsumosDelGasto(categoriaId);
+  const [grupoElegido, setGrupoElegido] = useState('');   // the category chosen before its subcategory
+  const grupoActual = (categorias.data ?? []).find((c) => c.id === categoriaId)?.group_id ?? grupoElegido;
+  const insumos = useInsumosDelGasto(categoriaId, grupoActual);
   const etiquetas = useEtiquetaMutations();
   const [clave] = useState(() => `GASTO-${crypto.randomUUID()}`);   // idempotency: one per opened form
   // owner 2026-11-18: «Retiros de socios → <socio>» in the same form records a partner withdrawal (management_event RETIRO): it moves
@@ -188,7 +190,7 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
       </div>
       {!esRetiro && parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
       <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta}
-        subcategoriaFija={variosInsumos ? 'Los insumos de la factura, abajo (el gasto queda con el primero).' : undefined} conRetiros />
+        onGrupo={setGrupoElegido} subcategoriaFija={variosInsumos ? 'Los insumos de la factura, abajo (el gasto queda con el primero).' : undefined} conRetiros />
       {esRetiro ? (
         <div className="space-y-1 border border-[#E4DCC8] rounded-lg p-2">
           <label className={etiqueta}>Cuenta de la que sale el dinero

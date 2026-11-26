@@ -10,7 +10,7 @@ const NATURES: PurchaseNatureValue[] = ['OPERATING', 'REINVESTMENT', 'INVESTMENT
  * pre-fills its default nature, which the owner may still change for this operation only (the master default never changes).
  * Reserved subcategories (Retiros de socios, IVA / Ganancias) are never offered. DIRECT / INDIRECT is not shown.
  */
-export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, onNaturaleza, campo, etiqueta = '', compacto = false, conRetiros = false, subcategoriaFija }: {
+export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, onNaturaleza, campo, etiqueta = '', compacto = false, conRetiros = false, subcategoriaFija, onGrupo }: {
   subcategoriaId: string; onSubcategoria: (id: string) => void;
   naturaleza?: PurchaseNatureValue; onNaturaleza?: (n: PurchaseNatureValue) => void;
   campo: string; etiqueta?: string; compacto?: boolean;
@@ -18,6 +18,8 @@ export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, 
   conRetiros?: boolean;
   /** Nuevo gasto (owner 2026-11-26): an invoice with several feed ingredients — the subcategory is the first ingredient below; this note replaces its select. */
   subcategoriaFija?: string;
+  /** The category chosen (before any subcategory). */
+  onGrupo?: (id: string) => void;
 }) {
   const grupos = useExpenseGroups();
   const subs = useExpenseCategories();
@@ -35,7 +37,7 @@ export function SelectorCategoria({ subcategoriaId, onSubcategoria, naturaleza, 
   };
 
   const categoria = (
-    <select aria-label="Categoría" value={grupoId} onChange={(e) => { setGrupoElegido(e.target.value); onSubcategoria(''); }} className={campo}>
+    <select aria-label="Categoría" value={grupoId} onChange={(e) => { setGrupoElegido(e.target.value); onGrupo?.(e.target.value); onSubcategoria(''); }} className={campo}>
       <option value="">{compacto ? 'Categoría…' : 'Elegir categoría…'}</option>
       {selectableGroups(g, s).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
       {gruposRetiro.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}

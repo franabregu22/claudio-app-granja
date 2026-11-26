@@ -65,13 +65,18 @@ export function insumosGastoValido(f: InsumosGastoForm, base: number | null): bo
   return f.kg === '' || Number(f.kg) > 0;
 }
 
-/** ADMIN and a feed-ingredient subcategory: the block is shown and saved; otherwise Nuevo gasto is exactly as before. */
-export function useInsumosDelGasto(categoriaId: string) {
+/**
+ * ADMIN and the CATEGORY of the feed ingredients (owner 2026-11-26: the block shows as soon as the category is chosen, before any
+ * subcategory) — or, once a subcategory is chosen, that subcategory being an ingredient. Otherwise Nuevo gasto is exactly as before.
+ */
+export function useInsumosDelGasto(categoriaId: string, grupoId: string) {
   const { rol } = useAuth();
   const categorias = useMasterList<ExpenseCategoryRow>('expense_category');
   const m = useAlimentoMutations();
   const lista = categorias.data ?? [];
-  const activo = rol === 'ADMIN' && lista.some((c) => c.id === categoriaId && !!c.feed_ingredient_id);
+  const activo = rol === 'ADMIN' && (categoriaId !== ''
+    ? lista.some((c) => c.id === categoriaId && !!c.feed_ingredient_id)
+    : grupoId !== '' && lista.some((c) => c.group_id === grupoId && !!c.feed_ingredient_id));
   /** After the expense is registered: the split, or the kg of its one ingredient (nothing typed → as before, kg later in Alimento). */
   const guardar = async (purchaseId: string, f: InsumosGastoForm, base: number | null) => {
     if (!activo) return;
