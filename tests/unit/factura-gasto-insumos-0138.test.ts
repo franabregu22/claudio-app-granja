@@ -231,3 +231,13 @@ describe('0141 — quitar un flete asignado (owner 2026-11-26)', () => {
   });
 });
 
+describe('0142 — anular un gasto que espera su movimiento de Mercado Pago (owner 2026-11-26)', () => {
+  it('the alert lists the ones with no outflow to link, with «Ver» and «Anular (duplicado)» (annul_expense)', () => {
+    const c = SRC('features/caja/TodasLasOperaciones.tsx');
+    expect(c).toContain("const sinPar = (gastosMp.data ?? []).filter((g) => g.status === 'PENDIENTE_VINCULACION_MP' && (g.candidates ?? []).length === 0);");
+    expect(c).toContain('onClick={() => onFocus(`MP_PENDIENTE:${g.purchase_root_id}`)}');
+    expect(c).toContain('Anular (duplicado)');
+    expect(c).toContain("anular.mutate({ purchaseId: g.purchase_id, reason: motivo.trim() || 'Duplicado: la salida de Mercado Pago ya se clasificó como gasto', idempotencyKey: clave }");
+  });
+});
+

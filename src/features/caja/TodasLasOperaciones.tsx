@@ -22,7 +22,7 @@ import { ImpuestoModal, ImpuestoPorPeriodo, TransferenciaModal, TransferenciasAn
 import { useComprobantesDeGastos, usePurchaseAttachments } from './useInvoicePayments';
 import type { FeedPurchaseExtra } from '../../target/alimento';
 import { useOperationList, useOperationTimeline, usePayFromRow } from './useOperations';
-import { usePagosRevertidos, useRevertirPago } from './useExpenses';
+import { useAnnulExpense, usePagosRevertidos, useRevertirPago } from './useExpenses';
 import { useEstadoGuardado } from './useEstadoGuardado';
 import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, useSuppliers, useTransferIntents } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
@@ -130,6 +130,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const salidasActuales = resumenMp.data ? mandatoryPending(resumenMp.data).current : 0;
   const esperando = (gastosMp.data ?? []).filter((g) => g.status === 'PENDIENTE_VINCULACION_MP').length;
   const conPar = (gastosMp.data ?? []).filter((g) => g.status === 'PENDIENTE_VINCULACION_MP' && (g.candidates ?? []).length > 0).length;
+  // 0142 (owner 2026-11-26): the ones with no Mercado Pago outflow to link — usually a duplicate of an outflow already classified
+  const sinPar = (gastosMp.data ?? []).filter((g) => g.status === 'PENDIENTE_VINCULACION_MP' && (g.candidates ?? []).length === 0);
+  const [anulandoMp, setAnulandoMp] = useState<PurchaseMpLinkRow | null>(null);
   const comprobantes = useComprobantesDeGastos(filas.flatMap((r) => (r.purchase_id ? [{ purchase_id: r.purchase_id, purchase_root_id: r.purchase_root_id ?? r.purchase_id }] : [])));
   const total = lista.data?.total ?? 0;
   const poner = (cambio: Partial<Filtros>) => {
@@ -234,8 +237,18 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
           {esperando > 0 && <span>{esperando} gasto{esperando === 1 ? '' : 's'} pagado{esperando === 1 ? '' : 's'} con Mercado Pago esperando su movimiento</span>}
           {conPar > 0 && <span className="text-emerald-800">· {conPar === 1 ? '1 ya tiene' : `${conPar} ya tienen`} su par: tocá «Vincular» (verde) en la fila</span>}
           {onResolver && salidasActuales > 0 && <button type="button" onClick={onResolver} className="ml-auto text-xs px-2 py-1 rounded bg-orange-600 text-white hover:bg-orange-700">Resolver ›</button>}
+          {sinPar.map((g) => (
+            <div key={g.purchase_root_id} className="w-full flex flex-wrap items-center gap-2 border-t border-orange-200 pt-1 text-xs">
+              <span><b>{g.concept ?? 'Gasto'}</b> · {formatearFechaLocal(g.economic_date)} · {formatoPesos(g.amount_total)} · cargado {g.origin === 'WHATSAPP' ? 'por WhatsApp' : 'en el ERP'} el {formatearFechaLocal(g.created_at.slice(0, 10))}:
+                no hay ninguna salida de Mercado Pago libre que coincida. Si esa salida ya la clasificaste como gasto, este es un duplicado.</span>
+              <button type="button" onClick={() => onFocus(`MP_PENDIENTE:${g.purchase_root_id}`)} className="px-2 py-0.5 rounded bg-white border border-orange-300 hover:bg-orange-100">Ver</button>
+              <button type="button" onClick={() => setAnulandoMp(g)} className="px-2 py-0.5 rounded bg-orange-600 text-white hover:bg-orange-700">Anular (duplicado)</button>
+            </div>
+          ))}
         </div>
       )}
+      {anulandoMp && <AnularEsperandoMpModal g={anulandoMp} onClose={() => setAnulandoMp(null)}
+        onListo={(t) => { setAnulandoMp(null); setAviso({ texto: t, clave: null }); }} />}
       {aviso && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-900 flex flex-wrap items-center gap-2" role="status">
           <span>{aviso.texto}</span>
@@ -446,6 +459,29 @@ function InsumosDeFila({ r }: { r: OperationRow }) {
 export function pagoRevertible(r: OperationRow, cuentas: FinancialAccountRow[]): boolean {
   if (r.row_kind !== 'OP' || r.tipo !== 'EGRESO' || r.estado !== 'COMPLETADA' || !r.purchase_id || r.supplier_id || r.operation_id === null || r.informativo) return false;
   return r.accounts.length === 1 && cuentas.some((c) => c.id === r.accounts[0].account_id && (c.account_type === 'CASH' || c.account_type === 'BANK_ACCOUNT'));
+}
+
+/**
+ * 0142 (owner 2026-11-26): annul an expense recorded as paid with Mercado Pago that has no outflow to link — the duplicate of an outflow
+ * already classified (annul_expense: it leaves the P&L and stops waiting; nothing deleted, audited). A linked one cannot be annulled.
+ */
+function AnularEsperandoMpModal({ g, onClose, onListo }: { g: PurchaseMpLinkRow; onClose: () => void; onListo: (texto: string) => void }) {
+  const anular = useAnnulExpense();
+  const qc = useQueryClient();
+  const [motivo, setMotivo] = useState('');
+  const [clave] = useState(() => `ANUL-MP-${crypto.randomUUID()}`);
+  return (
+    <Modal titulo={`Anular gasto — ${g.concept ?? 'Gasto'}`} onClose={onClose} puedeGuardar={!anular.isPending} guardando={anular.isPending} error={anular.error}
+      textoGuardar="Anular gasto"
+      onSubmit={() => anular.mutate({ purchaseId: g.purchase_id, reason: motivo.trim() || 'Duplicado: la salida de Mercado Pago ya se clasificó como gasto', idempotencyKey: clave },
+        { onSuccess: () => { void qc.invalidateQueries(); onListo(`Gasto «${g.concept ?? ''}» de ${formatoPesos(g.amount_total)} anulado: sale de los gastos y deja de esperar su movimiento.`); } })}>
+      <p className="text-sm text-[#2C2419]">{g.concept ?? 'Gasto'} · {formatearFechaLocal(g.economic_date)} · <b>{formatoPesos(g.amount_total)}</b> · pagado con Mercado Pago, sin movimiento vinculado.</p>
+      <p className="text-xs text-[#6B5D45]">Anulalo solo si la salida de Mercado Pago de este pago ya está clasificada como otro gasto (si no, quedaría sin registrar). Sale de los gastos y de resultados; no se borra nada y queda en el historial. Si tenía un comprobante, podés adjuntarlo al otro gasto.</p>
+      <label className={etiqueta}>Motivo (opcional)
+        <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} placeholder="Duplicado: la salida de Mercado Pago ya se clasificó como gasto" className={campo} />
+      </label>
+    </Modal>
+  );
 }
 
 /** Anular retiro: a compensation of the whole rest (register_management_event, same account and date) — audited, nothing deleted. */
