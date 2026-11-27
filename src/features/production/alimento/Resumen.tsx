@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { getTodayDate } from '../../../utils/dateUtils';
+import { DesgloseReceta } from './DesgloseReceta';
 import { Evolucion } from './Evolucion';
 import { etiquetaMes, fechaCorta, kgTxt, mesAnterior, mesDe, meses, periodoComparable, pesos, variacion } from './format';
 import { Tabla, Titulo, td, tdR, thL, thR } from './ui';
-import { useAllFeedTypes, useConsumptionCosts, useFabricaciones, useFeedMonths, useFeedPurchases, useRecipeCosts } from './useAlimento';
+import { useAllFeedTypes, useComposition, useConsumptionCosts, useFabricaciones, useFeedMonths, useFeedPurchases, useIngredientCosts, useRecipeCosts } from './useAlimento';
 
 const METODO = (
   <>
@@ -44,6 +46,11 @@ export function Resumen() {
   const costos = useRecipeCosts();
   const consumo = useConsumptionCosts();
   const compras = useFeedPurchases();
+  const costosInsumo = useIngredientCosts();
+  const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set());
+  const versiones = [...new Set((costos.data ?? []).filter((c) => lista.includes(c.period)).map((c) => c.formula_version_id))].sort();
+  const composicion = useComposition(abiertas.size > 0 ? versiones : []);
+  const alternar = (id: string) => setAbiertas((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const todos = [...(tipos.data ?? [])].sort((a, b) => a.nombre.localeCompare(b.nombre));
   const color = (id: string) => todos.findIndex((t) => t.id === id);
   const fab = fabs.data ?? [];
@@ -92,7 +99,25 @@ export function Resumen() {
         <Titulo info={METODO}>Costo estimado por kg de cada receta</Titulo>
         <Evolucion meses={lista} formato={fmtPesos} dominio={[300, 600]} series={serie((t, m) => costo(t, m)?.cost_per_kg ?? null)} />
         <Tabla cabecera={cab}>
-          {visibles.map((t) => <tr key={t.id}><td className={td}>{t.nombre}</td>{lista.map((m) => { const c = costo(t.id, m); return <td key={m} className={tdR}>{pesos(c?.cost_per_kg ?? null)}{c?.estimated && c.cost_per_kg != null ? '*' : ''}</td>; })}</tr>)}
+          {visibles.map((t) => {
+            const abierta = abiertas.has(t.id);
+            return [
+              <tr key={t.id}>
+                <td className={td}>
+                  <button type="button" onClick={() => alternar(t.id)} aria-expanded={abierta} className="inline-flex items-center gap-1 text-left hover:text-[#A8552E]"
+                    title={abierta ? 'Cerrar la apertura por insumo' : 'Ver el precio de cada insumo y el total del batch'}>
+                    {abierta ? <ChevronDown className="w-4 h-4 shrink-0" aria-hidden /> : <ChevronRight className="w-4 h-4 shrink-0" aria-hidden />}{t.nombre}
+                  </button>
+                </td>
+                {lista.map((m) => { const c = costo(t.id, m); return (
+                  <td key={m} className={tdR}>{pesos(c?.cost_per_kg ?? null)}{c?.estimated && c.cost_per_kg != null ? '*' : ''}
+                    {c && c.cost_per_kg === null && c.missing_ingredients.length > 0 && <span className="block text-[11px] text-red-700">sin precio: {c.missing_ingredients.join(', ')}</span>}</td>); })}
+              </tr>,
+              abierta && (composicion.isLoading || costosInsumo.isLoading
+                ? <tr key={`${t.id}-d`}><td className={`${td} pl-8 text-gray-500`} colSpan={lista.length + 1}>Cargando insumos…</td></tr>
+                : <DesgloseReceta key={`${t.id}-d`} meses={lista} costosMes={(m) => costo(t.id, m)} lineas={composicion.data ?? []} costosInsumo={costosInsumo.data ?? []} />),
+            ];
+          })}
         </Tabla>
       </section>
       {([['Kilos producidos', kgMes, fmtKg, kgTxt], ['Kilos consumidos', consumoMes, fmtKg, kgTxt], ['Costo del alimento consumido (estado de resultados)', costoConsumo, fmtPesos, pesos]] as const).map(([titulo, f, fmt, txt]) => (

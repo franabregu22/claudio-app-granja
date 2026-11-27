@@ -92,6 +92,8 @@ describe('ADR-014 manufacturing history and rectification', () => {
     expect(userLabel('a', 'me', profiles)).toBe('admin@example.invalid');
     expect(userLabel('other', 'me', profiles)).toBe('Otro usuario');
     expect(userLabel(null, 'me', profiles)).toBe('Otro usuario');
+    // owner 2026-11-27: the caller's own record shows their name too when the profile has one
+    expect(userLabel('me', 'me', new Map([['me', 'Ana Pérez']]))).toBe('Ana Pérez');
   });
 
   it('rectification is one RPC call with the whole record and the reason (no client-side correction)', async () => {

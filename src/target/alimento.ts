@@ -120,7 +120,21 @@ export async function listFeedFreights(c: SupabaseClient): Promise<FeedFreight[]
   return rows.map((r) => ({ ...r, amount_total: Number(r.amount_total), allocated: Number(r.allocated), remaining: Number(r.remaining) }));
 }
 export interface RecipeCostMonth {
-  feed_type_id: string; feed_type_nombre: string; period: string; version: number; cost_per_kg: number | null; estimated: boolean; missing_ingredients: string[];
+  feed_type_id: string; feed_type_nombre: string; period: string; formula_version_id: string; version: number; cost_per_kg: number | null; estimated: boolean;
+  missing_ingredients: string[];
+}
+/** 0126: an ingredient's cost per kg in a month with purchases (weighted by kg, freight included; Factura A without IVA). */
+export interface IngredientCostMonth { feed_ingredient_id: string; ingredient_nombre: string; period: string; cost_per_kg: number; freight_pending: boolean }
+export async function listIngredientCosts(c: SupabaseClient): Promise<IngredientCostMonth[]> {
+  const rows = await readView<IngredientCostMonth>(c, 'report_feed_ingredient_cost_month', (q) => q.order('period'),
+    'feed_ingredient_id, ingredient_nombre, period, cost_per_kg, freight_pending');
+  return rows.map((r) => ({ ...r, cost_per_kg: Number(r.cost_per_kg) }));
+}
+/** The view's rule (0126): an ingredient's cost in a month = that month's or, without purchases that month, the latest earlier one. */
+export function ultimoCostoConocido(costos: readonly IngredientCostMonth[], ingredientId: string, period: string): IngredientCostMonth | null {
+  let r: IngredientCostMonth | null = null;
+  for (const c of costos) if (c.feed_ingredient_id === ingredientId && c.period <= period && (!r || c.period > r.period)) r = c;
+  return r;
 }
 export async function listRecipeCosts(c: SupabaseClient): Promise<RecipeCostMonth[]> {
   const rows = await readView<RecipeCostMonth>(c, 'report_feed_recipe_cost_month', (q) => q.order('period'));

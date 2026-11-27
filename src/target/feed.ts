@@ -8,6 +8,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readTable, readView } from './db';
+import { profileDisplayName } from './masters';
 
 export const FEED_MOVEMENT_TYPES = ['EXTERNAL_SALE', 'LOSS', 'ADJUSTMENT_POSITIVE', 'ADJUSTMENT_NEGATIVE'] as const;
 export type FeedMovementType = (typeof FEED_MOVEMENT_TYPES)[number];
@@ -170,13 +171,14 @@ export async function listManufacturing(client: SupabaseClient, from: string, to
  * User label within the caller's permissions: profiles the caller can read (ADMIN: all; OPERATOR: only its own, by
  * RLS) resolve to their email; the caller is "Vos"; anyone else is "Otro usuario". No permission is broadened.
  */
+/** Owner 2026-11-27: the responsible person by first and last name (the e-mail only when the profile has no name); «Vos» only without a profile row. */
 export function userLabel(id: string | null, me: string | null, profiles: Map<string, string>): string {
-  if (id && id === me) return 'Vos';
-  return (id && profiles.get(id)) || 'Otro usuario';
+  return (id && profiles.get(id)) || (id && id === me ? 'Vos' : 'Otro usuario');
 }
+/** id → «Nombre Apellido» (0109), else the e-mail. RLS decides the rows (ADMIN: every profile; anyone else: their own). */
 export async function listProfileNames(client: SupabaseClient): Promise<Map<string, string>> {
-  const rows = await readTable<{ id: string; email: string }>(client, 'perfiles', (q) => q, 'id, email');
-  return new Map(rows.map((r) => [r.id, r.email]));
+  const rows = await readTable<{ id: string; email: string; nombre: string | null; apellido: string | null }>(client, 'perfiles', (q) => q, 'id, email, nombre, apellido');
+  return new Map(rows.map((r) => [r.id, profileDisplayName(r) ?? r.email]));
 }
 
 /** ADR-014 RPC 49: a whole-record new version; the reason is mandatory; the date is kept. */

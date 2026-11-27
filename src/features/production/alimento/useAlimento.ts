@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../lib/supabase';
 import {
   allocateFeedFreight, closeFeedMonth, listFeedFreightAllocations, unallocateFeedFreight, listConsumptionCosts, listFeedFreights, listFeedPurchaseExtras, listFeedMonths, listFeedPurchases, listFeedStockPeriods,
-  listRecipeChanges, listRecipeCosts, reopenFeedMonth, setExpenseCategoryFeed, setFeedPurchaseParts, setFeedPurchaseQuantity, setFeedTypeActive, setFormulaComment,
+  listIngredientCosts, listRecipeChanges, listRecipeCosts,reopenFeedMonth, setExpenseCategoryFeed, setFeedPurchaseParts, setFeedPurchaseQuantity, setFeedTypeActive, setFormulaComment,
   setStandardBatch,
 } from '../../../target/alimento';
 import { listAllFeedTypes, listFormulaComposition, listFormulaVersions, listManufacturing, publishFormulaVersion, rectifyFeedManufacturing, registerFeedManufacturing } from '../../../target/feed';
@@ -33,7 +33,8 @@ export const useFeedPurchases = (enabled = true) => useQuery({ queryKey: [...FEE
 export const useFeedFreights = (enabled = true) => useQuery({ queryKey: [...FEED, 'freights'], queryFn: () => listFeedFreights(supabase), enabled });
 export const useFeedFreightAllocations = (enabled = true) => useQuery({ queryKey: [...FEED, 'freight-allocations'], queryFn: () => listFeedFreightAllocations(supabase), enabled });
 export const useRecipeCosts = (enabled = true) => useQuery({ queryKey: [...FEED, 'recipe-costs'], queryFn: () => listRecipeCosts(supabase), enabled });
-export const useConsumptionCosts = (enabled = true) => useQuery({ queryKey: [...FEED, 'consumption-costs'], queryFn: () => listConsumptionCosts(supabase), enabled });
+export const useIngredientCosts = (enabled = true) => useQuery({ queryKey: [...FEED, 'ingredient-costs'], queryFn: () => listIngredientCosts(supabase), enabled });
+export const useConsumptionCosts =(enabled = true) => useQuery({ queryKey: [...FEED, 'consumption-costs'], queryFn: () => listConsumptionCosts(supabase), enabled });
 
 export function useAlimentoMutations() {
   return {

@@ -8,6 +8,7 @@ import type { OperationRow } from '../../target/operations';
 import type { MovementRow } from '../../target/movementHistory';
 import type { PurchaseRow } from '../../target/treasury';
 import { NumeroInput } from '../../components/NumeroInput';
+import { MP_CORTE } from '../../target/cashOpening';
 import { NATURALEZA_LABEL, type OperationNature } from '../../target/operations';
 import { useClassifyMp, useConfirmPayoutTransfer, useMpPayoutMatches } from './useMpActivity';
 import { useGastoItems, vinculosDe } from './Gastos';
@@ -30,7 +31,12 @@ export const editableEnFila = (r: OperationRow) => r.purchase_id !== null && r.t
 export const campoEditableEnFila = (r: OperationRow, campo: CampoFila) => editableEnFila(r) && !(r.informativo && (campo === 'fecha' || campo === 'importe'));
 /** Owner 2026-11-17: a Mercado Pago outflow still unclassified is classified from its Categoría / Subcategoría cell (a gasto without
  * supplier in the chosen subcategory), a transfer to an own account, a supplier debt payment or a partner withdrawal — one choice. */
-export const clasificableEnFila = (r: OperationRow) => r.clasificacion === 'MP_SIN_CLASIFICAR' && r.operation_id !== null && r.tipo === 'EGRESO';
+export const clasificableEnFila = (r: OperationRow) => r.operation_id !== null && r.tipo === 'EGRESO'
+  && (r.clasificacion === 'MP_SIN_CLASIFICAR' || salidaMpAntesDelCorte(r));
+/** Owner 2026-11-27: a pending Mercado Pago outflow before the cutover (0140, «Salida MP sin detalle (antes del corte)») is not
+ * «Por revisar», but it can still be classified from its row if wanted (the backend never refused it). Its key: the pending
+ * outflow's source (mp_source_id, only on a still-provisional outflow) dated before the cutover. */
+const salidaMpAntesDelCorte = (r: OperationRow) => !!r.mp_source_id && r.clasificacion === null && r.date !== null && r.date < MP_CORTE;
 
 const SIN_VINCULOS: VinculosGasto = { pendienteSinProveedor: false, mpVinculado: false, asignado: 0, estadoPago: '', comoPagar: '' };
 const INPUT = 'w-full min-w-[7rem] border border-amber-500 rounded px-1.5 py-0.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-600';
