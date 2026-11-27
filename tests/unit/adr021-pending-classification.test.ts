@@ -158,7 +158,7 @@ describe('ADR-021 — activity and classification routes', () => {
     const v = SRC('features/caja/BandejaPendientesMp.tsx');
     expect(lista).toMatch(/pendiente === 'MP_CLASIFICAR' \? <BandejaPendientesMp \/> : /);
     expect(v).toMatch(/usePendingPage\('current', pagina\)/);
-    expect(v).toMatch(/pago\(s\) históricos \(anteriores al corte\), sin acción por ahora/);
+    expect(v).toMatch(/pago\(s\) históricos \(anteriores al corte\), no requieren acción: si querés, se clasifican con doble clic/);   // owner 2026-11-27
     // ADR-025 stage 3: the WhatsApp concept (when there is one) pre-fills the new-expense concept
     expect(v).toMatch(/conceptoInicial=\{nota\?\.concept \?\? ''\}/);
     // a payout: its own-account transfer (then the only option), classifiable only without own-account match, else no action
