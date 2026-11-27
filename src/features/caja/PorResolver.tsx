@@ -12,8 +12,9 @@ export function TarjetasPorResolver({ activo, onFiltro }: { activo: PendingFilte
   const resumen = usePendingSummary();
   const gastos = useUnclassifiedCount();
   const mp = resumen.data ? mandatoryPending(resumen.data) : null;
+  // owner 2026-11-27: the number is what needs action (current); the historical ones (before the 01/12 cutover) are optional
   const tarjetas: { id: PendingFilter; titulo: string; cantidad: number | undefined; detalle: string; aviso: boolean; requerido: boolean }[] = [
-    { id: 'MP_CLASIFICAR', titulo: 'Pendientes de clasificar', cantidad: mp?.count, detalle: mp ? `Actuales: ${mp.current} · Históricos: ${mp.historical}` : 'Requiere acción', aviso: (mp?.current ?? 0) > 0, requerido: true },
+    { id: 'MP_CLASIFICAR', titulo: 'Pendientes de clasificar', cantidad: mp?.current, detalle: mp ? (mp.historical > 0 ? `Requiere acción · además ${mp.historical} históricos (antes del corte, opcionales)` : 'Requiere acción') : 'Requiere acción', aviso: (mp?.current ?? 0) > 0, requerido: true },
     { id: 'GASTO_SIN_CLASIFICAR', titulo: 'Gastos sin clasificar', cantidad: gastos.data, detalle: 'Ya pagados · requiere acción', aviso: (gastos.data ?? 0) > 0, requerido: true },
     // owner 2026-11-25: «Entradas sin vincular» is not a card any more (optional, never reviewed): only what requires action
   ];

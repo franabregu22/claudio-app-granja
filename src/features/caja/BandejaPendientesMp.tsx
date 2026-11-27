@@ -68,7 +68,7 @@ export function BandejaPendientesMp() {
             </ul>
           )}
       {q.data && q.data.total > q.data.pageSize && <Paginador pagina={pagina} paginas={Math.ceil(q.data.total / q.data.pageSize)} total={q.data.total} onCambiar={setPagina} />}
-      {historicos > 0 && <p className="text-xs text-[#8A7A5C]">Además hay {historicos} pago(s) históricos (anteriores al corte), sin acción por ahora.</p>}
+      {historicos > 0 && <p className="text-xs text-[#8A7A5C]">Además hay {historicos} pago(s) históricos (anteriores al corte), no requieren acción: si querés, se clasifican con doble clic en su fila de Todas las operaciones.</p>}
       {esperando.length > 0 && (
         <details className="bg-white rounded-lg border border-[#E4DCC8] p-3 text-sm">
           <summary className="cursor-pointer font-medium text-[#3D3424]">Gastos cargados como pagados con Mercado Pago que esperan su movimiento ({esperando.length})</summary>

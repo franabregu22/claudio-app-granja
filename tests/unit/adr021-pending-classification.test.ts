@@ -146,7 +146,9 @@ describe('ADR-021 — activity and classification routes', () => {
     const lista = SRC('features/caja/MovimientosHistoricos.tsx');
     expect(pr).toMatch(/id: 'MP_CLASIFICAR', titulo: 'Pendientes de clasificar'/);
     expect(pr).not.toMatch(/id: 'ENTRADA_SIN_VINCULAR'/);   // owner 2026-11-25: optional and never reviewed — no card
-    expect(pr).toMatch(/Actuales: \$\{mp\.current\} · Históricos: \$\{mp\.historical\}/);
+    // owner 2026-11-27: the number is the current ones (what needs action); the historical ones are told apart as optional
+    expect(pr).toMatch(/cantidad: mp\?\.current, /);
+    expect(pr).toMatch(/además \$\{mp\.historical\} históricos/);
     expect(pr).not.toMatch(/<PendientesClasificar|<EntradasSinVincular|<GastosSinClasificar/);   // no list of its own
     expect(app).toMatch(/\{vista === 'movimientos' && <Movimientos onIrAExtractos=\{\(\) => setVista\('extractos'\)\} focus=\{foco\} onFocus=\{setFoco\} \/>\}/);
     // the filter counts what the indicator counts: Pendientes current + historical, Entradas the current ones; both switchable
