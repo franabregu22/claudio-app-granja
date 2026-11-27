@@ -177,6 +177,10 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         const forma = estado === 'PENDIENTE' && plan.forma === 'CUOTAS' ? ` en ${plan.items.length} cuotas` : estado === 'PENDIENTE' && plan.forma === 'CHEQUES' ? ` con ${plan.cheques.length} cheque(s)` : '';
         onRegistrado(claveDeRegistro(ruta, r), `Gasto «${concepto.trim()}» registrado${estado === 'PENDIENTE' ? ` como pendiente de pago${forma}` : ' y pagado'} (fecha ${formatearFechaLocal(fechaTxt)}).`);
       }).catch(() => {}); }}>
+      {/* owner 2026-11-27: the date first */}
+      <label className={etiqueta}>Fecha
+        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
+      </label>
       <label className={etiqueta}>{esRetiro ? 'Concepto' : 'Concepto del gasto'}
         <input type="text" value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={100}
           placeholder={esRetiro ? 'Ej.: retiro mensual' : 'Ej.: maíz, gasoil, reparación de la bomba'} className={`${campo} text-base`} autoFocus />
@@ -193,9 +197,6 @@ export function NuevaCompraModal({ onClose, onRegistrado }: { onClose: () => voi
         <BloqueComprobante value={comprobante} onChange={setComprobante} conProveedor={conProveedor} conArchivos conNumero={false} total={String(totalNum)} sinImportes />
         {repetida && <p className="text-xs text-red-700" role="alert">Ese proveedor ya tiene una factura con ese número: buscala en Movimientos → Todas las operaciones en lugar de cargarla de nuevo.</p>}
       </>}
-      <label className={etiqueta}>Fecha
-        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={campo} />
-      </label>
       {!esRetiro && parecido && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">Ya hay un gasto de ese proveedor con la misma fecha y el mismo total. Revisá que no esté cargado (por ejemplo, desde WhatsApp).</p>}
       <SelectorCategoria subcategoriaId={categoriaId} onSubcategoria={elegirSub} campo={campo} etiqueta={etiqueta}
         onGrupo={setGrupoElegido} subcategoriaFija={variosInsumos ? 'Los insumos de la factura, abajo (el gasto queda con el primero).' : undefined} conRetiros />

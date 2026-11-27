@@ -37,6 +37,8 @@ export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: 
   const [primera, setPrimera] = useState(hoy);
   const [frecuencia, setFrecuencia] = useState<'MENSUAL' | 'QUINCENAL' | 'SEMANAL'>('MENSUAL');
   const [editadas, setEditadas] = useState<{ due_date: string; amount: string }[] | null>(null);
+  /** The instalments whose amount was typed by hand (owner 2026-11-27: the others share what is left, e.g. a different first one). */
+  const [fijas, setFijas] = useState<ReadonlySet<number>>(new Set());
   const [cheques, setCheques] = useState<ChequeForm[]>([{ tipo: 'ECHEQ', numero: '', fecha: '', importe: '', cuenta: '' }]);
   const tot = Math.round((total || 0) * 100) / 100;
   const formaEf: FormaPago = forma === 'CHEQUES' && modoCheques === 'NO' ? 'UNICO' : forma;
@@ -50,7 +52,17 @@ export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: 
   const valido = formaEf === 'UNICO' ? true
     : formaEf === 'CUOTAS' ? items.length >= 2 && items.every((x) => x.amount > 0) && cuadra
       : modoCheques === 'SI' && chequesIn.length > 0 && chequesIn.every((c) => c.cheque_number && c.maturity_date && c.amount > 0 && c.bank_account_id) && cuadra;
-  const reset = () => setEditadas(null);
+  const reset = () => { setEditadas(null); setFijas(new Set()); };
+  /** Typing an instalment's amount fixes it; what is left of the total is split to the cent among the ones not typed (cents in the last). */
+  const cambiarImporte = (i: number, v: string) => {
+    const f = new Set(fijas).add(i);
+    const lista = generadas.map((x, j) => (j === i ? { ...x, amount: v } : x));
+    const libres = lista.map((_, j) => j).filter((j) => !f.has(j));
+    const resto = Math.round((tot - lista.reduce((acc, x, j) => acc + (f.has(j) ? Number(x.amount) || 0 : 0), 0)) * 100) / 100;
+    const partes = libres.length > 0 && resto > 0 ? repartirEnCuotas(resto, libres.length) : null;
+    setFijas(f);
+    setEditadas(partes ? lista.map((x, j) => { const k = libres.indexOf(j); return k >= 0 ? { ...x, amount: partes[k].toFixed(2) } : x; }) : lista);
+  };
   const setCheque = (i: number, k: keyof ChequeForm, v: string) => setCheques(cheques.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
   const opciones: [FormaPago, string][] = modoCheques !== 'NO' ? [['UNICO', 'Un pago'], ['CUOTAS', 'En cuotas'], ['CHEQUES', 'Cheques / eCheqs']] : [['UNICO', 'Un pago'], ['CUOTAS', 'En cuotas']];
 
@@ -77,18 +89,19 @@ export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: 
           <select value={frecuencia} onChange={(e) => { setFrecuencia(e.target.value as typeof frecuencia); reset(); }} className={campo} aria-label="Frecuencia">
             <option value="MENSUAL">Mensual</option><option value="QUINCENAL">Cada 15 días</option><option value="SEMANAL">Semanal</option>
           </select>
-          {tot <= 0 ? <p className="text-xs text-amber-800">Cargá el importe total para repartir las cuotas; después podés cambiar la fecha y el importe de cada una.</p> : (
+          {tot <= 0 ? <p className="text-xs text-amber-800">Cargá el importe total para repartir las cuotas; después podés cambiar la fecha y el importe de cada una.</p> : (<>
+            <p className="text-[11px] text-gray-500">Si una cuota es distinta (por ejemplo, la primera), cambiá solo su importe: el resto se reparte solo entre las demás.</p>
             <ul className="space-y-1">
               <li className="flex items-center gap-2 text-[11px] text-gray-500"><span className="w-6" /><span className="flex-1">Fecha de pago</span><span className="w-32 text-right">Importe</span></li>
               {generadas.map((c, i) => (
                 <li key={i} className="flex items-center gap-2 text-sm">
                   <span className="w-6 text-gray-500">{i + 1}.</span>
                   <input type="date" value={c.due_date} onChange={(e) => setEditadas(generadas.map((x, j) => (j === i ? { ...x, due_date: e.target.value } : x)))} className="border border-gray-300 rounded px-2 py-1 flex-1" aria-label={`Fecha cuota ${i + 1}`} />
-                  <NumeroInput step="0.01" value={c.amount} onChange={(e) => setEditadas(generadas.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} className="border border-gray-300 rounded px-2 py-1 w-32 text-right" aria-label={`Importe cuota ${i + 1}`} />
+                  <NumeroInput step="0.01" value={c.amount} onChange={(e) => cambiarImporte(i, e.target.value)} className={`border rounded px-2 py-1 w-32 text-right ${fijas.has(i) ? 'border-amber-400 bg-amber-50' : 'border-gray-300'}`} aria-label={`Importe cuota ${i + 1}`} />
                 </li>
               ))}
             </ul>
-          )}
+          </>)}
         </div>
       )}
       {formaEf === 'CHEQUES' && (
