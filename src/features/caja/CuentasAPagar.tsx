@@ -36,12 +36,13 @@ const TONO_ESTADO: Record<SupplierState, string> = {
  * Meta A (0091): paying from Mercado Pago is the payment of the supplier debt with a Mercado Pago outflow (payout to a third
  * party or outbound payment) chosen here: mp_classify_payout_outflow SUPPLIER_PAYMENT; amount and date come from the movement.
  */
-export function CuentasAPagar() {
+export function CuentasAPagar({ inicial = null }: { inicial?: string | null } = {}) {
   const saldos = useLedgerBalances('SUPPLIER');
   const proveedores = useActiveMaster<SupplierRow>('suppliers');
   const instrumentos = useInstruments();
-  const [tarjeta, setTarjeta] = useState<Tarjeta>('DEUDA');
-  const [abierto, setAbierto] = useState<string | null>(null);
+  // owner 2026-11-27: opened from a due item, the supplier's list is chosen and its account is open
+  const [elegida, setTarjeta] = useState<Tarjeta | null>(null);
+  const [abierto, setAbierto] = useState<string | null>(inicial);
   const [pagando, setPagando] = useState<SupplierAccount | null>(null);
 
   const cargando = saldos.isLoading || proveedores.isLoading || instrumentos.isLoading;
@@ -65,6 +66,7 @@ export function CuentasAPagar() {
     { id: 'AL_DIA', titulo: 'Proveedores al día', cantidad: alDia.length, detalle: 'Saldo cero, sin cheques pendientes', tono: 'text-[#6B7A4E]' },
     { id: 'A_FAVOR', titulo: 'Saldos a favor / anticipos', cantidad: aFavor.length, detalle: `${formatoPesos(suma(aFavor.map((c) => -c.balance)))} a favor`, tono: 'text-green-700' },
   ];
+  const tarjeta: Tarjeta = elegida ?? (inicial && alDia.some((c) => c.supplier_id === inicial) ? 'AL_DIA' : inicial && aFavor.some((c) => c.supplier_id === inicial) ? 'A_FAVOR' : 'DEUDA');
   const lista = tarjeta === 'DEUDA' ? deuda : tarjeta === 'AL_DIA' ? alDia : aFavor;
 
   return (
@@ -87,7 +89,8 @@ export function CuentasAPagar() {
           const ch = chequesDe(c.supplier_id);
           const estado = supplierState(c.balance, ch);
           return (
-            <div key={c.supplier_id} className="bg-white rounded-lg border border-[#E4DCC8] overflow-hidden">
+            <div key={c.supplier_id} className="bg-white rounded-lg border border-[#E4DCC8] overflow-hidden"
+              ref={c.supplier_id === inicial ? (el) => { if (el && elegida === null) el.scrollIntoView({ block: 'start' }); } : undefined}>
               <div className="p-3 flex items-center justify-between gap-2">
                 <button type="button" onClick={() => setAbierto(open ? null : c.supplier_id)} className="flex items-center gap-2 text-left min-w-0" aria-expanded={open}>
                   <ChevronDown className={`w-4 h-4 shrink-0 transition ${open ? 'rotate-180' : ''}`} />

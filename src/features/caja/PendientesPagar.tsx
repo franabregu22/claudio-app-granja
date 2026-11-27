@@ -42,7 +42,7 @@ const gastoDe = (todos: GastoItem[], root: string | null) => (root ? todos.find(
  * Pagar pays THAT item (cash / transfer, or own cheques / eCheqs when it has a supplier); "Cambiar forma de pago" replans what is open.
  * Every figure is the backend's; every action is its RPC with one idempotency key per opened form.
  */
-export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onProveedores?: () => void; onCheques?: () => void; onAnulados?: () => void } = {}) {
+export function PendientesPagar({ onProveedor, onCheques, onAnulados }: { onProveedor?: (supplierId: string) => void; onCheques?: () => void; onAnulados?: () => void } = {}) {
   const anulados = useAnnulments();
   const hoy = getTodayDate();
   const due = usePayablesDue();
@@ -82,7 +82,7 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
 
   return (
     <div className="space-y-3">
-      <div className={`grid grid-cols-2 ${onProveedores ? 'sm:grid-cols-4 lg:grid-cols-8' : 'sm:grid-cols-5'} gap-2`} role="group" aria-label="Totales (tocá una tarjeta para filtrar)">
+      <div className={`grid grid-cols-2 ${onCheques ? 'sm:grid-cols-4 lg:grid-cols-7' : 'sm:grid-cols-5'} gap-2`} role="group" aria-label="Totales (tocá una tarjeta para filtrar)">
         {TARJETAS.map((x) => {
           const activa = tarjeta === x.id;
           const rojo = x.id === 'VENCIDO' && t.VENCIDO > 0;
@@ -94,14 +94,6 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
             </button>
           );
         })}
-        {/* owner 2026-11-24: the supplier accounts (debt, advances, ficha) open from here (was «Ver también») */}
-        {onProveedores && (
-          <button type="button" onClick={onProveedores} title="Deuda, anticipos y ficha de cada proveedor"
-            className="text-left rounded-lg border px-3 py-2 bg-white border-[#E4DCC8] hover:border-[#A8552E]">
-            <p className="text-xs text-[#8A7A5C]">Proveedores</p>
-            <p className="font-bold text-[#A8552E]">Ver cuentas ›</p>
-          </button>
-        )}
         {onCheques && (
           <button type="button" onClick={onCheques} title="Cheques y eCheqs propios: anular, rechazar, reemplazar"
             className="text-left rounded-lg border px-3 py-2 bg-white border-[#E4DCC8] hover:border-[#A8552E]">
@@ -165,6 +157,11 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
                         <span className="block text-xs text-[#8A7A5C] truncate">{subtitulo(r)}</span>
                       </button>
                       {docsDe(r) && <Comprobantes docs={docsDe(r)} compacto />}
+                      {/* owner 2026-11-27: the supplier's current account (debt, invoices, payments) one click away */}
+                      {onProveedor && r.supplier_id && (
+                        <button type="button" onClick={() => onProveedor(r.supplier_id!)} title={`Cuenta corriente de ${r.supplier_name ?? 'el proveedor'}: deuda, facturas y pagos`}
+                          className="text-xs text-[#A8552E] hover:underline whitespace-nowrap">Cuenta del proveedor ›</button>
+                      )}
                       <span className="font-semibold tabular-nums text-[#2C2419]">{formatoPesos(r.amount)}</span>
                       {esChequeFila(r) ? <span className="text-xs text-sky-800 w-20 text-right">a debitar</span>
                         : r.row_kind === 'DIFERENCIA' ? <button type="button" onClick={() => setPlan(r)} className={btnPrimario}>Ajustar plan</button>

@@ -62,7 +62,7 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
   const t = SRC('features/caja/CuentasAPagar.tsx');
   it('three selectable supplier cards, one list at a time, default suppliers with debt; pending expenses are their own section', () => {
     for (const s of ['Proveedores con deuda', 'Proveedores al día', 'Saldos a favor / anticipos']) expect(t).toContain(`titulo: '${s}'`);
-    expect(t).toMatch(/useState<Tarjeta>\('DEUDA'\)/);
+    expect(t).toMatch(/: 'DEUDA'\);/);   // owner 2026-11-27: default «con deuda», or the list of the supplier it was opened for
     expect(t).not.toMatch(/GastosAPagar titulo/);
   });
   it('each supplier opens its ficha; paying more than the debt is an advance (credit), never an expense', () => {

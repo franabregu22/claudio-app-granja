@@ -29,7 +29,7 @@ describe('Caja — the five tabs', () => {
       [tlo, '<DetalleFactura '], [tlo, '<ModalesGasto '],   // owner 2026-11-27: «⋯» is a menu; an invoice's cheques and payments open DetalleFactura
       [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "'ENTRADA_SIN_VINCULAR' ? null : 'ENTRADA_SIN_VINCULAR'"],
       [lista, '<BandejaPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionEntrada '],
-      [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],   // owner 2026-11-24: from their cards (no «Ver también»)
+      [pagar, '<CuentasAPagar inicial={proveedor} />'], [pagar, '<Cheques />'],   // owner 2026-11-27: Proveedores is a tab   // owner 2026-11-24: from their cards (no «Ver también»)
       [SRC('features/cobros/CobrosApp.tsx'), '<CobrosClientes />'],
     ] as const) expect(src.split(tag).length - 1, tag).toBe(1);
   });
