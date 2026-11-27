@@ -23,7 +23,7 @@ import type { GastoItem } from '../../target/expenseHub';
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
 import { campo, etiqueta, Modal } from './Modal';
 import { ImpuestoModal, ImpuestoPorPeriodo, TransferenciaModal, TransferenciasAnticipadas, VincularAnticipada } from './Transferencias';
-import { useComprobantesDeGastos, usePurchaseAttachments } from './useInvoicePayments';
+import { useComprobantesDeGastos } from './useInvoicePayments';
 import type { FeedPurchase, FeedPurchaseExtra } from '../../target/alimento';
 import { useOperationList, useOperationTimeline, usePayFromRow } from './useOperations';
 import { useAnnulExpense, usePagosRevertidos, useRevertirPago } from './useExpenses';
@@ -493,8 +493,8 @@ function PanelDeFila({ p, onAccion }: { p: PanelFila; onAccion: (a: Accion) => v
   return null;
 }
 function PanelFactura({ it, onAccion }: { it: ItemFactura; onAccion: (a: Accion) => void }) {
-  const adjuntos = usePurchaseAttachments(it.purchaseId ? [it.purchaseId] : []);
-  const docs = it.purchaseId ? adjuntos.data?.get(it.purchaseId) : undefined;
+  const extra = useComprobantesDeGastos([{ purchase_id: it.factura.purchase_id, purchase_root_id: it.factura.purchase_root_id }]);
+  const docs = extra.data?.get(it.factura.purchase_root_id)?.docs;
   return <DetalleFactura f={it.factura} docs={docs} onEmitir={(reemplaza) => onAccion({ tipo: 'emitir', f: it.factura, reemplaza })} onImputar={() => onAccion({ tipo: 'imputar', f: it.factura })} />;
 }
 function PanelAnticipada({ id }: { id: number }) {

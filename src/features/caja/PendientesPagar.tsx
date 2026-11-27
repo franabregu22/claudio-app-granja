@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronDown, Trash2 } from 'lucide-react';
 import { errorMessage } from '../../target/messages';
 import {
@@ -17,6 +17,9 @@ import { campo, etiqueta, Modal } from './Modal';
 import { usePayablesDue, usePaymentPlanMutations } from './usePaymentPlan';
 import { useLedgerBalances } from './useTreasury';
 import { useAnnulments } from './useExpenses';
+import { Comprobantes } from './Comprobantes';
+import { useComprobantesDeGastos } from './useInvoicePayments';
+import { useSetPaymentDates } from './usePaymentCalendar';
 import { usePlanPago } from './EditorPlanPago';
 import { NumeroInput } from '../../components/NumeroInput';
 
@@ -54,6 +57,8 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
   const [accion, setAccion] = useState<Accion | null>(null);
   const [debitar, setDebitar] = useState<PayableDueRow | null>(null);
   const [fechaCheque, setFechaCheque] = useState<PayableDueRow | null>(null);
+  // owner 2026-11-27: each row's receipt (purchase files, their root's and the fiscal document's), to see the invoice from the list
+  const comprobantes = useComprobantesDeGastos((due.data ?? []).flatMap((r) => (r.purchase_id && r.purchase_root_id ? [{ purchase_id: r.purchase_id, purchase_root_id: r.purchase_root_id }] : [])));
 
   if (due.isLoading) return <p className="text-sm text-gray-500">Cargando pendientes...</p>;
   if (due.error) return <p className="text-sm text-red-700">{errorMessage(due.error)}</p>;
@@ -72,6 +77,7 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
   const deProv = prov !== 'TODOS' && prov !== '' ? filtradas : [];
   const saldoProv = (saldos.data ?? []).find((s) => s.entity_id === prov)?.balance ?? 0;
   const titulo = (r: PayableDueRow) => (r.supplier_id ? r.supplier_name ?? '—' : r.concept ?? r.supplier_name ?? 'Gasto');
+  const docsDe = (r: PayableDueRow) => { const d = r.purchase_root_id ? comprobantes.data?.get(r.purchase_root_id)?.docs : undefined; return d && d.length > 0 ? d : undefined; };
   const subtitulo = (r: PayableDueRow) => [r.supplier_id ? r.concept : (r.supplier_name ? `Sin proveedor · ${r.supplier_name}` : 'Sin proveedor'), etiquetaFila(r)].filter(Boolean).join(' · ');
 
   return (
@@ -150,14 +156,15 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
                 return (
                   <li key={r.row_key}>
                     <div className="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <button type="button" onClick={() => setAbierto(open ? null : r.row_key)} aria-expanded={open} className="flex items-center gap-2 min-w-0 flex-1 text-left">
-                        <ChevronDown className={`w-4 h-4 shrink-0 text-[#8A7A5C] transition ${open ? '' : '-rotate-90'}`} />
-                        <span className={`w-12 shrink-0 text-sm tabular-nums ${vencida(r, hoy) ? 'text-red-700 font-semibold' : 'text-[#6B5D45]'}`}>{fecha(fechaFila(r))}</span>
-                        <span className="min-w-0">
-                          <span className="block text-sm font-medium text-[#2C2419] truncate">{titulo(r)}</span>
-                          <span className="block text-xs text-[#8A7A5C] truncate">{subtitulo(r)}</span>
-                        </span>
+                      <button type="button" onClick={() => setAbierto(open ? null : r.row_key)} aria-expanded={open} aria-label={open ? 'Cerrar' : 'Ver detalle'} className="shrink-0">
+                        <ChevronDown className={`w-4 h-4 text-[#8A7A5C] transition ${open ? '' : '-rotate-90'}`} />
                       </button>
+                      <FechaFila r={r} hoy={hoy} onPlan={() => setPlan(r)} onCheque={() => setFechaCheque(r)} />
+                      <button type="button" onClick={() => setAbierto(open ? null : r.row_key)} className="min-w-0 flex-1 text-left">
+                        <span className="block text-sm font-medium text-[#2C2419] truncate">{titulo(r)}</span>
+                        <span className="block text-xs text-[#8A7A5C] truncate">{subtitulo(r)}</span>
+                      </button>
+                      {docsDe(r) && <Comprobantes docs={docsDe(r)} compacto />}
                       <span className="font-semibold tabular-nums text-[#2C2419]">{formatoPesos(r.amount)}</span>
                       {esChequeFila(r) ? <span className="text-xs text-sky-800 w-20 text-right">a debitar</span>
                         : r.row_kind === 'DIFERENCIA' ? <button type="button" onClick={() => setPlan(r)} className={btnPrimario}>Ajustar plan</button>
@@ -188,7 +195,7 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
                             </ul>
                           </div>
                         )}
-                        {g && <DetalleGasto it={g} docs={undefined} onAccion={setAccion} />}
+                        {g && <DetalleGasto it={g} docs={docsDe(r)} onAccion={setAccion} />}
                       </div>
                     )}
                   </li>
@@ -297,6 +304,43 @@ function PagarModal({ r, g, onClose }: { r: PayableDueRow; g: GastoItem | null; 
       )}
     </Modal>
   );
+}
+
+/**
+ * Owner 2026-11-27: the date of a row, edited right there. A payment without plan: its ESTIMATED payment date (set_payment_date PLANNED,
+ * internal, no reason; it places it in the Calendario; the contractual due date is changed in «Fechas»). An instalment: its plan
+ * (Cambiar forma de pago). An own cheque: its payment date form.
+ */
+function FechaFila({ r, hoy, onPlan, onCheque }: { r: PayableDueRow; hoy: string; onPlan: () => void; onCheque: () => void }) {
+  const [editando, setEditando] = useState(false);
+  const fechas = useSetPaymentDates();
+  const hecho = useRef(false);
+  const txt = fecha(fechaFila(r));
+  const tono = vencida(r, hoy) ? 'text-red-700 font-semibold' : 'text-[#6B5D45]';
+  const sinPlan = r.row_key.startsWith('OB:') && r.purchase_id !== null;
+  if (sinPlan && editando) {
+    const guardar = (v: string) => {
+      if (hecho.current) return;
+      hecho.current = true;
+      if (v === (r.planned_date ?? '')) { setEditando(false); return; }
+      fechas.mutate({ purchaseId: r.purchase_id!, changes: [{ kind: 'PLANNED', date: v || null }], reason: '' },
+        { onSettled: () => setEditando(false), onError: () => { hecho.current = false; } });
+    };
+    return (
+      <span className="shrink-0">
+        <input type="date" defaultValue={r.planned_date ?? ''} autoFocus aria-label="Fecha estimada de pago" disabled={fechas.isPending}
+          className="w-36 border border-amber-500 rounded px-1 py-0.5 text-sm" onBlur={(e) => guardar(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { hecho.current = true; setEditando(false); } }} />
+        {fechas.error ? <span className="block text-[11px] text-red-700">{errorMessage(fechas.error)}</span> : null}
+      </span>
+    );
+  }
+  const accion = sinPlan ? () => { hecho.current = false; setEditando(true); } : esChequeFila(r) ? onCheque : r.item_id !== null ? onPlan : null;
+  const ayuda = sinPlan ? 'Fecha estimada de pago: tocá para cargarla o cambiarla (la ubica en el Calendario)'
+    : esChequeFila(r) ? 'Fecha de pago del cheque' : r.item_id !== null ? 'Fecha de la cuota: se cambia en Cambiar forma de pago' : undefined;
+  return accion
+    ? <button type="button" onClick={accion} title={ayuda} className={`w-12 shrink-0 text-left text-sm tabular-nums underline decoration-dotted underline-offset-2 hover:text-[#A8552E] ${tono}`}>{txt}</button>
+    : <span className={`w-12 shrink-0 text-sm tabular-nums ${tono}`}>{txt}</span>;
 }
 
 // ── change the payment form (plan) over what is open ────────────────────────
