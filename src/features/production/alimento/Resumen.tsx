@@ -50,7 +50,7 @@ export function Resumen() {
   const [abiertas, setAbiertas] = useState<ReadonlySet<string>>(new Set());
   const versiones = [...new Set((costos.data ?? []).filter((c) => lista.includes(c.period)).map((c) => c.formula_version_id))].sort();
   const composicion = useComposition(abiertas.size > 0 ? versiones : []);
-  const alternar = (id: string) => setAbiertas((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const alternar = (id: string) => setAbiertas((s) => new Set(s.has(id) ? [...s].filter((x) => x !== id) : [...s, id]));
   const todos = [...(tipos.data ?? [])].sort((a, b) => a.nombre.localeCompare(b.nombre));
   const color = (id: string) => todos.findIndex((t) => t.id === id);
   const fab = fabs.data ?? [];

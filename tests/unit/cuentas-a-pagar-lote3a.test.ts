@@ -83,7 +83,7 @@ describe('Lote 3A — Cuentas a pagar screen', () => {
   });
   it('invoices live in Movimientos → Todas las operaciones (0120: their detail is Gastos own); Vencimientos became the Calendario (Lote 3B)', () => {
     expect(SRC('features/caja/SolapaPagar.tsx')).not.toMatch(/label: 'Gastos'/);
-    expect(SRC('features/caja/TodasLasOperaciones.tsx')).toMatch(/<DetalleGasto it=\{it\}/);
+    expect(SRC('features/caja/TodasLasOperaciones.tsx')).toMatch(/<DetalleFactura f=\{it\.factura\}/);   // owner 2026-11-27: from the «⋯» menu
     expect(SRC('features/caja/CajaApp.tsx')).toMatch(/\{ id: 'calendario', label: 'Calendario' \}/);
   });
 });

@@ -26,7 +26,7 @@ describe('Caja — the five tabs', () => {
     for (const [src, tag] of [
       [app, '<Movimientos '], [app, '<SolapaPagar />'], [app, '<CalendarioPagos '], [app, '<ExtractosBancarios />'],
       [tlo, '<TransferenciaModal '], [tlo, '<ImpuestoModal '], [tlo, '<VincularAnticipada '], [tlo, '<TransferenciasAnticipadas />'], [tlo, '<ImpuestoPorPeriodo />'],
-      [tlo, '<DetalleGasto '], [tlo, '<ModalesGasto '],
+      [tlo, '<DetalleFactura '], [tlo, '<ModalesGasto '],   // owner 2026-11-27: «⋯» is a menu; an invoice's cheques and payments open DetalleFactura
       [pr, "id: 'MP_CLASIFICAR'"], [pr, "id: 'GASTO_SIN_CLASIFICAR'"], [pr, "'ENTRADA_SIN_VINCULAR' ? null : 'ENTRADA_SIN_VINCULAR'"],
       [lista, '<BandejaPendientesMp />'], [lista, '<IngresosSinAplicar />'], [lista, '<AccionEntrada '],
       [pagar, '<CuentasAPagar />'], [pagar, '<Cheques />'],   // owner 2026-11-24: from their cards (no «Ver también»)

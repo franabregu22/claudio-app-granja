@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { listCompensatedAmounts, registerManagementEvent } from '../../target/pnl';
 import { errorMessage } from '../../target/messages';
-import { movementAccounts, type MovementRow } from '../../target/movementHistory';
+import type { MovementRow } from '../../target/movementHistory';
 import {
-  ACCION_HISTORIAL, CLASIFICACION_LABEL, retiroAnulable, retiroAnulado, CONCILIACION_LABEL, cuentasLabel, estadoLabel, NATURALEZA_LABEL, OPERATION_PAGE, TIPO_LABEL,
+  ACCION_HISTORIAL, CLASIFICACION_LABEL, retiroAnulable, retiroAnulado, cuentasLabel, estadoLabel, NATURALEZA_LABEL, OPERATION_PAGE, TIPO_LABEL,
   type OperationEstado, type OperationFilter, type OperationNature, type OperationRow, type OperationTipo, type PendienteFactura, type TimelineEvent,
 } from '../../target/operations';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
@@ -15,16 +15,20 @@ import type { FinancialAccountRow } from '../../target/masters';
 import { Comprobantes } from './Comprobantes';
 import { campoEditableEnFila, clasificableEnFila, EditorCelda, socioEditableEnFila, type CampoFila } from './EdicionEnFila';
 import { ChipEtiqueta } from './Etiquetas';
-import { DetalleGasto, ModalesGasto, useGastoItems, type Accion } from './Gastos';
+import { anulable, ModalesGasto, useGastoItems, vinculosDe, type Accion } from './Gastos';
+import { PagosDelGasto } from './GastosAPagar';
+import { AccionGastoSinClasificar } from './GastosSinClasificar';
+import { DetalleFactura } from './PagosFacturas';
+import type { GastoItem } from '../../target/expenseHub';
 import { useEtiquetas, useEtiquetasDeGastos } from './useEtiquetas';
 import { campo, etiqueta, Modal } from './Modal';
 import { ImpuestoModal, ImpuestoPorPeriodo, TransferenciaModal, TransferenciasAnticipadas, VincularAnticipada } from './Transferencias';
 import { useComprobantesDeGastos, usePurchaseAttachments } from './useInvoicePayments';
-import type { FeedPurchaseExtra } from '../../target/alimento';
+import type { FeedPurchase, FeedPurchaseExtra } from '../../target/alimento';
 import { useOperationList, useOperationTimeline, usePayFromRow } from './useOperations';
 import { useAnnulExpense, usePagosRevertidos, useRevertirPago } from './useExpenses';
 import { useEstadoGuardado } from './useEstadoGuardado';
-import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, useSuppliers, useTransferIntents } from './useTreasury';
+import { useAllExpenseSubcategories, useExpenseCategories, useExpenseGroups, useMovementList, usePurchase, useSuppliers, useTransferIntents } from './useTreasury';
 import { useProfileEmails } from './useUnclassified';
 import { NumeroInput } from '../../components/NumeroInput';
 import { usePendingSummary, usePurchaseMpLinks, useSettlePurchaseMp } from './useMpActivity';
@@ -32,7 +36,6 @@ import type { MpOutflowCandidate, PurchaseMpLinkRow } from '../../target/purchas
 import { mandatoryPending } from '../../target/pendingClassification';
 import { FiltroColumna, OpcionesFiltro } from '../../components/FiltroColumna';
 import { KgModal, useComprasDeInsumos } from '../production/alimento/Insumos';
-import { kgTxt } from '../production/alimento/format';
 
 const CHIP = 'text-xs px-2 py-0.5 rounded whitespace-nowrap';
 const TONO_ESTADO: Record<OperationEstado, string> = { PENDIENTE: 'bg-amber-100 text-amber-900', COMPLETADA: 'bg-green-100 text-green-800' };
@@ -87,7 +90,10 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
   const [texto, setTexto] = useEstadoGuardado('caja.operaciones.texto', '');
   const tags = useEtiquetasDeGastos();   // 0127: purchase id → its tag (the column «Etiqueta»)
   const [pagina, setPagina] = useEstadoGuardado('caja.operaciones.pagina', 0);
-  const [detalle, setDetalle] = useState<OperationRow | null>(null);
+  // owner 2026-11-27: «⋯» is a short menu of the row's other actions (no detail window: its information is already in the table)
+  const [mas, setMas] = useState<{ r: OperationRow; x: number; y: number } | null>(null);
+  const [panel, setPanel] = useState<PanelFila | null>(null);
+  const [accionGasto, setAccionGasto] = useState<Accion | null>(null);
   const [revertir, setRevertir] = useState<OperationRow | null>(null);   // 0130
   const revertidos = usePagosRevertidos();
   const [anular, setAnular] = useState<OperationRow | null>(null);   // owner 2026-11-18: Anular retiro
@@ -279,7 +285,7 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
                   <Fila key={r.row_key} r={r} pares={clasificableEnFila(r) ? paresDeSalida(r) : paresDeGasto(r)}
                     onVincular={setVinculando} insumos={insumosDe(r)} etiqueta={r.purchase_id ? tags.data?.get(r.purchase_id)?.nombre : undefined} destacada={focus === r.row_key}
                     comprobante={r.purchase_id ? comprobantes.data?.get(r.purchase_root_id ?? r.purchase_id) : undefined}
-                    onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onDetalle={() => setDetalle(r)}
+                    onPagar={() => setPagar(r)} onHistorial={() => setHistorial(r)} onMas={(b) => setMas({ r, x: b.right, y: b.bottom })}
                     revertido={r.retiro ? retiroAnulado(r, compensados.data) : r.operation_id !== null && !!revertidos.data?.has(r.operation_id)}
                     revertible={r.retiro ? retiroAnulable(r, cuentas, compensados.data)
                       : pagoRevertible(r, cuentas) && !(r.operation_id !== null && revertidos.data?.has(r.operation_id))}
@@ -318,11 +324,15 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
       {revertir && <RevertirPagoModal r={revertir} onClose={() => setRevertir(null)} onListo={(t) => { setRevertir(null); setAviso({ texto: t, clave: null }); }} />}
       {anular && <AnularRetiroModal r={anular} compensado={(anular.retiro && compensados.data?.get(anular.retiro.event_id)) || 0}
         onClose={() => setAnular(null)} onListo={(t) => { setAnular(null); setAviso({ texto: t, clave: null }); }} />}
-      {detalle && (
-        <Modal titulo={`${TIPO_LABEL[detalle.tipo]} — ${detalle.concepto}`} onClose={() => setDetalle(null)} puedeGuardar guardando={false} error={null} textoGuardar="Cerrar" onSubmit={() => setDetalle(null)}>
-          <DetalleFila r={detalle} onHistorial={() => setHistorial(detalle)} />
-        </Modal>
-      )}
+      {mas && <MenuMas r={mas.r} x={mas.x} y={mas.y} onClose={() => setMas(null)} onAccion={setAccionGasto} onPanel={setPanel} />}
+      {panel?.tipo === 'kg' ? <KgModal filas={panel.filas} onClose={() => setPanel(null)} />
+        : panel?.tipo === 'impuesto' ? <ImpuestoModal transferencia={panel.op} onClose={() => setPanel(null)} />
+          : panel && (
+            <Modal titulo={panel.titulo} onClose={() => setPanel(null)} puedeGuardar guardando={false} error={null} textoGuardar="Cerrar" onSubmit={() => setPanel(null)}>
+              <PanelDeFila p={panel} onAccion={(a) => { setPanel(null); setAccionGasto(a); }} />
+            </Modal>
+          )}
+      <ModalesGasto accion={accionGasto} onClose={() => setAccionGasto(null)} />
     </div>
   );
 }
@@ -331,9 +341,9 @@ export function TodasLasOperaciones({ cuentas, cuentaId, onCuenta, focus: foco, 
  * (owner 2026-11-17): an expense is corrected in its cells (double click), an unclassified Mercado Pago outflow is classified from its
  * subcategory cell; Acciones: Registrar pago, the invoice, the history and «⋯» (the full detail: supplier / invoice number, rectify
  * items, annul, payments, cheques, transfer, transfer). An unclassified Mercado Pago outflow is classified only from its cell. */
-function Fila({ r, pares, onVincular, insumos, etiqueta, destacada, comprobante, onPagar, onHistorial, onDetalle, editando, onEditar, revertible, revertido, onRevertir }: {
+function Fila({ r, pares, onVincular, insumos, etiqueta, destacada, comprobante, onPagar, onHistorial, onMas, editando, onEditar, revertible, revertido, onRevertir }: {
   r: OperationRow; pares: ParMp[]; onVincular: (pares: ParMp[]) => void; insumos?: string; etiqueta?: string; destacada: boolean; comprobante: FeedPurchaseExtra | undefined; onPagar: () => void; onHistorial: () => void;
-  onDetalle: () => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
+  onMas: (boton: DOMRect) => void; editando: CampoFila | null; onEditar: (campo: CampoFila | null) => void; revertible: boolean; revertido: boolean; onRevertir: () => void;
 }) {
   const pagable = pagableDesdeFila(r);
   const clasificable = clasificableEnFila(r);
@@ -398,61 +408,100 @@ function Fila({ r, pares, onVincular, insumos, etiqueta, destacada, comprobante,
             : <button type="button" onClick={onRevertir} title="Revertir pago (vuelve a pendiente)" aria-label="Revertir pago" className={icono}><Undo2 className="w-4 h-4" /></button>)}
           {pagable !== null && <button type="button" onClick={onPagar} className="text-xs px-2 py-1 rounded bg-amber-600 text-white hover:bg-amber-700">Registrar pago</button>}
           <button type="button" onClick={onHistorial} title="Historial de cambios" aria-label="Historial de cambios" className={icono}><History className="w-4 h-4" /></button>
-          <button type="button" onClick={onDetalle} title="Más: proveedor y factura, anular, pagos, cheques…" aria-label="Más" className={icono}><MoreHorizontal className="w-4 h-4" /></button>
+          {tieneMas(r) && <button type="button" onClick={(e) => onMas(e.currentTarget.getBoundingClientRect())} title="Más acciones" aria-label="Más acciones" aria-haspopup="menu" className={icono}><MoreHorizontal className="w-4 h-4" /></button>}
         </span>
       </td>
     </tr>
   );
 }
 
-const DATO = 'text-xs text-[#6B5D45]';
+type ItemFactura = Extract<GastoItem, { kind: 'FACTURA' }>;
+type PanelFila =
+  | { tipo: 'factura'; titulo: string; it: ItemFactura }
+  | { tipo: 'pagosGasto'; titulo: string; payableId: string }
+  | { tipo: 'clasificar'; titulo: string; pendingId: number }
+  | { tipo: 'anticipada'; titulo: string; id: number }
+  | { tipo: 'impuesto'; titulo: string; op: MovementRow }
+  | { tipo: 'kg'; titulo: string; filas: FeedPurchase[] };
+
+/** Rows that can have an action besides the ones in the row: an expense / invoice, an expense to classify, a transfer. */
+const tieneMas = (r: OperationRow) => r.purchase_id !== null || r.pending_class_id !== null || r.tipo === 'TRANSFERENCIA' || r.row_kind === 'TRANSFERENCIA';
+
 /**
- * The drop-down of a row: the rest of its information and every action it had in Gastos / Transferencias — the real postings (a transfer
- * is one row, its two movements stay apart), the bank / Mercado Pago evidence, its taxes and the anticipated transfer it settled, and the
- * expense or invoice it belongs to (Gastos' own detail: receipts, Editar / Rectificar, payments, cheques, dates, freight, history).
+ * Owner 2026-11-27: «⋯» opens a short menu with only the actions this row allows (they lived in a detail window that repeated the
+ * table): Editar (supplier, invoice…), Rectificar ítems, kilos of feed ingredients, an invoice's cheques and payments, the payments of
+ * a pending expense, classify an expense, the anticipated transfer, the tax of a transfer, Anular. Each one opens its existing form.
  */
-function DetalleFila({ r }: { r: OperationRow; onHistorial?: () => void }) {
-  const [accion, setAccion] = useState<Accion | null>(null);
+function MenuMas({ r, x, y, onClose, onAccion, onPanel }: {
+  r: OperationRow; x: number; y: number; onClose: () => void; onAccion: (a: Accion) => void; onPanel: (p: PanelFila) => void;
+}) {
+  const gastos = useGastoItems();
+  const it = r.purchase_id !== null ? gastos.todos.find((g) => g.purchaseId === r.purchase_id) : undefined;
+  const compra = usePurchase(it && it.kind !== 'SIN_CLASIFICAR' ? it.purchaseId : null);
+  const porRaiz = useComprasDeInsumos();
+  const transferencia = r.tipo === 'TRANSFERENCIA' && r.operation_id !== null;
+  const mov = useMovementList({ search: transferencia ? String(r.operation_id) : '__ninguna__' }, 0);
+  const op = transferencia ? (mov.data?.rows ?? []).find((m): m is MovementRow => m.row_type === 'OP' && m.operation_id === r.operation_id) : undefined;
+  const c = compra.data;
+  const titulo = r.concepto || 'Operación';
+  const items: { label: string; peligro?: boolean; run: () => void }[] = [];
+  if (it && c) {
+    items.push({ label: 'Editar (proveedor, factura y más)', run: () => onAccion({ tipo: 'editar', compra: c, vinculos: vinculosDe(it, c) }) });
+    if (c.supplier_id && c.lineas.length > 0 && !c.fiscal_document_id) items.push({ label: 'Rectificar ítems', run: () => onAccion({ tipo: 'rectificar', compra: c }) });
+  }
+  const filasKg = porRaiz.get(r.purchase_root_id ?? r.purchase_id ?? '');
+  if (filasKg && filasKg.length > 0) {
+    items.push({ label: filasKg.some((f) => f.quantity_kg === null) ? 'Cargar kilos de los insumos' : 'Kilos de los insumos (o desglosar)', run: () => onPanel({ tipo: 'kg', titulo, filas: filasKg }) });
+  }
+  if (it?.kind === 'FACTURA') items.push({ label: 'Cheques y pagos de la factura', run: () => onPanel({ tipo: 'factura', titulo: `Factura — ${titulo}`, it }) });
+  if (it?.kind === 'A_PAGAR' && it.gasto.paid > 0) items.push({ label: 'Pagos realizados', run: () => onPanel({ tipo: 'pagosGasto', titulo: `Pagos — ${titulo}`, payableId: it.gasto.payable_id }) });
+  if (r.pending_class_id !== null && r.purchase_id === null) {
+    const id = r.pending_class_id;
+    items.push({ label: 'Clasificar el gasto', run: () => onPanel({ tipo: 'clasificar', titulo: `Clasificar — ${titulo}`, pendingId: id }) });
+  }
+  if (r.row_kind === 'TRANSFERENCIA' && r.ref_id !== null) {
+    const id = r.ref_id;
+    items.push({ label: 'Vincular o cancelar la transferencia anticipada', run: () => onPanel({ tipo: 'anticipada', titulo: `Transferencia anticipada — ${titulo}`, id }) });
+  }
+  if (op && op.kind === 'TRANSFERENCIA' && (op.related_taxes ?? []).length === 0) items.push({ label: 'Agregar el impuesto cobrado', run: () => onPanel({ tipo: 'impuesto', titulo, op }) });
+  if (it && c && anulable(it)) items.push({ label: 'Anular el gasto', peligro: true, run: () => onAccion({ tipo: 'anular', compra: c }) });
+  const cargando = gastos.cargando || compra.isLoading || (transferencia && mov.isLoading);
+  const ancho = 272;
   return (
-    <div className="p-3 space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1">
-        <p className={DATO}>Detalle: <b>{r.detalle || NADA}</b></p>
-        <p className={DATO}>Proveedor: <b>{r.supplier ?? NADA}</b></p>
-        <p className={DATO}>Naturaleza: <b>{r.nature ? NATURALEZA_LABEL[r.nature] : NADA}</b></p>
-        <p className={DATO}>Cargada: <b>{r.created_at ? new Date(r.created_at).toLocaleString('es-AR') : NADA}</b>{r.operation_id ? ` · operación ${r.operation_id}` : ''}</p>
-        <p className={DATO}>Conciliación: <b>{r.conciliacion ? CONCILIACION_LABEL[r.conciliacion] : NADA}</b></p>
-        <p className={DATO}>A revisar: <b>{r.clasificacion ? CLASIFICACION_LABEL[r.clasificacion] : NADA}</b></p>
-        {r.pendiente && <p className={DATO}>Total {formatoPesos(r.pendiente.total)} · pagado {formatoPesos(r.pendiente.pagado)} · pendiente {formatoPesos(r.pendiente.pendiente)}
-          {r.row_kind === 'FACTURA' && (r.pendiente as PendienteFactura).cheques_por_debitar > 0 ? ` · en cheques por debitar ${formatoPesos((r.pendiente as PendienteFactura).cheques_por_debitar)}` : ''}</p>}
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden />
+      <div role="menu" aria-label="Más acciones" onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+        className="fixed z-50 bg-white border border-[#E4DCC8] rounded-lg shadow-lg py-1 text-sm"
+        style={{ width: ancho, left: Math.max(8, Math.min(x - ancho, window.innerWidth - ancho - 8)), top: Math.min(y + 4, window.innerHeight - 260) }}>
+        {cargando ? <p className="px-3 py-2 text-xs text-gray-500">Cargando…</p>
+          : items.length === 0 ? <p className="px-3 py-2 text-xs text-[#8A7A5C]">No hay otras acciones para esta fila.</p>
+            : items.map((i, k) => (
+              <button key={i.label} type="button" role="menuitem" autoFocus={k === 0} onClick={() => { onClose(); i.run(); }}
+                className={`block w-full text-left px-3 py-1.5 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none ${i.peligro ? 'text-red-700' : 'text-[#2C2419]'}`}>{i.label}</button>
+            ))}
       </div>
-      {r.operation_id !== null && <EvidenciaOperacion operationId={r.operation_id} />}
-      {r.row_kind === 'TRANSFERENCIA' && r.ref_id !== null && <AnticipadaDeFila id={r.ref_id} />}
-      {r.row_kind === 'CHEQUE' && <p className={DATO}>Cheque propio sin factura: se debita, anula, rechaza o cambia su fecha de pago en Cuentas a pagar → Cheques.</p>}
-      {r.row_kind === 'CHEQUE_RECIBIDO' && <p className={DATO}>Cheque de cliente: se deposita, acredita, endosa o rechaza en Cuentas a pagar → Cheques.</p>}
-      {r.purchase_id && <InsumosDeFila r={r} />}
-      {(r.purchase_id || r.pending_class_id !== null) && <GastoDeFila r={r} onAccion={setAccion} />}
-      <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
-    </div>
+    </>
   );
 }
 
-/** owner 2026-11-26 (ADMIN, Alimento balanceado only): the kg / ingredients of a feed purchase, editable from Caja (Alimento's own window). */
-function InsumosDeFila({ r }: { r: OperationRow }) {
-  const porRaiz = useComprasDeInsumos();
-  const [abierto, setAbierto] = useState(false);
-  const filasCompra = porRaiz.get(r.purchase_root_id ?? r.purchase_id!);
-  if (!filasCompra || filasCompra.length === 0) return null;
-  const sinKg = filasCompra.some((c) => c.quantity_kg === null);
-  return (
-    <div className="bg-white rounded border border-[#E4DCC8] p-2 space-y-1">
-      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Insumos de alimento balanceado</p>
-      {sinKg ? <p className="text-xs text-red-700">Faltan los kilos.</p>
-        : filasCompra.map((c) => <p key={c.part_position ?? 0} className={DATO}>{c.ingredient_nombre}: <b>{kgTxt(c.quantity_kg)}</b> · {formatoPesos(c.cost_amount)}{c.invoice_a ? ' sin IVA' : ''}</p>)}
-      <button type="button" onClick={() => setAbierto(true)} className="text-xs text-[#A8552E] hover:underline">
-        {sinKg ? 'Cargar kilos' : 'Editar kilos'} o desglosar en varios insumos</button>
-      {abierto && <KgModal filas={filasCompra} onClose={() => setAbierto(false)} />}
-    </div>
-  );
+/** The one form a menu entry opens (the ones that are not a window of their own). */
+function PanelDeFila({ p, onAccion }: { p: PanelFila; onAccion: (a: Accion) => void }) {
+  if (p.tipo === 'factura') return <PanelFactura it={p.it} onAccion={onAccion} />;
+  if (p.tipo === 'pagosGasto') return <div className="p-3"><PagosDelGasto payableId={p.payableId} /></div>;
+  if (p.tipo === 'clasificar') return <div className="p-3"><AccionGastoSinClasificar pendingId={p.pendingId} /></div>;
+  if (p.tipo === 'anticipada') return <PanelAnticipada id={p.id} />;
+  return null;
+}
+function PanelFactura({ it, onAccion }: { it: ItemFactura; onAccion: (a: Accion) => void }) {
+  const adjuntos = usePurchaseAttachments(it.purchaseId ? [it.purchaseId] : []);
+  const docs = it.purchaseId ? adjuntos.data?.get(it.purchaseId) : undefined;
+  return <DetalleFactura f={it.factura} docs={docs} onEmitir={(reemplaza) => onAccion({ tipo: 'emitir', f: it.factura, reemplaza })} onImputar={() => onAccion({ tipo: 'imputar', f: it.factura })} />;
+}
+function PanelAnticipada({ id }: { id: number }) {
+  const q = useTransferIntents();
+  const intent = (q.data ?? []).find((x) => x.id === id);
+  if (q.isLoading) return <p className="p-3 text-xs text-gray-500">Cargando…</p>;
+  return intent ? <div className="p-3"><VincularAnticipada f={intent} onCerrar={() => undefined} /></div> : <p className="p-3 text-xs text-[#8A7A5C]">La transferencia anticipada ya no está pendiente.</p>;
 }
 
 /** 0130: the payment row of an expense WITHOUT supplier paid from cash / bank (the backend checks the same and more). */
@@ -526,58 +575,6 @@ function RevertirPagoModal({ r, onClose, onListo }: { r: OperationRow; onClose: 
         <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} placeholder="Ej.: se cargó como pagado por error" className={campo} />
       </label>
     </Modal>
-  );
-}
-
-/** The real movements of one operation and their evidence, from the existing unified list (fin_movement_list, searched by its number). */
-function EvidenciaOperacion({ operationId }: { operationId: number }) {
-  const q = useMovementList({ search: String(operationId) }, 0);
-  const [impuesto, setImpuesto] = useState(false);
-  const op = (q.data?.rows ?? []).find((x): x is MovementRow => x.row_type === 'OP' && x.operation_id === operationId);
-  if (q.isLoading) return <p className={DATO}>Cargando movimientos…</p>;
-  if (q.error) return <p className="text-xs text-red-700">{errorMessage(q.error)}</p>;
-  if (!op) return null;
-  const transferencia = op.kind === 'TRANSFERENCIA';
-  return (
-    <div className="bg-white rounded border border-[#E4DCC8] p-2 space-y-1">
-      <p className="text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide">Movimientos {transferencia ? `· ${movementAccounts(op)}` : ''}</p>
-      {op.postings.map((p) => <p key={p.posting_id} className={DATO}>{p.account_name}: <b className={p.signed_amount < 0 ? 'text-red-800' : 'text-green-800'}>{formatoPesos(p.signed_amount)}</b></p>)}
-      {op.bank.map((b) => <p key={b.statement_line_id} className={DATO}>Extracto {b.account_name} {formatearFechaLocal(b.value_date)}: {b.description_raw}{b.bank_reference ? ` · ref. ${b.bank_reference}` : ''} · {formatoPesos(b.signed_amount)} (conciliado)</p>)}
-      {op.mp.map((m) => <p key={m.movement_id} className={DATO}>Mercado Pago {formatearFechaLocal(m.occurred_date)}{m.source_id ? ` · ${m.source_id}` : ''} · {formatoPesos(m.assigned_amount)}</p>)}
-      {op.transfer_intent && <p className={DATO}>Registrada antes del movimiento de Mercado Pago (Nº {op.transfer_intent.intent_id}).</p>}
-      {(op.related_taxes ?? []).map((t) => <p key={t.operation_id} className={DATO}>Impuesto Débitos/Créditos · {t.account_name} · {formatoPesos(t.amount)} · {t.matched ? 'conciliado con el extracto' : 'sin conciliar'} (operación {t.operation_id})</p>)}
-      {transferencia && (op.related_taxes ?? []).length === 0 && (
-        <button type="button" onClick={() => setImpuesto(true)} className="text-xs text-[#A8552E] hover:underline">+ Impuesto cobrado por esta transferencia</button>
-      )}
-      {impuesto && <ImpuestoModal transferencia={op} onClose={() => setImpuesto(false)} />}
-    </div>
-  );
-}
-
-/** A pending anticipated transfer: link it to its movement or cancel it (Transferencias' own form). */
-function AnticipadaDeFila({ id }: { id: number }) {
-  const q = useTransferIntents();
-  const intent = (q.data ?? []).find((x) => x.id === id);
-  if (q.isLoading) return <p className={DATO}>Cargando…</p>;
-  return intent ? <div className="bg-white rounded border border-[#E4DCC8] p-2"><VincularAnticipada f={intent} onCerrar={() => undefined} /></div> : null;
-}
-
-/** The expense / invoice the row belongs to, with Gastos' own detail and actions. */
-function GastoDeFila({ r, onAccion }: { r: OperationRow; onAccion: (a: Accion) => void }) {
-  const { todos, cargando, error } = useGastoItems();
-  const it = todos.find((x) => (r.pending_class_id !== null && x.key === `S-${r.pending_class_id}`) || (r.purchase_id !== null && x.purchaseId === r.purchase_id));
-  const adjuntos = usePurchaseAttachments(it?.purchaseId ? [it.purchaseId] : []);
-  if (cargando) return <p className={DATO}>Cargando el gasto…</p>;
-  if (error) return <p className="text-xs text-red-700">{errorMessage(error)}</p>;
-  if (!it) return <p className={DATO}>El gasto de esta operación no está entre los últimos 500 cargados.</p>;
-  const docs = it.purchaseId ? adjuntos.data?.get(it.purchaseId) : undefined;
-  return (
-    <div className="bg-white rounded border border-[#E4DCC8]">
-      <p className="px-3 pt-2 text-xs font-semibold text-[#8A6A2E] uppercase tracking-wide flex items-center gap-2">
-        Gasto · {it.titulo}{docs && docs.length > 0 ? <Comprobantes docs={docs} compacto /> : null}
-      </p>
-      <DetalleGasto it={it} docs={docs} onAccion={onAccion} />
-    </div>
   );
 }
 

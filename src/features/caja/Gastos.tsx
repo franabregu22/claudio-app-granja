@@ -243,7 +243,7 @@ export function DetalleGasto({ it, docs, onAccion }: { it: GastoItem; docs: Para
 }
 
 /** 0124: only an expense with nothing paid, allocated, issued or linked can be annulled (the backend checks the same). */
-const anulable = (it: GastoItem) => (it.kind === 'A_PAGAR' ? it.gasto.paid === 0
+export const anulable = (it: GastoItem) => (it.kind === 'A_PAGAR' ? it.gasto.paid === 0
   : it.kind === 'FACTURA' ? it.factura.scheduled + it.factura.debited + it.factura.other_payments === 0 : false);
 
 const raizDe = (it: GastoItem) => (it.kind === 'FACTURA' ? it.factura.purchase_root_id : it.kind === 'A_PAGAR' ? it.gasto.purchase_root_id

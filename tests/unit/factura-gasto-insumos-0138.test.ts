@@ -150,7 +150,7 @@ describe('Insumos desde Caja (owner 2026-11-26): una factura con varios insumos 
     const c = SRC('features/caja/TodasLasOperaciones.tsx');
     expect(c).toContain("filasCompra.map((c) => nombreSub.get(c.expense_category_id) ?? c.ingredient_nombre).join(' + ')");
     expect(c).toContain("{celda('categoria', insumos ?? r.subcategory");
-    expect(c).toContain('{r.purchase_id && <InsumosDeFila r={r} />}');
+    expect(c).toContain("<KgModal filas={panel.filas}");   // owner 2026-11-27: «⋯» menu → Kilos de los insumos
   });
   it('an expense without supplier paid from cash / bank returns its purchase id too (the kg are set on it)', async () => {
     const calls: string[] = [];
