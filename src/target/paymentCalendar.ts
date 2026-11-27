@@ -12,6 +12,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { callRpc, readTable, readView } from './db';
+import type { PayableDueRow } from './paymentPlan';
 import type { LedgerBalance } from './treasury';
 
 export type CalendarItemKind = 'FACTURA' | 'GASTO' | 'CHEQUE' | 'ECHEQ';
@@ -21,6 +22,8 @@ export interface CalendarRow {
   supplier_name: string | null; concept: string | null; document_number: string | null; economic_date: string | null; amount_total: number;
   amount: number; due_date: string | null; planned_date: string | null; link_status: CalendarLinkStatus; bank_account_name: string | null;
   linked_invoice_number: string | null;
+  /** Owner 2026-11-27: one instalment of a payment plan (0121) — its dates are changed in Cuentas a pagar → Cambiar forma de pago. */
+  cuota?: { seq: number | null; n: number | null } | null;
 }
 export type PaymentDateKind = 'DUE' | 'PLANNED';
 export interface PaymentDateRow { id: number; date_kind: PaymentDateKind; value: string | null; reason: string | null; created_at: string }
@@ -173,4 +176,22 @@ export function netFundsNeed(rows: CalendarRow[], balances: readonly Balance[],
   const bruto = r2(rows.filter((r) => r.link_status !== 'SIN_IMPUTAR').reduce((t, r) => t + r.amount, 0));
   const disponibles = r2(unallocated.reduce((t, u) => t + u.available, 0));
   return { bruto, neto: r2(deudaProveedores + chequesPorDebitar + gastosSinProveedor), deudaProveedores, chequesPorDebitar, gastosSinProveedor, disponibles };
+}
+
+/**
+ * Owner 2026-11-27: fin_payment_calendar (0110) predates the payment plans (0121) and shows a planned obligation as ONE row with
+ * the purchase's own dates (usually none). An obligation with a plan is shown by its open instalments instead (fin_payables_due:
+ * CUOTA / PAGO items and a DIFERENCIA not planned yet, which has no date); the rest stays as it is.
+ */
+export function withPlanInstalments(rows: CalendarRow[], due: readonly PayableDueRow[]): CalendarRow[] {
+  const planItems = due.filter((d) => d.purchase_root_id !== null && (d.row_key.startsWith('ITEM:') || d.row_key.startsWith('DIF:')));
+  const planned = new Set(planItems.map((d) => d.purchase_root_id));
+  const out = rows.filter((r) => !((r.item_kind === 'FACTURA' || r.item_kind === 'GASTO') && r.purchase_root_id !== null && planned.has(r.purchase_root_id)));
+  for (const d of planItems) {
+    const base = rows.find((r) => r.purchase_root_id === d.purchase_root_id && (r.item_kind === 'FACTURA' || r.item_kind === 'GASTO'));
+    if (!base) continue;
+    out.push({ ...base, item_id: d.row_key, amount: d.amount, due_date: d.due_date, planned_date: null,
+      cuota: d.row_kind === 'CUOTA' ? { seq: d.seq, n: d.n_items } : null });
+  }
+  return out;
 }

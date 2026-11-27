@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { errorMessage } from '../../target/messages';
-import { calendarDate, isOverdue, monthCommitments, type CalendarItemKind, type CalendarRow } from '../../target/paymentCalendar';
+import { calendarDate, isOverdue, monthCommitments, withPlanInstalments, type CalendarItemKind, type CalendarRow } from '../../target/paymentCalendar';
 import { formatearFechaLocal, getTodayDate } from '../../utils/dateUtils';
 import { formatoPesos } from '../pedidos/helpers';
 import { AccionModal } from './Cheques';
@@ -9,6 +9,7 @@ import { Comprobantes } from './Comprobantes';
 import { EtiquetasFechas, FechasPagoModal } from './FechasPago';
 import { useDocumentLinks } from './useInvoicePayments';
 import { usePaymentCalendar } from './usePaymentCalendar';
+import { usePayablesDue } from './usePaymentPlan';
 import { useAllInstrumentDateChanges } from './useTreasury';
 
 const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -32,7 +33,8 @@ export function CalendarioPagos() {
   const hoy = getTodayDate();
   const [mes, setMes] = useState(hoy.slice(0, 7));
   const calendario = usePaymentCalendar();
-  const filas = calendario.data ?? [];
+  const planes = usePayablesDue();   // owner 2026-11-27: an obligation with a payment plan shows each open instalment on its date
+  const filas = withPlanInstalments(calendario.data ?? [], planes.data ?? []);
   const m = monthCommitments(filas, mes, hoy);
   const docs = useDocumentLinks('FINANCIAL_INSTRUMENT', filas.filter(esInstrumento).map((r) => r.item_id));
   const [dia, setDia] = useState<number | null>(null);
@@ -47,14 +49,15 @@ export function CalendarioPagos() {
   const porDia = new Map<number, CalendarRow[]>();
   for (const r of m.enMes) { const d = Number(calendarDate(r)!.slice(8, 10)); porDia.set(d, [...(porDia.get(d) ?? []), r]); }
   const mover = (delta: number) => { const d = new Date(Date.UTC(y, mm - 1 + delta, 1)); setMes(d.toISOString().slice(0, 7)); setDia(null); };
-  const error = calendario.error;
-  const nombre = (r: CalendarRow) => (r.item_kind === 'GASTO' ? (r.concept ?? 'Gasto') : (r.supplier_name ?? r.concept ?? '—'));
+  const error = calendario.error ?? planes.error;
+  const cuotaTxt = (r: CalendarRow) => (r.cuota ? ` · cuota ${r.cuota.seq ?? '?'}/${r.cuota.n ?? '?'}` : '');
+  const nombre = (r: CalendarRow) => (r.item_kind === 'GASTO' ? (r.concept ?? 'Gasto') : (r.supplier_name ?? r.concept ?? '—')) + cuotaTxt(r);
 
   const Fila = ({ r }: { r: CalendarRow }) => (
     <li className={`bg-white border rounded px-2 py-1.5 flex flex-wrap items-center gap-2 text-sm ${isOverdue(r, hoy) ? 'border-red-300' : 'border-[#E4DCC8]'}`}>
       <span className="whitespace-nowrap w-20">{calendarDate(r) ? formatearFechaLocal(calendarDate(r)!) : 'Sin fecha'}</span>
       <span className={`text-xs px-1.5 py-0.5 rounded ${TIPO_ITEM[r.item_kind].tono}`}>{TIPO_ITEM[r.item_kind].label}</span>
-      <span className="font-semibold">{esInstrumento(r) ? r.document_number : r.item_kind === 'FACTURA' ? r.supplier_name : (r.concept ?? 'Gasto')}</span>
+      <span className="font-semibold">{esInstrumento(r) ? r.document_number : r.item_kind === 'FACTURA' ? r.supplier_name : (r.concept ?? 'Gasto')}{cuotaTxt(r)}</span>
       <span className="text-[#8A7A5C]">
         {r.item_kind === 'FACTURA' && (r.document_number ? `Factura ${r.document_number}` : 'Factura sin número')}
         {r.item_kind === 'GASTO' && (r.supplier_name ? `Sin proveedor · ${r.supplier_name}` : 'Sin proveedor')}
@@ -75,7 +78,9 @@ export function CalendarioPagos() {
           <button type="button" onClick={() => setFechaPago(r)} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50">Fecha de pago</button>
           <button type="button" onClick={() => setDebitar(r)} className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-900 hover:bg-amber-200">Marcar debitado</button>
         </>
-        : <button type="button" onClick={() => setFechas(r)} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50">Fechas</button>}
+        : r.item_id.startsWith('ITEM:') || r.item_id.startsWith('DIF:')
+          ? <span className="text-xs text-[#8A7A5C]">Fechas e importes: Cuentas a pagar → Cambiar forma de pago</span>
+          : <button type="button" onClick={() => setFechas(r)} className="text-xs px-2 py-0.5 rounded border border-[#E4DCC8] hover:bg-stone-50">Fechas</button>}
     </li>
   );
   const Lista = ({ titulo, xs, vacio, nota }: { titulo: string; xs: CalendarRow[]; vacio: string; nota?: string }) => (
@@ -101,7 +106,7 @@ export function CalendarioPagos() {
         {m.sinFecha.length > 0 && <span className="text-[#8A7A5C]"> · sin fecha {formatoPesos(m.totalSinFecha)} (en Cuentas a pagar)</span>}
       </p>
 
-      {calendario.isLoading ? <p className="text-sm text-gray-500">Cargando calendario...</p>
+      {calendario.isLoading || planes.isLoading ? <p className="text-sm text-gray-500">Cargando calendario...</p>
         : error ? <p className="text-sm text-red-700">{errorMessage(error)}</p> : (
           <>
             <div className="grid grid-cols-7 gap-1 text-xs" aria-label="Calendario de pagos">

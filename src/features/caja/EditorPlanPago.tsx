@@ -27,16 +27,18 @@ export interface PlanPago {
  */
 /** Cheques: offered and usable ('SI'), offered but a supplier is still missing ('REQUIERE_PROVEEDOR'), or not offered here ('NO'). */
 export type ChequesPlan = 'SI' | 'REQUIERE_PROVEEDOR' | 'NO';
-export function usePlanPago(total: number, { cheques: modoCheques }: { cheques: ChequesPlan }): PlanPago {
+/** `inicial`: the open items of the plan in force (Cambiar forma de pago) — two or more open as «En cuotas», one as «Un pago» with its date. */
+export function usePlanPago(total: number, { cheques: modoCheques, inicial = [] }: { cheques: ChequesPlan; inicial?: { due_date: string | null; amount: number }[] }): PlanPago {
   const hoy = getTodayDate();
   const cuentas = useFinancialAccounts();
   const bancos = (cuentas.data ?? []).filter((c) => c.activo && c.account_type === 'BANK_ACCOUNT');
-  const [forma, setForma] = useState<FormaPago>('UNICO');
-  const [fechaUnica, setFechaUnica] = useState('');
-  const [nCuotas, setNCuotas] = useState('3');
-  const [primera, setPrimera] = useState(hoy);
+  const [forma, setForma] = useState<FormaPago>(inicial.length >= 2 ? 'CUOTAS' : 'UNICO');
+  const [fechaUnica, setFechaUnica] = useState(inicial.length === 1 ? inicial[0].due_date ?? '' : '');
+  const [nCuotas, setNCuotas] = useState(inicial.length >= 2 ? String(inicial.length) : '3');
+  const [primera, setPrimera] = useState(inicial.length >= 2 ? inicial[0].due_date ?? hoy : hoy);
   const [frecuencia, setFrecuencia] = useState<'MENSUAL' | 'QUINCENAL' | 'SEMANAL'>('MENSUAL');
-  const [editadas, setEditadas] = useState<{ due_date: string; amount: string }[] | null>(null);
+  const [editadas, setEditadas] = useState<{ due_date: string; amount: string }[] | null>(
+    inicial.length >= 2 ? inicial.map((x) => ({ due_date: x.due_date ?? '', amount: x.amount.toFixed(2) })) : null);
   /** The instalments whose amount was typed by hand (owner 2026-11-27: the others share what is left, e.g. a different first one). */
   const [fijas, setFijas] = useState<ReadonlySet<number>>(new Set());
   const [cheques, setCheques] = useState<ChequeForm[]>([{ tipo: 'ECHEQ', numero: '', fecha: '', importe: '', cuenta: '' }]);

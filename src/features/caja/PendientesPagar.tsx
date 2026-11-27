@@ -202,7 +202,9 @@ export function PendientesPagar({ onProveedores, onCheques, onAnulados }: { onPr
 
       {pagando && <PagarModal r={pagando} g={gastoDe(gastos.todos, pagando.purchase_root_id)} onClose={() => setPagando(null)} />}
       {plan && <PlanModal r={plan} abierto={todas.filter((x) => x.purchase_root_id === plan.purchase_root_id && !esChequeFila(x)).reduce((s, x) => s + x.amount, 0)}
-        conPlan={todas.some((x) => x.purchase_root_id === plan.purchase_root_id && (x.item_id !== null || x.row_kind === 'DIFERENCIA'))} onClose={() => setPlan(null)} />}
+        conPlan={todas.some((x) => x.purchase_root_id === plan.purchase_root_id && (x.item_id !== null || x.row_kind === 'DIFERENCIA'))}
+        actuales={todas.filter((x) => x.purchase_root_id === plan.purchase_root_id && x.item_id !== null).sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))}
+        onClose={() => setPlan(null)} />}
       <ModalesGasto accion={accion} onClose={() => setAccion(null)} />
       {debitar && <AccionModal action="debit" onClose={() => setDebitar(null)}
         inst={{ id: debitar.instrument_id!, direction: 'ISSUED', instrument_type: debitar.row_kind === 'ECHEQ' ? 'ECHEQ' : 'CHEQUE', cheque_number: debitar.cheque_number ?? '', amount: debitar.amount }} />}
@@ -298,12 +300,13 @@ function PagarModal({ r, g, onClose }: { r: PayableDueRow; g: GastoItem | null; 
 }
 
 // ── change the payment form (plan) over what is open ────────────────────────
-function PlanModal({ r, abierto, conPlan, onClose }: { r: PayableDueRow; abierto: number; conPlan: boolean; onClose: () => void }) {
+function PlanModal({ r, abierto, conPlan, actuales, onClose }: { r: PayableDueRow; abierto: number; conPlan: boolean; actuales: PayableDueRow[]; onClose: () => void }) {
   const m = usePaymentPlanMutations();
   const [clave] = useState(() => nueva('PLAN'));
   const [motivo, setMotivo] = useState('');
   const total = Math.round(abierto * 100) / 100;
-  const plan = usePlanPago(total, { cheques: 'NO' });   // cheques: «Pagar» on each due item
+  // owner 2026-11-27: it opens with the open instalments of the plan in force (what is left of each), to change only one of them
+  const plan = usePlanPago(total, { cheques: 'NO', inicial: actuales.map((x) => ({ due_date: x.due_date, amount: x.amount })) });   // cheques: «Pagar» on each due item
   const items = plan.forma === 'UNICO' && plan.items.length === 0 ? [{ due_date: null, amount: total }] : plan.items;
   const puede = plan.valido && items.length > 0 && (!conPlan || motivo.trim() !== '');
   return (
